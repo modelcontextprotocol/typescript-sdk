@@ -218,10 +218,11 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     });
 
     // Start the auth server
-    const authPort = parseInt(authServerUrl.port, 10);
+    const authPort = Number.parseInt(authServerUrl.port, 10);
     authApp.listen(authPort, (error?: Error) => {
         if (error) {
             console.error('Failed to start auth server:', error);
+            // eslint-disable-next-line unicorn/no-process-exit
             process.exit(1);
         }
         console.log(`OAuth Authorization Server listening on port ${authPort}`);

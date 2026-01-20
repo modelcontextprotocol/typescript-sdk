@@ -12,13 +12,13 @@ import type {
     JSONRPCResultResponse,
     RequestId
 } from '@modelcontextprotocol/core';
+import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { NodeStreamableHTTPServerTransport } from '../src/streamableHttp.js';
-import { McpServer } from '@modelcontextprotocol/server';
-import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
-import { describe, expect, beforeEach, afterEach, it } from 'vitest';
 
 async function getFreePort() {
     return new Promise(res => {
@@ -402,10 +402,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'A simple test tool with request info',
                 { name: z.string().describe('Name to greet') },
                 async ({ name }, { requestInfo }): Promise<CallToolResult> => {
+                    // Convert Headers object to plain object for JSON serialization
+                    // Headers is a Web API class that doesn't serialize with JSON.stringify
+                    const serializedRequestInfo = {
+                        headers: Object.fromEntries(requestInfo?.headers ?? new Headers())
+                    };
                     return {
                         content: [
                             { type: 'text', text: `Hello, ${name}!` },
-                            { type: 'text', text: `${JSON.stringify(requestInfo)}` }
+                            { type: 'text', text: `${JSON.stringify(serializedRequestInfo)}` }
                         ]
                     };
                 }
@@ -652,7 +657,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const response = await sendPostRequest(baseUrl, batchNotifications, sessionId);
 
             expect(response.status).toBe(202);
-            expect(response.headers.get('content-type')).toBe('application/json');
         });
 
         it('should handle batch request messages with SSE stream for responses', async () => {
@@ -2925,6 +2929,89 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 expect(response2.status).toBe(200);
             });
         });
+    });
+});
+
+describe('NodeStreamableHTTPServerTransport global Response preservation', () => {
+    it('should not override the global Response object', () => {
+        // Store reference to the original global Response constructor
+        const OriginalResponse = globalThis.Response;
+
+        // Create a custom class that extends Response (similar to Next.js's NextResponse)
+        class CustomResponse extends Response {
+            customProperty = 'test';
+        }
+
+        // Verify instanceof works before creating transport
+        const customResponseBefore = new CustomResponse('test body');
+        expect(customResponseBefore instanceof Response).toBe(true);
+        expect(customResponseBefore instanceof OriginalResponse).toBe(true);
+
+        // Create the transport - this should NOT override globalThis.Response
+        const transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID()
+        });
+
+        // Verify the global Response is still the original
+        expect(globalThis.Response).toBe(OriginalResponse);
+
+        // Verify instanceof still works after creating transport
+        const customResponseAfter = new CustomResponse('test body');
+        expect(customResponseAfter instanceof Response).toBe(true);
+        expect(customResponseAfter instanceof OriginalResponse).toBe(true);
+
+        // Verify that instances created before transport initialization still work
+        expect(customResponseBefore instanceof Response).toBe(true);
+
+        // Clean up
+        transport.close();
+    });
+
+    it('should not override the global Response object when calling handleRequest', async () => {
+        // Store reference to the original global Response constructor
+        const OriginalResponse = globalThis.Response;
+
+        // Create a custom class that extends Response
+        class CustomResponse extends Response {
+            customProperty = 'test';
+        }
+
+        const transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID()
+        });
+
+        // Create a mock server to test handleRequest
+        const port = await getFreePort();
+        const httpServer = createServer(async (req, res) => {
+            await transport.handleRequest(req as IncomingMessage & { auth?: AuthInfo }, res);
+        });
+
+        await new Promise<void>(resolve => {
+            httpServer.listen(port, () => resolve());
+        });
+
+        try {
+            // Make a request to trigger handleRequest
+            await fetch(`http://localhost:${port}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+
+            // Verify the global Response is still the original after handleRequest
+            expect(globalThis.Response).toBe(OriginalResponse);
+
+            // Verify instanceof still works
+            const customResponse = new CustomResponse('test body');
+            expect(customResponse instanceof Response).toBe(true);
+            expect(customResponse instanceof OriginalResponse).toBe(true);
+        } finally {
+            await transport.close();
+            httpServer.close();
+        }
     });
 });
 

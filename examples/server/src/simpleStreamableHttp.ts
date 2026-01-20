@@ -146,7 +146,7 @@ const getServer = () => {
             };
 
             switch (infoType) {
-                case 'contact':
+                case 'contact': {
                     message = 'Please provide your contact information';
                     requestedSchema = {
                         type: 'object',
@@ -171,7 +171,8 @@ const getServer = () => {
                         required: ['name', 'email']
                     };
                     break;
-                case 'preferences':
+                }
+                case 'preferences': {
                     message = 'Please set your preferences';
                     requestedSchema = {
                         type: 'object',
@@ -200,7 +201,8 @@ const getServer = () => {
                         required: ['theme']
                     };
                     break;
-                case 'feedback':
+                }
+                case 'feedback': {
                     message = 'Please provide your feedback';
                     requestedSchema = {
                         type: 'object',
@@ -227,8 +229,10 @@ const getServer = () => {
                         required: ['rating', 'recommend']
                     };
                     break;
-                default:
+                }
+                default: {
                     throw new Error(`Unknown info type: ${infoType}`);
+                }
             }
 
             try {
@@ -515,8 +519,8 @@ const getServer = () => {
     return server;
 };
 
-const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
-const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
+const MCP_PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = createMcpExpressApp();
 
@@ -596,7 +600,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32000,
+                    code: -32_000,
                     message: 'Bad Request: No valid session ID provided'
                 },
                 id: null
@@ -613,7 +617,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -691,6 +695,7 @@ if (useOAuth && authMiddleware) {
 app.listen(MCP_PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);

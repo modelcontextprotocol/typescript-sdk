@@ -219,7 +219,7 @@ export class StdioClientTransport implements Transport {
                 // ignore
             }
 
-            await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2_000).unref())]);
+            await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
 
             if (processToClose.exitCode === null) {
                 try {
@@ -228,7 +228,7 @@ export class StdioClientTransport implements Transport {
                     // ignore
                 }
 
-                await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2_000).unref())]);
+                await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
             }
 
             if (processToClose.exitCode === null) {

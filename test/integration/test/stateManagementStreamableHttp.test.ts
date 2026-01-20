@@ -12,81 +12,81 @@ import {
     ListToolsResultSchema,
     McpServer
 } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import type { ZNamespace, ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+
+async function setupServer(withSessionManagement: boolean, z: ZNamespace) {
+    const server: Server = createServer();
+    const mcpServer = new McpServer(
+        { name: 'test-server', version: '1.0.0' },
+        {
+            capabilities: {
+                logging: {},
+                tools: {},
+                resources: {},
+                prompts: {}
+            }
+        }
+    );
+
+    // Add a simple resource
+    mcpServer.resource('test-resource', '/test', { description: 'A test resource' }, async () => ({
+        contents: [
+            {
+                uri: '/test',
+                text: 'This is a test resource content'
+            }
+        ]
+    }));
+
+    mcpServer.prompt('test-prompt', 'A test prompt', async () => ({
+        messages: [
+            {
+                role: 'user',
+                content: {
+                    type: 'text',
+                    text: 'This is a test prompt'
+                }
+            }
+        ]
+    }));
+
+    mcpServer.tool(
+        'greet',
+        'A simple greeting tool',
+        {
+            name: z.string().describe('Name to greet').default('World')
+        },
+        async ({ name }) => {
+            return {
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            };
+        }
+    );
+
+    // Create transport with or without session management
+    const serverTransport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: withSessionManagement
+            ? () => randomUUID() // With session management, generate UUID
+            : undefined // Without session management, return undefined
+    });
+
+    await mcpServer.connect(serverTransport);
+
+    server.on('request', async (req, res) => {
+        await serverTransport.handleRequest(req, res);
+    });
+
+    // Start the server on a random port
+    const baseUrl = await listenOnRandomPort(server);
+
+    return { server, mcpServer, serverTransport, baseUrl };
+}
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
     describe('Streamable HTTP Transport Session Management', () => {
         // Function to set up the server with optional session management
-        async function setupServer(withSessionManagement: boolean) {
-            const server: Server = createServer();
-            const mcpServer = new McpServer(
-                { name: 'test-server', version: '1.0.0' },
-                {
-                    capabilities: {
-                        logging: {},
-                        tools: {},
-                        resources: {},
-                        prompts: {}
-                    }
-                }
-            );
-
-            // Add a simple resource
-            mcpServer.resource('test-resource', '/test', { description: 'A test resource' }, async () => ({
-                contents: [
-                    {
-                        uri: '/test',
-                        text: 'This is a test resource content'
-                    }
-                ]
-            }));
-
-            mcpServer.prompt('test-prompt', 'A test prompt', async () => ({
-                messages: [
-                    {
-                        role: 'user',
-                        content: {
-                            type: 'text',
-                            text: 'This is a test prompt'
-                        }
-                    }
-                ]
-            }));
-
-            mcpServer.tool(
-                'greet',
-                'A simple greeting tool',
-                {
-                    name: z.string().describe('Name to greet').default('World')
-                },
-                async ({ name }) => {
-                    return {
-                        content: [{ type: 'text', text: `Hello, ${name}!` }]
-                    };
-                }
-            );
-
-            // Create transport with or without session management
-            const serverTransport = new NodeStreamableHTTPServerTransport({
-                sessionIdGenerator: withSessionManagement
-                    ? () => randomUUID() // With session management, generate UUID
-                    : undefined // Without session management, return undefined
-            });
-
-            await mcpServer.connect(serverTransport);
-
-            server.on('request', async (req, res) => {
-                await serverTransport.handleRequest(req, res);
-            });
-
-            // Start the server on a random port
-            const baseUrl = await listenOnRandomPort(server);
-
-            return { server, mcpServer, serverTransport, baseUrl };
-        }
-
         describe('Stateless Mode', () => {
             let server: Server;
             let mcpServer: McpServer;
@@ -94,7 +94,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let baseUrl: URL;
 
             beforeEach(async () => {
-                const setup = await setupServer(false);
+                const setup = await setupServer(false, z);
                 server = setup.server;
                 mcpServer = setup.mcpServer;
                 serverTransport = setup.serverTransport;
@@ -258,7 +258,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let baseUrl: URL;
 
             beforeEach(async () => {
-                const setup = await setupServer(true);
+                const setup = await setupServer(true, z);
                 server = setup.server;
                 mcpServer = setup.mcpServer;
                 serverTransport = setup.serverTransport;
