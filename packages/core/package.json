@@ -28,6 +28,7 @@
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",
         "test": "vitest run",
+        "test:coverage": "vitest run --coverage",
         "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",

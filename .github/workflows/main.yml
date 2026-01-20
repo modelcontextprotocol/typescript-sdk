@@ -58,6 +58,31 @@ jobs:
 
             - run: pnpm test:all
 
+    sast:
+      runs-on: ubuntu-latest
+      if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+      steps: 
+        - uses: actions/checkout@v6
+
+        - name: Install pnpm
+          uses: pnpm/action-setup@v4
+          id: pnpm-install
+          with:
+              run_install: false
+        - uses: actions/setup-node@v6
+          with:
+              node-version: 24
+              cache: pnpm
+              cache-dependency-path: pnpm-lock.yaml
+
+        - run: pnpm install
+        - run: pnpm test:coverage:all
+
+        - name: SonarQube Scan
+          uses: SonarSource/sonarqube-scan-action@v6
+          env:
+            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
     publish:
         runs-on: ubuntu-latest
         if: github.event_name == 'release'

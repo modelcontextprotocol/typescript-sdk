@@ -16,6 +16,7 @@ catalogs:
         '@types/supertest': ^6.0.2
         '@types/ws': ^8.5.12
         '@typescript/native-preview': ^7.0.0-dev.20251217.1
+        '@vitest/coverage-v8': ^4.0.16
         eslint: ^9.8.0
         eslint-config-prettier: ^10.1.8
         eslint-plugin-n: ^17.23.1
