@@ -1,10 +1,14 @@
+---
+title: Capabilities
+---
+
 ## Sampling
 
 MCP servers can request LLM completions from connected clients that support the sampling capability. This lets your tools offload summarisation or generation to the client’s model.
 
 For a runnable server that combines tools, logging and tasks, see:
 
-- [`toolWithSampleServer.ts`](../examples/server/src/toolWithSampleServer.ts)
+- [`toolWithSampleServer.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/toolWithSampleServer.ts)
 
 In practice you will:
 
@@ -22,8 +26,8 @@ Form elicitation lets a tool ask the user for additional, **non‑sensitive** in
 
 Runnable example:
 
-- Server: [`elicitationFormExample.ts`](../examples/server/src/elicitationFormExample.ts)
-- Client‑side handling: [`simpleStreamableHttp.ts`](../examples/client/src/simpleStreamableHttp.ts)
+- Server: [`elicitationFormExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/elicitationFormExample.ts)
+- Client‑side handling: [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts)
 
 The `simpleStreamableHttp` server also includes a `collect-user-info` tool that demonstrates how to drive elicitation from a tool and handle the response.
 
@@ -33,8 +37,8 @@ URL elicitation is designed for sensitive data and secure web‑based flows (e.g
 
 Runnable example:
 
-- Server: [`elicitationUrlExample.ts`](../examples/server/src/elicitationUrlExample.ts)
-- Client: [`elicitationUrlExample.ts`](../examples/client/src/elicitationUrlExample.ts)
+- Server: [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/elicitationUrlExample.ts)
+- Client: [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/elicitationUrlExample.ts)
 
 Key points:
 
@@ -62,7 +66,7 @@ On the server you will:
 
 For a runnable example that uses the in-memory store shipped with the SDK, see:
 
-- [`toolWithSampleServer.ts`](../examples/server/src/toolWithSampleServer.ts)
+- [`toolWithSampleServer.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/toolWithSampleServer.ts)
 - `packages/core/src/experimental/tasks/stores/in-memory.ts`
 
 ### Client-side usage
@@ -74,7 +78,7 @@ On the client, you use:
 
 The interactive client in:
 
-- [`simpleStreamableHttp.ts`](../examples/client/src/simpleStreamableHttp.ts)
+- [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts)
 
 includes commands to demonstrate calling tools that support tasks and handling their lifecycle.
 

@@ -132,6 +132,7 @@ Next steps:
     - [docs/capabilities.md](docs/capabilities.md) – sampling, elicitation (form and URL), and experimental task-based execution.
     - [docs/faq.md](docs/faq.md) – environment and troubleshooting FAQs (including Node.js Web Crypto support).
 - External references:
+    - [SDK API documentation](https://modelcontextprotocol.github.io/typescript-sdk/)
     - [Model Context Protocol documentation](https://modelcontextprotocol.io)
     - [MCP Specification](https://spec.modelcontextprotocol.io)
     - [Example Servers](https://github.com/modelcontextprotocol/servers)

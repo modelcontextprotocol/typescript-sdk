@@ -22,6 +22,7 @@ catalogs:
         prettier: 3.6.2
         supertest: ^7.0.0
         tsdown: ^0.18.0
+        typedoc: ^0.28.14
         tsx: ^4.16.5
         typescript: ^5.9.3
         typescript-eslint: ^8.48.1
