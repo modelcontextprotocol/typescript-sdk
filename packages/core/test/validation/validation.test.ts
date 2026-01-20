@@ -5,11 +5,12 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import path from 'node:path';
+
 import { vi } from 'vitest';
 
-import { AjvJsonSchemaValidator } from '../../src/validation/ajv-provider.js';
-import { CfWorkerJsonSchemaValidator } from '../../src/validation/cfworker-provider.js';
+import { AjvJsonSchemaValidator } from '../../src/validation/ajvProvider.js';
+import { CfWorkerJsonSchemaValidator } from '../../src/validation/cfWorkerProvider.js';
 import type { JsonSchemaType } from '../../src/validation/types.js';
 
 // Test with both AJV and CfWorker validators
@@ -553,10 +554,10 @@ describe('Missing dependencies', () => {
             });
 
             // Attempting to import ajv-provider should fail
-            await expect(import('../../src/validation/ajv-provider.js')).rejects.toThrow();
+            await expect(import('../../src/validation/ajvProvider.js')).rejects.toThrow();
         });
 
-        it('should be able to import cfworker-provider when ajv is missing', async () => {
+        it('should be able to import cfWorkerProvider when ajv is missing', async () => {
             // Mock ajv as not installed
             vi.doMock('ajv', () => {
                 throw new Error("Cannot find module 'ajv'");
@@ -566,8 +567,8 @@ describe('Missing dependencies', () => {
                 throw new Error("Cannot find module 'ajv-formats'");
             });
 
-            // But cfworker-provider should import successfully
-            const cfworkerModule = await import('../../src/validation/cfworker-provider.js');
+            // But cfWorkerProvider should import successfully
+            const cfworkerModule = await import('../../src/validation/cfWorkerProvider.js');
             expect(cfworkerModule.CfWorkerJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
@@ -587,14 +588,14 @@ describe('Missing dependencies', () => {
             vi.doUnmock('@cfworker/json-schema');
         });
 
-        it('should throw error when trying to import cfworker-provider without @cfworker/json-schema', async () => {
+        it('should throw error when trying to import cfWorkerProvider without @cfworker/json-schema', async () => {
             // Mock @cfworker/json-schema as not installed
             vi.doMock('@cfworker/json-schema', () => {
                 throw new Error("Cannot find module '@cfworker/json-schema'");
             });
 
-            // Attempting to import cfworker-provider should fail
-            await expect(import('../../src/validation/cfworker-provider.js')).rejects.toThrow();
+            // Attempting to import cfWorkerProvider should fail
+            await expect(import('../../src/validation/cfWorkerProvider.js')).rejects.toThrow();
         });
 
         it('should be able to import ajv-provider when @cfworker/json-schema is missing', async () => {
@@ -604,7 +605,7 @@ describe('Missing dependencies', () => {
             });
 
             // But ajv-provider should import successfully
-            const ajvModule = await import('../../src/validation/ajv-provider.js');
+            const ajvModule = await import('../../src/validation/ajvProvider.js');
             expect(ajvModule.AjvJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
@@ -615,8 +616,8 @@ describe('Missing dependencies', () => {
         });
 
         it('should document that @cfworker/json-schema is required', () => {
-            const cfworkerProviderPath = join(__dirname, '../../src/validation/cfworker-provider.ts');
-            const content = readFileSync(cfworkerProviderPath, 'utf-8');
+            const cfworkerProviderPath = path.join(__dirname, '../../src/validation/cfWorkerProvider.ts');
+            const content = readFileSync(cfworkerProviderPath, 'utf8');
 
             expect(content).toContain('@cfworker/json-schema');
         });

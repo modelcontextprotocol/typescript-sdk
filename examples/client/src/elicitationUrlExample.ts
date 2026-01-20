@@ -37,7 +37,6 @@ import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 // Set up OAuth (required for this example)
 const OAUTH_CALLBACK_PORT = 8090; // Use different port than auth server (3001)
 const OAUTH_CALLBACK_URL = `http://localhost:${OAUTH_CALLBACK_PORT}/callback`;
-let oauthProvider: InMemoryOAuthClientProvider | undefined = undefined;
 
 console.log('Getting OAuth token...');
 const clientMetadata: OAuthClientMetadata = {
@@ -48,7 +47,7 @@ const clientMetadata: OAuthClientMetadata = {
     token_endpoint_auth_method: 'client_secret_post',
     scope: 'mcp:tools'
 };
-oauthProvider = new InMemoryOAuthClientProvider(OAUTH_CALLBACK_URL, clientMetadata, (redirectUrl: URL) => {
+const oauthProvider = new InMemoryOAuthClientProvider(OAUTH_CALLBACK_URL, clientMetadata, (redirectUrl: URL) => {
     console.log(`🌐 Opening browser for OAuth redirect: ${redirectUrl.toString()}`);
     openBrowser(redirectUrl.toString());
 });
@@ -64,7 +63,7 @@ let abortCommand = new AbortController();
 let client: Client | null = null;
 let transport: StreamableHTTPClientTransport | null = null;
 let serverUrl = 'http://localhost:3000/mcp';
-let sessionId: string | undefined = undefined;
+let sessionId: string | undefined;
 
 // Elicitation queue management
 interface QueuedElicitation {
@@ -99,6 +98,7 @@ async function main(): Promise<void> {
     // Start the elicitation loop in the background
     elicitationLoop().catch(error => {
         console.error('Unexpected error in elicitation loop:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     });
 
@@ -136,10 +136,10 @@ function printHelp(): void {
 
 async function commandLoop(): Promise<void> {
     await new Promise<void>(resolve => {
-        if (!isProcessingElicitations) {
-            resolve();
-        } else {
+        if (isProcessingElicitations) {
             elicitationsCompleteSignal = resolve;
+        } else {
+            resolve();
         }
     });
 
@@ -151,27 +151,32 @@ async function commandLoop(): Promise<void> {
 
         try {
             switch (command) {
-                case 'connect':
+                case 'connect': {
                     await connect(args[1]);
                     break;
+                }
 
-                case 'disconnect':
+                case 'disconnect': {
                     await disconnect();
                     break;
+                }
 
-                case 'terminate-session':
+                case 'terminate-session': {
                     await terminateSession();
                     break;
+                }
 
-                case 'reconnect':
+                case 'reconnect': {
                     await reconnect();
                     break;
+                }
 
-                case 'list-tools':
+                case 'list-tools': {
                     await listTools();
                     break;
+                }
 
-                case 'call-tool':
+                case 'call-tool': {
                     if (args.length < 2) {
                         console.log('Usage: call-tool <name> [args]');
                     } else {
@@ -187,29 +192,35 @@ async function commandLoop(): Promise<void> {
                         await callTool(toolName, toolArgs);
                     }
                     break;
+                }
 
-                case 'payment-confirm':
+                case 'payment-confirm': {
                     await callPaymentConfirmTool();
                     break;
+                }
 
-                case 'third-party-auth':
+                case 'third-party-auth': {
                     await callThirdPartyAuthTool();
                     break;
+                }
 
-                case 'help':
+                case 'help': {
                     printHelp();
                     break;
+                }
 
                 case 'quit':
-                case 'exit':
+                case 'exit': {
                     await cleanup();
                     return;
+                }
 
-                default:
+                default: {
                     if (command) {
                         console.log(`Unknown command: ${command}`);
                     }
                     break;
+                }
             }
         } catch (error) {
             console.error(`Error executing command: ${error}`);
@@ -358,12 +369,12 @@ async function handleURLElicitation(params: ElicitRequestURLParams): Promise<Eli
     }
 
     // Example security warning to help prevent phishing attacks
-    console.log('\n⚠️  \x1b[33mSECURITY WARNING\x1b[0m ⚠️');
-    console.log('\x1b[33mThe server is requesting you to open an external URL.\x1b[0m');
-    console.log('\x1b[33mOnly proceed if you trust this server and understand why it needs this.\x1b[0m\n');
-    console.log(`🌐 Target domain: \x1b[36m${domain}\x1b[0m`);
-    console.log(`🔗 Full URL: \x1b[36m${url}\x1b[0m`);
-    console.log(`\nℹ️ Server's reason:\n\n\x1b[36m${message}\x1b[0m\n`);
+    console.log('\n⚠️  \u001B[33mSECURITY WARNING\u001B[0m ⚠️');
+    console.log('\u001B[33mThe server is requesting you to open an external URL.\u001B[0m');
+    console.log('\u001B[33mOnly proceed if you trust this server and understand why it needs this.\u001B[0m\n');
+    console.log(`🌐 Target domain: \u001B[36m${domain}\u001B[0m`);
+    console.log(`🔗 Full URL: \u001B[36m${url}\u001B[0m`);
+    console.log(`\nℹ️ Server's reason:\n\n\u001B[36m${message}\u001B[0m\n`);
 
     // 1. Ask for user consent to open the URL
     const consent = await new Promise<string>(resolve => {
@@ -386,7 +397,7 @@ async function handleURLElicitation(params: ElicitRequestURLParams): Promise<Eli
         const timeout = setTimeout(
             () => {
                 pendingURLElicitations.delete(elicitationId);
-                console.log(`\x1b[31m❌ Elicitation ${elicitationId} timed out waiting for completion.\x1b[0m`);
+                console.log(`\u001B[31m❌ Elicitation ${elicitationId} timed out waiting for completion.\u001B[0m`);
                 reject(new Error('Elicitation completion timeout'));
             },
             5 * 60 * 1000
@@ -440,7 +451,7 @@ async function waitForOAuthCallback(): Promise<string> {
             const error = parsedUrl.searchParams.get('error');
 
             if (code) {
-                console.log(`✅ Authorization code received: ${code?.substring(0, 10)}...`);
+                console.log(`✅ Authorization code received: ${code?.slice(0, 10)}...`);
                 res.writeHead(200, { 'Content-Type': 'text/html' });
                 res.end(`
           <html>
@@ -454,7 +465,7 @@ async function waitForOAuthCallback(): Promise<string> {
         `);
 
                 resolve(code);
-                setTimeout(() => server.close(), 15000);
+                setTimeout(() => server.close(), 15_000);
             } else if (error) {
                 console.log(`❌ Authorization error: ${error}`);
                 res.writeHead(400, { 'Content-Type': 'text/html' });
@@ -558,7 +569,7 @@ async function connect(url?: string): Promise<void> {
         if (pending) {
             clearTimeout(pending.timeout);
             pendingURLElicitations.delete(elicitationId);
-            console.log(`\x1b[32m✅ Elicitation ${elicitationId} completed!\x1b[0m`);
+            console.log(`\u001B[32m✅ Elicitation ${elicitationId} completed!\u001B[0m`);
             pending.resolve();
         } else {
             // Shouldn't happen - discard it!
@@ -573,7 +584,7 @@ async function connect(url?: string): Promise<void> {
 
         // Set up error handler after connection is established so we don't double log errors
         client.onerror = error => {
-            console.error('\x1b[31mClient error:', error, '\x1b[0m');
+            console.error('\u001B[31mClient error:', error, '\u001B[0m');
         };
     } catch (error) {
         console.error('Failed to connect:', error);
@@ -611,7 +622,10 @@ async function terminateSession(): Promise<void> {
         console.log('Session terminated successfully');
 
         // Check if sessionId was cleared after termination
-        if (!transport.sessionId) {
+        if (transport.sessionId) {
+            console.log('Server responded with 405 Method Not Allowed (session termination not supported)');
+            console.log('Session ID is still active:', transport.sessionId);
+        } else {
             console.log('Session ID has been cleared');
             sessionId = undefined;
 
@@ -620,9 +634,6 @@ async function terminateSession(): Promise<void> {
             console.log('Transport closed after session termination');
             client = null;
             transport = null;
-        } else {
-            console.log('Server responded with 405 Method Not Allowed (session termination not supported)');
-            console.log('Session ID is still active:', transport.sessionId);
         }
     } catch (error) {
         console.error('Error terminating session:', error);
@@ -683,30 +694,47 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
 
-        result.content.forEach(item => {
-            if (item.type === 'text') {
-                console.log(`  ${item.text}`);
-            } else if (item.type === 'resource_link') {
-                const resourceLink = item as ResourceLink;
-                resourceLinks.push(resourceLink);
-                console.log(`  📁 Resource Link: ${resourceLink.name}`);
-                console.log(`     URI: ${resourceLink.uri}`);
-                if (resourceLink.mimeType) {
-                    console.log(`     Type: ${resourceLink.mimeType}`);
+        for (const item of result.content) {
+            switch (item.type) {
+                case 'text': {
+                    console.log(`  ${item.text}`);
+
+                    break;
                 }
-                if (resourceLink.description) {
-                    console.log(`     Description: ${resourceLink.description}`);
+                case 'resource_link': {
+                    const resourceLink = item as ResourceLink;
+                    resourceLinks.push(resourceLink);
+                    console.log(`  📁 Resource Link: ${resourceLink.name}`);
+                    console.log(`     URI: ${resourceLink.uri}`);
+                    if (resourceLink.mimeType) {
+                        console.log(`     Type: ${resourceLink.mimeType}`);
+                    }
+                    if (resourceLink.description) {
+                        console.log(`     Description: ${resourceLink.description}`);
+                    }
+
+                    break;
                 }
-            } else if (item.type === 'resource') {
-                console.log(`  [Embedded Resource: ${item.resource.uri}]`);
-            } else if (item.type === 'image') {
-                console.log(`  [Image: ${item.mimeType}]`);
-            } else if (item.type === 'audio') {
-                console.log(`  [Audio: ${item.mimeType}]`);
-            } else {
-                console.log(`  [Unknown content type]:`, item);
+                case 'resource': {
+                    console.log(`  [Embedded Resource: ${item.resource.uri}]`);
+
+                    break;
+                }
+                case 'image': {
+                    console.log(`  [Image: ${item.mimeType}]`);
+
+                    break;
+                }
+                case 'audio': {
+                    console.log(`  [Audio: ${item.mimeType}]`);
+
+                    break;
+                }
+                default: {
+                    console.log(`  [Unknown content type]:`, item);
+                }
             }
-        });
+        }
 
         // Offer to read resource links
         if (resourceLinks.length > 0) {
@@ -749,6 +777,7 @@ async function cleanup(): Promise<void> {
     process.stdin.setRawMode(false);
     readline.close();
     console.log('\nGoodbye!');
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(0);
 }
 
@@ -789,7 +818,10 @@ process.on('SIGINT', async () => {
 });
 
 // Start the interactive client
-main().catch((error: unknown) => {
+try {
+    await main();
+} catch (error) {
     console.error('Error running MCP client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}
