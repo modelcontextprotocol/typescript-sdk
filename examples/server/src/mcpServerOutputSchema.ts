@@ -73,7 +73,10 @@ async function main() {
     console.error('High-level Output Schema Example Server running on stdio');
 }
 
-main().catch(error => {
+try {
+    await main();
+} catch (error) {
     console.error('Server error:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

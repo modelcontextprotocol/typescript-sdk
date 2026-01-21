@@ -108,3 +108,42 @@ jobs:
             - run: pnpm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    # Generates API documentation for GitHub Pages on any release
+    # Supports both simple tags (v1.2.3) and package-scoped tags (@scope/package@1.2.3)
+    publish-gh-pages:
+        runs-on: ubuntu-latest
+        if: github.event_name == 'release'
+        needs: [publish]
+
+        permissions:
+            contents: write
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # Fetch all history for all branches and tags
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  run_install: false
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Configure Git
+              run: |
+                  git config --global user.name "github-actions[bot]"
+                  git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+            - name: Generate documentation
+              run: ./scripts/generate-gh-pages.sh "${{ github.ref_name }}"
+
+            - name: Push to gh-pages
+              run: git push origin gh-pages

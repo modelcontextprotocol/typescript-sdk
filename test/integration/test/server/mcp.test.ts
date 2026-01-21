@@ -1957,7 +1957,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async (_args, extra) => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000 });
                         return { task };
                     },
                     getTask: async (_args, extra) => {
@@ -2026,7 +2026,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async (_args, extra) => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000 });
                         return { task };
                     },
                     getTask: async (_args, extra) => {
@@ -3239,7 +3239,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(listResult.prompts[0]!.arguments).toHaveLength(2);
-            expect(listResult.prompts[0]!.arguments!.map(a => a.name).sort()).toEqual(['name', 'value']);
+            expect(listResult.prompts[0]!.arguments!.map(a => a.name).toSorted()).toEqual(['name', 'value']);
 
             // Call the prompt with the new schema
             const getResult = await client.request(
@@ -3380,7 +3380,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
 
             expect(result.prompts).toHaveLength(2);
-            expect(result.prompts.map(p => p.name).sort()).toEqual(['prompt1', 'prompt2']);
+            expect(result.prompts.map(p => p.name).toSorted()).toEqual(['prompt1', 'prompt2']);
 
             expect(notifications).toHaveLength(0);
 
@@ -4430,12 +4430,17 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         }),
                         name: completable(z.string(), (value, context) => {
                             const department = context?.arguments?.['department'];
-                            if (department === 'engineering') {
-                                return ['Alice', 'Bob', 'Charlie'].filter(n => n.startsWith(value));
-                            } else if (department === 'sales') {
-                                return ['David', 'Eve', 'Frank'].filter(n => n.startsWith(value));
-                            } else if (department === 'marketing') {
-                                return ['Grace', 'Henry', 'Iris'].filter(n => n.startsWith(value));
+                            switch (department) {
+                                case 'engineering': {
+                                    return ['Alice', 'Bob', 'Charlie'].filter(n => n.startsWith(value));
+                                }
+                                case 'sales': {
+                                    return ['David', 'Eve', 'Frank'].filter(n => n.startsWith(value));
+                                }
+                                case 'marketing': {
+                                    return ['Grace', 'Henry', 'Iris'].filter(n => n.startsWith(value));
+                                }
+                                // No default
                             }
                             return ['Guest'].filter(n => n.startsWith(value));
                         })
@@ -4794,15 +4799,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             ]);
 
             server.registerTool('contact', { inputSchema: unionSchema }, async args => {
-                if (args.type === 'email') {
-                    return {
-                        content: [{ type: 'text' as const, text: `Email contact: ${args.email}` }]
-                    };
-                } else {
-                    return {
-                        content: [{ type: 'text' as const, text: `Phone contact: ${args.phone}` }]
-                    };
-                }
+                return args.type === 'email'
+                    ? {
+                          content: [{ type: 'text' as const, text: `Email contact: ${args.email}` }]
+                      }
+                    : {
+                          content: [{ type: 'text' as const, text: `Phone contact: ${args.phone}` }]
+                      };
             });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -4909,11 +4912,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             server.registerTool('process', { inputSchema: schema }, async args => {
                 const processed = args.items.map(item => {
-                    if (item.type === 'text') {
-                        return item.content.toUpperCase();
-                    } else {
-                        return item.value * 2;
-                    }
+                    return item.type === 'text' ? item.content.toUpperCase() : item.value * 2;
                 });
                 return {
                     content: [
@@ -5148,7 +5147,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         const obj = input as Record<string, unknown>;
                         // Convert string numbers to actual numbers
                         if (typeof obj.count === 'string') {
-                            return { ...obj, count: parseInt(obj.count, 10) };
+                            return { ...obj, count: Number.parseInt(obj.count, 10) };
                         }
                     }
                     return input;
@@ -5717,12 +5716,17 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         }),
                         name: completable(z.string(), (value, context) => {
                             const department = context?.arguments?.['department'];
-                            if (department === 'engineering') {
-                                return ['Alice', 'Bob', 'Charlie'].filter(n => n.startsWith(value));
-                            } else if (department === 'sales') {
-                                return ['David', 'Eve', 'Frank'].filter(n => n.startsWith(value));
-                            } else if (department === 'marketing') {
-                                return ['Grace', 'Henry', 'Iris'].filter(n => n.startsWith(value));
+                            switch (department) {
+                                case 'engineering': {
+                                    return ['Alice', 'Bob', 'Charlie'].filter(n => n.startsWith(value));
+                                }
+                                case 'sales': {
+                                    return ['David', 'Eve', 'Frank'].filter(n => n.startsWith(value));
+                                }
+                                case 'marketing': {
+                                    return ['Grace', 'Henry', 'Iris'].filter(n => n.startsWith(value));
+                                }
+                                // No default
                             }
                             return ['Guest'].filter(n => n.startsWith(value));
                         })
@@ -6082,15 +6086,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             ]);
 
             server.registerTool('contact', { inputSchema: unionSchema }, async args => {
-                if (args.type === 'email') {
-                    return {
-                        content: [{ type: 'text', text: `Email contact: ${args.email}` }]
-                    };
-                } else {
-                    return {
-                        content: [{ type: 'text', text: `Phone contact: ${args.phone}` }]
-                    };
-                }
+                return args.type === 'email'
+                    ? {
+                          content: [{ type: 'text', text: `Email contact: ${args.email}` }]
+                      }
+                    : {
+                          content: [{ type: 'text', text: `Phone contact: ${args.phone}` }]
+                      };
             });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -6197,11 +6199,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             server.registerTool('process', { inputSchema: schema }, async args => {
                 const processed = args.items.map(item => {
-                    if (item.type === 'text') {
-                        return item.content.toUpperCase();
-                    } else {
-                        return item.value * 2;
-                    }
+                    return item.type === 'text' ? item.content.toUpperCase() : item.value * 2;
                 });
                 return {
                     content: [
@@ -6356,7 +6354,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ({ input }, extra) => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
                         const store = extra.taskStore;
@@ -6461,7 +6459,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ({ value }, extra) => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
                         const store = extra.taskStore;
@@ -6569,7 +6567,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ({ data }, extra) => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
                         const store = extra.taskStore;
@@ -6609,7 +6607,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     params: {
                         name: 'task-tool',
                         arguments: { data: 'test' },
-                        task: { ttl: 60000 }
+                        task: { ttl: 60_000 }
                     }
                 },
                 z.object({
@@ -6686,7 +6684,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async extra => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
                         const store = extra.taskStore;
@@ -6792,7 +6790,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async extra => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
                         const store = extra.taskStore;
@@ -6879,7 +6877,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     },
                     {
                         createTask: async (_args, extra) => {
-                            const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                            const task = await extra.taskStore.createTask({ ttl: 60_000, pollInterval: 100 });
                             return { task };
                         },
                         getTask: async (_args, extra) => {

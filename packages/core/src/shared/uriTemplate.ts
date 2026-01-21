@@ -2,10 +2,10 @@
 
 export type Variables = Record<string, string | string[]>;
 
-const MAX_TEMPLATE_LENGTH = 1000000; // 1MB
-const MAX_VARIABLE_LENGTH = 1000000; // 1MB
-const MAX_TEMPLATE_EXPRESSIONS = 10000;
-const MAX_REGEX_LENGTH = 1000000; // 1MB
+const MAX_TEMPLATE_LENGTH = 1_000_000; // 1MB
+const MAX_VARIABLE_LENGTH = 1_000_000; // 1MB
+const MAX_TEMPLATE_EXPRESSIONS = 10_000;
+const MAX_REGEX_LENGTH = 1_000_000; // 1MB
 
 export class UriTemplate {
     /**
@@ -148,18 +148,24 @@ export class UriTemplate {
         const encoded = values.map(v => this.encodeValue(v, part.operator));
 
         switch (part.operator) {
-            case '':
+            case '': {
                 return encoded.join(',');
-            case '+':
+            }
+            case '+': {
                 return encoded.join(',');
-            case '#':
+            }
+            case '#': {
                 return '#' + encoded.join(',');
-            case '.':
+            }
+            case '.': {
                 return '.' + encoded.join('.');
-            case '/':
+            }
+            case '/': {
                 return '/' + encoded.join('/');
-            default:
+            }
+            default: {
                 return encoded.join(',');
+            }
         }
     }
 
@@ -177,11 +183,7 @@ export class UriTemplate {
             if (!expanded) continue;
 
             // Convert ? to & if we already have a query parameter
-            if ((part.operator === '?' || part.operator === '&') && hasQueryParam) {
-                result += expanded.replace('?', '&');
-            } else {
-                result += expanded;
-            }
+            result += (part.operator === '?' || part.operator === '&') && hasQueryParam ? expanded.replace('?', '&') : expanded;
 
             if (part.operator === '?' || part.operator === '&') {
                 hasQueryParam = true;
@@ -192,7 +194,7 @@ export class UriTemplate {
     }
 
     private escapeRegExp(str: string): string {
-        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return str.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     }
 
     private partToRegExp(part: {
@@ -224,21 +226,26 @@ export class UriTemplate {
         const name = part.name;
 
         switch (part.operator) {
-            case '':
+            case '': {
                 pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
                 break;
+            }
             case '+':
-            case '#':
+            case '#': {
                 pattern = '(.+)';
                 break;
-            case '.':
-                pattern = '\\.([^/,]+)';
+            }
+            case '.': {
+                pattern = String.raw`\.([^/,]+)`;
                 break;
-            case '/':
+            }
+            case '/': {
                 pattern = '/' + (part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)');
                 break;
-            default:
+            }
+            default: {
                 pattern = '([^/]+)';
+            }
         }
 
         patterns.push({ pattern, name });
@@ -270,16 +277,12 @@ export class UriTemplate {
         if (!match) return null;
 
         const result: Variables = {};
-        for (let i = 0; i < names.length; i++) {
-            const { name, exploded } = names[i]!;
+        for (const [i, name_] of names.entries()) {
+            const { name, exploded } = name_!;
             const value = match[i + 1]!;
             const cleanName = name.replace('*', '');
 
-            if (exploded && value.includes(',')) {
-                result[cleanName] = value.split(',');
-            } else {
-                result[cleanName] = value;
-            }
+            result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
         }
 
         return result;

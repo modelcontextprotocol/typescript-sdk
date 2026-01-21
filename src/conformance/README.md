@@ -34,6 +34,7 @@ pnpm run test:conformance:server:all
 ### Running Tests Against Local Conformance Repo
 
 Link the local conformance package:
+
 ```bash
 cd ~/code/mcp/typescript-sdk
 pnpm link ~/code/mcp/conformance
@@ -44,11 +45,13 @@ Then run tests as above.
 ### Debugging Server Tests
 
 Start the server manually:
+
 ```bash
 pnpm run test:conformance:server:run
 ```
 
 In another terminal, run specific tests:
+
 ```bash
 npx @modelcontextprotocol/conformance server \
   --url http://localhost:3000/mcp \

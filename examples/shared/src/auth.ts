@@ -202,7 +202,7 @@ export function createDemoAuth(options: CreateDemoAuthOptions) {
             loginPage,
             codeExpiresIn: 600, // 10 minutes
             accessTokenExpiresIn: 3600, // 1 hour
-            refreshTokenExpiresIn: 604800, // 7 days
+            refreshTokenExpiresIn: 604_800, // 7 days
             defaultScope: 'openid',
             scopes: ['openid', 'profile', 'email', 'offline_access'],
             allowDynamicClientRegistration: true,

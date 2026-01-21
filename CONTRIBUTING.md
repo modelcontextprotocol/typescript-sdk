@@ -63,7 +63,8 @@ This repository has two main branches:
 
 Small PRs get reviewed fast. Large PRs sit in the queue.
 
-We can review a few dozen lines in a few minutes. But a PR touching hundreds of lines across many files takes real effort to verify—and things inevitably slip through. If your change is big, break it into a stack of smaller PRs or get clear alignment from a maintainer on your approach in an issue before submitting a large PR.
+We can review a few dozen lines in a few minutes. But a PR touching hundreds of lines across many files takes real effort to verify—and things inevitably slip through. If your change is big, break it into a stack of smaller PRs or get clear alignment from a maintainer on your
+approach in an issue before submitting a large PR.
 
 ### What Gets Rejected
 
@@ -183,6 +184,4 @@ Please review our [Security Policy](SECURITY.md) for reporting security vulnerab
 
 ### License
 
-By contributing, you agree that your code contributions will be licensed under
-the Apache License 2.0. Documentation contributions (excluding specifications)
-are licensed under CC-BY 4.0. See the [LICENSE](LICENSE) file for details.
+By contributing, you agree that your code contributions will be licensed under the Apache License 2.0. Documentation contributions (excluding specifications) are licensed under CC-BY 4.0. See the [LICENSE](LICENSE) file for details.
