@@ -13,8 +13,8 @@ vi.mock('../../src/client/auth.js', async () => {
     };
 });
 
-vi.mock('../../src/client/xaa-util.js', async () => {
-    const actual = await vi.importActual<typeof import('../../src/client/xaa-util.js')>('../../src/client/xaa-util.js');
+vi.mock('../../src/client/xaaUtil.js', async () => {
+    const actual = await vi.importActual<typeof import('../../src/client/xaaUtil.js')>('../../src/client/xaaUtil.js');
     return {
         ...actual,
         getAccessToken: vi.fn()
@@ -22,7 +22,7 @@ vi.mock('../../src/client/xaa-util.js', async () => {
 });
 
 import { auth, extractWWWAuthenticateParams } from '../../src/client/auth.js';
-import { getAccessToken } from '../../src/client/xaa-util.js';
+import { getAccessToken } from '../../src/client/xaaUtil.js';
 
 const mockAuth = auth as MockedFunction<typeof auth>;
 const mockExtractWWWAuthenticateParams = extractWWWAuthenticateParams as MockedFunction<typeof extractWWWAuthenticateParams>;

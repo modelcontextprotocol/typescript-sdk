@@ -1,4 +1,4 @@
-import { getAccessToken, type XAAOptions } from '../../src/client/xaa-util.js';
+import { getAccessToken, type XAAOptions } from '../../src/client/xaaUtil.js';
 import type { FetchLike } from '@modelcontextprotocol/core';
 import { MockedFunction } from 'vitest';
 

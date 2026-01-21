@@ -2,8 +2,8 @@ import type { FetchLike } from '@modelcontextprotocol/core';
 
 import type { OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
-import type { XAAOptions } from './xaa-util.js';
-import { getAccessToken } from './xaa-util.js';
+import type { XAAOptions } from './xaaUtil.js';
+import { getAccessToken } from './xaaUtil.js';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -243,7 +243,7 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
  */
 export const withCrossAppAccess = (options: XAAOptions): Middleware => {
     return wrappedFetchFunction => {
-        let accessToken: string | undefined = undefined;
+        let accessToken: string | undefined;
 
         return async (url, init = {}): Promise<Response> => {
             if (!accessToken) {
