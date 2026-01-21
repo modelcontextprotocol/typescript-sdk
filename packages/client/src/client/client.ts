@@ -5,7 +5,6 @@ import type {
     ClientCapabilities,
     ClientNotification,
     ClientRequest,
-    ClientRequestContext,
     ClientResult,
     CompatibilityCallToolResultSchema,
     CompleteRequest,
@@ -79,6 +78,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import type { ClientRequestContext } from './context.js';
 import { ClientContext } from './context.js';
 
 /**

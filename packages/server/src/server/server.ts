@@ -33,7 +33,6 @@ import type {
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
-    ServerRequestContext,
     ServerResult,
     TaskContext,
     TaskCreationParams,
@@ -72,6 +71,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
+import type { ServerRequestContext } from './context.js';
 import { ServerContext } from './context.js';
 
 export type ServerOptions = ProtocolOptions & {

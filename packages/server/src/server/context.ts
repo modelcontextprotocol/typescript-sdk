@@ -1,4 +1,5 @@
 import type {
+    BaseRequestContext,
     ContextInterface,
     CreateMessageRequest,
     CreateMessageResult,
@@ -8,18 +9,49 @@ import type {
     LoggingMessageNotification,
     McpContext,
     Notification,
-    ProtocolInterface,
     Request,
     RequestOptions,
     Result,
     ServerNotification,
     ServerRequest,
-    ServerRequestContext,
+    ServerResult,
     TaskContext
 } from '@modelcontextprotocol/core';
 import { BaseContext, ElicitResultSchema } from '@modelcontextprotocol/core';
 
 import type { Server } from './server.js';
+
+/**
+ * Server-specific request context with HTTP request details.
+ * Extends BaseRequestContext with fields only available on the server side.
+ */
+export type ServerRequestContext = BaseRequestContext & {
+    /**
+     * The URI of the incoming HTTP request.
+     */
+    uri: URL;
+    /**
+     * The headers of the incoming HTTP request.
+     */
+    headers: Headers;
+    /**
+     * Stream control methods for SSE connections.
+     */
+    stream: {
+        /**
+         * Closes the SSE stream for this request, triggering client reconnection.
+         * Only available when using StreamableHTTPServerTransport with eventStore configured.
+         * Use this to implement polling behavior during long-running operations.
+         */
+        closeSSEStream: (() => void) | undefined;
+        /**
+         * Closes the standalone GET SSE stream, triggering client reconnection.
+         * Only available when using StreamableHTTPServerTransport with eventStore configured.
+         * Use this to implement polling behavior for server-initiated notifications.
+         */
+        closeStandaloneSSEStream: (() => void) | undefined;
+    };
+};
 
 /**
  * Interface for sending logging messages to the client via {@link LoggingMessageNotification}.
@@ -156,7 +188,7 @@ export class ServerContext<
         NotificationT extends Notification = Notification,
         ResultT extends Result = Result
     >
-    extends BaseContext<RequestT | ServerRequest, NotificationT | ServerNotification, ServerRequestContext>
+    extends BaseContext<RequestT | ServerRequest, NotificationT | ServerNotification, ServerRequestContext, ServerResult | ResultT>
     implements ServerContextInterface<RequestT, NotificationT>
 {
     private readonly server: Server<RequestT, NotificationT, ResultT>;
@@ -186,7 +218,7 @@ export class ServerContext<
     /**
      * Returns the server instance for sending notifications and requests.
      */
-    protected getProtocol(): ProtocolInterface<RequestT | ServerRequest, NotificationT | ServerNotification> {
+    protected getProtocol(): Server<RequestT, NotificationT, ResultT> {
         return this.server;
     }
 

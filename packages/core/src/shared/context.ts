@@ -1,7 +1,7 @@
 import type { RequestTaskStoreInterface } from '../experimental/requestTaskStore.js';
-import type { AuthInfo, JSONRPCRequest, Notification, Request, RequestId, RequestMeta } from '../types/types.js';
+import type { AuthInfo, JSONRPCRequest, Notification, Request, RequestId, RequestMeta, Result } from '../types/types.js';
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
-import type { NotificationOptions, RequestOptions } from './protocol.js';
+import type { NotificationOptions, Protocol, RequestOptions } from './protocol.js';
 
 /**
  * MCP-level context for a request being handled.
@@ -28,22 +28,6 @@ export type McpContext = {
 };
 
 /**
- * Interface for protocol operations needed by context classes.
- * This allows the base context to work with both Client and Server.
- */
-export interface ProtocolInterface<RequestT extends Request = Request, NotificationT extends Notification = Notification> {
-    /**
-     * Sends a notification through the protocol.
-     */
-    notification(notification: NotificationT, options?: NotificationOptions): Promise<void>;
-
-    /**
-     * Sends a request through the protocol.
-     */
-    request<U extends AnySchema>(request: RequestT, resultSchema: U, options?: RequestOptions): Promise<SchemaOutput<U>>;
-}
-
-/**
  * Base request context with fields common to both client and server.
  */
 export type BaseRequestContext = {
@@ -55,48 +39,6 @@ export type BaseRequestContext = {
      * The authentication information, if available.
      */
     authInfo?: AuthInfo;
-};
-
-/**
- * Server-specific request context with HTTP request details.
- * Extends BaseRequestContext with fields only available on the server side.
- */
-export type ServerRequestContext = BaseRequestContext & {
-    /**
-     * The URI of the incoming HTTP request.
-     */
-    uri: URL;
-    /**
-     * The headers of the incoming HTTP request.
-     */
-    headers: Headers;
-    /**
-     * Stream control methods for SSE connections.
-     */
-    stream: {
-        /**
-         * Closes the SSE stream for this request, triggering client reconnection.
-         * Only available when using StreamableHTTPServerTransport with eventStore configured.
-         * Use this to implement polling behavior during long-running operations.
-         */
-        closeSSEStream: (() => void) | undefined;
-        /**
-         * Closes the standalone GET SSE stream, triggering client reconnection.
-         * Only available when using StreamableHTTPServerTransport with eventStore configured.
-         * Use this to implement polling behavior for server-initiated notifications.
-         */
-        closeStandaloneSSEStream: (() => void) | undefined;
-    };
-};
-
-/**
- * Client-specific request context.
- * Clients don't receive HTTP requests, so this is minimal.
- * Extends BaseRequestContext with any client-specific fields.
- */
-export type ClientRequestContext = BaseRequestContext & {
-    // Client doesn't receive HTTP requests, just JSON-RPC messages over transport.
-    // Additional client-specific fields can be added here if needed.
 };
 
 /**
@@ -187,7 +129,8 @@ export interface BaseContextArgs<RequestContextT extends BaseRequestContext = Ba
 export abstract class BaseContext<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
-    RequestContextT extends BaseRequestContext = BaseRequestContext
+    RequestContextT extends BaseRequestContext = BaseRequestContext,
+    ResultT extends Result = Result
 > implements ContextInterface<RequestT, NotificationT, RequestContextT>
 {
     /**
@@ -209,7 +152,7 @@ export abstract class BaseContext<
      * Returns the protocol instance for sending notifications and requests.
      * Subclasses must implement this to provide the appropriate Client or Server instance.
      */
-    protected abstract getProtocol(): ProtocolInterface<RequestT, NotificationT>;
+    protected abstract getProtocol(): Protocol<RequestT, NotificationT, ResultT>;
 
     constructor(args: BaseContextArgs<RequestContextT>) {
         this.mcpCtx = {

@@ -161,26 +161,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request, ctx) => {
 The `ctx` parameter in handlers provides a structured context with three layers:
 
 **`ctx.mcpCtx`** - MCP-level context:
+
 - `requestId`: JSON-RPC message ID
 - `method`: The method being called
 - `_meta`: Request metadata
 - `sessionId`: Transport session identifier
 
 **`ctx.requestCtx`** - Request-level context:
+
 - `signal`: AbortSignal for cancellation
 - `authInfo`: Validated auth token info (if authenticated)
 - For server: `uri`, `headers`, `stream` (HTTP details)
 
 **`ctx.taskCtx`** - Task context (when tasks are enabled):
+
 - `id`: Current task ID (updates after `store.createTask()`)
 - `store`: Request-scoped task store (`RequestTaskStore`)
 - `requestedTtl`: Requested TTL for the task
 
 **Context methods**:
+
 - `ctx.sendNotification(notification)`: Send notification back
 - `ctx.sendRequest(request, schema)`: Send request (for bidirectional flows)
 
 For server contexts, additional helpers:
+
 - `ctx.loggingNotification(level, data, logger)`: Send logging notification
 - `ctx.requestSampling(params)`: Request sampling from client
 - `ctx.elicitInput(params)`: Request user input from client
