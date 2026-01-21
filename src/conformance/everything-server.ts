@@ -251,7 +251,7 @@ function createMcpServer(sessionId?: string) {
             inputSchema: {}
         },
         async (_args, extra): Promise<CallToolResult> => {
-            const progressToken = extra._meta?.progressToken ?? 0;
+            const progressToken = extra.mcpCtx._meta?.progressToken ?? 0;
             console.log('Progress token:', progressToken);
             await extra.sendNotification({
                 method: 'notifications/progress',
@@ -313,20 +313,20 @@ function createMcpServer(sessionId?: string) {
         async (_args, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            console.log(`[${extra.sessionId}] Starting test_reconnection tool...`);
+            console.log(`[${extra.mcpCtx.sessionId}] Starting test_reconnection tool...`);
 
             // Get the transport for this session
-            const transport = extra.sessionId ? transports[extra.sessionId] : undefined;
-            if (transport && extra.requestId) {
+            const transport = extra.mcpCtx.sessionId ? transports[extra.mcpCtx.sessionId] : undefined;
+            if (transport && extra.mcpCtx.requestId) {
                 // Close the SSE stream to trigger client reconnection
-                console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-                transport.closeSSEStream(extra.requestId);
+                console.log(`[${extra.mcpCtx.sessionId}] Closing SSE stream to trigger client polling...`);
+                transport.closeSSEStream(extra.mcpCtx.requestId);
             }
 
             // Wait for client to reconnect (should respect retry field)
             await sleep(100);
 
-            console.log(`[${extra.sessionId}] test_reconnection tool complete`);
+            console.log(`[${extra.mcpCtx.sessionId}] test_reconnection tool complete`);
 
             return {
                 content: [
