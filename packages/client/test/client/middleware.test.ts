@@ -2,7 +2,7 @@ import type { FetchLike } from '@modelcontextprotocol/core';
 import type { Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
-import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '../../src/client/middleware.js';
+import { applyMiddlewares, createMiddleware, withLogging, withOAuth, withCrossAppAccess } from '../../src/client/middleware.js';
 
 vi.mock('../../src/client/auth.js', async () => {
     const actual = await vi.importActual<typeof import('../../src/client/auth.js')>('../../src/client/auth.js');
@@ -13,10 +13,20 @@ vi.mock('../../src/client/auth.js', async () => {
     };
 });
 
+vi.mock('../../src/client/xaa-util.js', async () => {
+    const actual = await vi.importActual<typeof import('../../src/client/xaa-util.js')>('../../src/client/xaa-util.js');
+    return {
+        ...actual,
+        getAccessToken: vi.fn()
+    };
+});
+
 import { auth, extractWWWAuthenticateParams } from '../../src/client/auth.js';
+import { getAccessToken } from '../../src/client/xaa-util.js';
 
 const mockAuth = auth as MockedFunction<typeof auth>;
 const mockExtractWWWAuthenticateParams = extractWWWAuthenticateParams as MockedFunction<typeof extractWWWAuthenticateParams>;
+const mockGetAccessToken = getAccessToken as MockedFunction<typeof getAccessToken>;
 
 describe('withOAuth', () => {
     let mockProvider: Mocked<OAuthClientProvider>;
@@ -612,6 +622,49 @@ describe('withLogging', () => {
 
         const logCall = mockLogger.mock.calls[0]![0];
         expect(logCall.duration).toBeGreaterThanOrEqual(90); // Allow some margin for timing
+    });
+});
+
+describe('withCrossAppAccess', () => {
+    let mockFetch: MockedFunction<FetchLike>;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockFetch = vi.fn();
+    });
+
+    it('should add Authorization header when tokens are available (with explicit baseUrl)', async () => {
+        // Mock getAccessToken to return 'test-token'
+        mockGetAccessToken.mockResolvedValue('test-token');
+
+        mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
+
+        const enhancedFetch = withCrossAppAccess({
+            idpUrl: 'https://idp.example.com/token',
+            mcpResourceUrl: 'https://resource.example.com',
+            mcpAuthorisationServerUrl: 'https://authorisationServerUrl.example.com/token',
+            idToken: 'idToken',
+            idpClientId: 'idpClientId',
+            idpClientSecret: 'idpClientSecret',
+            mcpClientId: 'mcpClientId',
+            mcpClientSecret: 'mcpClientSecret'
+        })(mockFetch);
+
+        await enhancedFetch('https://api.example.com/data');
+
+        // Verify getAccessToken was called
+        expect(mockGetAccessToken).toHaveBeenCalledTimes(1);
+
+        expect(mockFetch).toHaveBeenCalledWith(
+            'https://api.example.com/data',
+            expect.objectContaining({
+                headers: expect.any(Headers)
+            })
+        );
+
+        const callArgs = mockFetch.mock.calls[0];
+        const headers = callArgs[1]?.headers as Headers;
+        expect(headers.get('Authorization')).toBe('Bearer test-token');
     });
 });
 

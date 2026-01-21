@@ -50,6 +50,7 @@
         "eventsource-parser": "catalog:runtimeClientOnly",
         "jose": "catalog:runtimeClientOnly",
         "pkce-challenge": "catalog:runtimeShared",
+        "qs": "catalog:runtimeClientOnly",
         "zod": "catalog:runtimeShared"
     },
     "peerDependencies": {
@@ -74,6 +75,7 @@
         "@types/content-type": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
+        "@types/qs": "^6.9.18",
         "@typescript/native-preview": "catalog:devTools",
         "@eslint/js": "catalog:devTools",
         "eslint": "catalog:devTools",

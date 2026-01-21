@@ -34,6 +34,7 @@ catalogs:
         eventsource: ^3.0.2
         eventsource-parser: ^3.0.0
         jose: ^6.1.1
+        qs: ^6.13.0
     runtimeServerOnly:
         '@hono/node-server': ^1.19.8
         content-type: ^1.0.5
