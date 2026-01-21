@@ -300,9 +300,9 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            const originalFetch = global.fetch;
+            const originalFetch = globalThis.fetch;
             try {
-                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+                globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
                 const message: JSONRPCMessage = {
                     jsonrpc: '2.0',
@@ -313,7 +313,7 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const calledHeaders = (global.fetch as Mock).mock.calls[0]![1].headers;
+                const calledHeaders = (globalThis.fetch as Mock).mock.calls[0]![1].headers;
                 expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
@@ -322,10 +322,10 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const updatedHeaders = (global.fetch as Mock).mock.calls[1]![1].headers;
+                const updatedHeaders = (globalThis.fetch as Mock).mock.calls[1]![1].headers;
                 expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
             } finally {
-                global.fetch = originalFetch;
+                globalThis.fetch = originalFetch;
             }
         });
 
@@ -343,9 +343,9 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            const originalFetch = global.fetch;
+            const originalFetch = globalThis.fetch;
             try {
-                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+                globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
                 const message: JSONRPCMessage = {
                     jsonrpc: '2.0',
@@ -356,7 +356,7 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const calledHeaders = (global.fetch as Mock).mock.calls[0]![1].headers;
+                const calledHeaders = (globalThis.fetch as Mock).mock.calls[0]![1].headers;
                 expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
@@ -365,10 +365,10 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const updatedHeaders = (global.fetch as Mock).mock.calls[1]![1].headers;
+                const updatedHeaders = (globalThis.fetch as Mock).mock.calls[1]![1].headers;
                 expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
             } finally {
-                global.fetch = originalFetch;
+                globalThis.fetch = originalFetch;
             }
         });
 
@@ -384,24 +384,24 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            const originalFetch = global.fetch;
+            const originalFetch = globalThis.fetch;
             try {
-                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+                globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
                 await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
 
-                const calledHeaders = (global.fetch as Mock).mock.calls[0]![1].headers;
+                const calledHeaders = (globalThis.fetch as Mock).mock.calls[0]![1].headers;
                 expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
             } finally {
-                global.fetch = originalFetch;
+                globalThis.fetch = originalFetch;
             }
         });
     });
 
     describe('auth handling', () => {
-        const authServerMetadataUrls = ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'];
+        const authServerMetadataUrls = new Set(['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration']);
 
         let mockAuthProvider: Mocked<OAuthClientProvider>;
 
@@ -516,10 +516,10 @@ describe('SSEClientTransport', () => {
                     return;
                 }
 
-                if (req.url !== '/') {
-                    res.writeHead(404).end();
-                } else {
+                if (req.url === '/') {
                     res.writeHead(401).end();
+                } else {
+                    res.writeHead(404).end();
                 }
             });
 
@@ -550,7 +550,7 @@ describe('SSEClientTransport', () => {
                 lastServerRequest = req;
 
                 switch (req.method) {
-                    case 'GET':
+                    case 'GET': {
                         if (req.url === '/.well-known/oauth-protected-resource') {
                             res.writeHead(200, {
                                 'Content-Type': 'application/json'
@@ -576,11 +576,13 @@ describe('SSEClientTransport', () => {
                         res.write('event: endpoint\n');
                         res.write(`data: ${resourceBaseUrl.href}\n\n`);
                         break;
+                    }
 
-                    case 'POST':
+                    case 'POST': {
                         res.writeHead(401);
                         res.end();
                         break;
+                    }
                 }
             });
 
@@ -658,7 +660,7 @@ describe('SSEClientTransport', () => {
             authServer.close();
 
             authServer = createServer((req, res) => {
-                if (req.url && authServerMetadataUrls.includes(req.url)) {
+                if (req.url && authServerMetadataUrls.has(req.url)) {
                     res.writeHead(404).end();
                     return;
                 }
@@ -786,7 +788,7 @@ describe('SSEClientTransport', () => {
             authServer.close();
 
             authServer = createServer((req, res) => {
-                if (req.url && authServerMetadataUrls.includes(req.url)) {
+                if (req.url && authServerMetadataUrls.has(req.url)) {
                     res.writeHead(404).end();
                     return;
                 }
@@ -849,7 +851,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 switch (req.method) {
-                    case 'GET':
+                    case 'GET': {
                         if (req.url !== '/') {
                             res.writeHead(404).end();
                             return;
@@ -863,6 +865,7 @@ describe('SSEClientTransport', () => {
                         res.write('event: endpoint\n');
                         res.write(`data: ${resourceBaseUrl.href}\n\n`);
                         break;
+                    }
 
                     case 'POST': {
                         if (req.url !== '/') {
@@ -937,7 +940,7 @@ describe('SSEClientTransport', () => {
             authServer.close();
 
             authServer = createServer((req, res) => {
-                if (req.url && authServerMetadataUrls.includes(req.url)) {
+                if (req.url && authServerMetadataUrls.has(req.url)) {
                     res.writeHead(404).end();
                     return;
                 }
@@ -1309,7 +1312,7 @@ describe('SSEClientTransport', () => {
             });
 
             // Spy on global fetch to detect unauthorized usage
-            globalFetchSpy = vi.spyOn(global, 'fetch');
+            globalFetchSpy = vi.spyOn(globalThis, 'fetch');
 
             // Create mock auth provider with default configuration
             mockAuthProvider = createMockAuthProvider({
@@ -1386,7 +1389,7 @@ describe('SSEClientTransport', () => {
             // Set up resource server that accepts SSE connection but returns 401 on POST
             resourceServerHandler.mockImplementation((req: IncomingMessage, res: ServerResponse) => {
                 switch (req.method) {
-                    case 'GET':
+                    case 'GET': {
                         if (req.url === '/') {
                             // Accept SSE connection
                             res.writeHead(200, {
@@ -1399,8 +1402,9 @@ describe('SSEClientTransport', () => {
                             return;
                         }
                         break;
+                    }
 
-                    case 'POST':
+                    case 'POST': {
                         if (req.url === '/') {
                             // Return 401 to trigger auth retry
                             res.writeHead(401, {
@@ -1410,6 +1414,7 @@ describe('SSEClientTransport', () => {
                             return;
                         }
                         break;
+                    }
                 }
 
                 res.writeHead(404).end();
