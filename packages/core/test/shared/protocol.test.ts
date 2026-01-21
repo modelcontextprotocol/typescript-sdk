@@ -191,7 +191,7 @@ function createTestProtocolClass(options?: {
         protected assertRequestHandlerCapability(): void {}
         protected assertTaskCapability(): void {}
         protected assertTaskHandlerCapability(): void {}
-        protected createRequestExtra(args: {
+        protected createRequestContext(args: {
             request: JSONRPCRequest;
             taskStore: TaskStore | undefined;
             relatedTaskId: string | undefined;

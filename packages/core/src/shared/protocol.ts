@@ -588,7 +588,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         const taskCreationParams = isTaskAugmentedRequestParams(request.params) ? request.params.task : undefined;
 
-        const fullExtra: ContextInterface<SendRequestT, SendNotificationT, BaseRequestContext> = this.createRequestExtra({
+        const fullExtra: ContextInterface<SendRequestT, SendNotificationT, BaseRequestContext> = this.createRequestContext({
             request,
             taskStore: this._taskStore,
             relatedTaskId,
@@ -672,7 +672,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
     /**
      * Builds the common MCP context from a request.
-     * This is used by subclass implementations of createRequestExtra.
+     * This is used by subclass implementations of createRequestContext.
      */
     protected buildMcpContext(args: { request: JSONRPCRequest; sessionId: string | undefined }): {
         requestId: RequestId;
@@ -691,7 +691,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Builds the task context from a task store, if applicable.
      * Returns undefined if no taskStore is provided.
-     * This is used by subclass implementations of createRequestExtra.
+     * This is used by subclass implementations of createRequestContext.
      */
     protected buildTaskContext(args: {
         taskStore: TaskStore | undefined;
@@ -737,7 +737,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Subclasses must implement this to provide the appropriate context type
      * (ClientContext for Client, ServerContext for Server).
      */
-    protected abstract createRequestExtra(args: {
+    protected abstract createRequestContext(args: {
         request: JSONRPCRequest;
         taskStore: TaskStore | undefined;
         relatedTaskId: string | undefined;

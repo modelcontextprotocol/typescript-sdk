@@ -493,7 +493,7 @@ export class Client<
         return super.setRequestHandler(requestSchema, handler);
     }
 
-    protected createRequestExtra(args: {
+    protected createRequestContext(args: {
         request: JSONRPCRequest;
         taskStore: TaskStore | undefined;
         relatedTaskId: string | undefined;

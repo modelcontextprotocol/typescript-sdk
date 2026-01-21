@@ -136,7 +136,7 @@ When a request arrives from the remote side:
 2. **`Protocol.connect()`** routes to `_onrequest()`, `_onresponse()`, or `_onnotification()`
 3. **`Protocol._onrequest()`**:
     - Looks up handler in `_requestHandlers` map (keyed by method name)
-    - Creates `RequestHandlerExtra` with `signal`, `sessionId`, `sendNotification`, `sendRequest`
+    - Creates a context object (`ServerContext` or `ClientContext`) via `createRequestContext()`
     - Invokes handler, sends JSON-RPC response back via transport
 4. **Handler** was registered via `setRequestHandler(Schema, handler)`
 
@@ -144,29 +144,46 @@ When a request arrives from the remote side:
 
 ```typescript
 // In Client (for server→client requests like sampling, elicitation)
-client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+client.setRequestHandler(CreateMessageRequestSchema, async (request, ctx) => {
   // Handle sampling request from server
   return { role: "assistant", content: {...}, model: "..." };
 });
 
 // In Server (for client→server requests like tools/call)
-server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+server.setRequestHandler(CallToolRequestSchema, async (request, ctx) => {
   // Handle tool call from client
   return { content: [...] };
 });
 ```
 
-### Request Handler Extra
+### Request Handler Context
 
-The `extra` parameter in handlers (`RequestHandlerExtra`) provides:
+The `ctx` parameter in handlers provides a structured context with three layers:
 
-- `signal`: AbortSignal for cancellation
-- `sessionId`: Transport session identifier
-- `authInfo`: Validated auth token info (if authenticated)
+**`ctx.mcpCtx`** - MCP-level context:
 - `requestId`: JSON-RPC message ID
-- `sendNotification(notification)`: Send related notification back
-- `sendRequest(request, schema)`: Send related request (for bidirectional flows)
-- `taskStore`: Task storage interface (if tasks enabled)
+- `method`: The method being called
+- `_meta`: Request metadata
+- `sessionId`: Transport session identifier
+
+**`ctx.requestCtx`** - Request-level context:
+- `signal`: AbortSignal for cancellation
+- `authInfo`: Validated auth token info (if authenticated)
+- For server: `uri`, `headers`, `stream` (HTTP details)
+
+**`ctx.taskCtx`** - Task context (when tasks are enabled):
+- `id`: Current task ID (updates after `store.createTask()`)
+- `store`: Request-scoped task store (`RequestTaskStore`)
+- `requestedTtl`: Requested TTL for the task
+
+**Context methods**:
+- `ctx.sendNotification(notification)`: Send notification back
+- `ctx.sendRequest(request, schema)`: Send request (for bidirectional flows)
+
+For server contexts, additional helpers:
+- `ctx.loggingNotification(level, data, logger)`: Send logging notification
+- `ctx.requestSampling(params)`: Request sampling from client
+- `ctx.elicitInput(params)`: Request user input from client
 
 ### Capability Checking
 
@@ -197,7 +214,7 @@ const result = await server.createMessage({
 });
 
 // Client must have registered handler:
-client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+client.setRequestHandler(CreateMessageRequestSchema, async (request, ctx) => {
   // Client-side LLM call
   return { role: "assistant", content: {...} };
 });
@@ -208,8 +225,8 @@ client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
 ### Request Handler Registration (Low-Level Server)
 
 ```typescript
-server.setRequestHandler(SomeRequestSchema, async (request, extra) => {
-    // extra contains sessionId, authInfo, sendNotification, etc.
+server.setRequestHandler(SomeRequestSchema, async (request, ctx) => {
+    // ctx provides mcpCtx, requestCtx, taskCtx, sendNotification, sendRequest
     return {
         /* result */
     };
@@ -219,7 +236,7 @@ server.setRequestHandler(SomeRequestSchema, async (request, extra) => {
 ### Tool Registration (High-Level McpServer)
 
 ```typescript
-mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, extra) => {
+mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, ctx) => {
     return { content: [{ type: 'text', text: 'result' }] };
 });
 ```

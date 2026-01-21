@@ -533,7 +533,7 @@ export class Server<
         return this._capabilities;
     }
 
-    protected createRequestExtra(args: {
+    protected createRequestContext(args: {
         request: JSONRPCRequest;
         taskStore: TaskStore | undefined;
         relatedTaskId: string | undefined;
