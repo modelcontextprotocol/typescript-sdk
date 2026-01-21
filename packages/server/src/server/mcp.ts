@@ -7,6 +7,7 @@ import type {
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
+    ContextInterface,
     CreateTaskResult,
     GetPromptResult,
     Implementation,
@@ -60,9 +61,8 @@ import {
 import { ZodOptional } from 'zod';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
-import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
+import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
-import type { ContextInterface } from './context.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
@@ -224,10 +224,8 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof McpError) {
-                    if (error.code === ErrorCode.UrlElicitationRequired) {
-                        throw error; // Return the error to the caller without wrapping in CallToolResult
-                    }
+                if (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired) {
+                    throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
@@ -332,10 +330,10 @@ export class McpServer {
         const isTaskHandler = 'createTask' in handler;
 
         if (isTaskHandler) {
-            if (!extra.taskStore) {
+            if (!extra.taskCtx?.store) {
                 throw new Error('No task store provided.');
             }
-            const taskExtra = { ...extra, taskStore: extra.taskStore };
+            const taskExtra = extra;
 
             if (tool.inputSchema) {
                 const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
@@ -367,7 +365,7 @@ export class McpServer {
         request: RequestT,
         extra: ContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
-        if (!extra.taskStore) {
+        if (!extra.taskCtx?.store) {
             throw new Error('No task store provided for task-capable tool.');
         }
 
@@ -387,15 +385,12 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await extra.taskStore.getTask(taskId);
-            if (!updatedTask) {
-                throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
-            }
+            const updatedTask = await extra.taskCtx!.store.getTask(taskId);
             task = updatedTask;
         }
 
         // Return the final result
-        return (await extra.taskStore.getTaskResult(taskId)) as CallToolResult;
+        return (await extra.taskCtx!.store.getTaskResult(taskId)) as CallToolResult;
     }
 
     private _completionHandlerInitialized = false;
@@ -413,16 +408,19 @@ export class McpServer {
 
         this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
-                case 'ref/prompt':
+                case 'ref/prompt': {
                     assertCompleteRequestPrompt(request);
                     return this.handlePromptCompletion(request, request.params.ref);
+                }
 
-                case 'ref/resource':
+                case 'ref/resource': {
                     assertCompleteRequestResourceTemplate(request);
                     return this.handleResourceCompletion(request, request.params.ref);
+                }
 
-                default:
+                default: {
                     throw new McpError(ErrorCode.InvalidParams, `Invalid completion reference: ${request.params.ref}`);
+                }
             }
         });
 
@@ -767,15 +765,15 @@ export class McpServer {
             enable: () => registeredResource.update({ enabled: true }),
             remove: () => registeredResource.update({ uri: null }),
             update: updates => {
-                if (typeof updates.uri !== 'undefined' && updates.uri !== uri) {
+                if (updates.uri !== undefined && updates.uri !== uri) {
                     delete this._registeredResources[uri];
                     if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
                 }
-                if (typeof updates.name !== 'undefined') registeredResource.name = updates.name;
-                if (typeof updates.title !== 'undefined') registeredResource.title = updates.title;
-                if (typeof updates.metadata !== 'undefined') registeredResource.metadata = updates.metadata;
-                if (typeof updates.callback !== 'undefined') registeredResource.readCallback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredResource.enabled = updates.enabled;
+                if (updates.name !== undefined) registeredResource.name = updates.name;
+                if (updates.title !== undefined) registeredResource.title = updates.title;
+                if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
+                if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
+                if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
         };
@@ -800,15 +798,15 @@ export class McpServer {
             enable: () => registeredResourceTemplate.update({ enabled: true }),
             remove: () => registeredResourceTemplate.update({ name: null }),
             update: updates => {
-                if (typeof updates.name !== 'undefined' && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredResourceTemplates[name];
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
                 }
-                if (typeof updates.title !== 'undefined') registeredResourceTemplate.title = updates.title;
-                if (typeof updates.template !== 'undefined') registeredResourceTemplate.resourceTemplate = updates.template;
-                if (typeof updates.metadata !== 'undefined') registeredResourceTemplate.metadata = updates.metadata;
-                if (typeof updates.callback !== 'undefined') registeredResourceTemplate.readCallback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredResourceTemplate.enabled = updates.enabled;
+                if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
+                if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
+                if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
+                if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
+                if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
         };
@@ -841,15 +839,15 @@ export class McpServer {
             enable: () => registeredPrompt.update({ enabled: true }),
             remove: () => registeredPrompt.update({ name: null }),
             update: updates => {
-                if (typeof updates.name !== 'undefined' && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredPrompts[name];
                     if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
                 }
-                if (typeof updates.title !== 'undefined') registeredPrompt.title = updates.title;
-                if (typeof updates.description !== 'undefined') registeredPrompt.description = updates.description;
-                if (typeof updates.argsSchema !== 'undefined') registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
-                if (typeof updates.callback !== 'undefined') registeredPrompt.callback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredPrompt.enabled = updates.enabled;
+                if (updates.title !== undefined) registeredPrompt.title = updates.title;
+                if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates.argsSchema !== undefined) registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
+                if (updates.callback !== undefined) registeredPrompt.callback = updates.callback;
+                if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
                 this.sendPromptListChanged();
             }
         };
@@ -897,21 +895,21 @@ export class McpServer {
             enable: () => registeredTool.update({ enabled: true }),
             remove: () => registeredTool.update({ name: null }),
             update: updates => {
-                if (typeof updates.name !== 'undefined' && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
                         validateAndWarnToolName(updates.name);
                     }
                     delete this._registeredTools[name];
                     if (updates.name) this._registeredTools[updates.name] = registeredTool;
                 }
-                if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
-                if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
-                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
-                if (typeof updates.outputSchema !== 'undefined') registeredTool.outputSchema = objectFromShape(updates.outputSchema);
-                if (typeof updates.callback !== 'undefined') registeredTool.handler = updates.callback;
-                if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
-                if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
-                if (typeof updates.enabled !== 'undefined') registeredTool.enabled = updates.enabled;
+                if (updates.title !== undefined) registeredTool.title = updates.title;
+                if (updates.description !== undefined) registeredTool.description = updates.description;
+                if (updates.paramsSchema !== undefined) registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
+                if (updates.outputSchema !== undefined) registeredTool.outputSchema = objectFromShape(updates.outputSchema);
+                if (updates.callback !== undefined) registeredTool.handler = updates.callback;
+                if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
+                if (updates._meta !== undefined) registeredTool._meta = updates._meta;
+                if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
             }
         };
@@ -1382,7 +1380,7 @@ function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
     }
 
     // A raw shape has at least one property that is a Zod schema
-    return Object.values(obj).some(isZodTypeLike);
+    return Object.values(obj).some(element => isZodTypeLike(element));
 }
 
 /**

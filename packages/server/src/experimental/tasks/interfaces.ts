@@ -6,6 +6,7 @@
 import type {
     AnySchema,
     CallToolResult,
+    ContextInterface,
     CreateTaskResult,
     GetTaskResult,
     Result,
@@ -14,7 +15,6 @@ import type {
     ZodRawShapeCompat
 } from '@modelcontextprotocol/core';
 
-import type { ContextInterface } from '../../server/context.js';
 import type { BaseToolCallback } from '../../server/mcp.js';
 
 // ============================================================================

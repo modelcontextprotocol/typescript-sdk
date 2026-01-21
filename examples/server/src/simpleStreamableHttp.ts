@@ -1,26 +1,26 @@
 import { randomUUID } from 'node:crypto';
 
-import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import {
+    createProtectedResourceMetadataRouter,
+    getOAuthProtectedResourceMetadataUrl,
+    requireBearerAuth,
+    setupAuthServer
+} from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     GetPromptResult,
-    OAuthMetadata,
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
 } from '@modelcontextprotocol/server';
 import {
-    checkResourceAllowed,
-    createMcpExpressApp,
     ElicitResultSchema,
-    getOAuthProtectedResourceMetadataUrl,
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     isInitializeRequest,
-    mcpAuthMetadataRouter,
-    McpServer,
-    requireBearerAuth,
-    StreamableHTTPServerTransport
+    McpServer
 } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -94,7 +94,7 @@ const getServer = () => {
                     level: 'debug',
                     data: `Starting multi-greet for ${name}`
                 },
-                extra.sessionId
+                extra.mcpCtx.sessionId
             );
 
             await sleep(1000); // Wait 1 second before first greeting
@@ -104,7 +104,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending first greeting to ${name}`
                 },
-                extra.sessionId
+                extra.mcpCtx.sessionId
             );
 
             await sleep(1000); // Wait another second before second greeting
@@ -114,7 +114,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending second greeting to ${name}`
                 },
-                extra.sessionId
+                extra.mcpCtx.sessionId
             );
 
             return {
@@ -146,7 +146,7 @@ const getServer = () => {
             };
 
             switch (infoType) {
-                case 'contact':
+                case 'contact': {
                     message = 'Please provide your contact information';
                     requestedSchema = {
                         type: 'object',
@@ -171,7 +171,8 @@ const getServer = () => {
                         required: ['name', 'email']
                     };
                     break;
-                case 'preferences':
+                }
+                case 'preferences': {
                     message = 'Please set your preferences';
                     requestedSchema = {
                         type: 'object',
@@ -200,7 +201,8 @@ const getServer = () => {
                         required: ['theme']
                     };
                     break;
-                case 'feedback':
+                }
+                case 'feedback': {
                     message = 'Please provide your feedback';
                     requestedSchema = {
                         type: 'object',
@@ -227,8 +229,10 @@ const getServer = () => {
                         required: ['rating', 'recommend']
                     };
                     break;
-                default:
+                }
+                default: {
                     throw new Error(`Unknown info type: ${infoType}`);
+                }
             }
 
             try {
@@ -333,7 +337,7 @@ const getServer = () => {
                             level: 'info',
                             data: `Periodic notification #${counter} at ${new Date().toISOString()}`
                         },
-                        extra.sessionId
+                        extra.mcpCtx.sessionId
                     );
                 } catch (error) {
                     console.error('Error sending notification:', error);
@@ -478,11 +482,12 @@ const getServer = () => {
             }
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+            async createTask({ duration }, ctx) {
                 // Create the task
-                if (!taskStore) throw new Error('Task store not found');
+                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
+                const taskStore = ctx.taskCtx.store;
                 const task = await taskStore.createTask({
-                    ttl: taskRequestedTtl
+                    ttl: ctx.taskCtx.requestedTtl
                 });
 
                 // Simulate out-of-band work
@@ -503,13 +508,13 @@ const getServer = () => {
                     task
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
-                if (!taskStore) throw new Error('Task store not found');
-                return await taskStore.getTask(taskId!);
+            async getTask(_args, ctx) {
+                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
+                return await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
-                if (!taskStore) throw new Error('Task store not found');
-                const result = await taskStore.getTaskResult(taskId!);
+            async getTaskResult(_args, ctx) {
+                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
+                const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
                 return result as CallToolResult;
             }
         }
@@ -518,8 +523,8 @@ const getServer = () => {
     return server;
 };
 
-const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
-const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
+const MCP_PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = createMcpExpressApp();
 
@@ -530,70 +535,22 @@ if (useOAuth) {
     const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
     const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-    const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth });
+    setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth, demoMode: true });
 
-    const tokenVerifier = {
-        verifyAccessToken: async (token: string) => {
-            const endpoint = oauthMetadata.introspection_endpoint;
-
-            if (!endpoint) {
-                throw new Error('No token verification endpoint available in metadata');
-            }
-
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: new URLSearchParams({
-                    token: token
-                }).toString()
-            });
-
-            if (!response.ok) {
-                const text = await response.text().catch(() => null);
-                throw new Error(`Invalid or expired token: ${text}`);
-            }
-
-            const data = (await response.json()) as { aud: string; client_id: string; scope: string; exp: number };
-
-            if (strictOAuth) {
-                if (!data.aud) {
-                    throw new Error(`Resource Indicator (RFC8707) missing`);
-                }
-                if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
-                    throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
-                }
-            }
-
-            // Convert the response to AuthInfo format
-            return {
-                token,
-                clientId: data.client_id,
-                scopes: data.scope ? data.scope.split(' ') : [],
-                expiresAt: data.exp
-            };
-        }
-    };
-    // Add metadata routes to the main MCP server
-    app.use(
-        mcpAuthMetadataRouter({
-            oauthMetadata,
-            resourceServerUrl: mcpServerUrl,
-            scopesSupported: ['mcp:tools'],
-            resourceName: 'MCP Demo Server'
-        })
-    );
+    // Add protected resource metadata route to the MCP server
+    // This allows clients to discover the auth server
+    app.use(createProtectedResourceMetadataRouter());
 
     authMiddleware = requireBearerAuth({
-        verifier: tokenVerifier,
         requiredScopes: [],
-        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+        strictResource: strictOAuth,
+        expectedResource: mcpServerUrl
     });
 }
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 // MCP POST endpoint with optional auth
 const mcpPostHandler = async (req: Request, res: Response) => {
@@ -604,18 +561,18 @@ const mcpPostHandler = async (req: Request, res: Response) => {
         console.log('Request body:', req.body);
     }
 
-    if (useOAuth && req.auth) {
-        console.log('Authenticated user:', req.auth);
+    if (useOAuth && req.app.locals.auth) {
+        console.log('Authenticated user:', req.app.locals.auth);
     }
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request
             const eventStore = new InMemoryEventStore();
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore, // Enable resumability
                 onsessioninitialized: sessionId => {
@@ -647,7 +604,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32000,
+                    code: -32_000,
                     message: 'Bad Request: No valid session ID provided'
                 },
                 id: null
@@ -664,7 +621,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -688,8 +645,8 @@ const mcpGetHandler = async (req: Request, res: Response) => {
         return;
     }
 
-    if (useOAuth && req.auth) {
-        console.log('Authenticated SSE connection from user:', req.auth);
+    if (useOAuth && req.app.locals.auth) {
+        console.log('Authenticated SSE connection from user:', req.app.locals.auth);
     }
 
     // Check for Last-Event-ID header for resumability
@@ -742,6 +699,7 @@ if (useOAuth && authMiddleware) {
 app.listen(MCP_PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);

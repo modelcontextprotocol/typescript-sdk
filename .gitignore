@@ -134,3 +134,6 @@ dist/
 # IDE
 .idea/
 .cursor/
+
+# Conformance test results
+results/

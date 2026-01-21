@@ -7,7 +7,7 @@ import {
     createPrivateKeyJwtAuth,
     PrivateKeyJwtProvider,
     StaticPrivateKeyJwtProvider
-} from '../../src/client/auth-extensions.js';
+} from '../../src/client/authExtensions.js';
 
 const RESOURCE_SERVER_URL = 'https://resource.example.com/';
 const AUTH_SERVER_URL = 'https://auth.example.com';

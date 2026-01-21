@@ -1,6 +1,8 @@
 import type {
     AnyObjectSchema,
+    BaseRequestContext,
     ClientCapabilities,
+    ContextInterface,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
@@ -18,12 +20,12 @@ import type {
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
+    McpContext,
     MessageExtraInfo,
     Notification,
     NotificationOptions,
     ProtocolOptions,
     Request,
-    RequestHandlerExtra,
     RequestOptions,
     ResourceUpdatedNotification,
     Result,
@@ -31,7 +33,9 @@ import type {
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
+    ServerRequestContext,
     ServerResult,
+    TaskContext,
     TaskCreationParams,
     TaskStore,
     ToolResultContent,
@@ -68,7 +72,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-import { Context } from './context.js';
+import { ServerContext } from './context.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -173,8 +177,9 @@ export class Server<
 
         if (this._capabilities.logging) {
             this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
+                const ctx = extra as ServerContext<RequestT, NotificationT, ResultT>;
                 const transportSessionId: string | undefined =
-                    extra.sessionId || (extra.requestInfo?.headers['mcp-session-id'] as string) || undefined;
+                    ctx.mcpCtx.sessionId || (ctx.requestCtx.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
                 const parseResult = LoggingLevelSchema.safeParse(level);
                 if (parseResult.success) {
@@ -232,24 +237,24 @@ export class Server<
         requestSchema: T,
         handler: (
             request: SchemaOutput<T>,
-            extra: Context<RequestT, NotificationT, ResultT>
+            extra: ServerContext<RequestT, NotificationT, ResultT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
-        // Wrap the handler to ensure the extra is a Context and return a decorated handler that can be passed to the base implementation
+        // Wrap the handler to ensure the extra is a ServerContext and return a decorated handler that can be passed to the base implementation
 
-        // Factory function to create a handler decorator that ensures the extra is a Context and returns a decorated handler that can be passed to the base implementation
+        // Factory function to create a handler decorator that ensures the extra is a ServerContext and returns a decorated handler that can be passed to the base implementation
         const handlerDecoratorFactory = (
             innerHandler: (
                 request: SchemaOutput<T>,
-                extra: Context<RequestT, NotificationT, ResultT>
+                extra: ServerContext<RequestT, NotificationT, ResultT>
             ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
         ) => {
             const decoratedHandler = (
                 request: SchemaOutput<T>,
-                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+                extra: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
             ) => {
                 if (!this.isContextExtra(extra)) {
-                    throw new Error('Internal error: Expected Context for request handler extra');
+                    throw new Error('Internal error: Expected ServerContext for request handler extra');
                 }
                 return innerHandler(request, extra);
             };
@@ -276,14 +281,14 @@ export class Server<
         }
 
         if (typeof methodValue !== 'string') {
-            throw new Error('Schema method literal must be a string');
+            throw new TypeError('Schema method literal must be a string');
         }
         const method = methodValue;
 
         if (method === 'tools/call') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+                extra: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -328,79 +333,90 @@ export class Server<
         return super.setRequestHandler(requestSchema, handlerDecoratorFactory(handler));
     }
 
-    // Runtime type guard: ensure extra is our Context
+    // Runtime type guard: ensure extra is our ServerContext
     private isContextExtra(
-        extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
-    ): extra is Context<RequestT, NotificationT, ResultT> {
-        return extra instanceof Context;
+        extra: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
+    ): extra is ServerContext<RequestT, NotificationT, ResultT> {
+        return extra instanceof ServerContext;
     }
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
         switch (method as ServerRequest['method']) {
-            case 'sampling/createMessage':
+            case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
                     throw new Error(`Client does not support sampling (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'elicitation/create':
+            case 'elicitation/create': {
                 if (!this._clientCapabilities?.elicitation) {
                     throw new Error(`Client does not support elicitation (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'roots/list':
+            case 'roots/list': {
                 if (!this._clientCapabilities?.roots) {
                     throw new Error(`Client does not support listing roots (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'ping':
+            case 'ping': {
                 // No specific capability required for ping
                 break;
+            }
         }
     }
 
     protected assertNotificationCapability(method: (ServerNotification | NotificationT)['method']): void {
         switch (method as ServerNotification['method']) {
-            case 'notifications/message':
+            case 'notifications/message': {
                 if (!this._capabilities.logging) {
                     throw new Error(`Server does not support logging (required for ${method})`);
                 }
                 break;
+            }
 
             case 'notifications/resources/updated':
-            case 'notifications/resources/list_changed':
+            case 'notifications/resources/list_changed': {
                 if (!this._capabilities.resources) {
                     throw new Error(`Server does not support notifying about resources (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/tools/list_changed':
+            case 'notifications/tools/list_changed': {
                 if (!this._capabilities.tools) {
                     throw new Error(`Server does not support notifying of tool list changes (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/prompts/list_changed':
+            case 'notifications/prompts/list_changed': {
                 if (!this._capabilities.prompts) {
                     throw new Error(`Server does not support notifying of prompt list changes (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/elicitation/complete':
+            case 'notifications/elicitation/complete': {
                 if (!this._clientCapabilities?.elicitation?.url) {
                     throw new Error(`Client does not support URL elicitation (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/cancelled':
+            case 'notifications/cancelled': {
                 // Cancellation notifications are always allowed
                 break;
+            }
 
-            case 'notifications/progress':
+            case 'notifications/progress': {
                 // Progress notifications are always allowed
                 break;
+            }
         }
     }
 
@@ -412,53 +428,60 @@ export class Server<
         }
 
         switch (method) {
-            case 'completion/complete':
+            case 'completion/complete': {
                 if (!this._capabilities.completions) {
                     throw new Error(`Server does not support completions (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'logging/setLevel':
+            case 'logging/setLevel': {
                 if (!this._capabilities.logging) {
                     throw new Error(`Server does not support logging (required for ${method})`);
                 }
                 break;
+            }
 
             case 'prompts/get':
-            case 'prompts/list':
+            case 'prompts/list': {
                 if (!this._capabilities.prompts) {
                     throw new Error(`Server does not support prompts (required for ${method})`);
                 }
                 break;
+            }
 
             case 'resources/list':
             case 'resources/templates/list':
-            case 'resources/read':
+            case 'resources/read': {
                 if (!this._capabilities.resources) {
                     throw new Error(`Server does not support resources (required for ${method})`);
                 }
                 break;
+            }
 
             case 'tools/call':
-            case 'tools/list':
+            case 'tools/list': {
                 if (!this._capabilities.tools) {
                     throw new Error(`Server does not support tools (required for ${method})`);
                 }
                 break;
+            }
 
             case 'tasks/get':
             case 'tasks/list':
             case 'tasks/result':
-            case 'tasks/cancel':
+            case 'tasks/cancel': {
                 if (!this._capabilities.tasks) {
                     throw new Error(`Server does not support tasks capability (required for ${method})`);
                 }
                 break;
+            }
 
             case 'ping':
-            case 'initialize':
+            case 'initialize': {
                 // No specific capability required for these methods
                 break;
+            }
         }
     }
 
@@ -510,7 +533,7 @@ export class Server<
         return this._capabilities;
     }
 
-    protected override createRequestExtra(args: {
+    protected createRequestExtra(args: {
         request: JSONRPCRequest;
         taskStore: TaskStore | undefined;
         relatedTaskId: string | undefined;
@@ -518,14 +541,42 @@ export class Server<
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
-    }): RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT> {
-        const base = super.createRequestExtra(args) as RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>;
+    }): ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext> {
+        const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
+        const sessionId = capturedTransport?.sessionId;
 
-        // Expose a Context instance to handlers, which implements RequestHandlerExtra
-        return new Context<RequestT, NotificationT, ResultT>({
+        // Build the MCP context using the helper from Protocol
+        const mcpContext: McpContext = this.buildMcpContext({ request, sessionId });
+
+        // Build the server request context with HTTP details (server-specific)
+        const requestCtx: ServerRequestContext = {
+            signal: abortController.signal,
+            authInfo: extra?.authInfo,
+            // URL is not available in MessageExtraInfo, use a placeholder
+            uri: new URL('mcp://request'),
+            headers: extra?.requestInfo?.headers ?? new Headers(),
+            stream: {
+                closeSSEStream: extra?.closeSSEStream,
+                closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
+            }
+        };
+
+        // Build the task context using the helper from Protocol
+        const taskCtx: TaskContext | undefined = this.buildTaskContext({
+            taskStore,
+            request,
+            sessionId,
+            relatedTaskId,
+            taskCreationParams
+        });
+
+        // Return a ServerContext instance
+        return new ServerContext<RequestT, NotificationT, ResultT>({
             server: this,
-            request: args.request,
-            requestCtx: base
+            request,
+            mcpContext,
+            requestCtx,
+            task: taskCtx
         });
     }
 
@@ -560,21 +611,19 @@ export class Server<
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Capability check - only required when tools/toolChoice are provided
-        if (params.tools || params.toolChoice) {
-            if (!this._clientCapabilities?.sampling?.tools) {
-                throw new Error('Client does not support sampling tools capability.');
-            }
+        if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
+            throw new Error('Client does not support sampling tools capability.');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
         // These may appear even without tools/toolChoice in the current request when
         // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
-            const lastMessage = params.messages[params.messages.length - 1]!;
+            const lastMessage = params.messages.at(-1)!;
             const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
             const hasToolResults = lastContent.some(c => c.type === 'tool_result');
 
-            const previousMessage = params.messages.length > 1 ? params.messages[params.messages.length - 2] : undefined;
+            const previousMessage = params.messages.length > 1 ? params.messages.at(-2) : undefined;
             const previousContent = previousMessage
                 ? Array.isArray(previousMessage.content)
                     ? previousMessage.content
@@ -700,10 +749,8 @@ export class Server<
      * @param sessionId optional for stateless and backward compatibility
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
-        if (this._capabilities.logging) {
-            if (!this.isMessageIgnored(params.level, sessionId)) {
-                return this.notification({ method: 'notifications/message', params });
-            }
+        if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
+            return this.notification({ method: 'notifications/message', params });
         }
     }
 

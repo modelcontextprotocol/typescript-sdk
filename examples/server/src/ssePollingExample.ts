@@ -14,8 +14,11 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import type { ServerRequestContext } from '@modelcontextprotocol/core';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 
@@ -37,10 +40,12 @@ server.tool(
     'long-task',
     'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.',
     {},
-    async (_args, extra): Promise<CallToolResult> => {
+    async (_args, ctx): Promise<CallToolResult> => {
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+        const sessionId = ctx.mcpCtx.sessionId;
+        const requestCtx = ctx.requestCtx as ServerRequestContext;
 
-        console.log(`[${extra.sessionId}] Starting long-task...`);
+        console.log(`[${sessionId}] Starting long-task...`);
 
         // Send first progress notification
         await server.sendLoggingMessage(
@@ -48,7 +53,7 @@ server.tool(
                 level: 'info',
                 data: 'Progress: 25% - Starting work...'
             },
-            extra.sessionId
+            sessionId
         );
         await sleep(1000);
 
@@ -58,16 +63,16 @@ server.tool(
                 level: 'info',
                 data: 'Progress: 50% - Halfway there...'
             },
-            extra.sessionId
+            sessionId
         );
         await sleep(1000);
 
         // Server decides to disconnect the client to free resources
         // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
-        // Use extra.closeSSEStream callback - available when eventStore is configured
-        if (extra.closeSSEStream) {
-            console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-            extra.closeSSEStream();
+        // Use requestCtx.stream.closeSSEStream callback - available when eventStore is configured
+        if (requestCtx.stream.closeSSEStream) {
+            console.log(`[${sessionId}] Closing SSE stream to trigger client polling...`);
+            requestCtx.stream.closeSSEStream();
         }
 
         // Continue processing while client is disconnected
@@ -78,7 +83,7 @@ server.tool(
                 level: 'info',
                 data: 'Progress: 75% - Almost done (sent while client disconnected)...'
             },
-            extra.sessionId
+            sessionId
         );
 
         await sleep(500);
@@ -87,10 +92,10 @@ server.tool(
                 level: 'info',
                 data: 'Progress: 100% - Complete!'
             },
-            extra.sessionId
+            sessionId
         );
 
-        console.log(`[${extra.sessionId}] Task complete`);
+        console.log(`[${sessionId}] Task complete`);
 
         return {
             content: [
@@ -111,7 +116,7 @@ app.use(cors());
 const eventStore = new InMemoryEventStore();
 
 // Track transports by session ID for session reuse
-const transports = new Map<string, StreamableHTTPServerTransport>();
+const transports = new Map<string, NodeStreamableHTTPServerTransport>();
 
 // Handle all MCP requests
 app.all('/mcp', async (req: Request, res: Response) => {
@@ -121,7 +126,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
     let transport = sessionId ? transports.get(sessionId) : undefined;
 
     if (!transport) {
-        transport = new StreamableHTTPServerTransport({
+        transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             eventStore,
             retryInterval: 2000, // Default retry interval for priming events

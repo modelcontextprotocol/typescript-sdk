@@ -1,3 +1,7 @@
+---
+title: Client
+---
+
 ## Client overview
 
 The SDK provides a high-level `Client` class that connects to MCP servers over different transports:
@@ -8,11 +12,11 @@ The SDK provides a high-level `Client` class that connects to MCP servers over d
 
 Runnable client examples live under:
 
-- [`simpleStreamableHttp.ts`](../examples/client/src/simpleStreamableHttp.ts)
-- [`streamableHttpWithSseFallbackClient.ts`](../examples/client/src/streamableHttpWithSseFallbackClient.ts)
-- [`ssePollingClient.ts`](../examples/client/src/ssePollingClient.ts)
-- [`multipleClientsParallel.ts`](../examples/client/src/multipleClientsParallel.ts)
-- [`parallelToolCallsClient.ts`](../examples/client/src/parallelToolCallsClient.ts)
+- [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts)
+- [`streamableHttpWithSseFallbackClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/streamableHttpWithSseFallbackClient.ts)
+- [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/ssePollingClient.ts)
+- [`multipleClientsParallel.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/multipleClientsParallel.ts)
+- [`parallelToolCallsClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/parallelToolCallsClient.ts)
 
 ## Connecting and basic operations
 
@@ -25,7 +29,7 @@ A typical flow:
     - `listPrompts`, `getPrompt`
     - `listResources`, `readResource`
 
-See [`simpleStreamableHttp.ts`](../examples/client/src/simpleStreamableHttp.ts) for an interactive CLI client that exercises these methods and shows how to handle notifications, elicitation and tasks.
+See [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts) for an interactive CLI client that exercises these methods and shows how to handle notifications, elicitation and tasks.
 
 ## Transports and backwards compatibility
 
@@ -36,7 +40,7 @@ To support both modern Streamable HTTP and legacy SSE servers, use a client that
 
 Runnable example:
 
-- [`streamableHttpWithSseFallbackClient.ts`](../examples/client/src/streamableHttpWithSseFallbackClient.ts)
+- [`streamableHttpWithSseFallbackClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/streamableHttpWithSseFallbackClient.ts)
 
 ## OAuth client authentication helpers
 
@@ -48,10 +52,10 @@ For OAuth-secured MCP servers, the client `auth` module exposes:
 
 Examples:
 
-- [`simpleOAuthClient.ts`](../examples/client/src/simpleOAuthClient.ts)
-- [`simpleOAuthClientProvider.ts`](../examples/client/src/simpleOAuthClientProvider.ts)
-- [`simpleClientCredentials.ts`](../examples/client/src/simpleClientCredentials.ts)
-- Server-side auth demo: [`demoInMemoryOAuthProvider.ts`](../examples/shared/src/demoInMemoryOAuthProvider.ts) (tests live under `examples/shared/test/demoInMemoryOAuthProvider.test.ts`)
+- [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClient.ts)
+- [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClientProvider.ts)
+- [`simpleClientCredentials.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleClientCredentials.ts)
+- Server-side auth demo: [`demoInMemoryOAuthProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/shared/src/demoInMemoryOAuthProvider.ts) (tests live under `examples/shared/test/demoInMemoryOAuthProvider.test.ts`)
 
 These examples show how to:
 
