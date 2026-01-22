@@ -124,7 +124,7 @@
     </head>
     <body>
         <h1>MCP TypeScript SDK</h1>
-        
+
         <div class="redirect-notice">
             <p>Redirecting to <a href="{{ site.data.latest_version }}/">latest documentation ({{ site.data.latest_version }})</a>...</p>
         </div>
@@ -142,31 +142,39 @@
 
         <script>
             // Redirect to latest version
-            setTimeout(function() {
+            setTimeout(function () {
                 window.location.href = '{{ site.data.latest_version }}/';
             }, 1000);
 
             // Load and display package versions from versions.json
             fetch('{{ site.data.latest_version }}/versions.json')
-                .then(function(response) {
+                .then(function (response) {
                     if (!response.ok) throw new Error('versions.json not found');
                     return response.json();
                 })
-                .then(function(data) {
+                .then(function (data) {
                     var container = document.getElementById('package-versions');
                     var html = '<p>Packages included in the latest documentation:</p><ul class="package-list">';
-                    
+
                     for (var pkg in data.packages) {
-                        html += '<li><span class="package-name">' + pkg + '</span>: <span class="package-version">' + data.packages[pkg] + '</span></li>';
+                        html +=
+                            '<li><span class="package-name">' +
+                            pkg +
+                            '</span>: <span class="package-version">' +
+                            data.packages[pkg] +
+                            '</span></li>';
                     }
-                    
+
                     html += '</ul>';
-                    html += '<p style="font-size: 0.85rem; color: #666; margin-top: 1rem;">Generated from tag: ' + data.generated_from_tag + '</p>';
-                    
+                    html +=
+                        '<p style="font-size: 0.85rem; color: #666; margin-top: 1rem;">Generated from tag: ' +
+                        data.generated_from_tag +
+                        '</p>';
+
                     container.innerHTML = html;
                     container.classList.add('loaded');
                 })
-                .catch(function(err) {
+                .catch(function (err) {
                     // versions.json may not exist for older docs
                     document.getElementById('package-versions').style.display = 'none';
                 });

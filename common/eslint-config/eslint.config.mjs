@@ -80,6 +80,13 @@ export default defineConfig(
         }
     },
     {
+        // Disable consistent-function-scoping in test files where helper functions are common
+        files: ['**/*.test.ts', '**/*.test.tsx', '**/test/**'],
+        rules: {
+            'unicorn/consistent-function-scoping': 'off'
+        }
+    },
+    {
         // Ignore generated protocol types everywhere
         ignores: ['**/spec.types.ts']
     },
