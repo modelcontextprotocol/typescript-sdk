@@ -129,10 +129,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         beforeEach(async () => {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'greet',
-                'A simple greeting tool',
-                { name: z.string().describe('Name to greet') },
+                {
+                    description: 'A simple greeting tool',
+                    inputSchema: { name: z.string().describe('Name to greet') }
+                },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
                 }
@@ -435,9 +437,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         beforeEach(async () => {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
-            mcpServer.tool('echo', 'Echo tool', { message: z.string() }, async ({ message }): Promise<CallToolResult> => {
-                return { content: [{ type: 'text', text: message }] };
-            });
+            mcpServer.registerTool(
+                'echo',
+                { description: 'Echo tool', inputSchema: { message: z.string() } },
+                async ({ message }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: message }] };
+                }
+            );
 
             transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined
@@ -479,9 +485,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         beforeEach(async () => {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
-            mcpServer.tool('greet', 'Greeting tool', { name: z.string() }, async ({ name }): Promise<CallToolResult> => {
-                return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
-            });
+            mcpServer.registerTool(
+                'greet',
+                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
 
             transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
@@ -647,9 +657,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
-            mcpServer.tool('greet', 'Greeting tool', { name: z.string() }, async ({ name }): Promise<CallToolResult> => {
-                return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
-            });
+            mcpServer.registerTool(
+                'greet',
+                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
 
             transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),

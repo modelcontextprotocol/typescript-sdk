@@ -1,10 +1,10 @@
 ---
 title: Documents
 children:
-  - ./server.md
-  - ./client.md
-  - ./capabilities.md
-  - ./faq.md
+    - ./server.md
+    - ./client.md
+    - ./capabilities.md
+    - ./faq.md
 ---
 
 # Documents
