@@ -152,12 +152,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     /**
      * Helper to create and start test HTTP server with MCP setup
      */
-    async function createTestServer(config: TestServerConfig = { sessionIdGenerator: () => randomUUID() }): Promise<{
+    async function createTestServer(config?: TestServerConfig): Promise<{
         server: Server;
         transport: NodeStreamableHTTPServerTransport;
         mcpServer: McpServer;
         baseUrl: URL;
     }> {
+        config ??= { sessionIdGenerator: () => randomUUID() };
         const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
         mcpServer.tool(

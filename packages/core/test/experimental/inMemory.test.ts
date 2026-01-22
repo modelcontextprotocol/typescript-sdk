@@ -18,7 +18,7 @@ describe('InMemoryTaskStore', () => {
     describe('createTask', () => {
         it('should create a new task with working status', async () => {
             const taskParams: TaskCreationParams = {
-                ttl: 60000
+                ttl: 60_000
             };
             const request: Request = {
                 method: 'tools/call',
@@ -32,7 +32,7 @@ describe('InMemoryTaskStore', () => {
             expect(typeof task.taskId).toBe('string');
             expect(task.taskId.length).toBeGreaterThan(0);
             expect(task.status).toBe('working');
-            expect(task.ttl).toBe(60000);
+            expect(task.ttl).toBe(60_000);
             expect(task.pollInterval).toBeDefined();
             expect(task.createdAt).toBeDefined();
             expect(new Date(task.createdAt).getTime()).toBeGreaterThan(0);
@@ -221,7 +221,7 @@ describe('InMemoryTaskStore', () => {
 
         beforeEach(async () => {
             const taskParams: TaskCreationParams = {
-                ttl: 60000
+                ttl: 60_000
             };
             const createdTask = await store.createTask(taskParams, 333, {
                 method: 'tools/call',
@@ -423,7 +423,7 @@ describe('InMemoryTaskStore', () => {
             });
 
             // Fast-forward a long time
-            vi.advanceTimersByTime(100000);
+            vi.advanceTimersByTime(100_000);
 
             // Task should still exist
             const task = await store.getTask(createdTask.taskId);
@@ -502,7 +502,7 @@ describe('InMemoryTaskStore', () => {
             expect(createdTask.ttl).toBeNull();
 
             // Task should not be cleaned up even after a long time
-            vi.advanceTimersByTime(100000);
+            vi.advanceTimersByTime(100_000);
             const task = await store.getTask(createdTask.taskId);
             expect(task).toBeDefined();
             expect(task?.taskId).toBe(createdTask.taskId);
@@ -639,7 +639,7 @@ describe('InMemoryTaskStore', () => {
             }
 
             // Get first 3 tasks
-            const allTaskIds = Array.from(store.getAllTasks().map(t => t.taskId));
+            const allTaskIds = store.getAllTasks().map(t => t.taskId);
             const result = await store.listTasks(allTaskIds[2]);
 
             // Should get tasks after the third task
@@ -920,7 +920,7 @@ describe('InMemoryTaskMessageQueue', () => {
                     jsonrpc: '2.0',
                     id: 1,
                     error: {
-                        code: -32600,
+                        code: -32_600,
                         message: 'Invalid Request'
                     }
                 },

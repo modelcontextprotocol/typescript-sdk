@@ -35,7 +35,7 @@ describe('@modelcontextprotocol/express', () => {
                 expect.objectContaining({
                     jsonrpc: '2.0',
                     error: expect.objectContaining({
-                        code: -32000
+                        code: -32_000
                     }),
                     id: null
                 })
