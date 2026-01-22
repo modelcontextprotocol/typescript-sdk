@@ -707,8 +707,8 @@ function extractExportedTypes(source: string): string[] {
 }
 
 describe('Spec Types', () => {
-    const specTypes = extractExportedTypes(fs.readFileSync(SPEC_TYPES_FILE, 'utf-8'));
-    const sdkTypes = extractExportedTypes(fs.readFileSync(SDK_TYPES_FILE, 'utf-8'));
+    const specTypes = extractExportedTypes(fs.readFileSync(SPEC_TYPES_FILE, 'utf8'));
+    const sdkTypes = extractExportedTypes(fs.readFileSync(SDK_TYPES_FILE, 'utf8'));
     const typesToCheck = specTypes.filter(type => !MISSING_SDK_TYPES.includes(type));
 
     it('should define some expected types', () => {
