@@ -1,6 +1,6 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
-import type {Mock, Mocked} from 'vitest';
+import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
@@ -614,12 +614,16 @@ describe('StreamableHTTPClientTransport', () => {
                 status: 401,
                 statusText: 'Unauthorized',
                 headers: new Headers(),
-                text: async () => { throw 'dont read my body'; }
+                text: async () => {
+                    throw 'dont read my body';
+                }
             })
             .mockResolvedValue({
                 ok: false,
                 status: 404,
-                text: async () => { throw 'dont read my body'; }
+                text: async () => {
+                    throw 'dont read my body';
+                }
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
@@ -1065,7 +1069,9 @@ describe('StreamableHTTPClientTransport', () => {
             status: 401,
             statusText: 'Unauthorized',
             headers: new Headers(),
-            text: async () => { throw 'dont read my body'; }
+            text: async () => {
+                throw 'dont read my body';
+            }
         };
         (globalThis.fetch as Mock)
             // Initial connection
@@ -1120,7 +1126,9 @@ describe('StreamableHTTPClientTransport', () => {
             status: 401,
             statusText: 'Unauthorized',
             headers: new Headers(),
-            text: async () => { throw 'dont read my body'; }
+            text: async () => {
+                throw 'dont read my body';
+            }
         };
         (globalThis.fetch as Mock)
             // Initial connection
@@ -1147,7 +1155,9 @@ describe('StreamableHTTPClientTransport', () => {
             .mockResolvedValue({
                 ok: false,
                 status: 404,
-                text: async () => { throw 'dont read my body'; }
+                text: async () => {
+                    throw 'dont read my body';
+                }
             });
 
         // As above, just ensure the auth flow completes without unhandled
@@ -1174,7 +1184,9 @@ describe('StreamableHTTPClientTransport', () => {
             status: 401,
             statusText: 'Unauthorized',
             headers: new Headers(),
-            text: async () => { throw 'dont read my body'; }
+            text: async () => {
+                throw 'dont read my body';
+            }
         };
         (globalThis.fetch as Mock)
             // Initial connection
@@ -1201,7 +1213,9 @@ describe('StreamableHTTPClientTransport', () => {
             .mockResolvedValue({
                 ok: false,
                 status: 404,
-                text: async () => { throw 'dont read my body'; }
+                text: async () => {
+                    throw 'dont read my body';
+                }
             });
 
         // Behavior for InvalidGrantError during auth is covered in dedicated OAuth
@@ -1217,7 +1231,9 @@ describe('StreamableHTTPClientTransport', () => {
                 status: 401,
                 statusText: 'Unauthorized',
                 headers: new Headers(),
-                text: async () => { throw 'dont read my body'; }
+                text: async () => {
+                    throw 'dont read my body';
+                }
             };
 
             // Create custom fetch
@@ -1582,7 +1598,9 @@ describe('StreamableHTTPClientTransport', () => {
                 status: 401,
                 statusText: 'Unauthorized',
                 headers: new Headers(),
-                text: async () => { throw 'dont read my body'; }
+                text: async () => {
+                    throw 'dont read my body';
+                }
             };
 
             (globalThis.fetch as Mock)

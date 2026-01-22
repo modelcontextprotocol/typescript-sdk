@@ -273,14 +273,14 @@ describe('UriTemplate', () => {
 
         it('should handle maximum template expression limit', () => {
             // Create a template with many expressions
-            const expressions = Array.from({length: 10_000}).fill('{param}').join('');
+            const expressions = Array.from({ length: 10_000 }).fill('{param}').join('');
             expect(() => new UriTemplate(expressions)).not.toThrow();
         });
 
         it('should handle maximum variable name length', () => {
             const longName = 'a'.repeat(10_000);
             const template = new UriTemplate(`{${longName}}`);
-            const vars: Record<string, string> = { [longName]: 'value',};
+            const vars: Record<string, string> = { [longName]: 'value' };
             expect(() => template.expand(vars)).not.toThrow();
         });
 
