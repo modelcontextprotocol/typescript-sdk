@@ -26,7 +26,7 @@ async function getFreePort() {
         srv.listen(0, () => {
             const address = srv.address()!;
             if (typeof address === 'string') {
-                throw new Error('Unexpected address type: ' + typeof address);
+                throw new TypeError('Unexpected address type: ' + typeof address);
             }
             const port = (address as AddressInfo).port;
             srv.close(_err => res(port));
@@ -152,12 +152,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     /**
      * Helper to create and start test HTTP server with MCP setup
      */
-    async function createTestServer(config: TestServerConfig = { sessionIdGenerator: () => randomUUID() }): Promise<{
+    async function createTestServer(config?: TestServerConfig): Promise<{
         server: Server;
         transport: NodeStreamableHTTPServerTransport;
         mcpServer: McpServer;
         baseUrl: URL;
     }> {
+        config ??= { sessionIdGenerator: () => randomUUID() };
         const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
         mcpServer.registerTool(
@@ -184,11 +185,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
         const server = createServer(async (req, res) => {
             try {
-                if (config.customRequestHandler) {
-                    await config.customRequestHandler(req, res);
-                } else {
-                    await transport.handleRequest(req, res);
-                }
+                await (config.customRequestHandler ? config.customRequestHandler(req, res) : transport.handleRequest(req, res));
             } catch (error) {
                 console.error('Error handling request:', error);
                 if (!res.headersSent) res.writeHead(500).end();
@@ -303,7 +300,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32600, /Server already initialized/);
+            expectErrorResponse(errorData, -32_600, /Server already initialized/);
         });
 
         it('should reject batch initialize request', async () => {
@@ -324,7 +321,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32600, /Only one initialization request is allowed/);
+            expectErrorResponse(errorData, -32_600, /Only one initialization request is allowed/);
         });
 
         it('should handle post requests via sse response correctly', async () => {
@@ -342,7 +339,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const dataLine = eventLines.find(line => line.startsWith('data:'));
             expect(dataLine).toBeDefined();
 
-            const eventData = JSON.parse(dataLine!.substring(5));
+            const eventData = JSON.parse(dataLine!.slice(5));
             expect(eventData).toMatchObject({
                 jsonrpc: '2.0',
                 result: expect.objectContaining({
@@ -380,7 +377,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const dataLine = eventLines.find(line => line.startsWith('data:'));
             expect(dataLine).toBeDefined();
 
-            const eventData = JSON.parse(dataLine!.substring(5));
+            const eventData = JSON.parse(dataLine!.slice(5));
             expect(eventData).toMatchObject({
                 jsonrpc: '2.0',
                 result: {
@@ -442,7 +439,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const dataLine = eventLines.find(line => line.startsWith('data:'));
             expect(dataLine).toBeDefined();
 
-            const eventData = JSON.parse(dataLine!.substring(5));
+            const eventData = JSON.parse(dataLine!.slice(5));
 
             expect(eventData).toMatchObject({
                 jsonrpc: '2.0',
@@ -475,7 +472,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             const errorData = (await response.json()) as JSONRPCErrorResponse;
-            expectErrorResponse(errorData, -32000, /Bad Request/);
+            expectErrorResponse(errorData, -32_000, /Bad Request/);
             expect(errorData.id).toBeNull();
         });
 
@@ -488,7 +485,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(404);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32001, /Session not found/);
+            expectErrorResponse(errorData, -32_001, /Session not found/);
         });
 
         it('should establish standalone SSE stream and receive server-initiated messages', async () => {
@@ -525,7 +522,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const dataLine = eventLines.find(line => line.startsWith('data:'));
             expect(dataLine).toBeDefined();
 
-            const eventData = JSON.parse(dataLine!.substring(5));
+            const eventData = JSON.parse(dataLine!.slice(5));
             expect(eventData).toMatchObject({
                 jsonrpc: '2.0',
                 method: 'notifications/message',
@@ -593,7 +590,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Should be rejected
             expect(secondStream.status).toBe(409); // Conflict
             const errorData = await secondStream.json();
-            expectErrorResponse(errorData, -32000, /Only one SSE stream is allowed per session/);
+            expectErrorResponse(errorData, -32_000, /Only one SSE stream is allowed per session/);
         });
 
         it('should reject GET requests without Accept: text/event-stream header', async () => {
@@ -611,7 +608,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(406);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32000, /Client must accept text\/event-stream/);
+            expectErrorResponse(errorData, -32_000, /Client must accept text\/event-stream/);
         });
 
         it('should reject POST requests without proper Accept header', async () => {
@@ -630,7 +627,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(406);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32000, /Client must accept both application\/json and text\/event-stream/);
+            expectErrorResponse(errorData, -32_000, /Client must accept both application\/json and text\/event-stream/);
         });
 
         it('should reject unsupported Content-Type', async () => {
@@ -649,7 +646,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(415);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32000, /Content-Type must be application\/json/);
+            expectErrorResponse(errorData, -32_000, /Content-Type must be application\/json/);
         });
 
         it('should handle JSON-RPC batch notification messages with 202 response', async () => {
@@ -707,7 +704,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32700, /Parse error/);
+            expectErrorResponse(errorData, -32_700, /Parse error/);
         });
 
         it('should include error data in parse error response for unexpected errors', async () => {
@@ -727,7 +724,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             const errorData = (await response.json()) as JSONRPCErrorResponse;
-            expectErrorResponse(errorData, -32700, /Parse error/);
+            expectErrorResponse(errorData, -32_700, /Parse error/);
             // The error message should contain details about what went wrong
             expect(errorData.error.message).toContain('Invalid JSON');
         });
@@ -765,7 +762,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32000, /Server not initialized/);
+            expectErrorResponse(errorData, -32_000, /Server not initialized/);
 
             // Cleanup
             await stopTestServer({ server: uninitializedServer, transport: uninitializedTransport });
@@ -884,7 +881,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(404);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32001, /Session not found/);
+            expectErrorResponse(errorData, -32_001, /Session not found/);
         });
 
         describe('protocol version header validation', () => {
@@ -932,7 +929,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                 expect(response.status).toBe(400);
                 const errorData = await response.json();
-                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version: .+ \(supported versions: .+\)/);
+                expectErrorResponse(errorData, -32_000, /Bad Request: Unsupported protocol version: .+ \(supported versions: .+\)/);
             });
 
             it('should accept when protocol version differs from negotiated version', async () => {
@@ -969,7 +966,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                 expect(response.status).toBe(400);
                 const errorData = await response.json();
-                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version/);
+                expectErrorResponse(errorData, -32_000, /Bad Request: Unsupported protocol version/);
             });
 
             it('should reject unsupported protocol version on DELETE requests', async () => {
@@ -986,7 +983,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                 expect(response.status).toBe(400);
                 const errorData = await response.json();
-                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version/);
+                expectErrorResponse(errorData, -32_000, /Bad Request: Unsupported protocol version/);
             });
         });
     });
@@ -1038,7 +1035,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const dataLine = eventLines.find(line => line.startsWith('data:'));
             expect(dataLine).toBeDefined();
 
-            const eventData = JSON.parse(dataLine!.substring(5));
+            const eventData = JSON.parse(dataLine!.slice(5));
             expect(eventData).toMatchObject({
                 jsonrpc: '2.0',
                 result: {
@@ -1074,7 +1071,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const dataLine = eventLines.find(line => line.startsWith('data:'));
             expect(dataLine).toBeDefined();
 
-            const eventData = JSON.parse(dataLine!.substring(5));
+            const eventData = JSON.parse(dataLine!.slice(5));
             expect(eventData).toMatchObject({
                 jsonrpc: '2.0',
                 result: {
@@ -1189,11 +1186,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const result = await createTestServer({
                 customRequestHandler: async (req, res) => {
                     try {
-                        if (parsedBody !== null) {
+                        if (parsedBody === null) {
+                            await transport.handleRequest(req, res);
+                        } else {
                             await transport.handleRequest(req, res, parsedBody);
                             parsedBody = null; // Reset after use
-                        } else {
-                            await transport.handleRequest(req, res);
                         }
                     } catch (error) {
                         console.error('Error handling request:', error);
@@ -2340,7 +2337,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Verify we received the notification that was sent while disconnected
             expect(allText).toContain('Missed while disconnected');
-        }, 15000);
+        }, 15_000);
     });
 
     // Test onsessionclosed callback
@@ -2514,8 +2511,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     initializationOrder.push('async-start');
                     // Simulate async operation
                     await new Promise(resolve => setTimeout(resolve, 10));
-                    initializationOrder.push('async-end');
-                    initializationOrder.push(sessionId);
+                    initializationOrder.push('async-end', sessionId);
                 }
             });
 
@@ -2569,8 +2565,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     closureOrder.push('async-close-start');
                     // Simulate async operation
                     await new Promise(resolve => setTimeout(resolve, 10));
-                    closureOrder.push('async-close-end');
-                    closureOrder.push(sessionId);
+                    closureOrder.push('async-close-end', sessionId);
                 }
             });
 
