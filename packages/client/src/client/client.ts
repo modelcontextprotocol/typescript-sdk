@@ -373,7 +373,7 @@ export class Client<
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                extra: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
+                ctx: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -395,7 +395,7 @@ export class Client<
                     throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -446,7 +446,7 @@ export class Client<
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                extra: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
+                ctx: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -457,7 +457,7 @@ export class Client<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {

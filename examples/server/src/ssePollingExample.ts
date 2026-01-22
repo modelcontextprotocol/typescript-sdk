@@ -7,7 +7,7 @@
  * Key features:
  * - Configures `retryInterval` to tell clients how long to wait before reconnecting
  * - Uses `eventStore` to persist events for replay after reconnection
- * - Uses `extra.closeSSEStream()` callback to gracefully disconnect clients mid-operation
+ * - Uses `ctx.requestCtx.stream.closeSSEStream()` callback to gracefully disconnect clients mid-operation
  *
  * Run with: pnpm tsx src/ssePollingExample.ts
  * Test with: curl or the MCP Inspector

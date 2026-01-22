@@ -1455,8 +1455,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedSessionId: string | undefined;
-            mcpServer.tool('test-tool', async extra => {
-                receivedSessionId = extra.mcpCtx.sessionId;
+            mcpServer.tool('test-tool', async ctx => {
+                receivedSessionId = ctx.mcpCtx.sessionId;
                 return {
                     content: [
                         {
@@ -1501,13 +1501,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.tool('request-id-test', async extra => {
-                receivedRequestId = extra.mcpCtx.requestId;
+            mcpServer.tool('request-id-test', async ctx => {
+                receivedRequestId = ctx.mcpCtx.requestId;
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Received request ID: ${extra.mcpCtx.requestId}`
+                            text: `Received request ID: ${ctx.mcpCtx.requestId}`
                         }
                     ]
                 };
@@ -2969,13 +2969,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.resource('request-id-test', 'test://resource', async (_uri, extra) => {
-                receivedRequestId = extra.mcpCtx.requestId;
+            mcpServer.resource('request-id-test', 'test://resource', async (_uri, ctx) => {
+                receivedRequestId = ctx.mcpCtx.requestId;
                 return {
                     contents: [
                         {
                             uri: 'test://resource',
-                            text: `Received request ID: ${extra.mcpCtx.requestId}`
+                            text: `Received request ID: ${ctx.mcpCtx.requestId}`
                         }
                     ]
                 };
@@ -3888,15 +3888,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.prompt('request-id-test', async extra => {
-                receivedRequestId = extra.mcpCtx.requestId;
+            mcpServer.prompt('request-id-test', async ctx => {
+                receivedRequestId = ctx.mcpCtx.requestId;
                 return {
                     messages: [
                         {
                             role: 'assistant',
                             content: {
                                 type: 'text',
-                                text: `Received request ID: ${extra.mcpCtx.requestId}`
+                                text: `Received request ID: ${ctx.mcpCtx.requestId}`
                             }
                         }
                     ]
@@ -4401,15 +4401,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         })
                     }
                 },
-                async ({ department, name }, extra: ContextInterface<ServerRequest, ServerNotification>) => {
-                    expect(extra).toBeInstanceOf(ServerContext);
+                async (args, ctx: ContextInterface<ServerRequest, ServerNotification>) => {
+                    expect(ctx).toBeInstanceOf(ServerContext);
                     return {
                         messages: [
                             {
                                 role: 'assistant',
                                 content: {
                                     type: 'text',
-                                    text: `Hello ${name}, welcome to the ${department} team!`
+                                    text: `Hello ${args.name}, welcome to the ${args.department} team!`
                                 }
                             }
                         ]

@@ -1963,9 +1963,9 @@ describe('Task-based execution', () => {
             await serverProtocol.connect(serverTransport);
 
             // Set up a handler that uses sendRequest and sendNotification
-            serverProtocol.setRequestHandler(CallToolRequestSchema, async (_request, extra) => {
-                // Send a notification using the extra.sendNotification
-                await extra.sendNotification({
+            serverProtocol.setRequestHandler(CallToolRequestSchema, async (_request, ctx) => {
+                // Send a notification using the ctx.sendNotification
+                await ctx.sendNotification({
                     method: 'notifications/message',
                     params: { level: 'info', data: 'test' }
                 });
@@ -2045,10 +2045,10 @@ describe('Request Cancellation vs Task Cancellation', () => {
                 method: z.literal('test/longRunning'),
                 params: z.optional(z.record(z.string(), z.unknown()))
             });
-            protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
+            protocol.setRequestHandler(TestRequestSchema, async (_request, ctx) => {
                 // Simulate a long-running operation
                 await new Promise(resolve => setTimeout(resolve, 100));
-                wasAborted = extra.requestCtx.signal.aborted;
+                wasAborted = ctx.requestCtx.signal.aborted;
                 return { _meta: {} } as Result;
             });
 
@@ -2418,13 +2418,13 @@ describe('Progress notification support for tasks', () => {
         await protocol.connect(transport);
 
         // Set up a request handler that will complete the task
-        protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            if (extra.taskCtx?.store) {
-                const task = await extra.taskCtx.store.createTask({ ttl: 60_000 });
+        protocol.setRequestHandler(CallToolRequestSchema, async (request, ctx) => {
+            if (ctx.taskCtx?.store) {
+                const task = await ctx.taskCtx.store.createTask({ ttl: 60_000 });
 
                 // Simulate async work then complete the task
                 setTimeout(async () => {
-                    await extra.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: 'Done' }]
                     });
                 }, 50);

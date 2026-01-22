@@ -176,7 +176,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
+        this.server.setRequestHandler(CallToolRequestSchema, async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
             try {
                 const tool = this._registeredTools[request.params.name];
                 if (!tool) {
@@ -208,12 +208,12 @@ export class McpServer {
 
                 // Handle taskSupport 'optional' without task augmentation - automatic polling
                 if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
-                    return await this.handleAutomaticTaskPolling(tool, request, extra);
+                    return await this.handleAutomaticTaskPolling(tool, request, ctx);
                 }
 
                 // Normal execution path
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-                const result = await this.executeToolHandler(tool, args, extra);
+                const result = await this.executeToolHandler(tool, args, ctx);
 
                 // Return CreateTaskResult immediately for task requests
                 if (isTaskRequest) {
@@ -324,36 +324,36 @@ export class McpServer {
     private async executeToolHandler(
         tool: RegisteredTool,
         args: unknown,
-        extra: ContextInterface<ServerRequest, ServerNotification>
+        ctx: ContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
         const isTaskHandler = 'createTask' in handler;
 
         if (isTaskHandler) {
-            if (!extra.taskCtx?.store) {
+            if (!ctx.taskCtx?.store) {
                 throw new Error('No task store provided.');
             }
-            const taskExtra = extra;
+            const taskCtx = ctx;
 
             if (tool.inputSchema) {
                 const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve(typedHandler.createTask(args as any, extra));
+                return await Promise.resolve(typedHandler.createTask(args as any, ctx));
             } else {
                 const typedHandler = handler as ToolTaskHandler<undefined>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((typedHandler.createTask as any)(taskExtra));
+                return await Promise.resolve((typedHandler.createTask as any)(taskCtx));
             }
         }
 
         if (tool.inputSchema) {
             const typedHandler = handler as ToolCallback<ZodRawShapeCompat>;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return await Promise.resolve(typedHandler(args as any, extra));
+            return await Promise.resolve(typedHandler(args as any, ctx));
         } else {
             const typedHandler = handler as ToolCallback<undefined>;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return await Promise.resolve((typedHandler as any)(extra));
+            return await Promise.resolve((typedHandler as any)(ctx));
         }
     }
 
@@ -363,9 +363,9 @@ export class McpServer {
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
         request: RequestT,
-        extra: ContextInterface<ServerRequest, ServerNotification>
+        ctx: ContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
-        if (!extra.taskCtx?.store) {
+        if (!ctx.taskCtx?.store) {
             throw new Error('No task store provided for task-capable tool.');
         }
 
@@ -374,9 +374,9 @@ export class McpServer {
         const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
 
         const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
-            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, extra))
+            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, ctx))
             : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(extra));
+              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(ctx));
 
         // Poll until completion
         const taskId = createTaskResult.task.taskId;
@@ -385,12 +385,12 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await extra.taskCtx!.store.getTask(taskId);
+            const updatedTask = await ctx.taskCtx!.store.getTask(taskId);
             task = updatedTask;
         }
 
         // Return the final result
-        return (await extra.taskCtx!.store.getTaskResult(taskId)) as CallToolResult;
+        return (await ctx.taskCtx!.store.getTaskResult(taskId)) as CallToolResult;
     }
 
     private _completionHandlerInitialized = false;
@@ -496,7 +496,7 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+        this.server.setRequestHandler(ListResourcesRequestSchema, async (request, ctx) => {
             const resources = Object.entries(this._registeredResources)
                 .filter(([_, resource]) => resource.enabled)
                 .map(([uri, resource]) => ({
@@ -511,7 +511,7 @@ export class McpServer {
                     continue;
                 }
 
-                const result = await template.resourceTemplate.listCallback(extra);
+                const result = await template.resourceTemplate.listCallback(ctx);
                 for (const resource of result.resources) {
                     templateResources.push({
                         ...template.metadata,
@@ -534,7 +534,7 @@ export class McpServer {
             return { resourceTemplates };
         });
 
-        this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
+        this.server.setRequestHandler(ReadResourceRequestSchema, async (request, ctx) => {
             const uri = new URL(request.params.uri);
 
             // First check for exact resource match
@@ -543,14 +543,14 @@ export class McpServer {
                 if (!resource.enabled) {
                     throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} disabled`);
                 }
-                return resource.readCallback(uri, extra);
+                return resource.readCallback(uri, ctx);
             }
 
             // Then check templates
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
-                    return template.readCallback(uri, variables, extra);
+                    return template.readCallback(uri, variables, ctx);
                 }
             }
 
@@ -592,7 +592,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra): Promise<GetPromptResult> => {
+        this.server.setRequestHandler(GetPromptRequestSchema, async (request, ctx): Promise<GetPromptResult> => {
             const prompt = this._registeredPrompts[request.params.name];
             if (!prompt) {
                 throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
@@ -613,11 +613,11 @@ export class McpServer {
 
                 const args = parseResult.data;
                 const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
-                return await Promise.resolve(cb(args, extra));
+                return await Promise.resolve(cb(args, ctx));
             } else {
                 const cb = prompt.callback as PromptCallback<undefined>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((cb as any)(extra));
+                return await Promise.resolve((cb as any)(ctx));
             }
         });
 
@@ -1272,10 +1272,10 @@ export type BaseToolCallback<
     Extra extends ContextInterface<ServerRequest, ServerNotification>,
     Args extends undefined | ZodRawShapeCompat | AnySchema
 > = Args extends ZodRawShapeCompat
-    ? (args: ShapeOutput<Args>, extra: Extra) => SendResultT | Promise<SendResultT>
+    ? (args: ShapeOutput<Args>, ctx: Extra) => SendResultT | Promise<SendResultT>
     : Args extends AnySchema
-      ? (args: SchemaOutput<Args>, extra: Extra) => SendResultT | Promise<SendResultT>
-      : (extra: Extra) => SendResultT | Promise<SendResultT>;
+      ? (args: SchemaOutput<Args>, ctx: Extra) => SendResultT | Promise<SendResultT>
+      : (ctx: Extra) => SendResultT | Promise<SendResultT>;
 
 /**
  * Callback for a tool handler registered with Server.tool().
@@ -1408,7 +1408,7 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-    extra: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ContextInterface<ServerRequest, ServerNotification>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -1416,7 +1416,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
     uri: URL,
-    extra: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResource = {
@@ -1444,7 +1444,7 @@ export type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
-    extra: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResourceTemplate = {
@@ -1469,8 +1469,8 @@ export type RegisteredResourceTemplate = {
 type PromptArgsRawShape = ZodRawShapeCompat;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (args: ShapeOutput<Args>, extra: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
-    : (extra: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+    ? (args: ShapeOutput<Args>, ctx: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
+    : (ctx: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {
     title?: string;

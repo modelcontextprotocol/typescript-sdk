@@ -516,7 +516,7 @@ const createServer = (): Server => {
     });
 
     // Handle tool calls
-    server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
         const { name, arguments: args } = request.params;
         const taskParams = (request.params._meta?.task || request.params.task) as { ttl?: number; pollInterval?: number } | undefined;
 
@@ -531,7 +531,7 @@ const createServer = (): Server => {
             pollInterval: taskParams.pollInterval ?? 1000
         };
 
-        const task = await taskStore.createTask(taskOptions, extra.mcpCtx.requestId, request, extra.mcpCtx.sessionId);
+        const task = await taskStore.createTask(taskOptions, ctx.mcpCtx.requestId, request, ctx.mcpCtx.sessionId);
 
         console.log(`\n[Server] ${name} called, task created: ${task.taskId}`);
 
@@ -609,7 +609,7 @@ const createServer = (): Server => {
         activeTaskExecutions.set(task.taskId, {
             promise: taskExecution,
             server,
-            sessionId: extra.mcpCtx.sessionId ?? ''
+            sessionId: ctx.mcpCtx.sessionId ?? ''
         });
 
         return { task };
@@ -626,10 +626,10 @@ const createServer = (): Server => {
     });
 
     // Handle tasks/result
-    server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra): Promise<GetTaskPayloadResult> => {
+    server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, ctx): Promise<GetTaskPayloadResult> => {
         const { taskId } = request.params;
         console.log(`[Server] tasks/result called for task ${taskId}`);
-        return taskResultHandler.handle(taskId, server, extra.mcpCtx.sessionId ?? '');
+        return taskResultHandler.handle(taskId, server, ctx.mcpCtx.sessionId ?? '');
     });
 
     return server;

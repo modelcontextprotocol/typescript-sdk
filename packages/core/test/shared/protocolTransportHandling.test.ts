@@ -195,14 +195,14 @@ describe('Protocol transport handling bug', () => {
         });
 
         // Set up handler with variable delay
-        protocol.setRequestHandler(DelayedRequestSchema, async (request, extra) => {
+        protocol.setRequestHandler(DelayedRequestSchema, async (request, ctx) => {
             const delay = request.params?.delay || 0;
             delays.push(delay);
 
             await new Promise(resolve => setTimeout(resolve, delay));
 
             return {
-                processedBy: `handler-${extra.mcpCtx.requestId}`,
+                processedBy: `handler-${ctx.mcpCtx.requestId}`,
                 delay: delay
             } as Result;
         });

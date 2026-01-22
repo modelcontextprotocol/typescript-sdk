@@ -13,7 +13,7 @@ import { z } from 'zod/v4';
 
 describe('ServerContext', () => {
     /***
-     * Test: `extra` provided to callbacks is ServerContext (parameterized)
+     * Test: `ctx` provided to callbacks is ServerContext (parameterized)
      */
     type Seen = { isContext: boolean; hasRequestId: boolean };
     const contextCases: Array<[string, (mcpServer: McpServer, seen: Seen) => void | Promise<void>, (client: Client) => Promise<unknown>]> =
@@ -26,9 +26,9 @@ describe('ServerContext', () => {
                         {
                             inputSchema: z.object({ name: z.string() })
                         },
-                        (_args: { name: string }, extra) => {
-                            seen.isContext = extra instanceof ServerContext;
-                            seen.hasRequestId = !!extra.mcpCtx.requestId;
+                        (_args: { name: string }, ctx) => {
+                            seen.isContext = ctx instanceof ServerContext;
+                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
                             return { content: [{ type: 'text', text: 'ok' }] };
                         }
                     );
@@ -50,9 +50,9 @@ describe('ServerContext', () => {
             [
                 'resource',
                 (mcpServer, seen) => {
-                    mcpServer.registerResource('ctx-resource', 'test://res/1', { title: 'ctx-resource' }, async (_uri, extra) => {
-                        seen.isContext = extra instanceof ServerContext;
-                        seen.hasRequestId = !!extra.mcpCtx.requestId;
+                    mcpServer.registerResource('ctx-resource', 'test://res/1', { title: 'ctx-resource' }, async (_uri, ctx) => {
+                        seen.isContext = ctx instanceof ServerContext;
+                        seen.hasRequestId = !!ctx.mcpCtx.requestId;
                         return { contents: [{ uri: 'test://res/1', mimeType: 'text/plain', text: 'hello' }] };
                     });
                 },
@@ -62,13 +62,13 @@ describe('ServerContext', () => {
                 'resource template list',
                 (mcpServer, seen) => {
                     const template = new ResourceTemplate('test://items/{id}', {
-                        list: async extra => {
-                            seen.isContext = extra instanceof ServerContext;
-                            seen.hasRequestId = !!extra.mcpCtx.requestId;
+                        list: async ctx => {
+                            seen.isContext = ctx instanceof ServerContext;
+                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
                             return { resources: [] };
                         }
                     });
-                    mcpServer.registerResource('ctx-template', template, { title: 'ctx-template' }, async (_uri, _vars, _extra) => ({
+                    mcpServer.registerResource('ctx-template', template, { title: 'ctx-template' }, async (_uri, _vars, _ctx) => ({
                         contents: []
                     }));
                 },
@@ -77,9 +77,9 @@ describe('ServerContext', () => {
             [
                 'prompt',
                 (mcpServer, seen) => {
-                    mcpServer.registerPrompt('ctx-prompt', {}, async extra => {
-                        seen.isContext = extra instanceof ServerContext;
-                        seen.hasRequestId = !!extra.mcpCtx.requestId;
+                    mcpServer.registerPrompt('ctx-prompt', {}, async ctx => {
+                        seen.isContext = ctx instanceof ServerContext;
+                        seen.hasRequestId = !!ctx.mcpCtx.requestId;
                         return { messages: [] };
                     });
                 },
@@ -87,7 +87,7 @@ describe('ServerContext', () => {
             ]
         ];
 
-    test.each(contextCases)('should pass ServerContext as extra to %s callbacks', async (_kind, register, trigger) => {
+    test.each(contextCases)('should pass ServerContext as ctx to %s callbacks', async (_kind, register, trigger) => {
         const mcpServer = new McpServer({ name: 'ctx-test', version: '1.0' });
         const client = new Client({ name: 'ctx-client', version: '1.0' });
 
@@ -134,10 +134,10 @@ describe('ServerContext', () => {
             return;
         });
 
-        mcpServer.registerTool('ctx-log-test', { inputSchema: z.object({ name: z.string() }) }, async (_args: { name: string }, extra) => {
-            const ctx = extra as ServerContext;
-            await ctx.loggingNotification[level]('Test message', { test: 'test' }, 'sample-session-id');
-            await ctx.loggingNotification.log(
+        mcpServer.registerTool('ctx-log-test', { inputSchema: z.object({ name: z.string() }) }, async (_args: { name: string }, ctx) => {
+            const serverCtx = ctx as ServerContext;
+            await serverCtx.loggingNotification[level]('Test message', { test: 'test' }, 'sample-session-id');
+            await serverCtx.loggingNotification.log(
                 {
                     level,
                     data: 'Test message',
@@ -184,10 +184,10 @@ describe('ServerContext', () => {
                         {
                             inputSchema: z.object({ name: z.string() })
                         },
-                        // The test is to ensure that the extra is compatible with the ContextInterface type
-                        (_args: { name: string }, extra: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
-                            seen.isContext = extra instanceof ServerContext;
-                            seen.hasRequestId = !!extra.mcpCtx.requestId;
+                        // The test is to ensure that the ctx is compatible with the ContextInterface type
+                        (_args: { name: string }, ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                            seen.isContext = ctx instanceof ServerContext;
+                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
                             return { content: [{ type: 'text', text: 'ok' }] };
                         }
                     );
@@ -209,14 +209,14 @@ describe('ServerContext', () => {
             [
                 'resource',
                 (mcpServer, seen) => {
-                    // The test is to ensure that the extra is compatible with the ContextInterface type
+                    // The test is to ensure that the ctx is compatible with the ContextInterface type
                     mcpServer.registerResource(
                         'ctx-resource',
                         'test://res/1',
                         { title: 'ctx-resource' },
-                        async (_uri, extra: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
-                            seen.isContext = extra instanceof ServerContext;
-                            seen.hasRequestId = !!extra.mcpCtx.requestId;
+                        async (_uri, ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                            seen.isContext = ctx instanceof ServerContext;
+                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
                             return { contents: [{ uri: 'test://res/1', mimeType: 'text/plain', text: 'hello' }] };
                         }
                     );
@@ -226,15 +226,15 @@ describe('ServerContext', () => {
             [
                 'resource template list',
                 (mcpServer, seen) => {
-                    // The test is to ensure that the extra is compatible with the ContextInterface type
+                    // The test is to ensure that the ctx is compatible with the ContextInterface type
                     const template = new ResourceTemplate('test://items/{id}', {
-                        list: async (extra: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
-                            seen.isContext = extra instanceof ServerContext;
-                            seen.hasRequestId = !!extra.mcpCtx.requestId;
+                        list: async (ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                            seen.isContext = ctx instanceof ServerContext;
+                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
                             return { resources: [] };
                         }
                     });
-                    mcpServer.registerResource('ctx-template', template, { title: 'ctx-template' }, async (_uri, _vars, _extra) => ({
+                    mcpServer.registerResource('ctx-template', template, { title: 'ctx-template' }, async (_uri, _vars, _ctx) => ({
                         contents: []
                     }));
                 },
@@ -243,13 +243,13 @@ describe('ServerContext', () => {
             [
                 'prompt',
                 (mcpServer, seen) => {
-                    // The test is to ensure that the extra is compatible with the ContextInterface type
+                    // The test is to ensure that the ctx is compatible with the ContextInterface type
                     mcpServer.registerPrompt(
                         'ctx-prompt',
                         {},
-                        async (extra: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
-                            seen.isContext = extra instanceof ServerContext;
-                            seen.hasRequestId = !!extra.mcpCtx.requestId;
+                        async (ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                            seen.isContext = ctx instanceof ServerContext;
+                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
                             return { messages: [] };
                         }
                     );
@@ -258,7 +258,7 @@ describe('ServerContext', () => {
             ]
         ];
 
-        test.each(contextCases)('should pass ServerContext as extra to %s callbacks', async (_kind, register, trigger) => {
+        test.each(contextCases)('should pass ServerContext as ctx to %s callbacks', async (_kind, register, trigger) => {
             const mcpServer = new McpServer({ name: 'ctx-test', version: '1.0' });
             const client = new Client({ name: 'ctx-client', version: '1.0' });
 

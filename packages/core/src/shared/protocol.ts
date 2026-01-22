@@ -257,8 +257,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskStore = _options?.taskStore;
         this._taskMessageQueue = _options?.taskMessageQueue;
         if (this._taskStore) {
-            this.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
-                const task = await this._taskStore!.getTask(request.params.taskId, extra.mcpCtx.sessionId);
+            this.setRequestHandler(GetTaskRequestSchema, async (request, ctx) => {
+                const task = await this._taskStore!.getTask(request.params.taskId, ctx.mcpCtx.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
                 }
@@ -271,14 +271,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 } as SendResultT;
             });
 
-            this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
+            this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, ctx) => {
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
 
                     // Deliver queued messages
                     if (this._taskMessageQueue) {
                         let queuedMessage: QueuedMessage | undefined;
-                        while ((queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.mcpCtx.sessionId))) {
+                        while ((queuedMessage = await this._taskMessageQueue.dequeue(taskId, ctx.mcpCtx.sessionId))) {
                             // Handle response and error messages by routing them to the appropriate resolver
                             if (queuedMessage.type === 'response' || queuedMessage.type === 'error') {
                                 const message = queuedMessage.message;
@@ -316,12 +316,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                             // Send the message on the response stream by passing the relatedRequestId
                             // This tells the transport to write the message to the tasks/result response stream
-                            await this._transport?.send(queuedMessage.message, { relatedRequestId: extra.mcpCtx.requestId });
+                            await this._transport?.send(queuedMessage.message, { relatedRequestId: ctx.mcpCtx.requestId });
                         }
                     }
 
                     // Now check task status
-                    const task = await this._taskStore!.getTask(taskId, extra.mcpCtx.sessionId);
+                    const task = await this._taskStore!.getTask(taskId, ctx.mcpCtx.sessionId);
                     if (!task) {
                         throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
                     }
@@ -329,7 +329,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // Block if task is not terminal (we've already delivered all queued messages above)
                     if (!isTerminal(task.status)) {
                         // Wait for status change or new messages
-                        await this._waitForTaskUpdate(taskId, extra.requestCtx.signal);
+                        await this._waitForTaskUpdate(taskId, ctx.requestCtx.signal);
 
                         // After waking up, recursively call to deliver any new messages or result
                         return await handleTaskResult();
@@ -337,7 +337,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                     // If task is terminal, return the result
                     if (isTerminal(task.status)) {
-                        const result = await this._taskStore!.getTaskResult(taskId, extra.mcpCtx.sessionId);
+                        const result = await this._taskStore!.getTaskResult(taskId, ctx.mcpCtx.sessionId);
 
                         this._clearTaskQueue(taskId);
 
@@ -358,9 +358,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return await handleTaskResult();
             });
 
-            this.setRequestHandler(ListTasksRequestSchema, async (request, extra) => {
+            this.setRequestHandler(ListTasksRequestSchema, async (request, ctx) => {
                 try {
-                    const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, extra.mcpCtx.sessionId);
+                    const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, ctx.mcpCtx.sessionId);
                     // @ts-expect-error SendResultT cannot contain ListTasksResult, but we include it in our derived types everywhere else
                     return {
                         tasks,
@@ -375,10 +375,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             });
 
-            this.setRequestHandler(CancelTaskRequestSchema, async (request, extra) => {
+            this.setRequestHandler(CancelTaskRequestSchema, async (request, ctx) => {
                 try {
                     // Get the current task to check if it's in a terminal state, in case the implementation is not atomic
-                    const task = await this._taskStore!.getTask(request.params.taskId, extra.mcpCtx.sessionId);
+                    const task = await this._taskStore!.getTask(request.params.taskId, ctx.mcpCtx.sessionId);
 
                     if (!task) {
                         throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
@@ -393,12 +393,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         request.params.taskId,
                         'cancelled',
                         'Client cancelled task execution.',
-                        extra.mcpCtx.sessionId
+                        ctx.mcpCtx.sessionId
                     );
 
                     this._clearTaskQueue(request.params.taskId);
 
-                    const cancelledTask = await this._taskStore!.getTask(request.params.taskId, extra.mcpCtx.sessionId);
+                    const cancelledTask = await this._taskStore!.getTask(request.params.taskId, ctx.mcpCtx.sessionId);
                     if (!cancelledTask) {
                         // Task was deleted during cancellation (e.g., cleanup happened)
                         throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${request.params.taskId}`);
@@ -1325,15 +1325,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         requestSchema: T,
         handler: (
             request: SchemaOutput<T>,
-            extra: ContextInterface<SendRequestT, SendNotificationT, BaseRequestContext>
+            ctx: ContextInterface<SendRequestT, SendNotificationT, BaseRequestContext>
         ) => SendResultT | Promise<SendResultT>
     ): void {
         const method = getMethodLiteral(requestSchema);
         this.assertRequestHandlerCapability(method);
 
-        this._requestHandlers.set(method, (request, extra) => {
+        this._requestHandlers.set(method, (request, ctx) => {
             const parsed = parseWithCompat(requestSchema, request) as SchemaOutput<T>;
-            return Promise.resolve(handler(parsed, extra));
+            return Promise.resolve(handler(parsed, ctx));
         });
     }
 
