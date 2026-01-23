@@ -443,7 +443,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'user-agent': expect.any(String),
                     'accept-encoding': expect.any(String),
                     'content-length': expect.any(String)
-                }
+                },
+                url: baseUrl.toString()
             });
         });
 
