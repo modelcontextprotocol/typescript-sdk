@@ -109,11 +109,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Create a tool that sends progress updates
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'long-operation',
-                'A long running operation with progress updates',
                 {
-                    steps: z.number().min(1).describe('Number of steps to perform')
+                    description: 'A long running operation with progress updates',
+                    inputSchema: {
+                        steps: z.number().min(1).describe('Number of steps to perform')
+                    }
                 },
                 async ({ steps }, { sendNotification, _meta }) => {
                     const progressToken = _meta?.progressToken;
@@ -270,7 +272,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 notifications.push(notification);
             };
 
-            mcpServer.tool('test', async () => ({
+            mcpServer.registerTool('test', {}, async () => ({
                 content: [
                     {
                         type: 'text',
@@ -301,7 +303,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(notifications).toHaveLength(0);
 
             // Adding another tool triggers the update notification
-            mcpServer.tool('test2', async () => ({
+            mcpServer.registerTool('test2', {}, async () => ({
                 content: [
                     {
                         type: 'text',
@@ -338,7 +340,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial tool
-            const tool = mcpServer.tool('test', async () => ({
+            const tool = mcpServer.registerTool('test', {}, async () => ({
                 content: [
                     {
                         type: 'text',
@@ -403,10 +405,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial tool
-            const tool = mcpServer.tool(
+            const tool = mcpServer.registerTool(
                 'test',
                 {
-                    name: z.string()
+                    inputSchema: {
+                        name: z.string()
+                    }
                 },
                 async ({ name }) => ({
                     content: [
@@ -586,7 +590,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial tool
-            const tool = mcpServer.tool('test', async () => ({
+            const tool = mcpServer.registerTool('test', {}, async () => ({
                 content: [
                     {
                         type: 'text',
@@ -643,26 +647,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            // old api
-            mcpServer.tool(
-                'test',
-                {
-                    name: z.string(),
-                    value: z.number()
-                },
-                async ({ name, value }) => ({
-                    content: [
-                        {
-                            type: 'text',
-                            text: `${name}: ${value}`
-                        }
-                    ]
-                })
-            );
-
-            // new api
             mcpServer.registerTool(
-                'test (new api)',
+                'test',
                 {
                     inputSchema: { name: z.string(), value: z.number() }
                 },
@@ -682,7 +668,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 ListToolsResultSchema
             );
 
-            expect(result.tools).toHaveLength(2);
+            expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
             expect(result.tools[0]!.inputSchema).toMatchObject({
                 type: 'object',
@@ -691,8 +677,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     value: { type: 'number' }
                 }
             });
-            expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
         });
 
         /***
@@ -708,8 +692,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            // old api
-            mcpServer.tool('test', 'Test description', async () => ({
+            mcpServer.registerTool('test', { description: 'Test description' }, async () => ({
                 content: [
                     {
                         type: 'text',
@@ -765,17 +748,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool('test', { title: 'Test Tool', readOnlyHint: true }, async () => ({
-                content: [
-                    {
-                        type: 'text',
-                        text: 'Test response'
-                    }
-                ]
-            }));
-
             mcpServer.registerTool(
-                'test (new api)',
+                'test',
                 {
                     annotations: { title: 'Test Tool', readOnlyHint: true }
                 },
@@ -800,14 +774,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 ListToolsResultSchema
             );
 
-            expect(result.tools).toHaveLength(2);
+            expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
             expect(result.tools[0]!.annotations).toEqual({
-                title: 'Test Tool',
-                readOnlyHint: true
-            });
-            expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.annotations).toEqual({
                 title: 'Test Tool',
                 readOnlyHint: true
             });
@@ -826,12 +795,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool('test', { name: z.string() }, { title: 'Test Tool', readOnlyHint: true }, async ({ name }) => ({
-                content: [{ type: 'text', text: `Hello, ${name}!` }]
-            }));
-
             mcpServer.registerTool(
-                'test (new api)',
+                'test',
                 {
                     inputSchema: { name: z.string() },
                     annotations: { title: 'Test Tool', readOnlyHint: true }
@@ -847,7 +812,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
 
-            expect(result.tools).toHaveLength(2);
+            expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
             expect(result.tools[0]!.inputSchema).toMatchObject({
                 type: 'object',
@@ -857,9 +822,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 title: 'Test Tool',
                 readOnlyHint: true
             });
-            expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
-            expect(result.tools[1]!.annotations).toEqual(result.tools[0]!.annotations);
         });
 
         /***
@@ -875,18 +837,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool(
-                'test',
-                'A tool with everything',
-                { name: z.string() },
-                { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false },
-                async ({ name }) => ({
-                    content: [{ type: 'text', text: `Hello, ${name}!` }]
-                })
-            );
-
             mcpServer.registerTool(
-                'test (new api)',
+                'test',
                 {
                     description: 'A tool with everything',
                     inputSchema: { name: z.string() },
@@ -907,7 +859,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
 
-            expect(result.tools).toHaveLength(2);
+            expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
             expect(result.tools[0]!.description).toBe('A tool with everything');
             expect(result.tools[0]!.inputSchema).toMatchObject({
@@ -919,10 +871,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 readOnlyHint: true,
                 openWorldHint: false
             });
-            expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.description).toBe('A tool with everything');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
-            expect(result.tools[1]!.annotations).toEqual(result.tools[0]!.annotations);
         });
 
         /***
@@ -938,25 +886,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool(
-                'test',
-                'A tool with everything but empty params',
-                {},
-                {
-                    title: 'Complete Test Tool with empty params',
-                    readOnlyHint: true,
-                    openWorldHint: false
-                },
-                async () => ({
-                    content: [{ type: 'text', text: 'Test response' }]
-                })
-            );
-
             mcpServer.registerTool(
-                'test (new api)',
+                'test',
                 {
                     description: 'A tool with everything but empty params',
-                    inputSchema: {},
                     annotations: {
                         title: 'Complete Test Tool with empty params',
                         readOnlyHint: true,
@@ -974,7 +907,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
 
-            expect(result.tools).toHaveLength(2);
+            expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
             expect(result.tools[0]!.description).toBe('A tool with everything but empty params');
             expect(result.tools[0]!.inputSchema).toMatchObject({
@@ -986,10 +919,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 readOnlyHint: true,
                 openWorldHint: false
             });
-            expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.description).toBe('A tool with everything but empty params');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
-            expect(result.tools[1]!.annotations).toEqual(result.tools[0]!.annotations);
         });
 
         /***
@@ -1005,24 +934,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool(
-                'test',
-                {
-                    name: z.string(),
-                    value: z.number()
-                },
-                async ({ name, value }) => ({
-                    content: [
-                        {
-                            type: 'text',
-                            text: `${name}: ${value}`
-                        }
-                    ]
-                })
-            );
-
             mcpServer.registerTool(
-                'test (new api)',
+                'test',
                 {
                     inputSchema: {
                         name: z.string(),
@@ -1066,30 +979,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 ])
             );
-
-            const result2 = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test (new api)',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
-                    }
-                },
-                CallToolResultSchema
-            );
-
-            expect(result2.isError).toBe(true);
-            expect(result2.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error: Invalid arguments for tool test (new api)')
-                    }
-                ])
-            );
         });
 
         /***
@@ -1101,7 +990,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool('test', async () => ({
+            mcpServer.registerTool('test', {}, async () => ({
                 content: [
                     {
                         type: 'text',
@@ -1111,7 +1000,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }));
 
             expect(() => {
-                mcpServer.tool('test', async () => ({
+                mcpServer.registerTool('test', {}, async () => ({
                     content: [
                         {
                             type: 'text',
@@ -1132,10 +1021,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // This should succeed
-            mcpServer.tool('tool1', () => ({ content: [] }));
+            mcpServer.registerTool('tool1', {}, () => ({ content: [] }));
 
             // This should also succeed and not throw about request handlers
-            mcpServer.tool('tool2', () => ({ content: [] }));
+            mcpServer.registerTool('tool2', {}, () => ({ content: [] }));
         });
 
         /***
@@ -1448,7 +1337,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedSessionId: string | undefined;
-            mcpServer.tool('test-tool', async extra => {
+            mcpServer.registerTool('test-tool', {}, async extra => {
                 receivedSessionId = extra.sessionId;
                 return {
                     content: [
@@ -1494,7 +1383,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.tool('request-id-test', async extra => {
+            mcpServer.registerTool('request-id-test', {}, async extra => {
                 receivedRequestId = extra.requestId;
                 return {
                     content: [
@@ -1556,8 +1445,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 receivedLogMessage = notification.params.data as string;
             });
 
-            mcpServer.tool('test-tool', async ({ sendNotification }) => {
-                await sendNotification({
+            mcpServer.registerTool('test-tool', {}, async extra => {
+                await extra.sendNotification({
                     method: 'notifications/message',
                     params: { level: 'debug', data: loggingMessage }
                 });
@@ -1599,11 +1488,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'test',
-                'Test tool',
                 {
-                    input: z.string()
+                    description: 'Test tool',
+                    inputSchema: {
+                        input: z.string()
+                    }
                 },
                 async ({ input }) => ({
                     content: [
@@ -1654,7 +1545,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool('error-test', async () => {
+            mcpServer.registerTool('error-test', {}, async () => {
                 throw new Error('Tool execution failed');
             });
 
@@ -1695,7 +1586,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool('test-tool', async () => ({
+            mcpServer.registerTool('test-tool', {}, async () => ({
                 content: [
                     {
                         type: 'text',
@@ -1759,7 +1650,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 message: 'Authorization required'
             };
 
-            mcpServer.tool('needs-authorization', async () => {
+            mcpServer.registerTool('needs-authorization', {}, async () => {
                 throw new UrlElicitationRequiredError([elicitationParams], 'Confirmation required');
             });
 
@@ -2065,7 +1956,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('test', 'test://resource', async () => ({
+            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource',
@@ -2108,7 +1999,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial resource
-            const resource = mcpServer.resource('test', 'test://resource', async () => ({
+            const resource = mcpServer.registerResource('test', 'test://resource', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource',
@@ -2176,9 +2067,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial resource template
-            const resourceTemplate = mcpServer.resource(
+            const resourceTemplate = mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{id}', { list: undefined }),
+                {},
                 async uri => ({
                     contents: [
                         {
@@ -2248,7 +2140,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial resource
-            const resource = mcpServer.resource('test', 'test://resource', async () => ({
+            const resource = mcpServer.registerResource('test', 'test://resource', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource',
@@ -2299,11 +2191,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial resources
-            const resource1 = mcpServer.resource('resource1', 'test://resource1', async () => ({
+            const resource1 = mcpServer.registerResource('resource1', 'test://resource1', {}, async () => ({
                 contents: [{ uri: 'test://resource1', text: 'Resource 1 content' }]
             }));
 
-            mcpServer.resource('resource2', 'test://resource2', async () => ({
+            mcpServer.registerResource('resource2', 'test://resource2', {}, async () => ({
                 contents: [{ uri: 'test://resource2', text: 'Resource 2 content' }]
             }));
 
@@ -2352,9 +2244,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register resource template
-            const resourceTemplate = mcpServer.resource(
+            const resourceTemplate = mcpServer.registerResource(
                 'template',
                 new ResourceTemplate('test://resource/{id}', { list: undefined }),
+                {},
                 async uri => ({
                     contents: [
                         {
@@ -2404,7 +2297,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             const mockDate = new Date().toISOString();
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 'test://resource',
                 {
@@ -2460,7 +2353,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('test', new ResourceTemplate('test://resource/{id}', { list: undefined }), async () => ({
+            mcpServer.registerResource('test', new ResourceTemplate('test://resource/{id}', { list: undefined }), {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource/123',
@@ -2498,7 +2391,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{id}', {
                     list: async () => ({
@@ -2514,6 +2407,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         ]
                     })
                 }),
+                {},
                 async uri => ({
                     contents: [
                         {
@@ -2555,11 +2449,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{category}/{id}', {
                     list: undefined
                 }),
+                {},
                 async (uri, { category, id }) => ({
                     contents: [
                         {
@@ -2603,7 +2498,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('test', 'test://resource', async () => ({
+            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource',
@@ -2613,7 +2508,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }));
 
             expect(() => {
-                mcpServer.resource('test2', 'test://resource', async () => ({
+                mcpServer.registerResource('test2', 'test://resource', {}, async () => ({
                     contents: [
                         {
                             uri: 'test://resource',
@@ -2634,7 +2529,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // This should succeed
-            mcpServer.resource('resource1', 'test://resource1', async () => ({
+            mcpServer.registerResource('resource1', 'test://resource1', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource1',
@@ -2644,7 +2539,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }));
 
             // This should also succeed and not throw about request handlers
-            mcpServer.resource('resource2', 'test://resource2', async () => ({
+            mcpServer.registerResource('resource2', 'test://resource2', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource2',
@@ -2663,7 +2558,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('test', new ResourceTemplate('test://resource/{id}', { list: undefined }), async () => ({
+            mcpServer.registerResource('test', new ResourceTemplate('test://resource/{id}', { list: undefined }), {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource/123',
@@ -2673,7 +2568,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }));
 
             expect(() => {
-                mcpServer.resource('test', new ResourceTemplate('test://resource/{id}', { list: undefined }), async () => ({
+                mcpServer.registerResource('test', new ResourceTemplate('test://resource/{id}', { list: undefined }), {}, async () => ({
                     contents: [
                         {
                             uri: 'test://resource/123',
@@ -2697,7 +2592,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('error-test', 'test://error', async () => {
+            mcpServer.registerResource('error-test', 'test://error', {}, async () => {
                 throw new Error('Resource read failed');
             });
 
@@ -2731,7 +2626,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('test', 'test://resource', async () => ({
+            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource',
@@ -2770,11 +2665,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{category}', {
                     list: undefined
                 }),
+                {},
                 async () => ({
                     contents: [
                         {
@@ -2805,7 +2701,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{category}', {
                     list: undefined,
@@ -2813,6 +2709,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         category: () => ['books', 'movies', 'music']
                     }
                 }),
+                {},
                 async () => ({
                     contents: [
                         {
@@ -2844,7 +2741,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{category}', {
                     list: undefined,
@@ -2852,6 +2749,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         category: () => ['books', 'movies', 'music']
                     }
                 }),
+                {},
                 async () => ({
                     contents: [
                         {
@@ -2901,7 +2799,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{category}', {
                     list: undefined,
@@ -2909,6 +2807,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         category: (test: string) => ['books', 'movies', 'music'].filter(value => value.startsWith(test))
                     }
                 }),
+                {},
                 async () => ({
                     contents: [
                         {
@@ -2959,7 +2858,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.resource('request-id-test', 'test://resource', async (_uri, extra) => {
+            mcpServer.registerResource('request-id-test', 'test://resource', {}, async (_uri, extra) => {
                 receivedRequestId = extra.requestId;
                 return {
                     contents: [
@@ -3012,7 +2911,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt('test', async () => ({
+            mcpServer.registerPrompt('test', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3057,7 +2956,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial prompt
-            const prompt = mcpServer.prompt('test', async () => ({
+            const prompt = mcpServer.registerPrompt('test', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3134,10 +3033,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial prompt
-            const prompt = mcpServer.prompt(
+            const prompt = mcpServer.registerPrompt(
                 'test',
                 {
-                    name: z.string()
+                    argsSchema: {
+                        name: z.string()
+                    }
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3236,7 +3137,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial prompt
-            const prompt = mcpServer.prompt('test', async () => ({
+            const prompt = mcpServer.registerPrompt('test', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3293,7 +3194,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial prompts
-            const prompt1 = mcpServer.prompt('prompt1', async () => ({
+            const prompt1 = mcpServer.registerPrompt('prompt1', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3305,7 +3206,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 ]
             }));
 
-            mcpServer.prompt('prompt2', async () => ({
+            mcpServer.registerPrompt('prompt2', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3358,11 +3259,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt(
+            mcpServer.registerPrompt(
                 'test',
                 {
-                    name: z.string(),
-                    value: z.string()
+                    argsSchema: {
+                        name: z.string(),
+                        value: z.string()
+                    }
                 },
                 async ({ name, value }) => ({
                     messages: [
@@ -3409,7 +3312,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt('test', 'Test description', async () => ({
+            mcpServer.registerPrompt('test', { description: 'Test description' }, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3451,11 +3354,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt(
+            mcpServer.registerPrompt(
                 'test',
                 {
-                    name: z.string(),
-                    value: z.string().min(3)
+                    argsSchema: {
+                        name: z.string(),
+                        value: z.string().min(3)
+                    }
                 },
                 async ({ name, value }) => ({
                     messages: [
@@ -3500,7 +3405,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt('test', async () => ({
+            mcpServer.registerPrompt('test', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3513,7 +3418,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }));
 
             expect(() => {
-                mcpServer.prompt('test', async () => ({
+                mcpServer.registerPrompt('test', {}, async () => ({
                     messages: [
                         {
                             role: 'assistant',
@@ -3537,7 +3442,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // This should succeed
-            mcpServer.prompt('prompt1', async () => ({
+            mcpServer.registerPrompt('prompt1', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3550,7 +3455,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }));
 
             // This should also succeed and not throw about request handlers
-            mcpServer.prompt('prompt2', async () => ({
+            mcpServer.registerPrompt('prompt2', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3573,7 +3478,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // This should succeed
-            mcpServer.prompt('echo', { message: z.string() }, ({ message }) => ({
+            mcpServer.registerPrompt('echo', { argsSchema: { message: z.string() } }, ({ message }) => ({
                 messages: [
                     {
                         role: 'user',
@@ -3596,7 +3501,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Register a resource with completion
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{category}', {
                     list: undefined,
@@ -3604,6 +3509,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         category: () => ['books', 'movies', 'music']
                     }
                 }),
+                {},
                 async () => ({
                     contents: [
                         {
@@ -3615,17 +3521,21 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Register a prompt with completion
-            mcpServer.prompt('echo', { message: completable(z.string(), () => ['hello', 'world']) }, ({ message }) => ({
-                messages: [
-                    {
-                        role: 'user',
-                        content: {
-                            type: 'text',
-                            text: `Please process this message: ${message}`
+            mcpServer.registerPrompt(
+                'echo',
+                { argsSchema: { message: completable(z.string(), () => ['hello', 'world']) } },
+                ({ message }) => ({
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: `Please process this message: ${message}`
+                            }
                         }
-                    }
-                ]
-            }));
+                    ]
+                })
+            );
         });
 
         /***
@@ -3642,7 +3552,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt('test-prompt', async () => ({
+            mcpServer.registerPrompt('test-prompt', {}, async () => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3684,10 +3594,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt(
+            mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    name: z.string()
+                    argsSchema: {
+                        name: z.string()
+                    }
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3724,10 +3636,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt(
+            mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
+                    argsSchema: {
+                        name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
+                    }
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3763,10 +3677,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt(
+            mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
+                    argsSchema: {
+                        name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
+                    }
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3820,10 +3736,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.prompt(
+            mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    name: completable(z.string(), test => ['Alice', 'Bob', 'Charlie'].filter(value => value.startsWith(test)))
+                    argsSchema: {
+                        name: completable(z.string(), test => ['Alice', 'Bob', 'Charlie'].filter(value => value.startsWith(test)))
+                    }
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3878,7 +3796,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.prompt('request-id-test', async extra => {
+            mcpServer.registerPrompt('request-id-test', {}, async extra => {
                 receivedRequestId = extra.requestId;
                 return {
                     messages: [
@@ -3935,7 +3853,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{id}', {
                     list: async () => ({
@@ -4005,7 +3923,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{id}', {
                     list: async () => ({
@@ -4112,16 +4030,18 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Tool 1: Only name
-            mcpServer.tool('tool_name_only', async () => ({
+            mcpServer.registerTool('tool_name_only', {}, async () => ({
                 content: [{ type: 'text', text: 'Response' }]
             }));
 
             // Tool 2: Name and annotations.title
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'tool_with_annotations_title',
-                'Tool with annotations title',
                 {
-                    title: 'Annotations Title'
+                    description: 'Tool with annotations title',
+                    annotations: {
+                        title: 'Annotations Title'
+                    }
                 },
                 async () => ({
                     content: [{ type: 'text', text: 'Response' }]
@@ -4523,12 +4443,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Register the restaurant booking tool from README example
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'book-restaurant',
                 {
-                    restaurant: z.string(),
-                    date: z.string(),
-                    partySize: z.number()
+                    inputSchema: {
+                        restaurant: z.string(),
+                        date: z.string(),
+                        partySize: z.number()
+                    }
                 },
                 async ({ restaurant, date, partySize }) => {
                     // Check availability
@@ -5147,7 +5069,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('test', 'test://resource', async () => ({
+            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource',
@@ -5190,7 +5112,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             };
 
             // Register initial resource
-            const resource = mcpServer.resource('test', 'test://resource', async () => ({
+            const resource = mcpServer.registerResource('test', 'test://resource', {}, async () => ({
                 contents: [
                     {
                         uri: 'test://resource',
@@ -5266,7 +5188,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{id}', {
                     list: async () => ({
@@ -5336,7 +5258,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource(
+            mcpServer.registerResource(
                 'test',
                 new ResourceTemplate('test://resource/{id}', {
                     list: async () => ({
@@ -5398,16 +5320,18 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Tool 1: Only name
-            mcpServer.tool('tool_name_only', async () => ({
+            mcpServer.registerTool('tool_name_only', {}, async () => ({
                 content: [{ type: 'text', text: 'Response' }]
             }));
 
             // Tool 2: Name and annotations.title
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'tool_with_annotations_title',
-                'Tool with annotations title',
                 {
-                    title: 'Annotations Title'
+                    description: 'Tool with annotations title',
+                    annotations: {
+                        title: 'Annotations Title'
+                    }
                 },
                 async () => ({
                     content: [{ type: 'text', text: 'Response' }]
@@ -5809,12 +5733,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Register the restaurant booking tool from README example
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'book-restaurant',
                 {
-                    restaurant: z.string(),
-                    date: z.string(),
-                    partySize: z.number()
+                    inputSchema: {
+                        restaurant: z.string(),
+                        date: z.string(),
+                        partySize: z.number()
+                    }
                 },
                 async ({ restaurant, date, partySize }) => {
                     // Check availability
