@@ -67,11 +67,13 @@ function createMcpServer(): McpServer {
   );
 
   // Simple echo tool for testing authenticated calls
-  mcpServer.tool(
+  mcpServer.registerTool(
     'echo',
-    'Echoes back the provided message - used for testing authenticated calls',
     {
-      message: z.string().optional().describe('The message to echo back')
+      description: 'Echoes back the provided message - used for testing authenticated calls',
+      inputSchema: {
+        message: z.string().optional().describe('The message to echo back')
+      }
     },
     async (args: { message?: string }) => {
       const message = args.message || 'No message provided';
@@ -82,10 +84,11 @@ function createMcpServer(): McpServer {
   );
 
   // Simple test tool with no arguments
-  mcpServer.tool(
+  mcpServer.registerTool(
     'test-tool',
-    'A simple test tool that returns a success message',
-    {},
+    {
+      description: 'A simple test tool that returns a success message'
+    },
     async () => {
       return {
         content: [{ type: 'text', text: 'test' }]
@@ -94,11 +97,13 @@ function createMcpServer(): McpServer {
   );
 
   // Privileged tool requiring 'admin' scope - for step-up auth testing
-  mcpServer.tool(
+  mcpServer.registerTool(
     'admin-action',
-    'A privileged action that requires admin scope - used for step-up auth testing',
     {
-      action: z.string().optional().describe('The admin action to perform')
+      description: 'A privileged action that requires admin scope - used for step-up auth testing',
+      inputSchema: {
+        action: z.string().optional().describe('The admin action to perform')
+      }
     },
     async (args: { action?: string }) => {
       const action = args.action || 'default-admin-action';
