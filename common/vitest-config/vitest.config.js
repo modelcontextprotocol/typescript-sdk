@@ -14,7 +14,7 @@ export default defineConfig({
         exclude: ignorePatterns,
         deps: {
             moduleDirectories: ['node_modules', path.resolve(__dirname, '../../packages'), path.resolve(__dirname, '../../common')]
-        },
+        }
     },
     poolOptions: {
         threads: {

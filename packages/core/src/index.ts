@@ -1,6 +1,6 @@
 export * from './auth/errors.js';
 export * from './shared/auth.js';
-export * from './shared/auth-utils.js';
+export * from './shared/authUtils.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
@@ -10,13 +10,13 @@ export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
 export * from './types/types.js';
 export * from './util/inMemory.js';
-export * from './util/zod-compat.js';
-export * from './util/zod-json-schema-compat.js';
+export * from './util/zodCompat.js';
+export * from './util/zodJsonSchemaCompat.js';
 
 // experimental exports
 export * from './experimental/index.js';
-export * from './validation/ajv-provider.js';
-export * from './validation/cfworker-provider.js';
+export * from './validation/ajvProvider.js';
+export * from './validation/cfWorkerProvider.js';
 /**
  * JSON Schema validation
  *

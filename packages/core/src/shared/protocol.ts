@@ -49,9 +49,9 @@ import {
     RELATED_TASK_META_KEY,
     TaskStatusNotificationSchema
 } from '../types/types.js';
-import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/zod-compat.js';
-import { safeParse } from '../util/zod-compat.js';
-import { getMethodLiteral, parseWithCompat } from '../util/zod-json-schema-compat.js';
+import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/zodCompat.js';
+import { safeParse } from '../util/zodCompat.js';
+import { getMethodLiteral, parseWithCompat } from '../util/zodJsonSchemaCompat.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -107,7 +107,7 @@ export type ProtocolOptions = {
 /**
  * The default request timeout, in miliseconds.
  */
-export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60000;
+export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
 
 /**
  * Options that can be given per request.
@@ -780,19 +780,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     };
 
                     // Queue or send the response based on whether this is a task-related request
-                    if (relatedTaskId && this._taskMessageQueue) {
-                        await this._enqueueTaskMessage(
-                            relatedTaskId,
-                            {
-                                type: 'response',
-                                message: response,
-                                timestamp: Date.now()
-                            },
-                            capturedTransport?.sessionId
-                        );
-                    } else {
-                        await capturedTransport?.send(response);
-                    }
+                    await (relatedTaskId && this._taskMessageQueue
+                        ? this._enqueueTaskMessage(
+                              relatedTaskId,
+                              {
+                                  type: 'response',
+                                  message: response,
+                                  timestamp: Date.now()
+                              },
+                              capturedTransport?.sessionId
+                          )
+                        : capturedTransport?.send(response));
                 },
                 async error => {
                     if (abortController.signal.aborted) {
@@ -811,19 +809,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     };
 
                     // Queue or send the error response based on whether this is a task-related request
-                    if (relatedTaskId && this._taskMessageQueue) {
-                        await this._enqueueTaskMessage(
-                            relatedTaskId,
-                            {
-                                type: 'error',
-                                message: errorResponse,
-                                timestamp: Date.now()
-                            },
-                            capturedTransport?.sessionId
-                        );
-                    } else {
-                        await capturedTransport?.send(errorResponse);
-                    }
+                    await (relatedTaskId && this._taskMessageQueue
+                        ? this._enqueueTaskMessage(
+                              relatedTaskId,
+                              {
+                                  type: 'error',
+                                  message: errorResponse,
+                                  timestamp: Date.now()
+                              },
+                              capturedTransport?.sessionId
+                          )
+                        : capturedTransport?.send(errorResponse));
                 }
             )
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
@@ -1028,20 +1024,31 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 // Check if task is terminal
                 if (isTerminal(task.status)) {
-                    if (task.status === 'completed') {
-                        // Get the final result
-                        const result = await this.getTaskResult({ taskId }, resultSchema, options);
-                        yield { type: 'result', result };
-                    } else if (task.status === 'failed') {
-                        yield {
-                            type: 'error',
-                            error: new McpError(ErrorCode.InternalError, `Task ${taskId} failed`)
-                        };
-                    } else if (task.status === 'cancelled') {
-                        yield {
-                            type: 'error',
-                            error: new McpError(ErrorCode.InternalError, `Task ${taskId} was cancelled`)
-                        };
+                    switch (task.status) {
+                        case 'completed': {
+                            // Get the final result
+                            const result = await this.getTaskResult({ taskId }, resultSchema, options);
+                            yield { type: 'result', result };
+
+                            break;
+                        }
+                        case 'failed': {
+                            yield {
+                                type: 'error',
+                                error: new McpError(ErrorCode.InternalError, `Task ${taskId} failed`)
+                            };
+
+                            break;
+                        }
+                        case 'cancelled': {
+                            yield {
+                                type: 'error',
+                                error: new McpError(ErrorCode.InternalError, `Task ${taskId} was cancelled`)
+                            };
+
+                            break;
+                        }
+                        // No default
                     }
                     return;
                 }
@@ -1096,8 +1103,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     if (task) {
                         this.assertTaskCapability(request.method);
                     }
-                } catch (e) {
-                    earlyReject(e);
+                } catch (error) {
+                    earlyReject(error);
                     return;
                 }
             }
@@ -1116,7 +1123,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
-                        ...(request.params?._meta || {}),
+                        ...request.params?._meta,
                         progressToken: messageId
                     }
                 };
@@ -1135,7 +1142,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 jsonrpcRequest.params = {
                     ...jsonrpcRequest.params,
                     _meta: {
-                        ...(jsonrpcRequest.params?._meta || {}),
+                        ...jsonrpcRequest.params?._meta,
                         [RELATED_TASK_META_KEY]: relatedTask
                     }
                 };
@@ -1176,11 +1183,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 try {
                     const parseResult = safeParse(resultSchema, response.result);
-                    if (!parseResult.success) {
+                    if (parseResult.success) {
+                        resolve(parseResult.data as SchemaOutput<T>);
+                    } else {
                         // Type guard: if success is false, error is guaranteed to exist
                         reject(parseResult.error);
-                    } else {
-                        resolve(parseResult.data as SchemaOutput<T>);
                     }
                 } catch (error) {
                     reject(error);
@@ -1296,7 +1303,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 params: {
                     ...notification.params,
                     _meta: {
-                        ...(notification.params?._meta || {}),
+                        ...notification.params?._meta,
                         [RELATED_TASK_META_KEY]: options.relatedTask
                     }
                 }
@@ -1351,7 +1358,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         params: {
                             ...jsonrpcNotification.params,
                             _meta: {
-                                ...(jsonrpcNotification.params?._meta || {}),
+                                ...jsonrpcNotification.params?._meta,
                                 [RELATED_TASK_META_KEY]: options.relatedTask
                             }
                         }
@@ -1379,7 +1386,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 params: {
                     ...jsonrpcNotification.params,
                     _meta: {
-                        ...(jsonrpcNotification.params?._meta || {}),
+                        ...jsonrpcNotification.params?._meta,
                         [RELATED_TASK_META_KEY]: options.relatedTask
                     }
                 }
@@ -1651,11 +1658,10 @@ export function mergeCapabilities<T extends ServerCapabilities | ClientCapabilit
         const addValue = additional[k];
         if (addValue === undefined) continue;
         const baseValue = result[k];
-        if (isPlainObject(baseValue) && isPlainObject(addValue)) {
-            result[k] = { ...(baseValue as Record<string, unknown>), ...(addValue as Record<string, unknown>) } as T[typeof k];
-        } else {
-            result[k] = addValue as T[typeof k];
-        }
+        result[k] =
+            isPlainObject(baseValue) && isPlainObject(addValue)
+                ? ({ ...(baseValue as Record<string, unknown>), ...(addValue as Record<string, unknown>) } as T[typeof k])
+                : (addValue as T[typeof k]);
     }
     return result;
 }

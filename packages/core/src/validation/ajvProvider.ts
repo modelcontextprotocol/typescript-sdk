@@ -80,19 +80,17 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const valid = ajvValidator(input);
 
-            if (valid) {
-                return {
-                    valid: true,
-                    data: input as T,
-                    errorMessage: undefined
-                };
-            } else {
-                return {
-                    valid: false,
-                    data: undefined,
-                    errorMessage: this._ajv.errorsText(ajvValidator.errors)
-                };
-            }
+            return valid
+                ? {
+                      valid: true,
+                      data: input as T,
+                      errorMessage: undefined
+                  }
+                : {
+                      valid: false,
+                      data: undefined,
+                      errorMessage: this._ajv.errorsText(ajvValidator.errors)
+                  };
         };
     }
 }

@@ -9,14 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type {
-    CallToolResult,
-    GetPromptResult,
-    ReadResourceResult,
-    EventId,
-    EventStore,
-    StreamId
-} from '@modelcontextprotocol/server';
+import type { CallToolResult, GetPromptResult, ReadResourceResult, EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
 import {
     CompleteRequestSchema,
     ElicitResultSchema,
@@ -74,8 +67,7 @@ function createEventStore(): EventStore {
 }
 
 // Sample base64 encoded 1x1 red PNG pixel for testing
-const TEST_IMAGE_BASE64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+const TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
 
 // Sample base64 encoded minimal WAV file for testing
 const TEST_AUDIO_BASE64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA=';
@@ -378,8 +370,7 @@ function createMcpServer(sessionId?: string) {
                     z.object({ method: z.literal('sampling/createMessage') }).passthrough()
                 )) as { content?: { text?: string }; message?: { content?: { text?: string } } };
 
-                const modelResponse =
-                    result.content?.text || result.message?.content?.text || 'No response';
+                const modelResponse = result.content?.text || result.message?.content?.text || 'No response';
 
                 return {
                     content: [

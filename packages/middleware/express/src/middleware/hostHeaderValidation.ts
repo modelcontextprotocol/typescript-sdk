@@ -27,7 +27,7 @@ export function hostHeaderValidation(allowedHostnames: string[]): RequestHandler
             res.status(403).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32000,
+                    code: -32_000,
                     message: result.message
                 },
                 id: null

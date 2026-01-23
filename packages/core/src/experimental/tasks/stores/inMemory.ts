@@ -172,16 +172,16 @@ export class InMemoryTaskStore implements TaskStore {
 
     async listTasks(cursor?: string, _sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
         const PAGE_SIZE = 10;
-        const allTaskIds = Array.from(this.tasks.keys());
+        const allTaskIds = [...this.tasks.keys()];
 
         let startIndex = 0;
         if (cursor) {
             const cursorIndex = allTaskIds.indexOf(cursor);
-            if (cursorIndex >= 0) {
-                startIndex = cursorIndex + 1;
-            } else {
+            if (cursorIndex === -1) {
                 // Invalid cursor - throw error
                 throw new Error(`Invalid cursor: ${cursor}`);
+            } else {
+                startIndex = cursorIndex + 1;
             }
         }
 
@@ -191,7 +191,7 @@ export class InMemoryTaskStore implements TaskStore {
             return { ...stored.task };
         });
 
-        const nextCursor = startIndex + PAGE_SIZE < allTaskIds.length ? pageTaskIds[pageTaskIds.length - 1] : undefined;
+        const nextCursor = startIndex + PAGE_SIZE < allTaskIds.length ? pageTaskIds.at(-1) : undefined;
 
         return { tasks, nextCursor };
     }
@@ -211,7 +211,7 @@ export class InMemoryTaskStore implements TaskStore {
      * Get all tasks (useful for debugging)
      */
     getAllTasks(): Task[] {
-        return Array.from(this.tasks.values()).map(stored => ({ ...stored.task }));
+        return [...this.tasks.values()].map(stored => ({ ...stored.task }));
     }
 }
 

@@ -1,0 +1,5 @@
+title: '@modelcontextprotocol/sdk'
+
+# Include generated files and directories which may start with underscores
+include:
+    - '_*'

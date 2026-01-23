@@ -18,8 +18,9 @@ export function resourceUrlFromServerUrl(url: URL | string): URL {
  * A requested resource matches if it has the same scheme, domain, port,
  * and its path starts with the configured resource's path.
  *
- * @param requestedResource The resource URL being requested
- * @param configuredResource The resource URL that has been configured
+ * @param options - The options object
+ * @param options.requestedResource - The resource URL being requested
+ * @param options.configuredResource - The resource URL that has been configured
  * @returns true if the requested resource matches the configured resource, false otherwise
  */
 export function checkResourceAllowed({
