@@ -248,6 +248,13 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
+                // Handle 410 Gone - session expired or server restarted
+                // Clear the stale session ID and retry to get a new session
+                if (response.status === 410) {
+                    this._sessionId = undefined;
+                    return await this._startOrAuthSse({ resumptionToken: undefined });
+                }
+
                 throw new StreamableHTTPError(response.status, `Failed to open SSE stream: ${response.statusText}`);
             }
 
@@ -557,6 +564,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         return this.send(message);
                     }
+                }
+
+                // Handle 410 Gone - session expired or server restarted
+                // Clear the stale session ID and retry the request to get a new session
+                if (response.status === 410) {
+                    this._sessionId = undefined;
+                    // Retry the request - server will assign a new session ID
+                    return this.send(message);
                 }
 
                 throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
