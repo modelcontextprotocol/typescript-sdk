@@ -60,11 +60,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
             // Add a simple notification tool that completes quickly
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'send-notification',
-                'Sends a single notification',
                 {
-                    message: z.string().describe('Message to send').default('Test notification')
+                    description: 'Sends a single notification',
+                    inputSchema: {
+                        message: z.string().describe('Message to send').default('Test notification')
+                    }
                 },
                 async ({ message }, { sendNotification }) => {
                     // Send notification immediately
@@ -83,12 +85,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Add a long-running tool that sends multiple notifications
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'run-notifications',
-                'Sends multiple notifications over time',
                 {
-                    count: z.number().describe('Number of notifications to send').default(10),
-                    interval: z.number().describe('Interval between notifications in ms').default(50)
+                    description: 'Sends multiple notifications over time',
+                    inputSchema: {
+                        count: z.number().describe('Number of notifications to send').default(10),
+                        interval: z.number().describe('Interval between notifications in ms').default(50)
+                    }
                 },
                 async ({ count, interval }, { sendNotification }) => {
                     // Send notifications at specified intervals

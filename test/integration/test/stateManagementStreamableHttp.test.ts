@@ -30,7 +30,7 @@ async function setupServer(withSessionManagement: boolean, z: ZNamespace) {
     );
 
     // Add a simple resource
-    mcpServer.resource('test-resource', '/test', { description: 'A test resource' }, async () => ({
+    mcpServer.registerResource('test-resource', '/test', { description: 'A test resource' }, async () => ({
         contents: [
             {
                 uri: '/test',
@@ -39,7 +39,7 @@ async function setupServer(withSessionManagement: boolean, z: ZNamespace) {
         ]
     }));
 
-    mcpServer.prompt('test-prompt', 'A test prompt', async () => ({
+    mcpServer.registerPrompt('test-prompt', { description: 'A test prompt' }, async () => ({
         messages: [
             {
                 role: 'user',
@@ -51,11 +51,13 @@ async function setupServer(withSessionManagement: boolean, z: ZNamespace) {
         ]
     }));
 
-    mcpServer.tool(
+    mcpServer.registerTool(
         'greet',
-        'A simple greeting tool',
         {
-            name: z.string().describe('Name to greet').default('World')
+            description: 'A simple greeting tool',
+            inputSchema: {
+                name: z.string().describe('Name to greet').default('World')
+            }
         },
         async ({ name }) => {
             return {

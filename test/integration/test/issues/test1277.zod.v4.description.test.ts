@@ -25,11 +25,13 @@ describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixE
             version: '1.0'
         });
 
-        mcpServer.prompt(
+        mcpServer.registerPrompt(
             'test',
             {
-                name: z.string().describe('The user name'),
-                value: z.string().describe('The value to set')
+                argsSchema: {
+                    name: z.string().describe('The user name'),
+                    value: z.string().describe('The value to set')
+                }
             },
             async ({ name, value }) => ({
                 messages: [

@@ -35,11 +35,12 @@ const server = new McpServer(
 );
 
 // Register a long-running tool that demonstrates server-initiated disconnect
-server.tool(
+server.registerTool(
     'long-task',
-    'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.',
-    {},
-    async (_args, ctx): Promise<CallToolResult> => {
+    {
+        description: 'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.'
+    },
+    async (ctx): Promise<CallToolResult> => {
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
         const sessionId = ctx.mcpCtx.sessionId;
         const requestCtx = ctx.requestCtx as ServerRequestContext;
