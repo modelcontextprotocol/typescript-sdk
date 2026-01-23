@@ -995,11 +995,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'optional-params-tool',
                 {
-                    limit: z.number().optional(),
-                    offset: z.number().optional()
+                    inputSchema: {
+                        limit: z.number().optional(),
+                        offset: z.number().optional()
+                    }
                 },
                 async ({ limit, offset }) => ({
                     content: [
