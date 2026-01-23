@@ -459,15 +459,11 @@ export const GroupSchema = z.object({
     /**
      * Optional _meta object that can contain protocol-reserved and custom fields.
      */
-    _meta: z
-        .object({
-            /**
-             * A list of group names containing this primitive.
-             */
-            [GROUPS_META_KEY]: z.array(z.string()).optional()
-        })
-        .catchall(z.unknown())
-        .optional()
+    _meta: z.optional(
+      z.looseObject({
+        [GROUPS_META_KEY]: z.array(z.string()).optional()
+      })
+    )
 });
 
 const FormElicitationCapabilitySchema = z.intersection(
