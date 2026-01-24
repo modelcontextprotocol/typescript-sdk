@@ -609,9 +609,6 @@ importers:
 
   packages/middleware/express:
     dependencies:
-      cors:
-        specifier: ^2.8.5
-        version: 2.8.5
       express:
         specifier: catalog:runtimeServerOnly
         version: 5.2.1
@@ -631,9 +628,6 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../../common/vitest-config
-      '@types/cors':
-        specifier: ^2.8.19
-        version: 2.8.19
       '@types/express':
         specifier: catalog:devTools
         version: 5.0.6
