@@ -93,6 +93,16 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
 export const CursorSchema = z.string();
 
 /**
+ * Optional object that can have any properties, but if
+ * GROUPS_META_KEY is present, must be an array of strings
+ */
+const GroupMetaSchema = z.optional(
+    z.looseObject({
+        [GROUPS_META_KEY]: z.array(z.string()).optional()
+    })
+);
+
+/**
  * Task creation parameters, used to ask that the server create a task to represent a request.
  */
 export const TaskCreationParamsSchema = z.looseObject({
@@ -457,13 +467,9 @@ export const GroupSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * Optional _meta object that can contain protocol-reserved and custom fields.
+     * Metadata possibly including a group list
      */
-    _meta: z.optional(
-      z.looseObject({
-        [GROUPS_META_KEY]: z.array(z.string()).optional()
-      })
-    )
+    _meta: GroupMetaSchema
 });
 
 const FormElicitationCapabilitySchema = z.intersection(
@@ -815,11 +821,10 @@ export const TaskSchema = z.object({
      */
     statusMessage: z.optional(z.string()),
 
-    _meta: z.optional(
-        z.looseObject({
-            [GROUPS_META_KEY]: z.array(z.string()).optional()
-        })
-    )
+    /**
+     * Metadata possibly including a group list
+     */
+    _meta: GroupMetaSchema
 });
 
 /**
@@ -1008,14 +1013,9 @@ export const ResourceSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * Metadata possibly including a group list
      */
-    _meta: z.optional(
-        z.looseObject({
-            [GROUPS_META_KEY]: z.array(z.string()).optional()
-        })
-    )
+    _meta: GroupMetaSchema
 });
 
 /**
@@ -1047,10 +1047,9 @@ export const ResourceTemplateSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * Metadata possibly including a group list
      */
-    _meta: z.optional(z.looseObject({}))
+    _meta: GroupMetaSchema
 });
 
 /**
@@ -1188,14 +1187,9 @@ export const PromptSchema = z.object({
      */
     arguments: z.optional(z.array(PromptArgumentSchema)),
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * Metadata possibly including a group list
      */
-    _meta: z.optional(
-        z.looseObject({
-            [GROUPS_META_KEY]: z.array(z.string()).optional()
-        })
-    )
+    _meta: GroupMetaSchema
 });
 
 /**
@@ -1513,14 +1507,9 @@ export const ToolSchema = z.object({
     execution: ToolExecutionSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * Metadata possibly including a group list
      */
-    _meta: z.optional(
-        z.looseObject({
-            [GROUPS_META_KEY]: z.array(z.string()).optional()
-        })
-    )
+    _meta: GroupMetaSchema
 });
 
 /**
