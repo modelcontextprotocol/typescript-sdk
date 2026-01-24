@@ -10,6 +10,14 @@ const server = new McpServer({
     version: '1.0.0'
 });
 
+/**
+ * Helper to attach a single group membership to a primitive.
+ *
+ * The groups proposal stores membership in `_meta[GROUPS_META_KEY]`.
+ * This same mechanism is used for:
+ * - tools/resources/prompts belonging to a group
+ * - child groups declaring which parent group(s) they are contained by
+ */
 function metaForGroup(groupName: string) {
     return {
         _meta: {
@@ -18,7 +26,11 @@ function metaForGroup(groupName: string) {
     };
 }
 
-// Parent groups
+// ---- Groups ------------------------------------------------------------------------------
+// This example defines two parent groups (`work`, `communications`) and five child groups.
+// Child groups declare containment by including the parent name in `_meta[GROUPS_META_KEY]`.
+
+// Parent groups (no `_meta` needed; they are roots in this example)
 server.registerGroup('work', {
     title: 'Work',
     description: 'Tools, resources, and prompts related to day-to-day work.'
@@ -29,7 +41,7 @@ server.registerGroup('communications', {
     description: 'Tools, resources, and prompts related to messaging and scheduling.'
 });
 
-// Child groups
+// Child groups (each one is “contained by” a parent group)
 server.registerGroup('spreadsheets', {
     title: 'Spreadsheets',
     description: 'Spreadsheet-like operations: create sheets, add rows, and do quick calculations.',
@@ -70,7 +82,9 @@ server.registerGroup('calendar', {
     }
 });
 
-// ===== Tools =====
+// ---- Tools -------------------------------------------------------------------------------
+// Tools are assigned to a group by including `_meta[GROUPS_META_KEY]`.
+// In this example they are simple stubs that return a confirmation string.
 
 // Email tools
 server.registerTool(
