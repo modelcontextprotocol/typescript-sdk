@@ -10,6 +10,7 @@ import type {
     CreateTaskResult,
     GetPromptResult,
     Group,
+    GroupMeta,
     Implementation,
     ListGroupsResult,
     ListPromptsResult,
@@ -799,7 +800,7 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: PromptArgsRawShape | undefined,
-        _meta: Record<string, unknown> | undefined,
+        _meta: GroupMeta,
         callback: PromptCallback<PromptArgsRawShape | undefined>
     ): RegisteredPrompt {
         const registeredPrompt: RegisteredPrompt = {
@@ -849,7 +850,7 @@ export class McpServer {
         description: string | undefined,
         icons: Group['icons'] | undefined,
         annotations: Group['annotations'] | undefined,
-        _meta: Group['_meta'] | undefined
+        _meta: GroupMeta
     ): RegisteredGroup {
         const registeredGroup: RegisteredGroup = {
             title,
@@ -901,7 +902,7 @@ export class McpServer {
         outputSchema: ZodRawShapeCompat | AnySchema | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
-        _meta: Record<string, unknown> | undefined,
+        _meta: GroupMeta,
         handler: AnyToolHandler<ZodRawShapeCompat | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification

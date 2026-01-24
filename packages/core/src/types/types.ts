@@ -96,7 +96,7 @@ export const CursorSchema = z.string();
  * Optional object that can have any properties, but if
  * GROUPS_META_KEY is present, must be an array of strings
  */
-const GroupMetaSchema = z.optional(
+export const GroupMetaSchema = z.optional(
     z.looseObject({
         [GROUPS_META_KEY]: z.array(z.string()).optional()
     })
@@ -2671,6 +2671,7 @@ export type RootsListChangedNotification = Infer<typeof RootsListChangedNotifica
 
 /* Groups */
 export type Group = Infer<typeof GroupSchema>;
+export type GroupMeta = Infer<typeof GroupMetaSchema>;
 export type ListGroupsRequest = Infer<typeof ListGroupsRequestSchema>;
 export type ListGroupsResult = Infer<typeof ListGroupsResultSchema>;
 export type GroupListChangedNotification = Infer<typeof GroupListChangedNotificationSchema>;
