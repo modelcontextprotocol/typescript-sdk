@@ -21,4 +21,3 @@ Most servers use:
 - `@modelcontextprotocol/server` for the MCP server implementation
 - one middleware package for framework/runtime integration (this folder)
 - (optionally) additional platform/framework dependencies (Express, Hono, etc.)
-

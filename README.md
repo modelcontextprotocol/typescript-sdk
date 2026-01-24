@@ -1,7 +1,6 @@
 # MCP TypeScript SDK
 
-> [!IMPORTANT]
-> **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
+> [!IMPORTANT] **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
 >
 > We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
 >
@@ -133,6 +132,7 @@ Next steps:
     - [docs/capabilities.md](docs/capabilities.md) – sampling, elicitation (form and URL), and experimental task-based execution.
     - [docs/faq.md](docs/faq.md) – environment and troubleshooting FAQs (including Node.js Web Crypto support).
 - External references:
+    - [SDK API documentation](https://modelcontextprotocol.github.io/typescript-sdk/)
     - [Model Context Protocol documentation](https://modelcontextprotocol.io)
     - [MCP Specification](https://spec.modelcontextprotocol.io)
     - [Example Servers](https://github.com/modelcontextprotocol/servers)

@@ -318,7 +318,7 @@ mcpServer.registerTool(
 );
 
 async function main() {
-    const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+    const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
 
     const app = createMcpExpressApp();
 
@@ -367,7 +367,7 @@ async function main() {
                 res.status(400).json({
                     jsonrpc: '2.0',
                     error: {
-                        code: -32000,
+                        code: -32_000,
                         message: 'Bad Request: No valid session ID provided'
                     },
                     id: null
@@ -383,7 +383,7 @@ async function main() {
                 res.status(500).json({
                     jsonrpc: '2.0',
                     error: {
-                        code: -32603,
+                        code: -32_603,
                         message: 'Internal server error'
                     },
                     id: null
@@ -436,6 +436,7 @@ async function main() {
     app.listen(PORT, error => {
         if (error) {
             console.error('Failed to start server:', error);
+            // eslint-disable-next-line unicorn/no-process-exit
             process.exit(1);
         }
         console.log(`Form elicitation example server is running on http://localhost:${PORT}/mcp`);
@@ -465,7 +466,10 @@ async function main() {
     });
 }
 
-main().catch(error => {
+try {
+    await main();
+} catch (error) {
     console.error('Server error:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

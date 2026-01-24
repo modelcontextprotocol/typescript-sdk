@@ -29,6 +29,7 @@
         "eslint-plugin-import": "^2.32.0",
         "eslint-plugin-n": "catalog:devTools",
         "eslint-plugin-simple-import-sort": "^12.1.1",
+        "eslint-plugin-unicorn": "^62.0.0",
         "prettier": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools"

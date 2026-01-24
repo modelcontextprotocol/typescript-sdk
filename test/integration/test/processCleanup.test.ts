@@ -102,11 +102,11 @@ describe('Process cleanup', () => {
         try {
             process.kill(serverPid, 9);
             throw new Error('Expected server to be dead but it is alive');
-        } catch (err: unknown) {
+        } catch (error: unknown) {
             // 'ESRCH' the process doesn't exist
-            if (err && typeof err === 'object' && 'code' in err && err.code === 'ESRCH') {
+            if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') {
                 // success
-            } else throw err;
+            } else throw error;
         }
     });
 });

@@ -249,7 +249,7 @@ class TaskResultHandler {
                 return {
                     ...result,
                     _meta: {
-                        ...(result._meta || {}),
+                        ...result._meta,
                         [RELATED_TASK_META_KEY]: { taskId }
                     }
                 };
@@ -452,7 +452,7 @@ class TaskSession {
 // Server Setup
 // ============================================================================
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8000;
+const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 8000;
 
 // Create shared stores
 const taskStore = new TaskStoreWithNotifications();
@@ -589,7 +589,7 @@ const createServer = (): Server => {
                         haiku = (result.content as TextContent).text;
                     }
 
-                    console.log(`[Server] Received sampling response: ${haiku.substring(0, 50)}...`);
+                    console.log(`[Server] Received sampling response: ${haiku.slice(0, 50)}...`);
                     console.log('[Server] Completing task with haiku');
                     await taskStore.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: `Haiku:\n${haiku}` }]
@@ -682,7 +682,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
         } else {
             res.status(400).json({
                 jsonrpc: '2.0',
-                error: { code: -32000, message: 'Bad Request: No valid session ID' },
+                error: { code: -32_000, message: 'Bad Request: No valid session ID' },
                 id: null
             });
             return;
@@ -694,7 +694,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
         if (!res.headersSent) {
             res.status(500).json({
                 jsonrpc: '2.0',
-                error: { code: -32603, message: 'Internal server error' },
+                error: { code: -32_603, message: 'Internal server error' },
                 id: null
             });
         }

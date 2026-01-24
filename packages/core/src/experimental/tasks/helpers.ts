@@ -36,15 +36,17 @@ export function assertToolsCallTaskCapability(
     }
 
     switch (method) {
-        case 'tools/call':
+        case 'tools/call': {
             if (!requests.tools?.call) {
                 throw new Error(`${entityName} does not support task creation for tools/call (required for ${method})`);
             }
             break;
+        }
 
-        default:
+        default: {
             // Method doesn't support tasks, which is fine - no error
             break;
+        }
     }
 }
 
@@ -69,20 +71,23 @@ export function assertClientRequestTaskCapability(
     }
 
     switch (method) {
-        case 'sampling/createMessage':
+        case 'sampling/createMessage': {
             if (!requests.sampling?.createMessage) {
                 throw new Error(`${entityName} does not support task creation for sampling/createMessage (required for ${method})`);
             }
             break;
+        }
 
-        case 'elicitation/create':
+        case 'elicitation/create': {
             if (!requests.elicitation?.create) {
                 throw new Error(`${entityName} does not support task creation for elicitation/create (required for ${method})`);
             }
             break;
+        }
 
-        default:
+        default: {
             // Method doesn't support tasks, which is fine - no error
             break;
+        }
     }
 }
