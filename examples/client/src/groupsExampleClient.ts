@@ -202,7 +202,7 @@ async function run(): Promise<void> {
     const parentToChildren = buildParentToChildrenMap(groups);
 
     console.log(`\nFetched: ${groups.length} groups, ${tools.length} tools, ${resources.length} resources, ${prompts.length} prompts.`);
-    console.log(`Available groups: ${[...groupNames].sort().join(', ')}`);
+    console.log(`Available groups: ${[...groupNames].toSorted().join(', ')}`);
 
     const rl = createInterface({ input: process.stdin, output: process.stdout });
 
@@ -223,10 +223,10 @@ async function run(): Promise<void> {
 
         // Handle all command
         if (lower === 'all' || lower === 'a') {
-            const sortedGroups = [...groups].sort((a, b) => a.name.localeCompare(b.name));
-            const sortedTools = [...tools].sort((a, b) => a.name.localeCompare(b.name));
-            const sortedResources = [...resources].sort((a, b) => a.name.localeCompare(b.name));
-            const sortedPrompts = [...prompts].sort((a, b) => a.name.localeCompare(b.name));
+            const sortedGroups = [...groups].toSorted((a, b) => a.name.localeCompare(b.name));
+            const sortedTools = [...tools].toSorted((a, b) => a.name.localeCompare(b.name));
+            const sortedResources = [...resources].toSorted((a, b) => a.name.localeCompare(b.name));
+            const sortedPrompts = [...prompts].toSorted((a, b) => a.name.localeCompare(b.name));
 
             console.log('\nGroups:');
             console.log(formatBulletList(sortedGroups.map(g => ({ name: g.name, description: g.description }))));
@@ -244,7 +244,7 @@ async function run(): Promise<void> {
 
         // Handle list command
         if (lower === 'groups' || lower === 'g') {
-            const sortedGroups = [...groups].sort((a, b) => a.name.localeCompare(b.name));
+            const sortedGroups = [...groups].toSorted((a, b) => a.name.localeCompare(b.name));
             console.log('\nGroups:');
             console.log(formatBulletList(sortedGroups.map(g => ({ name: g.name, description: g.description }))));
             continue;
@@ -260,7 +260,7 @@ async function run(): Promise<void> {
         if (lower === 'quit' || lower === 'q') {
             rl.close();
             await client.close();
-            process.exit();
+            throw new Error('User quit');
         }
 
         // Handle a group list
@@ -279,19 +279,19 @@ async function run(): Promise<void> {
         const selected = expandWithDescendants(validRequested, parentToChildren);
         const groupsToList = expandDescendantsExcludingSelf(validRequested, parentToChildren);
 
-        const selectedGroups = groups.filter(g => groupsToList.has(g.name)).sort((a, b) => a.name.localeCompare(b.name));
+        const selectedGroups = groups.filter(g => groupsToList.has(g.name)).toSorted((a, b) => a.name.localeCompare(b.name));
 
         const selectedTools = tools
             .filter(t => groupMembership(t._meta).some(g => selected.has(g)))
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .toSorted((a, b) => a.name.localeCompare(b.name));
 
         const selectedResources = resources
             .filter(r => groupMembership(r._meta).some(g => selected.has(g)))
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .toSorted((a, b) => a.name.localeCompare(b.name));
 
         const selectedPrompts = prompts
             .filter(p => groupMembership(p._meta).some(g => selected.has(g)))
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .toSorted((a, b) => a.name.localeCompare(b.name));
 
         console.log('\nGroups:');
         console.log(formatBulletList(selectedGroups.map(g => ({ name: g.name, description: g.description }))));
@@ -307,7 +307,4 @@ async function run(): Promise<void> {
     }
 }
 
-run().catch(error => {
-    console.error('Client error:', error);
-    process.exit(1);
-});
+await run();

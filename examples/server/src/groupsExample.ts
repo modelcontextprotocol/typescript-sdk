@@ -464,7 +464,4 @@ async function main() {
     console.error('Groups example MCP server running on stdio.');
 }
 
-main().catch(error => {
-    console.error('Server error:', error);
-    process.exit(1);
-});
+await main();
