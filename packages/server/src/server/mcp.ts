@@ -862,17 +862,17 @@ export class McpServer {
             enable: () => registeredGroup.update({ enabled: true }),
             remove: () => registeredGroup.update({ name: null }),
             update: updates => {
-                if (typeof updates.name !== 'undefined' && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredGroups[name];
                     if (updates.name) this._registeredGroups[updates.name] = registeredGroup;
                     name = updates.name ?? name;
                 }
-                if (typeof updates.title !== 'undefined') registeredGroup.title = updates.title;
-                if (typeof updates.description !== 'undefined') registeredGroup.description = updates.description;
-                if (typeof updates.icons !== 'undefined') registeredGroup.icons = updates.icons;
-                if (typeof updates.annotations !== 'undefined') registeredGroup.annotations = updates.annotations;
-                if (typeof updates._meta !== 'undefined') registeredGroup._meta = updates._meta;
-                if (typeof updates.enabled !== 'undefined') registeredGroup.enabled = updates.enabled;
+                if (updates.title !== undefined) registeredGroup.title = updates.title;
+                if (updates.description !== undefined) registeredGroup.description = updates.description;
+                if (updates.icons !== undefined) registeredGroup.icons = updates.icons;
+                if (updates.annotations !== undefined) registeredGroup.annotations = updates.annotations;
+                if (updates._meta !== undefined) registeredGroup._meta = updates._meta;
+                if (updates.enabled !== undefined) registeredGroup.enabled = updates.enabled;
 
                 if (updates.name === null) {
                     delete this._registeredGroups[name];
@@ -983,59 +983,6 @@ export class McpServer {
             _meta,
             cb as ToolCallback<ZodRawShapeCompat | undefined>
         );
-    }
-
-    /**
-     * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt(name: string, cb: PromptCallback): RegisteredPrompt;
-
-    /**
-     * Registers a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt(name: string, description: string, cb: PromptCallback): RegisteredPrompt;
-
-    /**
-     * Registers a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt<Args extends PromptArgsRawShape>(name: string, argsSchema: Args, cb: PromptCallback<Args>): RegisteredPrompt;
-
-    /**
-     * Registers a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt<Args extends PromptArgsRawShape>(
-        name: string,
-        description: string,
-        argsSchema: Args,
-        cb: PromptCallback<Args>
-    ): RegisteredPrompt;
-
-    prompt(name: string, ...rest: unknown[]): RegisteredPrompt {
-        if (this._registeredPrompts[name]) {
-            throw new Error(`Prompt ${name} is already registered`);
-        }
-
-        let description: string | undefined;
-        if (typeof rest[0] === 'string') {
-            description = rest.shift() as string;
-        }
-
-        let argsSchema: PromptArgsRawShape | undefined;
-        if (rest.length > 1) {
-            argsSchema = rest.shift() as PromptArgsRawShape;
-        }
-
-        const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
-        const registeredPrompt = this._createRegisteredPrompt(name, undefined, description, argsSchema, undefined, cb);
-
-        this.setPromptRequestHandlers();
-        this.sendPromptListChanged();
-
-        return registeredPrompt;
     }
 
     /**
