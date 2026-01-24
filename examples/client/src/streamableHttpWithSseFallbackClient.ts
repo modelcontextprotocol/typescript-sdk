@@ -62,6 +62,7 @@ async function main(): Promise<void> {
         console.log('Disconnected from MCP server');
     } catch (error) {
         console.error('Error running client:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
 }
@@ -171,20 +172,23 @@ async function startNotificationTool(client: Client): Promise<void> {
         const result = await client.request(request, CallToolResultSchema);
 
         console.log('Tool result:');
-        result.content.forEach(item => {
+        for (const item of result.content) {
             if (item.type === 'text') {
                 console.log(`  ${item.text}`);
             } else {
                 console.log(`  ${item.type} content:`, item);
             }
-        });
+        }
     } catch (error) {
         console.log(`Error calling notification tool: ${error}`);
     }
 }
 
 // Start the client
-main().catch((error: unknown) => {
+try {
+    await main();
+} catch (error) {
     console.error('Error running MCP client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

@@ -10,7 +10,7 @@ import type {
     TaskMessageQueue,
     TaskStore
 } from '../../src/experimental/tasks/interfaces.js';
-import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/in-memory.js';
+import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/inMemory.js';
 import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
 import type { ErrorMessage, ResponseMessage } from '../../src/shared/responseMessage.js';
 import { toArrayAsync } from '../../src/shared/responseMessage.js';

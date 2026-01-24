@@ -60,19 +60,17 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const result = validator.validate(input);
 
-            if (result.valid) {
-                return {
-                    valid: true,
-                    data: input as T,
-                    errorMessage: undefined
-                };
-            } else {
-                return {
-                    valid: false,
-                    data: undefined,
-                    errorMessage: result.errors.map(err => `${err.instanceLocation}: ${err.error}`).join('; ')
-                };
-            }
+            return result.valid
+                ? {
+                      valid: true,
+                      data: input as T,
+                      errorMessage: undefined
+                  }
+                : {
+                      valid: false,
+                      data: undefined,
+                      errorMessage: result.errors.map(err => `${err.instanceLocation}: ${err.error}`).join('; ')
+                  };
         };
     }
 }

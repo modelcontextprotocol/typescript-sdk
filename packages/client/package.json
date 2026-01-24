@@ -37,7 +37,7 @@
         "prepack": "npm run build",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
-        "check": "npm run typecheck && npm run lint",
+        "check": "npm run typecheck && npm run lint && pnpm exec -- typedoc --emit none",
         "test": "vitest run",
         "test:watch": "vitest",
         "start": "npm run server",

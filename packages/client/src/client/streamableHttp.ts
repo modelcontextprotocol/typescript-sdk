@@ -17,7 +17,7 @@ import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
     initialReconnectionDelay: 1000,
-    maxReconnectionDelay: 30000,
+    maxReconnectionDelay: 30_000,
     reconnectionDelayGrowFactor: 1.5,
     maxRetries: 2
 };
@@ -468,8 +468,8 @@ export class StreamableHTTPClientTransport implements Transport {
 
             if (resumptionToken) {
                 // If we have at last event ID, we need to reconnect the SSE stream
-                this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(err =>
-                    this.onerror?.(err)
+                this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
+                    error => this.onerror?.(error)
                 );
                 return;
             }
@@ -573,7 +573,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
                     // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(err => this.onerror?.(err));
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
                 }
                 return;
             }
@@ -581,7 +581,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // Get original message(s) for detecting request IDs
             const messages = Array.isArray(message) ? message : [message];
 
-            const hasRequests = messages.filter(msg => 'method' in msg && 'id' in msg && msg.id !== undefined).length > 0;
+            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
 
             // Check the response type
             const contentType = response.headers.get('content-type');
