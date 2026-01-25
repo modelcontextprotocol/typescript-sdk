@@ -11,6 +11,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    ErrorInterceptor,
     Implementation,
     InitializeRequest,
     InitializeResult,
@@ -34,9 +35,6 @@ import type {
     ServerNotification,
     ServerRequest,
     ServerResult,
-    TaskContext,
-    TaskCreationParams,
-    TaskStore,
     ToolResultContent,
     ToolUseContent,
     Transport,
@@ -228,6 +226,32 @@ export class Server<
             throw new Error('Cannot register capabilities after connecting to transport');
         }
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Sets an error interceptor that can customize error responses before they are sent.
+     *
+     * The interceptor is called for both protocol errors (method not found, etc.) and
+     * application errors (when a handler throws). It can modify the error message and data.
+     * For application errors, it can also change the error code.
+     *
+     * @param interceptor - The error interceptor function, or undefined to clear
+     *
+     * @example
+     * ```typescript
+     * server.setErrorInterceptor(async (error, ctx) => {
+     *     console.error(`Error in ${ctx.method}: ${error.message}`);
+     *     if (ctx.type === 'application') {
+     *         return {
+     *             message: 'An error occurred',
+     *             data: { originalMessage: error.message }
+     *         };
+     *     }
+     * });
+     * ```
+     */
+    public override setErrorInterceptor(interceptor: ErrorInterceptor | undefined): void {
+        super.setErrorInterceptor(interceptor);
     }
 
     /**
@@ -535,14 +559,11 @@ export class Server<
 
     protected createRequestContext(args: {
         request: JSONRPCRequest;
-        taskStore: TaskStore | undefined;
-        relatedTaskId: string | undefined;
-        taskCreationParams: TaskCreationParams | undefined;
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
     }): ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext> {
-        const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
+        const { request, abortController, capturedTransport, extra } = args;
         const sessionId = capturedTransport?.sessionId;
 
         // Build the MCP context using the helper from Protocol
@@ -561,22 +582,12 @@ export class Server<
             }
         };
 
-        // Build the task context using the helper from Protocol
-        const taskCtx: TaskContext | undefined = this.buildTaskContext({
-            taskStore,
-            request,
-            sessionId,
-            relatedTaskId,
-            taskCreationParams
-        });
-
-        // Return a ServerContext instance
+        // Return a ServerContext instance (task context is added by plugins if needed)
         return new ServerContext<RequestT, NotificationT, ResultT>({
             server: this,
             request,
             mcpContext,
-            requestCtx,
-            task: taskCtx
+            requestCtx
         });
     }
 

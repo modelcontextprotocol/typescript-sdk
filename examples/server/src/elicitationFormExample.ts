@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, text } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
@@ -86,39 +86,21 @@ mcpServer.registerTool(
 
                 return {
                     content: [
-                        {
-                            type: 'text',
-                            text: `Registration successful!\n\nUsername: ${username}\nEmail: ${email}\nNewsletter: ${newsletter ? 'Yes' : 'No'}`
-                        }
+                        text(`Registration successful!\n\nUsername: ${username}\nEmail: ${email}\nNewsletter: ${newsletter ? 'Yes' : 'No'}`)
                     ]
                 };
             } else if (result.action === 'decline') {
                 return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Registration cancelled by user.'
-                        }
-                    ]
+                    content: [text('Registration cancelled by user.')]
                 };
             } else {
                 return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Registration was cancelled.'
-                        }
-                    ]
+                    content: [text('Registration was cancelled.')]
                 };
             }
         } catch (error) {
             return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Registration failed: ${error instanceof Error ? error.message : String(error)}`
-                    }
-                ],
+                content: [text(`Registration failed: ${error instanceof Error ? error.message : String(error)}`)],
                 isError: true
             };
         }
@@ -162,7 +144,7 @@ mcpServer.registerTool(
 
             if (basicInfo.action !== 'accept' || !basicInfo.content) {
                 return {
-                    content: [{ type: 'text', text: 'Event creation cancelled.' }]
+                    content: [text('Event creation cancelled.')]
                 };
             }
 
@@ -198,7 +180,7 @@ mcpServer.registerTool(
 
             if (dateTime.action !== 'accept' || !dateTime.content) {
                 return {
-                    content: [{ type: 'text', text: 'Event creation cancelled.' }]
+                    content: [text('Event creation cancelled.')]
                 };
             }
 
@@ -209,21 +191,11 @@ mcpServer.registerTool(
             };
 
             return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Event created successfully!\n\n${JSON.stringify(event, null, 2)}`
-                    }
-                ]
+                content: [text(`Event created successfully!\n\n${JSON.stringify(event, null, 2)}`)]
             };
         } catch (error) {
             return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Event creation failed: ${error instanceof Error ? error.message : String(error)}`
-                    }
-                ],
+                content: [text(`Event creation failed: ${error instanceof Error ? error.message : String(error)}`)],
                 isError: true
             };
         }
@@ -287,30 +259,20 @@ mcpServer.registerTool(
 
             if (result.action === 'accept' && result.content) {
                 return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Address updated successfully!\n\n${JSON.stringify(result.content, null, 2)}`
-                        }
-                    ]
+                    content: [text(`Address updated successfully!\n\n${JSON.stringify(result.content, null, 2)}`)]
                 };
             } else if (result.action === 'decline') {
                 return {
-                    content: [{ type: 'text', text: 'Address update cancelled by user.' }]
+                    content: [text('Address update cancelled by user.')]
                 };
             } else {
                 return {
-                    content: [{ type: 'text', text: 'Address update was cancelled.' }]
+                    content: [text('Address update was cancelled.')]
                 };
             }
         } catch (error) {
             return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Address update failed: ${error instanceof Error ? error.message : String(error)}`
-                    }
-                ],
+                content: [text(`Address update failed: ${error instanceof Error ? error.message : String(error)}`)],
                 isError: true
             };
         }

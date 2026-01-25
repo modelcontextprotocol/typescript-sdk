@@ -54,7 +54,7 @@ export class ClientContext<
         request: JSONRPCRequest;
         mcpContext: McpContext;
         requestCtx: ClientRequestContext;
-        task: TaskContext | undefined;
+        task?: TaskContext;
     }) {
         super({
             request: args.request,

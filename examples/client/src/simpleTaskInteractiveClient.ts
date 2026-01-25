@@ -9,13 +9,14 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
+import type { ContentBlock, CreateMessageRequest, CreateMessageResult } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
     CreateMessageRequestSchema,
     ElicitRequestSchema,
     ErrorCode,
+    isTextContent,
     McpError,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -34,9 +35,9 @@ function question(prompt: string): Promise<string> {
     });
 }
 
-function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
-    const textContent = result.content.find((c): c is TextContent => c.type === 'text');
-    return textContent?.text ?? '(no text)';
+function getTextContent(result: { content: ContentBlock[] }): string | undefined {
+    const textContent = result.content.find(element => isTextContent(element));
+    return textContent?.text;
 }
 
 async function elicitationCallback(params: {

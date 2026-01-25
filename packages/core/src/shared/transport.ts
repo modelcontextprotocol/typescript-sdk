@@ -1,5 +1,29 @@
 import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/types.js';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Connection State
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Represents the current state of a transport connection.
+ *
+ * State transitions:
+ * - disconnected → connecting → connected
+ * - connected → reconnecting → connected
+ * - * → error (from any state on unrecoverable error)
+ * - * → disconnected (on close)
+ */
+export type ConnectionState = 'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'reconnecting' | 'error';
+
+/**
+ * Callback for connection state changes
+ */
+export type ConnectionStateChangeCallback = (state: ConnectionState, previousState: ConnectionState) => void;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fetch Utilities
+// ═══════════════════════════════════════════════════════════════════════════
+
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 /**
@@ -53,6 +77,11 @@ export type TransportSendOptions = {
      * If present, `relatedRequestId` is used to indicate to the transport which incoming request to associate this outgoing message with.
      */
     relatedRequestId?: RequestId;
+
+    /**
+     * Optional session ID for the message routing context.
+     */
+    sessionId?: string;
 
     /**
      * The resumption token used to continue long-running requests that were interrupted.
@@ -125,4 +154,23 @@ export interface Transport {
      * Sets the protocol version used for the connection (called when the initialize response is received).
      */
     setProtocolVersion?: (version: string) => void;
+
+    // ─── Connection State (optional, for transports that support it) ───
+
+    /**
+     * The current connection state.
+     * Optional - not all transports track state.
+     */
+    readonly state?: ConnectionState;
+
+    /**
+     * Whether the transport is currently connected.
+     * This is a convenience property equivalent to `state === 'connected'`.
+     */
+    readonly isConnected?: boolean;
+
+    /**
+     * Callback for when the connection state changes.
+     */
+    onStateChange?: ConnectionStateChangeCallback;
 }

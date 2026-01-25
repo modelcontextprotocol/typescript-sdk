@@ -1,7 +1,22 @@
 import type { RequestTaskStoreInterface } from '../experimental/requestTaskStore.js';
-import type { AuthInfo, JSONRPCRequest, Notification, Request, RequestId, RequestMeta, Result } from '../types/types.js';
+import type {
+    AuthInfo,
+    JSONRPCRequest,
+    Notification,
+    RelatedTaskMetadata,
+    Request,
+    RequestId,
+    RequestMeta,
+    Result
+} from '../types/types.js';
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import type { NotificationOptions, Protocol, RequestOptions } from './protocol.js';
+
+/**
+ * Internal type for options that may include task-related fields.
+ * Used by context methods that need to set relatedTask.
+ */
+type OptionsWithTask = { relatedTask?: RelatedTaskMetadata };
 
 /**
  * MCP-level context for a request being handled.
@@ -114,8 +129,9 @@ export interface BaseContextArgs<RequestContextT extends BaseRequestContext = Ba
     requestCtx: RequestContextT;
     /**
      * The task context, if the request is task-augmented.
+     * Will be added by plugins if task support is enabled.
      */
-    task: TaskContext | undefined;
+    task?: TaskContext;
 }
 
 /**
@@ -145,8 +161,9 @@ export abstract class BaseContext<
 
     /**
      * The task context, if the request is task-augmented.
+     * This property can be set by plugins via onBuildHandlerContext.
      */
-    public readonly taskCtx: TaskContext | undefined;
+    public taskCtx: TaskContext | undefined;
 
     /**
      * Returns the protocol instance for sending notifications and requests.
@@ -173,7 +190,7 @@ export abstract class BaseContext<
      * Note: This is an arrow function to preserve 'this' binding when destructured.
      */
     public sendNotification = async (notification: NotificationT): Promise<void> => {
-        const notificationOptions: NotificationOptions = { relatedRequestId: this.mcpCtx.requestId };
+        const notificationOptions: NotificationOptions & OptionsWithTask = { relatedRequestId: this.mcpCtx.requestId };
 
         // Only set relatedTask if there's a valid (non-empty) task ID
         // Empty task ID means no task has been created yet or task queuing isn't applicable
@@ -194,7 +211,7 @@ export abstract class BaseContext<
         resultSchema: U,
         options?: RequestOptions
     ): Promise<SchemaOutput<U>> => {
-        const requestOptions: RequestOptions = { ...options, relatedRequestId: this.mcpCtx.requestId };
+        const requestOptions: RequestOptions & OptionsWithTask = { ...options, relatedRequestId: this.mcpCtx.requestId };
 
         // Only set relatedTask if there's a valid (non-empty) task ID
         // Empty task ID means no task has been created yet or task queuing isn't applicable

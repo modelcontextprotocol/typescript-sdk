@@ -19,6 +19,7 @@ import {
     ElicitResultSchema,
     ErrorCode,
     InMemoryTransport,
+    isTextContent,
     LATEST_PROTOCOL_VERSION,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
@@ -1952,7 +1953,7 @@ describe('createMessage backwards compatibility', () => {
         expect(result.model).toBe('test-model');
         expect(Array.isArray(result.content)).toBe(false);
         expect(result.content.type).toBe('text');
-        if (result.content.type === 'text') {
+        if (isTextContent(result.content)) {
             expect(result.content.text).toBe('Hello from LLM');
         }
     });

@@ -11,13 +11,17 @@ import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, GetPromptResult, ReadResourceResult, EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
 import {
+    audio,
     CompleteRequestSchema,
     ElicitResultSchema,
+    embeddedResource,
+    image,
     isInitializeRequest,
-    SetLevelRequestSchema,
     McpServer,
     ResourceTemplate,
+    SetLevelRequestSchema,
     SubscribeRequestSchema,
+    text,
     UnsubscribeRequestSchema
 } from '@modelcontextprotocol/server';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
@@ -127,7 +131,7 @@ function createMcpServer(sessionId?: string) {
         },
         async (): Promise<CallToolResult> => {
             return {
-                content: [{ type: 'text', text: 'This is a simple text response for testing.' }]
+                content: [text('This is a simple text response for testing.')]
             };
         }
     );
@@ -140,7 +144,7 @@ function createMcpServer(sessionId?: string) {
         },
         async (): Promise<CallToolResult> => {
             return {
-                content: [{ type: 'image', data: TEST_IMAGE_BASE64, mimeType: 'image/png' }]
+                content: [image(TEST_IMAGE_BASE64, 'image/png')]
             };
         }
     );
@@ -153,7 +157,7 @@ function createMcpServer(sessionId?: string) {
         },
         async (): Promise<CallToolResult> => {
             return {
-                content: [{ type: 'audio', data: TEST_AUDIO_BASE64, mimeType: 'audio/wav' }]
+                content: [audio(TEST_AUDIO_BASE64, 'audio/wav')]
             };
         }
     );
@@ -167,14 +171,11 @@ function createMcpServer(sessionId?: string) {
         async (): Promise<CallToolResult> => {
             return {
                 content: [
-                    {
-                        type: 'resource',
-                        resource: {
-                            uri: 'test://embedded-resource',
-                            mimeType: 'text/plain',
-                            text: 'This is an embedded resource content.'
-                        }
-                    }
+                    embeddedResource({
+                        uri: 'test://embedded-resource',
+                        mimeType: 'text/plain',
+                        text: 'This is an embedded resource content.'
+                    })
                 ]
             };
         }
@@ -189,16 +190,13 @@ function createMcpServer(sessionId?: string) {
         async (): Promise<CallToolResult> => {
             return {
                 content: [
-                    { type: 'text', text: 'Multiple content types test:' },
-                    { type: 'image', data: TEST_IMAGE_BASE64, mimeType: 'image/png' },
-                    {
-                        type: 'resource',
-                        resource: {
-                            uri: 'test://mixed-content-resource',
-                            mimeType: 'application/json',
-                            text: JSON.stringify({ test: 'data', value: 123 })
-                        }
-                    }
+                    text('Multiple content types test:'),
+                    image(TEST_IMAGE_BASE64, 'image/png'),
+                    embeddedResource({
+                        uri: 'test://mixed-content-resource',
+                        mimeType: 'application/json',
+                        text: JSON.stringify({ test: 'data', value: 123 })
+                    })
                 ]
             };
         }
@@ -238,7 +236,7 @@ function createMcpServer(sessionId?: string) {
                 }
             });
             return {
-                content: [{ type: 'text', text: 'Tool with logging executed successfully' }]
+                content: [text('Tool with logging executed successfully')]
             };
         }
     );
@@ -286,7 +284,7 @@ function createMcpServer(sessionId?: string) {
             });
 
             return {
-                content: [{ type: 'text', text: String(progressToken) }]
+                content: [text(String(progressToken))]
             };
         }
     );
@@ -819,21 +817,15 @@ function createMcpServer(sessionId?: string) {
                 messages: [
                     {
                         role: 'user',
-                        content: {
-                            type: 'resource',
-                            resource: {
-                                uri: args.resourceUri,
-                                mimeType: 'text/plain',
-                                text: 'Embedded resource content for testing.'
-                            }
-                        }
+                        content: embeddedResource({
+                            uri: args.resourceUri,
+                            mimeType: 'text/plain',
+                            text: 'Embedded resource content for testing.'
+                        })
                     },
                     {
                         role: 'user',
-                        content: {
-                            type: 'text',
-                            text: 'Please process the embedded resource above.'
-                        }
+                        content: text('Please process the embedded resource above.')
                     }
                 ]
             };
@@ -852,15 +844,11 @@ function createMcpServer(sessionId?: string) {
                 messages: [
                     {
                         role: 'user',
-                        content: {
-                            type: 'image',
-                            data: TEST_IMAGE_BASE64,
-                            mimeType: 'image/png'
-                        }
+                        content: image(TEST_IMAGE_BASE64, 'image/png')
                     },
                     {
                         role: 'user',
-                        content: { type: 'text', text: 'Please analyze the image above.' }
+                        content: text('Please analyze the image above.')
                     }
                 ]
             };

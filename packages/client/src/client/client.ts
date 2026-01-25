@@ -20,6 +20,7 @@ import type {
     ListPromptsRequest,
     ListResourcesRequest,
     ListResourceTemplatesRequest,
+    ListRootsResult,
     ListToolsRequest,
     LoggingLevel,
     McpContext,
@@ -33,9 +34,6 @@ import type {
     SchemaOutput,
     ServerCapabilities,
     SubscribeRequest,
-    TaskContext,
-    TaskCreationParams,
-    TaskStore,
     Tool,
     Transport,
     UnsubscribeRequest,
@@ -65,6 +63,7 @@ import {
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
+    ListRootsRequestSchema,
     ListToolsResultSchema,
     McpError,
     mergeCapabilities,
@@ -78,8 +77,20 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import type { ClientBuilderResult, ErrorContext, OnErrorHandler, OnProtocolErrorHandler } from './builder.js';
+import { ClientBuilder } from './builder.js';
 import type { ClientRequestContext } from './context.js';
 import { ClientContext } from './context.js';
+import type {
+    ClientMiddleware,
+    ElicitationMiddleware,
+    IncomingMiddleware,
+    OutgoingMiddleware,
+    ResourceReadMiddleware,
+    SamplingMiddleware,
+    ToolCallMiddleware
+} from './middleware.js';
+import { ClientMiddlewareManager } from './middleware.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.
@@ -262,6 +273,7 @@ export class Client<
     private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
+    private readonly _middleware: ClientMiddlewareManager;
 
     /**
      * Initializes this client with the given name and version information.
@@ -273,11 +285,190 @@ export class Client<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this._middleware = new ClientMiddlewareManager();
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
             this._pendingListChangedConfig = options.listChanged;
         }
+    }
+
+    /**
+     * Gets the middleware manager for advanced middleware configuration.
+     */
+    get middleware(): ClientMiddlewareManager {
+        return this._middleware;
+    }
+
+    /**
+     * Registers universal middleware that runs for all request types.
+     *
+     * @param middleware - The middleware function to register
+     * @returns This Client instance for chaining
+     */
+    useMiddleware(middleware: ClientMiddleware): this {
+        this._middleware.useMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware for outgoing requests only.
+     *
+     * @param middleware - The outgoing middleware function to register
+     * @returns This Client instance for chaining
+     */
+    useOutgoingMiddleware(middleware: OutgoingMiddleware): this {
+        this._middleware.useOutgoingMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware for incoming requests only.
+     *
+     * @param middleware - The incoming middleware function to register
+     * @returns This Client instance for chaining
+     */
+    useIncomingMiddleware(middleware: IncomingMiddleware): this {
+        this._middleware.useIncomingMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for tool calls.
+     *
+     * @param middleware - The tool call middleware function to register
+     * @returns This Client instance for chaining
+     */
+    useToolCallMiddleware(middleware: ToolCallMiddleware): this {
+        this._middleware.useToolCallMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for resource reads.
+     *
+     * @param middleware - The resource read middleware function to register
+     * @returns This Client instance for chaining
+     */
+    useResourceReadMiddleware(middleware: ResourceReadMiddleware): this {
+        this._middleware.useResourceReadMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for sampling requests.
+     *
+     * @param middleware - The sampling middleware function to register
+     * @returns This Client instance for chaining
+     */
+    useSamplingMiddleware(middleware: SamplingMiddleware): this {
+        this._middleware.useSamplingMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for elicitation requests.
+     *
+     * @param middleware - The elicitation middleware function to register
+     * @returns This Client instance for chaining
+     */
+    useElicitationMiddleware(middleware: ElicitationMiddleware): this {
+        this._middleware.useElicitationMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Creates a new ClientBuilder for fluent configuration.
+     *
+     * @example
+     * ```typescript
+     * const client = Client.builder()
+     *   .name('my-client')
+     *   .version('1.0.0')
+     *   .capabilities({ sampling: {} })
+     *   .onSamplingRequest(async (params) => {
+     *     // Handle sampling request from server
+     *     return { role: 'assistant', content: { type: 'text', text: '...' } };
+     *   })
+     *   .build();
+     * ```
+     */
+    static builder(): ClientBuilder {
+        return new ClientBuilder();
+    }
+
+    /**
+     * Creates a Client from a ClientBuilderResult configuration.
+     *
+     * @param result - The result from ClientBuilder.build()
+     * @returns A configured Client instance
+     */
+    static fromBuilderResult(result: ClientBuilderResult): Client {
+        const client = new Client(result.clientInfo, {
+            capabilities: result.capabilities,
+            enforceStrictCapabilities: result.options.enforceStrictCapabilities,
+            jsonSchemaValidator: result.jsonSchemaValidator,
+            listChanged: result.listChanged
+        });
+
+        // Register handlers
+        if (result.handlers.sampling) {
+            client.setRequestHandler(
+                CreateMessageRequestSchema,
+                result.handlers.sampling as Parameters<typeof client.setRequestHandler>[1]
+            );
+        }
+
+        if (result.handlers.elicitation) {
+            client.setRequestHandler(ElicitRequestSchema, result.handlers.elicitation as Parameters<typeof client.setRequestHandler>[1]);
+        }
+
+        if (result.handlers.rootsList) {
+            client.setRequestHandler(ListRootsRequestSchema, result.handlers.rootsList as Parameters<typeof client.setRequestHandler>[1]);
+        }
+
+        // Wire up error handlers to Protocol events
+        if (result.errorHandlers.onError || result.errorHandlers.onProtocolError) {
+            client.events.on('error', ({ error, context }) => {
+                const errorContext = {
+                    type: (context as 'sampling' | 'elicitation' | 'rootsList' | 'protocol') || 'protocol',
+                    method: context || 'unknown',
+                    requestId: 'unknown'
+                };
+
+                // Call the appropriate error handler based on context
+                if (context === 'protocol' && result.errorHandlers.onProtocolError) {
+                    (result.errorHandlers.onProtocolError as (error: Error, ctx: typeof errorContext) => void)(error, errorContext);
+                } else if (result.errorHandlers.onError) {
+                    (result.errorHandlers.onError as (error: Error, ctx: typeof errorContext) => void)(error, errorContext);
+                }
+            });
+        }
+
+        // Apply middleware from builder
+        for (const middleware of result.middleware.universal) {
+            client.useMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.outgoing) {
+            client.useOutgoingMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.incoming) {
+            client.useIncomingMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.toolCall) {
+            client.useToolCallMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.resourceRead) {
+            client.useResourceReadMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.sampling) {
+            client.useSamplingMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.elicitation) {
+            client.useElicitationMiddleware(middleware);
+        }
+
+        return client;
     }
 
     /**
@@ -495,14 +686,11 @@ export class Client<
 
     protected createRequestContext(args: {
         request: JSONRPCRequest;
-        taskStore: TaskStore | undefined;
-        relatedTaskId: string | undefined;
-        taskCreationParams: TaskCreationParams | undefined;
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
     }): ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext> {
-        const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
+        const { request, abortController, capturedTransport, extra } = args;
         const sessionId = capturedTransport?.sessionId;
 
         // Build the MCP context using the helper from Protocol
@@ -514,22 +702,12 @@ export class Client<
             authInfo: extra?.authInfo
         };
 
-        // Build the task context using the helper from Protocol
-        const taskCtx: TaskContext | undefined = this.buildTaskContext({
-            taskStore,
-            request,
-            sessionId,
-            relatedTaskId,
-            taskCreationParams
-        });
-
-        // Return a ClientContext instance
+        // Return a ClientContext instance (task context is added by plugins if needed)
         return new ClientContext<RequestT, NotificationT, ResultT>({
             client: this,
             request,
             mcpContext,
-            requestCtx,
-            task: taskCtx
+            requestCtx
         });
     }
 
@@ -979,5 +1157,92 @@ export class Client<
 
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
+    }
+
+    /**
+     * Registers a handler for roots/list requests from the server.
+     *
+     * @param handler - Handler function that returns the list of roots
+     * @returns This Client instance for chaining
+     *
+     * @example
+     * ```typescript
+     * client.onRootsList(async () => ({
+     *   roots: [
+     *     { uri: 'file:///workspace', name: 'Workspace' }
+     *   ]
+     * }));
+     * ```
+     */
+    onRootsList(
+        handler: (
+            ctx: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
+        ) => ListRootsResult | Promise<ListRootsResult>
+    ): this {
+        this.setRequestHandler(ListRootsRequestSchema, (_request, ctx) => handler(ctx));
+        return this;
+    }
+
+    /**
+     * Registers an error handler for application errors.
+     *
+     * The handler receives the error and a context object with information about where
+     * the error occurred. It can optionally return a custom error response.
+     *
+     * @param handler - Error handler function
+     * @returns Unsubscribe function
+     *
+     * @example
+     * ```typescript
+     * const unsubscribe = client.onError((error, ctx) => {
+     *   console.error(`Error in ${ctx.type}: ${error.message}`);
+     *   // Optionally return a custom error response
+     *   return {
+     *     code: -32000,
+     *     message: `Application error: ${error.message}`,
+     *     data: { type: ctx.type }
+     *   };
+     * });
+     * ```
+     */
+    onError(handler: OnErrorHandler): () => void {
+        return this.events.on('error', ({ error, context }) => {
+            const errorContext: ErrorContext = {
+                type: (context as 'sampling' | 'elicitation' | 'rootsList' | 'protocol') || 'protocol',
+                method: context || 'unknown',
+                requestId: 'unknown'
+            };
+            handler(error, errorContext);
+        });
+    }
+
+    /**
+     * Registers an error handler for protocol errors.
+     *
+     * The handler receives the error and a context object. It can optionally return
+     * a custom error response (but cannot change the error code).
+     *
+     * @param handler - Error handler function
+     * @returns Unsubscribe function
+     *
+     * @example
+     * ```typescript
+     * const unsubscribe = client.onProtocolError((error, ctx) => {
+     *   console.error(`Protocol error in ${ctx.method}: ${error.message}`);
+     *   return { message: `Protocol error: ${error.message}` };
+     * });
+     * ```
+     */
+    onProtocolError(handler: OnProtocolErrorHandler): () => void {
+        return this.events.on('error', ({ error, context }) => {
+            if (context === 'protocol') {
+                const errorContext: ErrorContext = {
+                    type: 'protocol',
+                    method: context || 'unknown',
+                    requestId: 'unknown'
+                };
+                handler(error, errorContext);
+            }
+        });
     }
 }

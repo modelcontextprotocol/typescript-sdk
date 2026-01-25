@@ -22,6 +22,7 @@ import {
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     ReadResourceResultSchema,
+    text,
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
@@ -516,7 +517,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text', text: '' }],
+                    content: [text('')],
                     structuredContent: {
                         result: 42
                     }
@@ -530,7 +531,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     sum: z.number()
                 },
                 callback: async () => ({
-                    content: [{ type: 'text', text: '' }],
+                    content: [text('')],
                     structuredContent: {
                         result: 42,
                         sum: 100
@@ -660,7 +661,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     inputSchema: { name: z.string(), value: z.number() }
                 },
                 async ({ name, value }) => ({
-                    content: [{ type: 'text', text: `${name}: ${value}` }]
+                    content: [text(`${name}: ${value}`)]
                 })
             );
 
@@ -809,7 +810,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     annotations: { title: 'Test Tool', readOnlyHint: true }
                 },
                 async ({ name }) => ({
-                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                    content: [text(`Hello, ${name}!`)]
                 })
             );
 
@@ -856,7 +857,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async ({ name }) => ({
-                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                    content: [text(`Hello, ${name}!`)]
                 })
             );
 
@@ -904,7 +905,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text', text: 'Test response' }]
+                    content: [text('Test response')]
                 })
             );
 
@@ -1709,7 +1710,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     _meta: metaData
                 },
                 async ({ name }) => ({
-                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                    content: [text(`Hello, ${name}!`)]
                 })
             );
 
@@ -1745,7 +1746,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     inputSchema: { name: z.string() }
                 },
                 async ({ name }) => ({
-                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                    content: [text(`Hello, ${name}!`)]
                 })
             );
 
@@ -1917,7 +1918,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     description: 'A valid tool name'
                 },
-                async () => ({ content: [{ type: 'text', text: 'Success' }] })
+                async () => ({ content: [text('Success')] })
             );
 
             // Test tool name with warnings (starts with dash)
@@ -1926,7 +1927,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     description: 'A tool name that generates warnings'
                 },
-                async () => ({ content: [{ type: 'text', text: 'Success' }] })
+                async () => ({ content: [text('Success')] })
             );
 
             // Test invalid tool name (contains spaces)
@@ -1935,7 +1936,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     description: 'An invalid tool name'
                 },
-                async () => ({ content: [{ type: 'text', text: 'Success' }] })
+                async () => ({ content: [text('Success')] })
             );
 
             // Verify that warnings were issued (both for warnings and validation failures)
@@ -4041,7 +4042,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Tool 1: Only name
             mcpServer.registerTool('tool_name_only', {}, async () => ({
-                content: [{ type: 'text', text: 'Response' }]
+                content: [text('Response')]
             }));
 
             // Tool 2: Name and annotations.title
@@ -4054,7 +4055,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text', text: 'Response' }]
+                    content: [text('Response')]
                 })
             );
 
@@ -4066,7 +4067,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     description: 'Tool with regular title'
                 },
                 async () => ({
-                    content: [{ type: 'text', text: 'Response' }]
+                    content: [text('Response')]
                 })
             );
 
@@ -4081,7 +4082,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text', text: 'Response' }]
+                    content: [text('Response')]
                 })
             );
 
@@ -5334,7 +5335,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Tool 1: Only name
             mcpServer.registerTool('tool_name_only', {}, async () => ({
-                content: [{ type: 'text', text: 'Response' }]
+                content: [text('Response')]
             }));
 
             // Tool 2: Name and annotations.title
@@ -5347,7 +5348,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text', text: 'Response' }]
+                    content: [text('Response')]
                 })
             );
 
@@ -5359,7 +5360,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     description: 'Tool with regular title'
                 },
                 async () => ({
-                    content: [{ type: 'text', text: 'Response' }]
+                    content: [text('Response')]
                 })
             );
 
@@ -5374,7 +5375,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text', text: 'Response' }]
+                    content: [text('Response')]
                 })
             );
 
@@ -5972,10 +5973,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             server.registerTool('contact', { inputSchema: unionSchema }, async args => {
                 return args.type === 'email'
                     ? {
-                          content: [{ type: 'text', text: `Email contact: ${args.email}` }]
+                          content: [text(`Email contact: ${args.email}`)]
                       }
                     : {
-                          content: [{ type: 'text', text: `Phone contact: ${args.phone}` }]
+                          content: [text(`Phone contact: ${args.phone}`)]
                       };
             });
 
@@ -6136,7 +6137,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             server.registerTool('union-test', { inputSchema: unionSchema }, async () => {
                 return {
-                    content: [{ type: 'text', text: 'Success' }]
+                    content: [text('Success')]
                 };
             });
 

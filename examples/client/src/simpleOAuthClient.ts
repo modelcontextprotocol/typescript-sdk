@@ -9,6 +9,7 @@ import type { CallToolRequest, ListToolsRequest, OAuthClientMetadata } from '@mo
 import {
     CallToolResultSchema,
     Client,
+    isTextContent,
     ListToolsResultSchema,
     StreamableHTTPClientTransport,
     UnauthorizedError
@@ -315,7 +316,7 @@ class InteractiveOAuthClient {
             console.log(`\n🔧 Tool '${toolName}' result:`);
             if (result.content) {
                 for (const content of result.content) {
-                    if (content.type === 'text') {
+                    if (isTextContent(content)) {
                         console.log(content.text);
                     } else {
                         console.log(content);
@@ -396,7 +397,7 @@ class InteractiveOAuthClient {
                     case 'result': {
                         console.log('✓ Completed!');
                         for (const content of message.result.content) {
-                            if (content.type === 'text') {
+                            if (isTextContent(content)) {
                                 console.log(content.text);
                             } else {
                                 console.log(content);

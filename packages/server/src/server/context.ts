@@ -203,7 +203,7 @@ export class ServerContext<
         request: JSONRPCRequest;
         mcpContext: McpContext;
         requestCtx: ServerRequestContext;
-        task: TaskContext | undefined;
+        task?: TaskContext;
     }) {
         super({
             request: args.request,

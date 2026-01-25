@@ -20,7 +20,8 @@ import {
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     isInitializeRequest,
-    McpServer
+    McpServer,
+    TaskPlugin
 } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -44,10 +45,16 @@ const getServer = () => {
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
         {
-            capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
-            taskStore, // Enable task support
-            taskMessageQueue: new InMemoryTaskMessageQueue()
+            capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } }
         }
+    );
+
+    // Enable task support via TaskPlugin
+    server.server.usePlugin(
+        new TaskPlugin({
+            taskStore,
+            taskMessageQueue: new InMemoryTaskMessageQueue()
+        })
     );
 
     // Register a simple tool that returns a greeting

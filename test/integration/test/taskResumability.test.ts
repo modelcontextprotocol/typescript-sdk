@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
-import { CallToolResultSchema, LoggingMessageNotificationSchema, McpServer } from '@modelcontextprotocol/server';
+import { CallToolResultSchema, LoggingMessageNotificationSchema, McpServer, text } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
@@ -79,7 +79,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     });
 
                     return {
-                        content: [{ type: 'text', text: 'Notification sent' }]
+                        content: [text('Notification sent')]
                     };
                 }
             );
@@ -112,7 +112,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
 
                     return {
-                        content: [{ type: 'text', text: `Sent ${count} notifications` }]
+                        content: [text(`Sent ${count} notifications`)]
                     };
                 }
             );

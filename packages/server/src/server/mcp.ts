@@ -7,16 +7,15 @@ import type {
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
-    ContextInterface,
     CreateTaskResult,
+    ErrorInterceptionContext,
+    ErrorInterceptionResult,
     GetPromptResult,
     Implementation,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
     LoggingMessageNotification,
-    Prompt,
-    PromptArgument,
     PromptReference,
     ReadResourceResult,
     Resource,
@@ -26,7 +25,6 @@ import type {
     ServerNotification,
     ServerRequest,
     ShapeOutput,
-    Tool,
     ToolAnnotations,
     ToolExecution,
     Transport,
@@ -43,8 +41,6 @@ import {
     getObjectShape,
     getParseErrorMessage,
     GetPromptRequestSchema,
-    getSchemaDescription,
-    isSchemaOptional,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
@@ -54,17 +50,54 @@ import {
     objectFromShape,
     ReadResourceRequestSchema,
     safeParseAsync,
-    toJsonSchemaCompat,
-    UriTemplate,
-    validateAndWarnToolName
+    UriTemplate
 } from '@modelcontextprotocol/core';
 import { ZodOptional } from 'zod';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
+import type {
+    BuilderResult,
+    ErrorContext,
+    OnErrorHandler,
+    OnErrorReturn,
+    OnProtocolErrorHandler,
+    OnProtocolErrorReturn
+} from './builder.js';
+import { McpServerBuilder } from './builder.js';
 import { getCompleter, isCompletable } from './completable.js';
+import type { ServerContextInterface } from './context.js';
+import type {
+    PromptContext,
+    PromptMiddleware,
+    ResourceContext,
+    ResourceMiddleware,
+    ToolContext,
+    ToolMiddleware,
+    UniversalMiddleware
+} from './middleware.js';
+import { MiddlewareManager } from './middleware.js';
+import type { RegisteredPromptEntity } from './registries/promptRegistry.js';
+import { PromptRegistry } from './registries/promptRegistry.js';
+import type { RegisteredResourceEntity, RegisteredResourceTemplateEntity } from './registries/resourceRegistry.js';
+import { ResourceRegistry, ResourceTemplateRegistry } from './registries/resourceRegistry.js';
+import type { RegisteredToolEntity } from './registries/toolRegistry.js';
+import { ToolRegistry } from './registries/toolRegistry.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
+
+/**
+ * Internal options for McpServer that can include pre-created registries.
+ * Used by fromBuilderResult to pass registries from the builder.
+ */
+interface InternalMcpServerOptions extends ServerOptions {
+    /** Pre-created tool registry (callbacks will be bound by McpServer) */
+    _toolRegistry?: ToolRegistry;
+    /** Pre-created resource registry (callbacks will be bound by McpServer) */
+    _resourceRegistry?: ResourceRegistry;
+    /** Pre-created prompt registry (callbacks will be bound by McpServer) */
+    _promptRegistry?: PromptRegistry;
+}
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -77,16 +110,200 @@ export class McpServer {
      */
     public readonly server: Server;
 
-    private _registeredResources: { [uri: string]: RegisteredResource } = {};
-    private _registeredResourceTemplates: {
-        [name: string]: RegisteredResourceTemplate;
-    } = {};
-    private _registeredTools: { [name: string]: RegisteredTool } = {};
-    private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private readonly _toolRegistry: ToolRegistry;
+    private readonly _resourceRegistry: ResourceRegistry;
+    private readonly _resourceTemplateRegistry: ResourceTemplateRegistry;
+    private readonly _promptRegistry: PromptRegistry;
+    private readonly _middleware: MiddlewareManager;
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
+    // Error handlers (single callback pattern, not event-based)
+    private _onErrorHandler?: OnErrorHandler;
+    private _onProtocolErrorHandler?: OnProtocolErrorHandler;
+
     constructor(serverInfo: Implementation, options?: ServerOptions) {
+        const internalOptions = options as InternalMcpServerOptions | undefined;
         this.server = new Server(serverInfo, options);
+
+        // Use pre-created registries if provided, otherwise create new ones
+        // Either way, bind the notification callbacks to this server instance
+        this._toolRegistry = internalOptions?._toolRegistry ?? new ToolRegistry();
+        this._toolRegistry.setNotifyCallback(() => this.sendToolListChanged());
+
+        this._resourceRegistry = internalOptions?._resourceRegistry ?? new ResourceRegistry();
+        this._resourceRegistry.setNotifyCallback(() => this.sendResourceListChanged());
+
+        // Resource template registry is always created fresh (not passed from builder)
+        this._resourceTemplateRegistry = new ResourceTemplateRegistry();
+        this._resourceTemplateRegistry.setNotifyCallback(() => this.sendResourceListChanged());
+
+        this._promptRegistry = internalOptions?._promptRegistry ?? new PromptRegistry();
+        this._promptRegistry.setNotifyCallback(() => this.sendPromptListChanged());
+
+        // Initialize middleware manager
+        this._middleware = new MiddlewareManager();
+
+        // If registries were pre-populated, set up request handlers
+        if (this._toolRegistry.size > 0) {
+            this.setToolRequestHandlers();
+        }
+        if (this._resourceRegistry.size > 0) {
+            this.setResourceRequestHandlers();
+        }
+        if (this._promptRegistry.size > 0) {
+            this.setPromptRequestHandlers();
+        }
+    }
+
+    /**
+     * Gets the middleware manager for advanced middleware configuration.
+     */
+    get middleware(): MiddlewareManager {
+        return this._middleware;
+    }
+
+    /**
+     * Registers universal middleware that runs for all request types (tools, resources, prompts).
+     *
+     * @param middleware - The middleware function to register
+     * @returns This McpServer instance for chaining
+     */
+    useMiddleware(middleware: UniversalMiddleware): this {
+        this._middleware.useMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for tool calls.
+     *
+     * @param middleware - The tool middleware function to register
+     * @returns This McpServer instance for chaining
+     */
+    useToolMiddleware(middleware: ToolMiddleware): this {
+        this._middleware.useToolMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for resource reads.
+     *
+     * @param middleware - The resource middleware function to register
+     * @returns This McpServer instance for chaining
+     */
+    useResourceMiddleware(middleware: ResourceMiddleware): this {
+        this._middleware.useResourceMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for prompt requests.
+     *
+     * @param middleware - The prompt middleware function to register
+     * @returns This McpServer instance for chaining
+     */
+    usePromptMiddleware(middleware: PromptMiddleware): this {
+        this._middleware.usePromptMiddleware(middleware);
+        return this;
+    }
+
+    /**
+     * Gets the tool registry for advanced tool management.
+     */
+    get tools(): ToolRegistry {
+        return this._toolRegistry;
+    }
+
+    /**
+     * Gets the resource registry for advanced resource management.
+     */
+    get resources(): ResourceRegistry {
+        return this._resourceRegistry;
+    }
+
+    /**
+     * Gets the resource template registry for advanced template management.
+     */
+    get resourceTemplates(): ResourceTemplateRegistry {
+        return this._resourceTemplateRegistry;
+    }
+
+    /**
+     * Gets the prompt registry for advanced prompt management.
+     */
+    get prompts(): PromptRegistry {
+        return this._promptRegistry;
+    }
+
+    /**
+     * Creates a new McpServerBuilder for fluent configuration.
+     *
+     * @example
+     * ```typescript
+     * const server = McpServer.builder()
+     *   .name('my-server')
+     *   .version('1.0.0')
+     *   .tool('greet', { name: z.string() }, async ({ name }) => ({
+     *     content: [{ type: 'text', text: `Hello, ${name}!` }]
+     *   }))
+     *   .build();
+     * ```
+     */
+    static builder(): McpServerBuilder {
+        return new McpServerBuilder();
+    }
+
+    /**
+     * Creates an McpServer from a BuilderResult configuration.
+     *
+     * @param result - The result from McpServerBuilder.build()
+     * @returns A configured McpServer instance
+     */
+    static fromBuilderResult(result: BuilderResult): McpServer {
+        // Create server with pre-populated registries from the builder
+        // The constructor will bind notification callbacks to the registries
+        const internalOptions: InternalMcpServerOptions = {
+            ...result.options,
+            _toolRegistry: result.registries.tools,
+            _resourceRegistry: result.registries.resources,
+            _promptRegistry: result.registries.prompts
+        };
+
+        const server = new McpServer(result.serverInfo, internalOptions);
+
+        // Wire up error handlers
+        if (result.errorHandlers.onError) {
+            server.onError(result.errorHandlers.onError);
+        }
+        if (result.errorHandlers.onProtocolError) {
+            server.onProtocolError(result.errorHandlers.onProtocolError);
+        }
+
+        // Apply global middleware from builder
+        for (const middleware of result.middleware.universal) {
+            server.useMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.tool) {
+            server.useToolMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.resource) {
+            server.useResourceMiddleware(middleware);
+        }
+        for (const middleware of result.middleware.prompt) {
+            server.usePromptMiddleware(middleware);
+        }
+
+        // Apply per-item middleware
+        for (const [name, middleware] of result.perItemMiddleware.tools) {
+            server._middleware.useToolMiddlewareFor(name, middleware);
+        }
+        for (const [uri, middleware] of result.perItemMiddleware.resources) {
+            server._middleware.useResourceMiddlewareFor(uri, middleware);
+        }
+        for (const [name, middleware] of result.perItemMiddleware.prompts) {
+            server._middleware.usePromptMiddlewareFor(name, middleware);
+        }
+
+        return server;
     }
 
     /**
@@ -140,45 +357,13 @@ export class McpServer {
         this.server.setRequestHandler(
             ListToolsRequestSchema,
             (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: (() => {
-                                const obj = normalizeObjectSchema(tool.inputSchema);
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                          strictUnions: true,
-                                          pipeStrategy: 'input'
-                                      }) as Tool['inputSchema'])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
-                            })(),
-                            annotations: tool.annotations,
-                            execution: tool.execution,
-                            _meta: tool._meta
-                        };
-
-                        if (tool.outputSchema) {
-                            const obj = normalizeObjectSchema(tool.outputSchema);
-                            if (obj) {
-                                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
-                                    strictUnions: true,
-                                    pipeStrategy: 'output'
-                                }) as Tool['outputSchema'];
-                            }
-                        }
-
-                        return toolDefinition;
-                    })
+                tools: this._toolRegistry.getProtocolTools()
             })
         );
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
             try {
-                const tool = this._registeredTools[request.params.name];
+                const tool = this._toolRegistry.getTool(request.params.name);
                 if (!tool) {
                     throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
                 }
@@ -211,17 +396,37 @@ export class McpServer {
                     return await this.handleAutomaticTaskPolling(tool, request, ctx);
                 }
 
-                // Normal execution path
-                const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-                const result = await this.executeToolHandler(tool, args, ctx);
+                // Build middleware context
+                const middlewareCtx: ToolContext = {
+                    type: 'tool',
+                    requestId: String(ctx.mcpCtx.requestId),
+                    authInfo: ctx.requestCtx.authInfo,
+                    signal: ctx.requestCtx.signal,
+                    name: request.params.name,
+                    args: request.params.arguments
+                };
 
-                // Return CreateTaskResult immediately for task requests
-                if (isTaskRequest) {
-                    return result;
-                }
+                // Execute with middleware (including per-tool middleware if registered)
+                const perToolMiddleware = this._middleware.getToolMiddlewareFor(request.params.name);
+                const result = await this._middleware.executeToolMiddleware(
+                    middlewareCtx,
+                    async (mwCtx, modifiedArgs) => {
+                        const argsToUse = modifiedArgs ?? mwCtx.args;
+                        const validatedArgs = await this.validateToolInput(tool, argsToUse, request.params.name);
+                        const handlerResult = await this.executeToolHandler(tool, validatedArgs, ctx);
 
-                // Validate output schema for non-task requests
-                await this.validateToolOutput(tool, result, request.params.name);
+                        // Return CreateTaskResult immediately for task requests
+                        if (isTaskRequest) {
+                            return handlerResult as CallToolResult;
+                        }
+
+                        // Validate output schema for non-task requests
+                        await this.validateToolOutput(tool, handlerResult, request.params.name);
+                        return handlerResult as CallToolResult;
+                    },
+                    perToolMiddleware
+                );
+
                 return result;
             } catch (error) {
                 if (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired) {
@@ -256,7 +461,7 @@ export class McpServer {
      * Validates tool input arguments against the tool's input schema.
      */
     private async validateToolInput<
-        Tool extends RegisteredTool,
+        Tool extends RegisteredToolEntity,
         Args extends Tool['inputSchema'] extends infer InputSchema
             ? InputSchema extends AnySchema
                 ? SchemaOutput<InputSchema>
@@ -284,7 +489,11 @@ export class McpServer {
     /**
      * Validates tool output against the tool's output schema.
      */
-    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string): Promise<void> {
+    private async validateToolOutput(
+        tool: RegisteredToolEntity,
+        result: CallToolResult | CreateTaskResult,
+        toolName: string
+    ): Promise<void> {
         if (!tool.outputSchema) {
             return;
         }
@@ -322,9 +531,9 @@ export class McpServer {
      * Executes a tool handler (either regular or task-based).
      */
     private async executeToolHandler(
-        tool: RegisteredTool,
+        tool: RegisteredToolEntity,
         args: unknown,
-        ctx: ContextInterface<ServerRequest, ServerNotification>
+        ctx: ServerContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
         const isTaskHandler = 'createTask' in handler;
@@ -361,9 +570,9 @@ export class McpServer {
      * Handles automatic task polling for tools with taskSupport 'optional'.
      */
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        tool: RegisteredTool,
+        tool: RegisteredToolEntity,
         request: RequestT,
-        ctx: ContextInterface<ServerRequest, ServerNotification>
+        ctx: ServerContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
         if (!ctx.taskCtx?.store) {
             throw new Error('No task store provided for task-capable tool.');
@@ -428,7 +637,7 @@ export class McpServer {
     }
 
     private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
-        const prompt = this._registeredPrompts[ref.name];
+        const prompt = this._promptRegistry.getPrompt(ref.name);
         if (!prompt) {
             throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} not found`);
         }
@@ -459,10 +668,10 @@ export class McpServer {
         request: CompleteRequestResourceTemplate,
         ref: ResourceTemplateReference
     ): Promise<CompleteResult> {
-        const template = Object.values(this._registeredResourceTemplates).find(t => t.resourceTemplate.uriTemplate.toString() === ref.uri);
+        const template = this._resourceTemplateRegistry.values().find(t => t.template.uriTemplate.toString() === ref.uri);
 
         if (!template) {
-            if (this._registeredResources[ref.uri]) {
+            if (this._resourceRegistry.getResource(ref.uri)) {
                 // Attempting to autocomplete a fixed resource URI is not an error in the spec (but probably should be).
                 return EMPTY_COMPLETION_RESULT;
             }
@@ -470,7 +679,7 @@ export class McpServer {
             throw new McpError(ErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} not found`);
         }
 
-        const completer = template.resourceTemplate.completeCallback(request.params.argument.name);
+        const completer = template.template.completeCallback(request.params.argument.name);
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
         }
@@ -497,21 +706,15 @@ export class McpServer {
         });
 
         this.server.setRequestHandler(ListResourcesRequestSchema, async (request, ctx) => {
-            const resources = Object.entries(this._registeredResources)
-                .filter(([_, resource]) => resource.enabled)
-                .map(([uri, resource]) => ({
-                    uri,
-                    name: resource.name,
-                    ...resource.metadata
-                }));
+            const resources = this._resourceRegistry.getProtocolResources();
 
             const templateResources: Resource[] = [];
-            for (const template of Object.values(this._registeredResourceTemplates)) {
-                if (!template.resourceTemplate.listCallback) {
+            for (const template of this._resourceTemplateRegistry.getEnabled()) {
+                if (!template.template.listCallback) {
                     continue;
                 }
 
-                const result = await template.resourceTemplate.listCallback(ctx);
+                const result = await template.template.listCallback(ctx);
                 for (const resource of result.resources) {
                     templateResources.push({
                         ...template.metadata,
@@ -524,34 +727,57 @@ export class McpServer {
             return { resources: [...resources, ...templateResources] };
         });
 
-        this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-            const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
-                name,
-                uriTemplate: template.resourceTemplate.uriTemplate.toString(),
-                ...template.metadata
-            }));
-
-            return { resourceTemplates };
-        });
+        this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+            resourceTemplates: this._resourceTemplateRegistry.getProtocolResourceTemplates()
+        }));
 
         this.server.setRequestHandler(ReadResourceRequestSchema, async (request, ctx) => {
             const uri = new URL(request.params.uri);
 
             // First check for exact resource match
-            const resource = this._registeredResources[uri.toString()];
+            const resource = this._resourceRegistry.getResource(uri.toString());
             if (resource) {
                 if (!resource.enabled) {
                     throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} disabled`);
                 }
-                return resource.readCallback(uri, ctx);
+
+                // Build middleware context
+                const middlewareCtx: ResourceContext = {
+                    type: 'resource',
+                    requestId: String(ctx.mcpCtx.requestId),
+                    authInfo: ctx.requestCtx.authInfo,
+                    signal: ctx.requestCtx.signal,
+                    uri: uri.toString()
+                };
+
+                // Execute with middleware (including per-resource middleware if registered)
+                const perResourceMiddleware = this._middleware.getResourceMiddlewareFor(uri.toString());
+                return this._middleware.executeResourceMiddleware(
+                    middlewareCtx,
+                    async (mwCtx, modifiedUri) => {
+                        const uriToUse = modifiedUri ? new URL(modifiedUri) : uri;
+                        return resource.readCallback(uriToUse, ctx);
+                    },
+                    perResourceMiddleware
+                );
             }
 
             // Then check templates
-            for (const template of Object.values(this._registeredResourceTemplates)) {
-                const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
-                if (variables) {
-                    return template.readCallback(uri, variables, ctx);
-                }
+            const match = this._resourceTemplateRegistry.findMatchingTemplate(uri.toString());
+            if (match) {
+                // Build middleware context for template
+                const middlewareCtx: ResourceContext = {
+                    type: 'resource',
+                    requestId: String(ctx.mcpCtx.requestId),
+                    authInfo: ctx.requestCtx.authInfo,
+                    signal: ctx.requestCtx.signal,
+                    uri: uri.toString()
+                };
+
+                // Execute with middleware (templates don't have per-item middleware from builder)
+                return this._middleware.executeResourceMiddleware(middlewareCtx, async () => {
+                    return match.template.readCallback(uri, match.variables, ctx);
+                });
             }
 
             throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
@@ -579,21 +805,12 @@ export class McpServer {
         this.server.setRequestHandler(
             ListPromptsRequestSchema,
             (): ListPromptsResult => ({
-                prompts: Object.entries(this._registeredPrompts)
-                    .filter(([, prompt]) => prompt.enabled)
-                    .map(([name, prompt]): Prompt => {
-                        return {
-                            name,
-                            title: prompt.title,
-                            description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
-                        };
-                    })
+                prompts: this._promptRegistry.getProtocolPrompts()
             })
         );
 
         this.server.setRequestHandler(GetPromptRequestSchema, async (request, ctx): Promise<GetPromptResult> => {
-            const prompt = this._registeredPrompts[request.params.name];
+            const prompt = this._promptRegistry.getPrompt(request.params.name);
             if (!prompt) {
                 throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
             }
@@ -602,23 +819,43 @@ export class McpServer {
                 throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
             }
 
-            if (prompt.argsSchema) {
-                const argsObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
-                const parseResult = await safeParseAsync(argsObj, request.params.arguments);
-                if (!parseResult.success) {
-                    const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
-                    const errorMessage = getParseErrorMessage(error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`);
-                }
+            // Build middleware context
+            const middlewareCtx: PromptContext = {
+                type: 'prompt',
+                requestId: String(ctx.mcpCtx.requestId),
+                authInfo: ctx.requestCtx.authInfo,
+                signal: ctx.requestCtx.signal,
+                name: request.params.name,
+                args: request.params.arguments
+            };
 
-                const args = parseResult.data;
-                const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
-                return await Promise.resolve(cb(args, ctx));
-            } else {
-                const cb = prompt.callback as PromptCallback<undefined>;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((cb as any)(ctx));
-            }
+            // Execute with middleware (including per-prompt middleware if registered)
+            const perPromptMiddleware = this._middleware.getPromptMiddlewareFor(request.params.name);
+            return this._middleware.executePromptMiddleware(
+                middlewareCtx,
+                async (mwCtx, modifiedArgs) => {
+                    const argsToUse = modifiedArgs ?? mwCtx.args;
+
+                    if (prompt.argsSchema) {
+                        const argsObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
+                        const parseResult = await safeParseAsync(argsObj, argsToUse);
+                        if (!parseResult.success) {
+                            const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
+                            const errorMessage = getParseErrorMessage(error);
+                            throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`);
+                        }
+
+                        const args = parseResult.data;
+                        const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
+                        return await Promise.resolve(cb(args, ctx));
+                    } else {
+                        const cb = prompt.callback as PromptCallback<undefined>;
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        return await Promise.resolve((cb as any)(ctx));
+                    }
+                },
+                perPromptMiddleware
+            );
         });
 
         this._promptHandlersInitialized = true;
@@ -628,225 +865,59 @@ export class McpServer {
      * Registers a resource with a config object and callback.
      * For static resources, use a URI string. For dynamic resources, use a ResourceTemplate.
      */
-    registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    registerResource(
+        name: string,
+        uriOrTemplate: string,
+        config: ResourceMetadata,
+        readCallback: ReadResourceCallback
+    ): RegisteredResourceEntity;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
         config: ResourceMetadata,
         readCallback: ReadResourceTemplateCallback
-    ): RegisteredResourceTemplate;
+    ): RegisteredResourceTemplateEntity;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
         config: ResourceMetadata,
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
-    ): RegisteredResource | RegisteredResourceTemplate {
+    ): RegisteredResourceEntity | RegisteredResourceTemplateEntity {
         if (typeof uriOrTemplate === 'string') {
-            if (this._registeredResources[uriOrTemplate]) {
-                throw new Error(`Resource ${uriOrTemplate} is already registered`);
-            }
-
-            const registeredResource = this._createRegisteredResource(
+            const registeredResource = this._resourceRegistry.register({
                 name,
-                (config as BaseMetadata).title,
-                uriOrTemplate,
-                config,
-                readCallback as ReadResourceCallback
-            );
+                uri: uriOrTemplate,
+                title: (config as BaseMetadata).title,
+                description: config.description,
+                mimeType: config.mimeType,
+                metadata: config,
+                readCallback: readCallback as ReadResourceCallback
+            });
 
             this.setResourceRequestHandlers();
-            this.sendResourceListChanged();
             return registeredResource;
         } else {
-            if (this._registeredResourceTemplates[name]) {
-                throw new Error(`Resource template ${name} is already registered`);
-            }
-
-            const registeredResourceTemplate = this._createRegisteredResourceTemplate(
+            const registeredResourceTemplate = this._resourceTemplateRegistry.register({
                 name,
-                (config as BaseMetadata).title,
-                uriOrTemplate,
-                config,
-                readCallback as ReadResourceTemplateCallback
-            );
+                template: uriOrTemplate,
+                title: (config as BaseMetadata).title,
+                description: config.description,
+                mimeType: config.mimeType,
+                metadata: config,
+                readCallback: readCallback as ReadResourceTemplateCallback
+            });
 
             this.setResourceRequestHandlers();
-            this.sendResourceListChanged();
-            return registeredResourceTemplate;
-        }
-    }
 
-    private _createRegisteredResource(
-        name: string,
-        title: string | undefined,
-        uri: string,
-        metadata: ResourceMetadata | undefined,
-        readCallback: ReadResourceCallback
-    ): RegisteredResource {
-        const registeredResource: RegisteredResource = {
-            name,
-            title,
-            metadata,
-            readCallback,
-            enabled: true,
-            disable: () => registeredResource.update({ enabled: false }),
-            enable: () => registeredResource.update({ enabled: true }),
-            remove: () => registeredResource.update({ uri: null }),
-            update: updates => {
-                if (updates.uri !== undefined && updates.uri !== uri) {
-                    delete this._registeredResources[uri];
-                    if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
-                }
-                if (updates.name !== undefined) registeredResource.name = updates.name;
-                if (updates.title !== undefined) registeredResource.title = updates.title;
-                if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
-                if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
-                if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
-                this.sendResourceListChanged();
-            }
-        };
-        this._registeredResources[uri] = registeredResource;
-        return registeredResource;
-    }
-
-    private _createRegisteredResourceTemplate(
-        name: string,
-        title: string | undefined,
-        template: ResourceTemplate,
-        metadata: ResourceMetadata | undefined,
-        readCallback: ReadResourceTemplateCallback
-    ): RegisteredResourceTemplate {
-        const registeredResourceTemplate: RegisteredResourceTemplate = {
-            resourceTemplate: template,
-            title,
-            metadata,
-            readCallback,
-            enabled: true,
-            disable: () => registeredResourceTemplate.update({ enabled: false }),
-            enable: () => registeredResourceTemplate.update({ enabled: true }),
-            remove: () => registeredResourceTemplate.update({ name: null }),
-            update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    delete this._registeredResourceTemplates[name];
-                    if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
-                }
-                if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
-                if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
-                if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
-                if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
-                if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
-                this.sendResourceListChanged();
-            }
-        };
-        this._registeredResourceTemplates[name] = registeredResourceTemplate;
-
-        // If the resource template has any completion callbacks, enable completions capability
-        const variableNames = template.uriTemplate.variableNames;
-        const hasCompleter = Array.isArray(variableNames) && variableNames.some(v => !!template.completeCallback(v));
-        if (hasCompleter) {
-            this.setCompletionRequestHandler();
-        }
-
-        return registeredResourceTemplate;
-    }
-
-    private _createRegisteredPrompt(
-        name: string,
-        title: string | undefined,
-        description: string | undefined,
-        argsSchema: PromptArgsRawShape | undefined,
-        callback: PromptCallback<PromptArgsRawShape | undefined>
-    ): RegisteredPrompt {
-        const registeredPrompt: RegisteredPrompt = {
-            title,
-            description,
-            argsSchema: argsSchema === undefined ? undefined : objectFromShape(argsSchema),
-            callback,
-            enabled: true,
-            disable: () => registeredPrompt.update({ enabled: false }),
-            enable: () => registeredPrompt.update({ enabled: true }),
-            remove: () => registeredPrompt.update({ name: null }),
-            update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    delete this._registeredPrompts[name];
-                    if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
-                }
-                if (updates.title !== undefined) registeredPrompt.title = updates.title;
-                if (updates.description !== undefined) registeredPrompt.description = updates.description;
-                if (updates.argsSchema !== undefined) registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
-                if (updates.callback !== undefined) registeredPrompt.callback = updates.callback;
-                if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
-                this.sendPromptListChanged();
-            }
-        };
-        this._registeredPrompts[name] = registeredPrompt;
-
-        // If any argument uses a Completable schema, enable completions capability
-        if (argsSchema) {
-            const hasCompletable = Object.values(argsSchema).some(field => {
-                const inner: unknown = field instanceof ZodOptional ? field._def?.innerType : field;
-                return isCompletable(inner);
-            });
-            if (hasCompletable) {
+            // If the resource template has any completion callbacks, enable completions capability
+            const variableNames = uriOrTemplate.uriTemplate.variableNames;
+            const hasCompleter = Array.isArray(variableNames) && variableNames.some(v => !!uriOrTemplate.completeCallback(v));
+            if (hasCompleter) {
                 this.setCompletionRequestHandler();
             }
+
+            return registeredResourceTemplate;
         }
-
-        return registeredPrompt;
-    }
-
-    private _createRegisteredTool(
-        name: string,
-        title: string | undefined,
-        description: string | undefined,
-        inputSchema: ZodRawShapeCompat | AnySchema | undefined,
-        outputSchema: ZodRawShapeCompat | AnySchema | undefined,
-        annotations: ToolAnnotations | undefined,
-        execution: ToolExecution | undefined,
-        _meta: Record<string, unknown> | undefined,
-        handler: AnyToolHandler<ZodRawShapeCompat | undefined>
-    ): RegisteredTool {
-        // Validate tool name according to SEP specification
-        validateAndWarnToolName(name);
-
-        const registeredTool: RegisteredTool = {
-            title,
-            description,
-            inputSchema: getZodSchemaObject(inputSchema),
-            outputSchema: getZodSchemaObject(outputSchema),
-            annotations,
-            execution,
-            _meta,
-            handler: handler,
-            enabled: true,
-            disable: () => registeredTool.update({ enabled: false }),
-            enable: () => registeredTool.update({ enabled: true }),
-            remove: () => registeredTool.update({ name: null }),
-            update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    if (typeof updates.name === 'string') {
-                        validateAndWarnToolName(updates.name);
-                    }
-                    delete this._registeredTools[name];
-                    if (updates.name) this._registeredTools[updates.name] = registeredTool;
-                }
-                if (updates.title !== undefined) registeredTool.title = updates.title;
-                if (updates.description !== undefined) registeredTool.description = updates.description;
-                if (updates.paramsSchema !== undefined) registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
-                if (updates.outputSchema !== undefined) registeredTool.outputSchema = objectFromShape(updates.outputSchema);
-                if (updates.callback !== undefined) registeredTool.handler = updates.callback;
-                if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
-                if (updates._meta !== undefined) registeredTool._meta = updates._meta;
-                if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
-                this.sendToolListChanged();
-            }
-        };
-        this._registeredTools[name] = registeredTool;
-
-        this.setToolRequestHandlers();
-        this.sendToolListChanged();
-
-        return registeredTool;
     }
 
     /**
@@ -860,27 +931,27 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            execution?: ToolExecution;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
-    ): RegisteredTool {
-        if (this._registeredTools[name]) {
-            throw new Error(`Tool ${name} is already registered`);
-        }
+    ): RegisteredToolEntity {
+        const { title, description, inputSchema, outputSchema, annotations, execution, _meta } = config;
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
-
-        return this._createRegisteredTool(
+        const registeredTool = this._toolRegistry.register({
             name,
             title,
             description,
-            inputSchema,
-            outputSchema,
+            inputSchema: getZodSchemaObject(inputSchema),
+            outputSchema: getZodSchemaObject(outputSchema),
             annotations,
-            { taskSupport: 'forbidden' },
+            execution: execution ?? { taskSupport: 'forbidden' },
             _meta,
-            cb as ToolCallback<ZodRawShapeCompat | undefined>
-        );
+            handler: cb as ToolCallback<ZodRawShapeCompat | undefined>
+        });
+
+        this.setToolRequestHandlers();
+        return registeredTool;
     }
 
     /**
@@ -894,23 +965,29 @@ export class McpServer {
             argsSchema?: Args;
         },
         cb: PromptCallback<Args>
-    ): RegisteredPrompt {
-        if (this._registeredPrompts[name]) {
-            throw new Error(`Prompt ${name} is already registered`);
-        }
-
+    ): RegisteredPromptEntity {
         const { title, description, argsSchema } = config;
 
-        const registeredPrompt = this._createRegisteredPrompt(
+        const registeredPrompt = this._promptRegistry.register({
             name,
             title,
             description,
             argsSchema,
-            cb as PromptCallback<PromptArgsRawShape | undefined>
-        );
+            callback: cb as PromptCallback<PromptArgsRawShape | undefined>
+        });
 
         this.setPromptRequestHandlers();
-        this.sendPromptListChanged();
+
+        // If any argument uses a Completable schema, enable completions capability
+        if (argsSchema) {
+            const hasCompletable = Object.values(argsSchema).some(field => {
+                const inner: unknown = field instanceof ZodOptional ? field._def?.innerType : field;
+                return isCompletable(inner);
+            });
+            if (hasCompletable) {
+                this.setCompletionRequestHandler();
+            }
+        }
 
         return registeredPrompt;
     }
@@ -958,6 +1035,128 @@ export class McpServer {
         if (this.isConnected()) {
             this.server.sendPromptListChanged();
         }
+    }
+
+    /**
+     * Updates the error interceptor on the underlying Server based on current handlers.
+     * This combines both onError and onProtocolError handlers into a single interceptor.
+     */
+    private _updateErrorInterceptor(): void {
+        if (!this._onErrorHandler && !this._onProtocolErrorHandler) {
+            // No handlers, clear the interceptor
+            this.server.setErrorInterceptor(undefined);
+            return;
+        }
+
+        this.server.setErrorInterceptor(async (error: Error, ctx: ErrorInterceptionContext): Promise<ErrorInterceptionResult | void> => {
+            const errorContext: ErrorContext = {
+                type: ctx.type === 'protocol' ? 'protocol' : 'tool', // Map to ErrorContext type
+                method: ctx.method,
+                requestId: typeof ctx.requestId === 'string' ? ctx.requestId : String(ctx.requestId)
+            };
+
+            let result: OnErrorReturn | OnProtocolErrorReturn | void = undefined;
+
+            if (ctx.type === 'protocol' && this._onProtocolErrorHandler) {
+                // Protocol error - use onProtocolError handler
+                result = await this._onProtocolErrorHandler(error, errorContext);
+            } else if (this._onErrorHandler) {
+                // Application error (or protocol error without specific handler) - use onError handler
+                result = await this._onErrorHandler(error, errorContext);
+            }
+
+            if (result === undefined || result === null) {
+                return undefined;
+            }
+
+            // Convert the handler result to ErrorInterceptionResult
+            if (typeof result === 'string') {
+                return { message: result };
+            } else if (result instanceof Error) {
+                const errorWithCode = result as Error & { code?: number; data?: unknown };
+                return {
+                    message: result.message,
+                    code: ctx.type === 'application' ? errorWithCode.code : undefined,
+                    data: errorWithCode.data
+                };
+            } else {
+                // Object with code/message/data
+                return {
+                    message: result.message,
+                    code: ctx.type === 'application' ? (result as OnErrorReturn & { code?: number }).code : undefined,
+                    data: result.data
+                };
+            }
+        });
+    }
+
+    /**
+     * Registers an error handler for application errors in tool/resource/prompt handlers.
+     *
+     * The handler receives the error and a context object with information about where
+     * the error occurred. It can optionally return a custom error response that will
+     * modify the error sent to the client.
+     *
+     * Note: This is a single-handler pattern. Setting a new handler replaces any previous one.
+     * The handler is awaited, so async handlers are fully supported.
+     *
+     * @param handler - Error handler function
+     * @returns Unsubscribe function
+     *
+     * @example
+     * ```typescript
+     * const unsubscribe = server.onError(async (error, ctx) => {
+     *   console.error(`Error in ${ctx.type}/${ctx.method}: ${error.message}`);
+     *   // Optionally return a custom error response
+     *   return {
+     *     code: -32000,
+     *     message: `Application error: ${error.message}`,
+     *     data: { type: ctx.type }
+     *   };
+     * });
+     * ```
+     */
+    onError(handler: OnErrorHandler): () => void {
+        this._onErrorHandler = handler;
+        this._updateErrorInterceptor();
+        return this._clearOnErrorHandler.bind(this);
+    }
+
+    private _clearOnErrorHandler(): void {
+        this._onErrorHandler = undefined;
+        this._updateErrorInterceptor();
+    }
+
+    /**
+     * Registers an error handler for protocol errors (method not found, parse error, etc.).
+     *
+     * The handler receives the error and a context object. It can optionally return
+     * a custom error response. Note that the error code cannot be changed for protocol
+     * errors as they have fixed codes per the MCP specification.
+     *
+     * Note: This is a single-handler pattern. Setting a new handler replaces any previous one.
+     * The handler is awaited, so async handlers are fully supported.
+     *
+     * @param handler - Error handler function
+     * @returns Unsubscribe function
+     *
+     * @example
+     * ```typescript
+     * const unsubscribe = server.onProtocolError(async (error, ctx) => {
+     *   console.error(`Protocol error in ${ctx.method}: ${error.message}`);
+     *   return { message: `Protocol error: ${error.message}` };
+     * });
+     * ```
+     */
+    onProtocolError(handler: OnProtocolErrorHandler): () => void {
+        this._onProtocolErrorHandler = handler;
+        this._updateErrorInterceptor();
+        return this._clearOnProtocolErrorHandler.bind(this);
+    }
+
+    private _clearOnProtocolErrorHandler(): void {
+        this._onProtocolErrorHandler = undefined;
+        this._updateErrorInterceptor();
     }
 }
 
@@ -1021,7 +1220,7 @@ export class ResourceTemplate {
 
 export type BaseToolCallback<
     SendResultT extends Result,
-    Extra extends ContextInterface<ServerRequest, ServerNotification>,
+    Extra extends ServerContextInterface<ServerRequest, ServerNotification>,
     Args extends undefined | ZodRawShapeCompat | AnySchema
 > = Args extends ZodRawShapeCompat
     ? (args: ShapeOutput<Args>, ctx: Extra) => SendResultT | Promise<SendResultT>
@@ -1041,7 +1240,7 @@ export type BaseToolCallback<
  */
 export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = BaseToolCallback<
     CallToolResult,
-    ContextInterface<ServerRequest, ServerNotification>,
+    ServerContextInterface<ServerRequest, ServerNotification>,
     Args
 >;
 
@@ -1074,11 +1273,6 @@ export type RegisteredTool = {
         enabled?: boolean;
     }): void;
     remove(): void;
-};
-
-const EMPTY_OBJECT_JSON_SCHEMA = {
-    type: 'object' as const,
-    properties: {}
 };
 
 /**
@@ -1160,7 +1354,7 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-    ctx: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContextInterface<ServerRequest, ServerNotification>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -1168,7 +1362,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
     uri: URL,
-    ctx: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResource = {
@@ -1196,7 +1390,7 @@ export type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
-    ctx: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResourceTemplate = {
@@ -1221,8 +1415,8 @@ export type RegisteredResourceTemplate = {
 type PromptArgsRawShape = ZodRawShapeCompat;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (args: ShapeOutput<Args>, ctx: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+    ? (args: ShapeOutput<Args>, ctx: ServerContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
+    : (ctx: ServerContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {
     title?: string;
@@ -1242,22 +1436,6 @@ export type RegisteredPrompt = {
     }): void;
     remove(): void;
 };
-
-function promptArgumentsFromSchema(schema: AnyObjectSchema): PromptArgument[] {
-    const shape = getObjectShape(schema);
-    if (!shape) return [];
-    return Object.entries(shape).map(([name, field]): PromptArgument => {
-        // Get description - works for both v3 and v4
-        const description = getSchemaDescription(field);
-        // Check if optional - works for both v3 and v4
-        const isOptional = isSchemaOptional(field);
-        return {
-            name,
-            description,
-            required: !isOptional
-        };
-    });
-}
 
 function getMethodValue(schema: AnyObjectSchema): string {
     const shape = getObjectShape(schema);

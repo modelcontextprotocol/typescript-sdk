@@ -20,7 +20,7 @@ import type {
     Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, ErrorCode, McpError, TaskClientPlugin } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -55,6 +55,20 @@ export class ExperimentalClientTasks<
     ResultT extends Result = Result
 > {
     constructor(private readonly _client: Client<RequestT, NotificationT, ResultT>) {}
+
+    /**
+     * Gets the TaskClientPlugin, throwing if not installed.
+     */
+    private _getTaskClient(): TaskClientPlugin {
+        const plugin = this._client.getPlugin(TaskClientPlugin);
+        if (!plugin) {
+            throw new McpError(
+                ErrorCode.InternalError,
+                'TaskClientPlugin not installed. Use client.usePlugin(new TaskClientPlugin()) first.'
+            );
+        }
+        return plugin;
+    }
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
@@ -179,9 +193,7 @@ export class ExperimentalClientTasks<
      * @experimental
      */
     async getTask(taskId: string, options?: RequestOptions): Promise<GetTaskResult> {
-        // Delegate to the client's underlying Protocol method
-        type ClientWithGetTask = { getTask(params: { taskId: string }, options?: RequestOptions): Promise<GetTaskResult> };
-        return (this._client as unknown as ClientWithGetTask).getTask({ taskId }, options);
+        return this._getTaskClient().getTask({ taskId }, options);
     }
 
     /**
@@ -195,16 +207,10 @@ export class ExperimentalClientTasks<
      * @experimental
      */
     async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        // Delegate to the client's underlying Protocol method
-        return (
-            this._client as unknown as {
-                getTaskResult: <U extends AnyObjectSchema>(
-                    params: { taskId: string },
-                    resultSchema?: U,
-                    options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
-            }
-        ).getTaskResult({ taskId }, resultSchema, options);
+        if (!resultSchema) {
+            throw new McpError(ErrorCode.InvalidParams, 'resultSchema is required');
+        }
+        return this._getTaskClient().getTaskResult({ taskId }, resultSchema, options);
     }
 
     /**
@@ -217,12 +223,7 @@ export class ExperimentalClientTasks<
      * @experimental
      */
     async listTasks(cursor?: string, options?: RequestOptions): Promise<ListTasksResult> {
-        // Delegate to the client's underlying Protocol method
-        return (
-            this._client as unknown as {
-                listTasks: (params?: { cursor?: string }, options?: RequestOptions) => Promise<ListTasksResult>;
-            }
-        ).listTasks(cursor ? { cursor } : undefined, options);
+        return this._getTaskClient().listTasks(cursor ? { cursor } : undefined, options);
     }
 
     /**
@@ -234,12 +235,7 @@ export class ExperimentalClientTasks<
      * @experimental
      */
     async cancelTask(taskId: string, options?: RequestOptions): Promise<CancelTaskResult> {
-        // Delegate to the client's underlying Protocol method
-        return (
-            this._client as unknown as {
-                cancelTask: (params: { taskId: string }, options?: RequestOptions) => Promise<CancelTaskResult>;
-            }
-        ).cancelTask({ taskId }, options);
+        return this._getTaskClient().cancelTask({ taskId }, options);
     }
 
     /**

@@ -2,6 +2,7 @@ import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/cli
 import {
     CallToolResultSchema,
     Client,
+    isTextContent,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     StreamableHTTPClientTransport
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
         for (const [caller, result] of Object.entries(toolResults)) {
             console.log(`\n=== Tool result for ${caller} ===`);
             for (const item of result.content) {
-                if (item.type === 'text') {
+                if (isTextContent(item)) {
                     console.log(`  ${item.text}`);
                 } else {
                     console.log(`  ${item.type} content:`, item);
