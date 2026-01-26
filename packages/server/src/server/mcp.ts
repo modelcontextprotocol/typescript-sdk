@@ -9,7 +9,10 @@ import type {
     CompleteResult,
     CreateTaskResult,
     GetPromptResult,
+    Group,
+    GroupMeta,
     Implementation,
+    ListGroupsResult,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -45,6 +48,7 @@ import {
     GetPromptRequestSchema,
     getSchemaDescription,
     isSchemaOptional,
+    ListGroupsRequestSchema,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
@@ -83,6 +87,7 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private _registeredGroups: { [name: string]: RegisteredGroup } = {};
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
@@ -484,6 +489,7 @@ export class McpServer {
     }
 
     private _resourceHandlersInitialized = false;
+    private _groupHandlersInitialized = false;
 
     private setResourceRequestHandlers() {
         if (this._resourceHandlersInitialized) {
@@ -566,6 +572,39 @@ export class McpServer {
 
     private _promptHandlersInitialized = false;
 
+    private setGroupRequestHandlers() {
+        if (this._groupHandlersInitialized) {
+            return;
+        }
+
+        this.server.assertCanSetRequestHandler(getMethodValue(ListGroupsRequestSchema));
+
+        this.server.registerCapabilities({
+            groups: {
+                listChanged: true
+            }
+        });
+
+        this.server.setRequestHandler(ListGroupsRequestSchema, (): ListGroupsResult => {
+            return {
+                groups: Object.entries(this._registeredGroups)
+                    .filter(([, group]) => group.enabled)
+                    .map(
+                        ([name, group]): Group => ({
+                            name,
+                            title: group.title,
+                            description: group.description,
+                            icons: group.icons,
+                            annotations: group.annotations,
+                            _meta: group._meta
+                        })
+                    )
+            };
+        });
+
+        this._groupHandlersInitialized = true;
+    }
+
     private setPromptRequestHandlers() {
         if (this._promptHandlersInitialized) {
             return;
@@ -590,7 +629,8 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
+                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined,
+                            _meta: prompt._meta
                         };
                     })
             })
@@ -733,6 +773,7 @@ export class McpServer {
                 if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredResourceTemplates[name];
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
+                    name = updates.name ?? name;
                 }
                 if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
@@ -759,12 +800,14 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: PromptArgsRawShape | undefined,
+        _meta: GroupMeta,
         callback: PromptCallback<PromptArgsRawShape | undefined>
     ): RegisteredPrompt {
         const registeredPrompt: RegisteredPrompt = {
             title,
             description,
             argsSchema: argsSchema === undefined ? undefined : objectFromShape(argsSchema),
+            _meta,
             callback,
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
@@ -774,11 +817,13 @@ export class McpServer {
                 if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredPrompts[name];
                     if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
+                    name = updates.name ?? name;
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
                 if (updates.argsSchema !== undefined) registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
                 if (updates.callback !== undefined) registeredPrompt.callback = updates.callback;
+                if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
                 this.sendPromptListChanged();
             }
@@ -799,6 +844,56 @@ export class McpServer {
         return registeredPrompt;
     }
 
+    private _createRegisteredGroup(
+        name: string,
+        title: string | undefined,
+        description: string | undefined,
+        icons: Group['icons'] | undefined,
+        annotations: Group['annotations'] | undefined,
+        _meta: GroupMeta
+    ): RegisteredGroup {
+        const registeredGroup: RegisteredGroup = {
+            title,
+            description,
+            icons,
+            annotations,
+            _meta,
+            enabled: true,
+            disable: () => registeredGroup.update({ enabled: false }),
+            enable: () => registeredGroup.update({ enabled: true }),
+            remove: () => registeredGroup.update({ name: null }),
+            update: updates => {
+                if (updates.name !== undefined && updates.name !== name) {
+                    delete this._registeredGroups[name];
+                    if (updates.name) this._registeredGroups[updates.name] = registeredGroup;
+                    name = updates.name ?? name;
+                }
+                if (updates.title !== undefined) registeredGroup.title = updates.title;
+                if (updates.description !== undefined) registeredGroup.description = updates.description;
+                if (updates.icons !== undefined) registeredGroup.icons = updates.icons;
+                if (updates.annotations !== undefined) registeredGroup.annotations = updates.annotations;
+                if (updates._meta !== undefined) registeredGroup._meta = updates._meta;
+                if (updates.enabled !== undefined) registeredGroup.enabled = updates.enabled;
+
+                if (updates.name === null) {
+                    delete this._registeredGroups[name];
+                }
+
+                if (this.isConnected()) {
+                    this.sendGroupListChanged();
+                }
+            }
+        };
+
+        this._registeredGroups[name] = registeredGroup;
+        if (this.isConnected()) {
+            this.sendGroupListChanged();
+        } else {
+            this.setGroupRequestHandlers();
+        }
+        return registeredGroup;
+    }
+
     private _createRegisteredTool(
         name: string,
         title: string | undefined,
@@ -807,7 +902,7 @@ export class McpServer {
         outputSchema: ZodRawShapeCompat | AnySchema | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
-        _meta: Record<string, unknown> | undefined,
+        _meta: GroupMeta,
         handler: AnyToolHandler<ZodRawShapeCompat | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
@@ -833,6 +928,7 @@ export class McpServer {
                     }
                     delete this._registeredTools[name];
                     if (updates.name) this._registeredTools[updates.name] = registeredTool;
+                    name = updates.name ?? name;
                 }
                 if (updates.title !== undefined) registeredTool.title = updates.title;
                 if (updates.description !== undefined) registeredTool.description = updates.description;
@@ -847,8 +943,11 @@ export class McpServer {
         };
         this._registeredTools[name] = registeredTool;
 
-        this.setToolRequestHandlers();
-        this.sendToolListChanged();
+        if (this.isConnected()) {
+            this.sendToolListChanged();
+        } else {
+            this.setToolRequestHandlers();
+        }
 
         return registeredTool;
     }
@@ -896,6 +995,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
     ): RegisteredPrompt {
@@ -903,13 +1003,14 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema } = config;
+        const { title, description, argsSchema, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
             title,
             description,
             argsSchema,
+            _meta,
             cb as PromptCallback<PromptArgsRawShape | undefined>
         );
 
@@ -917,6 +1018,29 @@ export class McpServer {
         this.sendPromptListChanged();
 
         return registeredPrompt;
+    }
+
+    registerGroup(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            icons?: Group['icons'];
+            annotations?: Group['annotations'];
+            _meta?: Group['_meta'];
+        } = {}
+    ): RegisteredGroup {
+        if (this._registeredGroups[name]) {
+            throw new Error(`Group ${name} is already registered`);
+        }
+
+        const { title, description, icons, annotations, _meta } = config;
+
+        const registeredGroup = this._createRegisteredGroup(name, title, description, icons, annotations, _meta);
+
+        this.sendGroupListChanged();
+
+        return registeredGroup;
     }
 
     /**
@@ -961,6 +1085,15 @@ export class McpServer {
     sendPromptListChanged() {
         if (this.isConnected()) {
             this.server.sendPromptListChanged();
+        }
+    }
+
+    /**
+     * Sends a group list changed event to the client, if connected.
+     */
+    sendGroupListChanged() {
+        if (this.isConnected()) {
+            this.server.sendGroupListChanged();
         }
     }
 }
@@ -1232,6 +1365,7 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: AnyObjectSchema;
+    _meta?: Record<string, unknown>;
     callback: PromptCallback<undefined | PromptArgsRawShape>;
     enabled: boolean;
     enable(): void;
@@ -1241,7 +1375,32 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
+        enabled?: boolean;
+    }): void;
+    remove(): void;
+};
+
+/**
+ * A group that has been registered with the server.
+ */
+export type RegisteredGroup = {
+    title?: string;
+    description?: string;
+    icons?: Group['icons'];
+    annotations?: Group['annotations'];
+    _meta?: Group['_meta'];
+    enabled: boolean;
+    enable(): void;
+    disable(): void;
+    update(updates: {
+        name?: string | null;
+        title?: string;
+        description?: string;
+        icons?: Group['icons'];
+        annotations?: Group['annotations'];
+        _meta?: Group['_meta'];
         enabled?: boolean;
     }): void;
     remove(): void;
