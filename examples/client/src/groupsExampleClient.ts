@@ -263,7 +263,7 @@ function expandWithinDepth(
 
 function formatBulletList(items: Array<{ name: string; description?: string }>): string {
     if (items.length === 0) {
-        return '(none)';
+        return '';
     }
 
     return items
