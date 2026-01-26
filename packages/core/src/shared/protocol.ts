@@ -1,4 +1,4 @@
-import { StateError } from '../errors.js';
+import { isProtocolError, ProtocolError, StateError, TransportError } from '../errors.js';
 import type {
     CancelledNotification,
     ClientCapabilities,
@@ -22,7 +22,6 @@ import {
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    McpError,
     PingRequestSchema,
     ProgressNotificationSchema
 } from '../types/types.js';
@@ -111,7 +110,7 @@ export type RequestOptions = {
     signal?: AbortSignal;
 
     /**
-     * A timeout (in milliseconds) for this request. If exceeded, an McpError with code `RequestTimeout` will be raised from request().
+     * A timeout (in milliseconds) for this request. If exceeded, a TransportError will be raised from request().
      *
      * If not specified, `DEFAULT_REQUEST_TIMEOUT_MSEC` will be used as the timeout.
      */
@@ -126,7 +125,7 @@ export type RequestOptions = {
 
     /**
      * Maximum total time (in milliseconds) to wait for a response.
-     * If exceeded, an McpError with code `RequestTimeout` will be raised, regardless of progress notifications.
+     * If exceeded, a TransportError will be raised, regardless of progress notifications.
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
@@ -677,7 +676,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             const totalElapsed = Date.now() - info.startTime;
             if (totalElapsed >= info.maxTotalTimeout) {
                 this._timeoutManager.cleanup(messageId);
-                throw McpError.fromError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+                throw TransportError.requestTimeout('Maximum total timeout exceeded', {
                     maxTotalTimeout: info.maxTotalTimeout,
                     totalElapsed
                 });
@@ -740,7 +739,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._timeoutManager.clearAll();
         this._pendingDebouncedNotifications.clear();
 
-        const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
+        const error = TransportError.connectionClosed();
 
         // Capture sessionId before clearing transport
         const sessionId = this._transport?.sessionId;
@@ -769,7 +768,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * modify the message and data, not the code.
      */
     private _sendProtocolError(request: JSONRPCRequest, errorCode: number, defaultMessage: string, sessionId: string | undefined): void {
-        const error = new McpError(errorCode, defaultMessage);
+        const error = new ProtocolError(errorCode, defaultMessage);
 
         // Call error interceptor if set (async, fire-and-forget for the interception result usage)
         Promise.resolve()
@@ -901,7 +900,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // Let plugins modify the error
                     const modifiedError = await this._runPluginOnRequestError(request, error, pluginReqCtx);
 
-                    // Extract code and data from error (if it's an McpError or similar)
+                    // Determine if this is a protocol error (ProtocolError) or application error
+                    // ProtocolError = protocol error with locked code (SDK or user intentionally chose this code)
+                    // Other errors = application error with customizable code via onError handler
+                    const isProtoErr = isProtocolError(modifiedError);
+
+                    // Extract code and data from error
                     const errorWithCode = modifiedError as Error & { code?: number; data?: unknown };
                     const rawCode = errorWithCode.code;
                     let errorCode: number =
@@ -909,10 +913,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     let errorMessage = modifiedError.message ?? 'Internal error';
                     let errorData = errorWithCode.data;
 
-                    // Call error interceptor if set (for application errors)
+                    // Call error interceptor if set
                     if (this._errorInterceptor) {
                         const ctx: ErrorInterceptionContext = {
-                            type: 'application',
+                            // ProtocolError = protocol error (code locked), other errors = application error
+                            type: isProtoErr ? 'protocol' : 'application',
                             method: request.method,
                             requestId: request.id,
                             errorCode
@@ -921,8 +926,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         if (result) {
                             errorMessage = result.message ?? errorMessage;
                             errorData = result.data ?? errorData;
-                            // For application errors, code can be overridden
-                            if (result.code !== undefined && Number.isSafeInteger(result.code)) {
+                            // Code can only be overridden for application errors (non-ProtocolError)
+                            if (!isProtoErr && result.code !== undefined && Number.isSafeInteger(result.code)) {
                                 errorCode = result.code;
                             }
                         }
@@ -944,7 +949,25 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     });
                 }
             )
-            .catch(error => this._onerror(new Error(`Failed to send response: ${error}`), 'send-response'))
+            .catch(async error => {
+                // Last resort: try to send an error response even if something went wrong above
+                // This prevents the client from hanging indefinitely
+                try {
+                    const errorCode = isProtocolError(error) ? error.code : ErrorCode.InternalError;
+                    const errorResponse: JSONRPCErrorResponse = {
+                        jsonrpc: '2.0',
+                        id: request.id,
+                        error: {
+                            code: errorCode,
+                            message: error?.message ?? 'Internal error'
+                        }
+                    };
+                    await capturedTransport?.send(errorResponse);
+                } catch {
+                    // Truly give up - can't even send error response
+                }
+                this._onerror(new Error(`Failed to send response: ${error}`), 'send-response');
+            })
             .finally(() => {
                 this._handlerRegistry.removeAbortController(request.id);
             });
@@ -1022,7 +1045,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             if (isJSONRPCResultResponse(response)) {
                 resolver(response);
             } else {
-                const error = new McpError(response.error.code, response.error.message, response.error.data);
+                const error = new ProtocolError(response.error.code, response.error.message, response.error.data);
                 resolver(error);
             }
             return;
@@ -1048,7 +1071,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         if (isJSONRPCResultResponse(response)) {
             handler(response);
         } else {
-            const error = McpError.fromError(response.error.code, response.error.message, response.error.data);
+            const error = ProtocolError.fromError(response.error.code, response.error.message, response.error.data);
             handler(error);
         }
     }
@@ -1124,7 +1147,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         } catch (error) {
             yield {
                 type: 'error',
-                error: error instanceof McpError ? error : new McpError(ErrorCode.InternalError, String(error))
+                error: isProtocolError(error) ? error : new ProtocolError(ErrorCode.InternalError, String(error))
             };
         }
     }
@@ -1196,8 +1219,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     )
                     .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`), 'send-cancellation'));
 
-                // Wrap the reason in an McpError if it isn't already
-                const error = reason instanceof McpError ? reason : new McpError(ErrorCode.RequestTimeout, String(reason));
+                // Wrap the reason in a TransportError if it isn't already an error we recognize
+                const error = reason instanceof Error ? reason : TransportError.requestTimeout(String(reason));
                 reject(error);
             };
 
@@ -1228,7 +1251,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(McpError.fromError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = () => cancel(TransportError.requestTimeout('Request timed out', { timeout }));
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 

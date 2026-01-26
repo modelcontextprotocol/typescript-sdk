@@ -17,6 +17,7 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    StateError,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
@@ -244,7 +245,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      */
     async start(): Promise<void> {
         if (this._started) {
-            throw new Error('Transport already started');
+            throw StateError.alreadyConnected();
         }
         this._started = true;
     }

@@ -20,7 +20,7 @@ import type {
     Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, ErrorCode, McpError, TaskClientPlugin } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, ErrorCode, ProtocolError, TaskClientPlugin } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -62,7 +62,7 @@ export class ExperimentalClientTasks<
     private _getTaskClient(): TaskClientPlugin {
         const plugin = this._client.getPlugin(TaskClientPlugin);
         if (!plugin) {
-            throw new McpError(
+            throw new ProtocolError(
                 ErrorCode.InternalError,
                 'TaskClientPlugin not installed. Use client.usePlugin(new TaskClientPlugin()) first.'
             );
@@ -137,7 +137,7 @@ export class ExperimentalClientTasks<
                 if (!result.structuredContent && !result.isError) {
                     yield {
                         type: 'error',
-                        error: new McpError(
+                        error: new ProtocolError(
                             ErrorCode.InvalidRequest,
                             `Tool ${params.name} has an output schema but did not return structured content`
                         )
@@ -154,7 +154,7 @@ export class ExperimentalClientTasks<
                         if (!validationResult.valid) {
                             yield {
                                 type: 'error',
-                                error: new McpError(
+                                error: new ProtocolError(
                                     ErrorCode.InvalidParams,
                                     `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
                                 )
@@ -162,13 +162,13 @@ export class ExperimentalClientTasks<
                             return;
                         }
                     } catch (error) {
-                        if (error instanceof McpError) {
+                        if (error instanceof ProtocolError) {
                             yield { type: 'error', error };
                             return;
                         }
                         yield {
                             type: 'error',
-                            error: new McpError(
+                            error: new ProtocolError(
                                 ErrorCode.InvalidParams,
                                 `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
                             )
@@ -208,7 +208,7 @@ export class ExperimentalClientTasks<
      */
     async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         if (!resultSchema) {
-            throw new McpError(ErrorCode.InvalidParams, 'resultSchema is required');
+            throw new ProtocolError(ErrorCode.InvalidParams, 'resultSchema is required');
         }
         return this._getTaskClient().getTaskResult({ taskId }, resultSchema, options);
     }

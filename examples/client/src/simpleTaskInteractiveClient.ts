@@ -17,7 +17,7 @@ import {
     ElicitRequestSchema,
     ErrorCode,
     isTextContent,
-    McpError,
+    ProtocolError,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
 
@@ -105,7 +105,7 @@ async function run(url: string): Promise<void> {
     // Set up elicitation request handler
     client.setRequestHandler(ElicitRequestSchema, async request => {
         if (request.params.mode && request.params.mode !== 'form') {
-            throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+            throw new ProtocolError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
         }
         return elicitationCallback(request.params);
     });

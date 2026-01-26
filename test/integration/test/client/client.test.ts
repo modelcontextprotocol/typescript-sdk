@@ -19,8 +19,8 @@ import {
     ListRootsRequestSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
-    McpError,
     NotificationSchema,
+    ProtocolError,
     RequestSchema,
     ResultSchema,
     SUPPORTED_PROTOCOL_VERSIONS
@@ -1175,8 +1175,8 @@ test('should handle client cancelling a request', async () => {
     });
     controller.abort('Cancelled by test');
 
-    // Request should be rejected with an McpError
-    await expect(listResourcesPromise).rejects.toThrow(McpError);
+    // Request should be rejected with an ProtocolError
+    await expect(listResourcesPromise).rejects.toThrow(ProtocolError);
 });
 
 /***

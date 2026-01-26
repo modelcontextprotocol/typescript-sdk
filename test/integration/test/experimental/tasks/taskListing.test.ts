@@ -1,4 +1,4 @@
-import { ErrorCode, McpError } from '@modelcontextprotocol/core';
+import { ErrorCode, ProtocolError } from '@modelcontextprotocol/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createInMemoryTaskEnvironment } from '../../helpers/mcp.js';
@@ -88,8 +88,8 @@ describe('Task Listing with Pagination', () => {
         });
 
         // Try to use an invalid cursor - should return -32602 (Invalid params) per MCP spec
-        await expect(client.experimental.tasks.listTasks('invalid-cursor')).rejects.toSatisfy((error: McpError) => {
-            expect(error).toBeInstanceOf(McpError);
+        await expect(client.experimental.tasks.listTasks('invalid-cursor')).rejects.toSatisfy((error: ProtocolError) => {
+            expect(error).toBeInstanceOf(ProtocolError);
             expect(error.code).toBe(ErrorCode.InvalidParams);
             expect(error.message).toContain('Invalid cursor');
             return true;

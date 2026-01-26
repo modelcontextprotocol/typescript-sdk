@@ -24,8 +24,8 @@ import {
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
-    McpError,
     NotificationSchema,
+    ProtocolError,
     RequestSchema,
     ResultSchema,
     SetLevelRequestSchema,
@@ -1461,8 +1461,8 @@ test('should handle server cancelling a request', async () => {
     );
     controller.abort('Cancelled by test');
 
-    // Request should be rejected with an McpError
-    await expect(createMessagePromise).rejects.toThrow(McpError);
+    // Request should be rejected with an ProtocolError
+    await expect(createMessagePromise).rejects.toThrow(ProtocolError);
 });
 
 test('should handle request timeout', async () => {

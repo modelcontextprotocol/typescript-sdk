@@ -17,12 +17,14 @@ import type {
     ListToolsResult,
     LoggingMessageNotification,
     PromptReference,
+    ProtocolPlugin,
     Resource,
     ResourceTemplateReference,
     Result,
     SchemaOutput,
     ServerNotification,
     ServerRequest,
+    ServerResult,
     ShapeOutput,
     ToolAnnotations,
     ToolExecution,
@@ -39,13 +41,14 @@ import {
     getObjectShape,
     getParseErrorMessage,
     GetPromptRequestSchema,
+    isProtocolError,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
     ListToolsRequestSchema,
-    McpError,
     normalizeObjectSchema,
     objectFromShape,
+    ProtocolError,
     ReadResourceRequestSchema,
     safeParseAsync,
     UriTemplate
@@ -364,10 +367,10 @@ export class McpServer {
             try {
                 const tool = this._toolRegistry.getTool(request.params.name);
                 if (!tool) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+                    throw ProtocolError.invalidParams(`Tool ${request.params.name} not found`);
                 }
                 if (!tool.enabled) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+                    throw ProtocolError.invalidParams(`Tool ${request.params.name} disabled`);
                 }
 
                 const isTaskRequest = !!request.params.task;
@@ -376,18 +379,14 @@ export class McpServer {
 
                 // Validate task hint configuration
                 if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
-                    throw new McpError(
-                        ErrorCode.InternalError,
+                    throw ProtocolError.internalError(
                         `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`
                     );
                 }
 
                 // Handle taskSupport 'required' without task augmentation
                 if (taskSupport === 'required' && !isTaskRequest) {
-                    throw new McpError(
-                        ErrorCode.MethodNotFound,
-                        `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
-                    );
+                    throw ProtocolError.methodNotFound(`Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`);
                 }
 
                 // Handle taskSupport 'optional' without task augmentation - automatic polling
@@ -428,7 +427,7 @@ export class McpServer {
 
                 return result;
             } catch (error) {
-                if (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired) {
+                if (isProtocolError(error) && error.code === ErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
@@ -479,7 +478,7 @@ export class McpServer {
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
-            throw new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`);
+            throw ProtocolError.invalidParams(`Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`);
         }
 
         return parseResult.data as unknown as Args;
@@ -503,8 +502,7 @@ export class McpServer {
         }
 
         if (!result.structuredContent) {
-            throw new McpError(
-                ErrorCode.InvalidParams,
+            throw ProtocolError.invalidParams(
                 `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
             );
         }
@@ -515,10 +513,7 @@ export class McpServer {
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
-            throw new McpError(
-                ErrorCode.InvalidParams,
-                `Output validation error: Invalid structured content for tool ${toolName}: ${errorMessage}`
-            );
+            throw ProtocolError.invalidParams(`Output validation error: Invalid structured content for tool ${toolName}: ${errorMessage}`);
         }
     }
 
@@ -623,7 +618,7 @@ export class McpServer {
                 }
 
                 default: {
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid completion reference: ${request.params.ref}`);
+                    throw ProtocolError.invalidParams(`Invalid completion reference: ${request.params.ref}`);
                 }
             }
         });
@@ -634,11 +629,11 @@ export class McpServer {
     private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
         const prompt = this._promptRegistry.getPrompt(ref.name);
         if (!prompt) {
-            throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} not found`);
+            throw ProtocolError.invalidParams(`Prompt ${ref.name} not found`);
         }
 
         if (!prompt.enabled) {
-            throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} disabled`);
+            throw ProtocolError.invalidParams(`Prompt ${ref.name} disabled`);
         }
 
         if (!prompt.argsSchema) {
@@ -671,7 +666,7 @@ export class McpServer {
                 return EMPTY_COMPLETION_RESULT;
             }
 
-            throw new McpError(ErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} not found`);
+            throw ProtocolError.invalidParams(`Resource template ${request.params.ref.uri} not found`);
         }
 
         const completer = template.template.completeCallback(request.params.argument.name);
@@ -733,7 +728,7 @@ export class McpServer {
             const resource = this._resourceRegistry.getResource(uri.toString());
             if (resource) {
                 if (!resource.enabled) {
-                    throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} disabled`);
+                    throw ProtocolError.invalidParams(`Resource ${uri} disabled`);
                 }
 
                 // Build middleware context
@@ -775,7 +770,7 @@ export class McpServer {
                 });
             }
 
-            throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
+            throw ProtocolError.invalidParams(`Resource ${uri} not found`);
         });
 
         this._resourceHandlersInitialized = true;
@@ -807,11 +802,11 @@ export class McpServer {
         this.server.setRequestHandler(GetPromptRequestSchema, async (request, ctx): Promise<GetPromptResult> => {
             const prompt = this._promptRegistry.getPrompt(request.params.name);
             if (!prompt) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
+                throw ProtocolError.invalidParams(`Prompt ${request.params.name} not found`);
             }
 
             if (!prompt.enabled) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
+                throw ProtocolError.invalidParams(`Prompt ${request.params.name} disabled`);
             }
 
             // Build middleware context
@@ -837,10 +832,7 @@ export class McpServer {
                         if (!parseResult.success) {
                             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
                             const errorMessage = getParseErrorMessage(error);
-                            throw new McpError(
-                                ErrorCode.InvalidParams,
-                                `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`
-                            );
+                            throw ProtocolError.invalidParams(`Invalid arguments for prompt ${request.params.name}: ${errorMessage}`);
                         }
 
                         const args = parseResult.data;
@@ -857,6 +849,11 @@ export class McpServer {
         });
 
         this._promptHandlersInitialized = true;
+    }
+
+    usePlugin(plugin: ProtocolPlugin<ServerResult>): this {
+        this.server.usePlugin(plugin);
+        return this;
     }
 
     /**

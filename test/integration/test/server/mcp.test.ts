@@ -1581,9 +1581,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
-         * Test: McpError for Invalid Tool Name
+         * Test: ProtocolError for Invalid Tool Name
          */
-        test('should throw McpError for invalid tool name', async () => {
+        test('should throw ProtocolError for invalid tool name', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -2625,9 +2625,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
-         * Test: McpError for Invalid Resource URI
+         * Test: ProtocolError for Invalid Resource URI
          */
-        test('should throw McpError for invalid resource URI', async () => {
+        test('should throw ProtocolError for invalid resource URI', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -3550,9 +3550,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
-         * Test: McpError for Invalid Prompt Name
+         * Test: ProtocolError for Invalid Prompt Name
          */
-        test('should throw McpError for invalid prompt name', async () => {
+        test('should throw ProtocolError for invalid prompt name', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'

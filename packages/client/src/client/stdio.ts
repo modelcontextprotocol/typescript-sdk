@@ -4,7 +4,7 @@ import type { Stream } from 'node:stream';
 import { PassThrough } from 'node:stream';
 
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import { ReadBuffer, serializeMessage, StateError } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 
 export type StdioServerParameters = {
@@ -112,9 +112,7 @@ export class StdioClientTransport implements Transport {
      */
     async start(): Promise<void> {
         if (this._process) {
-            throw new Error(
-                'StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.'
-            );
+            throw StateError.alreadyConnected();
         }
 
         return new Promise((resolve, reject) => {
@@ -246,7 +244,7 @@ export class StdioClientTransport implements Transport {
     send(message: JSONRPCMessage): Promise<void> {
         return new Promise(resolve => {
             if (!this._process?.stdin) {
-                throw new Error('Not connected');
+                throw StateError.notConnected('send message');
             }
 
             const json = serializeMessage(message);

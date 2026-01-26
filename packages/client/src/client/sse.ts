@@ -1,5 +1,5 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/core';
+import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, StateError } from '@modelcontextprotocol/core';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
@@ -211,7 +211,7 @@ export class SSEClientTransport implements Transport {
 
     async start() {
         if (this._eventSource) {
-            throw new Error('SSEClientTransport already started! If using Client class, note that connect() calls start() automatically.');
+            throw StateError.alreadyConnected();
         }
 
         return await this._startOrAuth();
@@ -245,7 +245,7 @@ export class SSEClientTransport implements Transport {
 
     async send(message: JSONRPCMessage): Promise<void> {
         if (!this._endpoint) {
-            throw new Error('Not connected');
+            throw StateError.notConnected('send message');
         }
 
         try {

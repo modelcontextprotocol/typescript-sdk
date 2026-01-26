@@ -50,7 +50,7 @@ const getServer = () => {
     );
 
     // Enable task support via TaskPlugin
-    server.server.usePlugin(
+    server.usePlugin(
         new TaskPlugin({
             taskStore,
             taskMessageQueue: new InMemoryTaskMessageQueue()

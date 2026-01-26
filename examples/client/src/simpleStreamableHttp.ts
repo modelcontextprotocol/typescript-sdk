@@ -21,7 +21,7 @@ import {
     ListResourcesResultSchema,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
-    McpError,
+    ProtocolError,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
     ResourceListChangedNotificationSchema,
@@ -274,7 +274,7 @@ async function connect(url?: string): Promise<void> {
         // Set up elicitation request handler with proper validation
         client.setRequestHandler(ElicitRequestSchema, async request => {
             if (request.params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+                throw new ProtocolError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);

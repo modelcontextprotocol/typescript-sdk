@@ -11,6 +11,7 @@
  * ```
  */
 
+import { ProtocolError } from '../errors.js';
 import { isTerminal } from '../experimental/tasks/interfaces.js';
 import type {
     CancelTaskResult,
@@ -34,7 +35,6 @@ import {
     GetTaskResultSchema,
     isJSONRPCResultResponse,
     ListTasksResultSchema,
-    McpError,
     RELATED_TASK_META_KEY
 } from '../types/types.js';
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
@@ -369,7 +369,7 @@ export class TaskClientPlugin implements ProtocolPlugin<Result> {
                 taskId = createResult.task.taskId;
                 yield { type: 'taskCreated', task: createResult.task };
             } else {
-                throw new McpError(ErrorCode.InternalError, 'Task creation did not return a task');
+                throw new ProtocolError(ErrorCode.InternalError, 'Task creation did not return a task');
             }
 
             // Poll for task completion
@@ -390,14 +390,14 @@ export class TaskClientPlugin implements ProtocolPlugin<Result> {
                         case 'failed': {
                             yield {
                                 type: 'error',
-                                error: new McpError(ErrorCode.InternalError, `Task ${taskId} failed`)
+                                error: new ProtocolError(ErrorCode.InternalError, `Task ${taskId} failed`)
                             };
                             break;
                         }
                         case 'cancelled': {
                             yield {
                                 type: 'error',
-                                error: new McpError(ErrorCode.InternalError, `Task ${taskId} was cancelled`)
+                                error: new ProtocolError(ErrorCode.InternalError, `Task ${taskId} was cancelled`)
                             };
                             break;
                         }
@@ -424,7 +424,7 @@ export class TaskClientPlugin implements ProtocolPlugin<Result> {
         } catch (error) {
             yield {
                 type: 'error',
-                error: error instanceof McpError ? error : new McpError(ErrorCode.InternalError, String(error))
+                error: error instanceof ProtocolError ? error : new ProtocolError(ErrorCode.InternalError, String(error))
             };
         }
     }

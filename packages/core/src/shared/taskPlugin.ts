@@ -9,6 +9,7 @@
  * The plugin is internal to the SDK and not exposed as a public API.
  */
 
+import { ProtocolError } from '../errors.js';
 import { RequestTaskStore } from '../experimental/requestTaskStore.js';
 import type { QueuedMessage, TaskMessageQueue, TaskStore } from '../experimental/tasks/interfaces.js';
 import { isTerminal } from '../experimental/tasks/interfaces.js';
@@ -34,7 +35,6 @@ import {
     isJSONRPCRequest,
     isTaskAugmentedRequestParams,
     ListTasksRequestSchema,
-    McpError,
     RELATED_TASK_META_KEY
 } from '../types/types.js';
 import type { HandlerContextBase, PluginContext, PluginHandlerExtra, ProtocolPlugin } from './plugin.js';
@@ -137,7 +137,7 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
             // For now, we support tasks for tools/call and sampling/createMessage
             const taskCapableMethods = ['tools/call', 'sampling/createMessage'];
             if (!taskCapableMethods.includes(request.method)) {
-                throw new McpError(ErrorCode.InvalidRequest, `Task creation is not supported for method: ${request.method}`);
+                throw new ProtocolError(ErrorCode.InvalidRequest, `Task creation is not supported for method: ${request.method}`);
             }
         }
         // Return void to pass through unchanged
@@ -276,7 +276,7 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
                 const requestId = message.message.id as RequestId;
                 const resolver = this.ctx.resolvers.get(requestId);
                 if (resolver) {
-                    resolver(new McpError(ErrorCode.InternalError, 'Task cancelled or completed'));
+                    resolver(new ProtocolError(ErrorCode.InternalError, 'Task cancelled or completed'));
                     this.ctx.resolvers.remove(requestId);
                 } else {
                     this.ctx.reportError(new Error(`Resolver missing for request ${requestId} during task ${taskId} cleanup`));
@@ -302,7 +302,7 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
 
         return new Promise((resolve, reject) => {
             if (signal.aborted) {
-                reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled'));
+                reject(new ProtocolError(ErrorCode.InvalidRequest, 'Request cancelled'));
                 return;
             }
 
@@ -314,7 +314,7 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
                 'abort',
                 () => {
                     clearTimeout(timeoutId);
-                    reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled'));
+                    reject(new ProtocolError(ErrorCode.InvalidRequest, 'Request cancelled'));
                 },
                 { once: true }
             );
@@ -331,7 +331,7 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
     private async handleGetTask(request: GetTaskRequest, extra: PluginHandlerExtra): Promise<GetTaskResult> {
         const task = await this.config.taskStore.getTask(request.params.taskId, extra.mcpCtx.sessionId);
         if (!task) {
-            throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
+            throw new ProtocolError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
         }
 
         // Per spec: tasks/get responses SHALL NOT include related-task metadata
@@ -352,7 +352,7 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
             // Check task status
             const task = await this.config.taskStore.getTask(taskId, extra.mcpCtx.sessionId);
             if (!task) {
-                throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+                throw new ProtocolError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
             }
 
             // If task is not terminal, wait for updates and poll again
@@ -422,7 +422,7 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
             resolver(message as JSONRPCResultResponse);
         } else {
             const errorMessage = message as JSONRPCErrorResponse;
-            const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+            const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
             resolver(error);
         }
     }
@@ -435,7 +435,10 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
             const { tasks, nextCursor } = await this.config.taskStore.listTasks(params?.cursor, extra.mcpCtx.sessionId);
             return { tasks, nextCursor, _meta: {} };
         } catch (error) {
-            throw new McpError(ErrorCode.InvalidParams, `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`);
+            throw new ProtocolError(
+                ErrorCode.InvalidParams,
+                `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`
+            );
         }
     }
 
@@ -447,11 +450,11 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
             const task = await this.config.taskStore.getTask(params.taskId, extra.mcpCtx.sessionId);
 
             if (!task) {
-                throw new McpError(ErrorCode.InvalidParams, `Task not found: ${params.taskId}`);
+                throw new ProtocolError(ErrorCode.InvalidParams, `Task not found: ${params.taskId}`);
             }
 
             if (isTerminal(task.status)) {
-                throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
+                throw new ProtocolError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
             }
 
             await this.config.taskStore.updateTaskStatus(
@@ -465,15 +468,15 @@ export class TaskPlugin implements ProtocolPlugin<Result> {
 
             const cancelledTask = await this.config.taskStore.getTask(params.taskId, extra.mcpCtx.sessionId);
             if (!cancelledTask) {
-                throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${params.taskId}`);
+                throw new ProtocolError(ErrorCode.InvalidParams, `Task not found after cancellation: ${params.taskId}`);
             }
 
             return { _meta: {}, ...cancelledTask };
         } catch (error) {
-            if (error instanceof McpError) {
+            if (error instanceof ProtocolError) {
                 throw error;
             }
-            throw new McpError(
+            throw new ProtocolError(
                 ErrorCode.InvalidRequest,
                 `Failed to cancel task: ${error instanceof Error ? error.message : String(error)}`
             );

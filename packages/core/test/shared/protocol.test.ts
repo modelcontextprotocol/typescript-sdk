@@ -31,7 +31,8 @@ import type {
     Task,
     TaskCreationParams
 } from '../../src/types/types.js';
-import { CallToolRequestSchema, ErrorCode, McpError, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+import { CallToolRequestSchema, ErrorCode, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+import { ProtocolError } from '../../src/errors.js';
 
 // Type helper for accessing private/protected Protocol properties in tests
 interface TestProtocol {
@@ -258,8 +259,8 @@ describe('protocol tests', () => {
                 timeout: 0
             });
         } catch (error) {
-            expect(error).toBeInstanceOf(McpError);
-            if (error instanceof McpError) {
+            expect(error).toBeInstanceOf(ProtocolError);
+            if (error instanceof ProtocolError) {
                 expect(error.code).toBe(ErrorCode.RequestTimeout);
             }
         }
@@ -3592,7 +3593,7 @@ describe('Message Interception', () => {
             });
 
             protocol.setRequestHandler(TestRequestSchema, async () => {
-                throw new McpError(ErrorCode.InternalError, 'Test error message');
+                throw new ProtocolError(ErrorCode.InternalError, 'Test error message');
             });
 
             // Simulate an incoming request with relatedTask metadata
@@ -4134,7 +4135,7 @@ describe('Queue lifecycle management', () => {
 
             // Verify the request promise is rejected
             const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4196,7 +4197,7 @@ describe('Queue lifecycle management', () => {
 
             // Verify the request promise is rejected
             const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4244,11 +4245,11 @@ describe('Queue lifecycle management', () => {
             const result2 = await request2Promise;
             const result3 = await request3Promise;
 
-            expect(result1).toBeInstanceOf(McpError);
+            expect(result1).toBeInstanceOf(ProtocolError);
             expect(result1.message).toContain('Task cancelled or completed');
-            expect(result2).toBeInstanceOf(McpError);
+            expect(result2).toBeInstanceOf(ProtocolError);
             expect(result2.message).toContain('Task cancelled or completed');
-            expect(result3).toBeInstanceOf(McpError);
+            expect(result3).toBeInstanceOf(ProtocolError);
             expect(result3.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4284,7 +4285,7 @@ describe('Queue lifecycle management', () => {
 
             // Verify request promise is rejected
             const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify resolver mapping is cleaned up
@@ -4835,7 +4836,7 @@ describe('Error handling for missing resolvers', () => {
             await testProtocol._clearTaskQueue(task.taskId);
 
             // Verify resolver was called with cancellation error
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
 
             // Verify the error has the correct properties
             const calledError = resolverMock.mock.calls[0]![0];
@@ -4895,7 +4896,7 @@ describe('Error handling for missing resolvers', () => {
             await testProtocol._clearTaskQueue(task.taskId);
 
             // Verify resolver was called for first request
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
 
             // Verify the error has the correct properties
             const calledError = resolverMock.mock.calls[0]![0];
@@ -5045,13 +5046,13 @@ describe('Error handling for missing resolvers', () => {
 
                 if (resolver) {
                     testProtocol._requestResolvers.delete(reqId);
-                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error);
                 }
             }
 
-            // Verify resolver was called with McpError
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            // Verify resolver was called with ProtocolError
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
             const calledError = resolverMock.mock.calls[0]![0];
             expect(calledError.code).toBe(ErrorCode.InvalidRequest);
             expect(calledError.message).toContain('Invalid request parameters');
@@ -5140,13 +5141,13 @@ describe('Error handling for missing resolvers', () => {
 
                 if (resolver) {
                     testProtocol._requestResolvers.delete(reqId);
-                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error);
                 }
             }
 
-            // Verify resolver was called with McpError including data
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            // Verify resolver was called with ProtocolError including data
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
             const calledError = resolverMock.mock.calls[0]![0];
             expect(calledError.code).toBe(ErrorCode.InvalidParams);
             expect(calledError.message).toContain('Validation failed');
@@ -5256,7 +5257,7 @@ describe('Error handling for missing resolvers', () => {
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {
                         testProtocol._requestResolvers.delete(requestId);
-                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                         resolver(error);
                     }
                 }
@@ -5264,7 +5265,7 @@ describe('Error handling for missing resolvers', () => {
 
             // Verify all resolvers were called correctly
             expect(resolver1).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
-            expect(resolver2).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolver2).toHaveBeenCalledWith(expect.any(ProtocolError));
             expect(resolver3).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
 
             // Verify error has correct properties
@@ -5331,7 +5332,7 @@ describe('Error handling for missing resolvers', () => {
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {
                         testProtocol._requestResolvers.delete(requestId);
-                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                         resolver(error);
                     }
                 }
