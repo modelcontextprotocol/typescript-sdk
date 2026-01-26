@@ -38,8 +38,7 @@ import {
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    LoggingMessageNotificationSchema
-,
+    LoggingMessageNotificationSchema,
     ReadResourceResultSchema,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -120,7 +119,6 @@ export function createClientLoggingMiddleware(options: ClientLoggingMiddlewareOp
     };
 }
 
-
 /**
  * Options for retry middleware.
  */
@@ -168,7 +166,6 @@ export function createRetryMiddleware(options: RetryMiddlewareOptions = {}): Out
         throw lastError;
     };
 }
-
 
 /**
  * Custom tool call instrumentation middleware.
@@ -260,7 +257,7 @@ function printHelp(): void {
 }
 
 function commandLoop(): void {
-    readline.question('\n> ', async (input) => {
+    readline.question('\n> ', async input => {
         const args = input.trim().split(/\s+/);
         const command = args[0]?.toLowerCase();
 
@@ -488,14 +485,10 @@ async function connect(url?: string): Promise<void> {
                 createRetryMiddleware({
                     maxRetries: 3,
                     baseDelay: 100,
-                    isRetryable: (error) => {
+                    isRetryable: error => {
                         // Retry on network errors
                         const message = error instanceof Error ? error.message : String(error);
-                        return (
-                            message.includes('ECONNREFUSED') ||
-                            message.includes('ETIMEDOUT') ||
-                            message.includes('network')
-                        );
+                        return message.includes('ECONNREFUSED') || message.includes('ETIMEDOUT') || message.includes('network');
                     }
                 })
             )
@@ -506,7 +499,7 @@ async function connect(url?: string): Promise<void> {
             // ─── Request Handlers ───
 
             // Sampling request handler (when server requests LLM completion)
-            .onSamplingRequest(async (params) => {
+            .onSamplingRequest(async params => {
                 console.log('\n[SAMPLING] Received sampling request from server');
                 console.log('[SAMPLING] Messages:', JSON.stringify(params, null, 2));
 
@@ -523,7 +516,7 @@ async function connect(url?: string): Promise<void> {
             })
 
             // Elicitation handler (when server requests user input)
-            .onElicitation(async (params) => {
+            .onElicitation(async params => {
                 const elicitParams = params as { mode?: string; message?: string; requestedSchema?: unknown };
                 console.log('\n[ELICITATION] Received elicitation request from server');
                 console.log('[ELICITATION] Mode:', elicitParams.mode);
@@ -574,7 +567,7 @@ async function connect(url?: string): Promise<void> {
             .build();
 
         // Set up client error handler
-        client.onerror = (error) => {
+        client.onerror = error => {
             console.error('\n[CLIENT] Error event:', error);
         };
 
@@ -584,7 +577,7 @@ async function connect(url?: string): Promise<void> {
         });
 
         // Set up notification handler for logging messages
-        client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
             notificationCount++;
             console.log(`\n[NOTIFICATION #${notificationCount}] ${notification.params.level}: ${notification.params.data}`);
             process.stdout.write('> ');

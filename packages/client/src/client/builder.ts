@@ -71,10 +71,7 @@ export type ElicitationRequestHandler = (
  * Handler for roots list requests from the server.
  * Receives the full ListRootsRequest and returns the list of roots.
  */
-export type RootsListHandler = (
-    request: ListRootsRequest,
-    ctx: ClientContextInterface
-) => ListRootsResult | Promise<ListRootsResult>;
+export type RootsListHandler = (request: ListRootsRequest, ctx: ClientContextInterface) => ListRootsResult | Promise<ListRootsResult>;
 
 /**
  * Error handler type for application errors

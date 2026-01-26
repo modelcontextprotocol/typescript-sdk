@@ -8,14 +8,9 @@
 import type { AnySchema, Tool, ToolAnnotations, ToolExecution, ZodRawShapeCompat } from '@modelcontextprotocol/core';
 import { normalizeObjectSchema, toJsonSchemaCompat, validateAndWarnToolName } from '@modelcontextprotocol/core';
 
+import type { RegisteredToolInterface } from '../../types/types.js';
 import type { AnyToolHandler } from '../mcp.js';
-import type { RegisteredDefinition } from './baseRegistry.js';
 import { BaseRegistry } from './baseRegistry.js';
-
-/**
- * Tool handler type - compatible with both ToolCallback and ToolTaskHandler
- */
-export type ToolHandler = AnyToolHandler<ZodRawShapeCompat | undefined>;
 
 /**
  * Configuration for registering a tool
@@ -29,7 +24,7 @@ export interface ToolConfig {
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
-    handler: ToolHandler;
+    handler: AnyToolHandler<undefined | ZodRawShapeCompat>;
 }
 
 /**
@@ -44,7 +39,7 @@ export interface ToolUpdates {
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
-    handler?: ToolHandler;
+    handler?: AnyToolHandler<undefined | ZodRawShapeCompat>;
     enabled?: boolean;
 }
 
@@ -57,90 +52,90 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
  * Class-based representation of a registered tool.
  * Provides methods for managing the tool's lifecycle.
  */
-export class RegisteredToolEntity implements RegisteredDefinition {
-    private _name: string;
-    private _enabled: boolean = true;
-    private readonly _registry: ToolRegistry;
+export class RegisteredTool implements RegisteredToolInterface {
+    #name: string;
+    #enabled: boolean = true;
+    readonly #registry: ToolRegistry;
 
-    private _title?: string;
-    private _description?: string;
-    private _inputSchema?: AnySchema;
-    private _outputSchema?: AnySchema;
-    private _annotations?: ToolAnnotations;
-    private _execution?: ToolExecution;
-    private __meta?: Record<string, unknown>;
-    private _handler: ToolHandler;
+    #title?: string;
+    #description?: string;
+    #inputSchema?: AnySchema;
+    #outputSchema?: AnySchema;
+    #annotations?: ToolAnnotations;
+    #execution?: ToolExecution;
+    #__meta?: Record<string, unknown>;
+    #handler: AnyToolHandler<undefined | ZodRawShapeCompat>;
 
     constructor(config: ToolConfig, registry: ToolRegistry) {
-        this._name = config.name;
-        this._registry = registry;
-        this._title = config.title;
-        this._description = config.description;
-        this._inputSchema = config.inputSchema;
-        this._outputSchema = config.outputSchema;
-        this._annotations = config.annotations;
-        this._execution = config.execution;
-        this.__meta = config._meta;
-        this._handler = config.handler;
+        this.#name = config.name;
+        this.#registry = registry;
+        this.#title = config.title;
+        this.#description = config.description;
+        this.#inputSchema = config.inputSchema;
+        this.#outputSchema = config.outputSchema;
+        this.#annotations = config.annotations;
+        this.#execution = config.execution;
+        this.#__meta = config._meta;
+        this.#handler = config.handler;
     }
 
     /** The tool's name (identifier) */
     get name(): string {
-        return this._name;
+        return this.#name;
     }
 
     /** Whether the tool is currently enabled */
     get enabled(): boolean {
-        return this._enabled;
+        return this.#enabled;
     }
 
     /** The tool's title */
     get title(): string | undefined {
-        return this._title;
+        return this.#title;
     }
 
     /** The tool's description */
     get description(): string | undefined {
-        return this._description;
+        return this.#description;
     }
 
     /** The tool's input schema */
     get inputSchema(): AnySchema | undefined {
-        return this._inputSchema;
+        return this.#inputSchema;
     }
 
     /** The tool's output schema */
     get outputSchema(): AnySchema | undefined {
-        return this._outputSchema;
+        return this.#outputSchema;
     }
 
     /** The tool's annotations */
     get annotations(): ToolAnnotations | undefined {
-        return this._annotations;
+        return this.#annotations;
     }
 
     /** The tool's execution settings */
     get execution(): ToolExecution | undefined {
-        return this._execution;
+        return this.#execution;
     }
 
     /** The tool's metadata */
     get _meta(): Record<string, unknown> | undefined {
-        return this.__meta;
+        return this.#__meta;
     }
 
     /** The tool's handler function */
-    get handler(): ToolHandler {
-        return this._handler;
+    get handler(): AnyToolHandler<undefined | ZodRawShapeCompat> {
+        return this.#handler;
     }
 
     /**
      * Enables the tool
      */
     enable(): this {
-        if (!this._enabled) {
-            this._enabled = true;
-            this._registry['notifyChanged']();
+        if (!this.#enabled) {
+            this.#enabled = true;
+            this.#registry['notifyChanged']();
         }
         return this;
     }
@@ -149,9 +144,9 @@ export class RegisteredToolEntity implements RegisteredDefinition {
      * Disables the tool
      */
     disable(): this {
-        if (this._enabled) {
-            this._enabled = false;
-            this._registry['notifyChanged']();
+        if (this.#enabled) {
+            this.#enabled = false;
+            this.#registry['notifyChanged']();
         }
         return this;
     }
@@ -160,7 +155,7 @@ export class RegisteredToolEntity implements RegisteredDefinition {
      * Removes the tool from its registry
      */
     remove(): void {
-        this._registry.remove(this._name);
+        this.#registry.remove(this.#name);
     }
 
     /**
@@ -170,8 +165,8 @@ export class RegisteredToolEntity implements RegisteredDefinition {
      */
     rename(newName: string): this {
         validateAndWarnToolName(newName);
-        this._registry['_rename'](this._name, newName);
-        this._name = newName;
+        this.#registry['_rename'](this.#name, newName);
+        this.#name = newName;
         return this;
     }
 
@@ -180,7 +175,18 @@ export class RegisteredToolEntity implements RegisteredDefinition {
      *
      * @param updates - The updates to apply
      */
-    update(updates: ToolUpdates): void {
+    update<InputArgs extends AnySchema, OutputArgs extends AnySchema>(updates: {
+        name?: string | null;
+        title?: string;
+        description?: string;
+        inputSchema?: InputArgs;
+        outputSchema?: OutputArgs;
+        annotations?: ToolAnnotations;
+        _meta?: Record<string, unknown>;
+        handler?: AnyToolHandler<undefined | ZodRawShapeCompat>;
+        execution?: ToolExecution;
+        enabled?: boolean;
+    }): void {
         if (updates.name !== undefined) {
             if (updates.name === null) {
                 this.remove();
@@ -188,16 +194,16 @@ export class RegisteredToolEntity implements RegisteredDefinition {
             }
             this.rename(updates.name);
         }
-        if (updates.title !== undefined) this._title = updates.title;
-        if (updates.description !== undefined) this._description = updates.description;
-        if (updates.inputSchema !== undefined) this._inputSchema = updates.inputSchema;
-        if (updates.outputSchema !== undefined) this._outputSchema = updates.outputSchema;
-        if (updates.annotations !== undefined) this._annotations = updates.annotations;
-        if (updates.execution !== undefined) this._execution = updates.execution;
-        if (updates._meta !== undefined) this.__meta = updates._meta;
-        if (updates.handler !== undefined) this._handler = updates.handler;
+        if (updates.title !== undefined) this.#title = updates.title;
+        if (updates.description !== undefined) this.#description = updates.description;
+        if (updates.inputSchema !== undefined) this.#inputSchema = updates.inputSchema;
+        if (updates.outputSchema !== undefined) this.#outputSchema = updates.outputSchema;
+        if (updates.annotations !== undefined) this.#annotations = updates.annotations;
+        if (updates.execution !== undefined) this.#execution = updates.execution;
+        if (updates._meta !== undefined) this.#__meta = updates._meta;
+        if (updates.handler !== undefined) this.#handler = updates.handler;
         if (updates.enabled === undefined) {
-            this._registry['notifyChanged']();
+            this.#registry['notifyChanged']();
         } else {
             if (updates.enabled) {
                 this.enable();
@@ -212,22 +218,22 @@ export class RegisteredToolEntity implements RegisteredDefinition {
      */
     toProtocolTool(): Tool {
         const tool: Tool = {
-            name: this._name,
-            title: this._title,
-            description: this._description,
-            inputSchema: this._inputSchema
-                ? (toJsonSchemaCompat(normalizeObjectSchema(this._inputSchema) ?? this._inputSchema, {
+            name: this.#name,
+            title: this.#title,
+            description: this.#description,
+            inputSchema: this.#inputSchema
+                ? (toJsonSchemaCompat(normalizeObjectSchema(this.#inputSchema) ?? this.#inputSchema, {
                       strictUnions: true,
                       pipeStrategy: 'input'
                   }) as Tool['inputSchema'])
                 : EMPTY_OBJECT_JSON_SCHEMA,
-            annotations: this._annotations,
-            execution: this._execution,
-            _meta: this.__meta
+            annotations: this.#annotations,
+            execution: this.#execution,
+            _meta: this.#__meta
         };
 
-        if (this._outputSchema) {
-            const obj = normalizeObjectSchema(this._outputSchema);
+        if (this.#outputSchema) {
+            const obj = normalizeObjectSchema(this.#outputSchema);
             if (obj) {
                 tool.outputSchema = toJsonSchemaCompat(obj, {
                     strictUnions: true,
@@ -243,7 +249,7 @@ export class RegisteredToolEntity implements RegisteredDefinition {
 /**
  * Registry for managing tools.
  */
-export class ToolRegistry extends BaseRegistry<RegisteredToolEntity> {
+export class ToolRegistry extends BaseRegistry<RegisteredTool> {
     /**
      * Creates a new ToolRegistry.
      *
@@ -264,13 +270,13 @@ export class ToolRegistry extends BaseRegistry<RegisteredToolEntity> {
      * @returns The registered tool
      * @throws If a tool with the same name already exists
      */
-    register(config: ToolConfig): RegisteredToolEntity {
+    register(config: ToolConfig): RegisteredTool {
         if (this._items.has(config.name)) {
             throw new Error(`Tool '${config.name}' is already registered`);
         }
 
         validateAndWarnToolName(config.name);
-        const tool = new RegisteredToolEntity(config, this);
+        const tool = new RegisteredTool(config, this);
         this._set(config.name, tool);
         this.notifyChanged();
         return tool;
@@ -291,7 +297,7 @@ export class ToolRegistry extends BaseRegistry<RegisteredToolEntity> {
      * @param name - The tool name
      * @returns The registered tool or undefined
      */
-    getTool(name: string): RegisteredToolEntity | undefined {
+    getTool(name: string): RegisteredTool | undefined {
         return this.get(name);
     }
 }

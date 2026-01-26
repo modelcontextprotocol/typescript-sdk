@@ -8,8 +8,7 @@
 import type { AnyObjectSchema, AnySchema, Prompt, PromptArgument, ZodRawShapeCompat } from '@modelcontextprotocol/core';
 import { getObjectShape, getSchemaDescription, isSchemaOptional, objectFromShape } from '@modelcontextprotocol/core';
 
-import type { PromptCallback } from '../mcp.js';
-import type { RegisteredDefinition } from './baseRegistry.js';
+import type { PromptCallback, RegisteredPromptInterface } from '../../types/types.js';
 import { BaseRegistry } from './baseRegistry.js';
 
 /**
@@ -39,62 +38,62 @@ export interface PromptUpdates {
  * Class-based representation of a registered prompt.
  * Provides methods for managing the prompt's lifecycle.
  */
-export class RegisteredPromptEntity implements RegisteredDefinition {
-    private _name: string;
-    private _enabled: boolean = true;
-    private readonly _registry: PromptRegistry;
+export class RegisteredPrompt implements RegisteredPromptInterface {
+    #name: string;
+    #enabled: boolean = true;
+    readonly #registry: PromptRegistry;
 
-    private _title?: string;
-    private _description?: string;
-    private _argsSchema?: AnyObjectSchema;
-    private _callback: PromptCallback<ZodRawShapeCompat | undefined>;
+    #title?: string;
+    #description?: string;
+    #argsSchema?: AnyObjectSchema;
+    #callback: PromptCallback<ZodRawShapeCompat | undefined>;
 
     constructor(config: PromptConfig, registry: PromptRegistry) {
-        this._name = config.name;
-        this._registry = registry;
-        this._title = config.title;
-        this._description = config.description;
-        this._argsSchema = config.argsSchema ? objectFromShape(config.argsSchema) : undefined;
-        this._callback = config.callback;
+        this.#name = config.name;
+        this.#registry = registry;
+        this.#title = config.title;
+        this.#description = config.description;
+        this.#argsSchema = config.argsSchema ? objectFromShape(config.argsSchema) : undefined;
+        this.#callback = config.callback;
     }
 
     /** The prompt's name (identifier) */
     get name(): string {
-        return this._name;
+        return this.#name;
     }
 
     /** Whether the prompt is currently enabled */
     get enabled(): boolean {
-        return this._enabled;
+        return this.#enabled;
     }
 
     /** The prompt's title */
     get title(): string | undefined {
-        return this._title;
+        return this.#title;
     }
 
     /** The prompt's description */
     get description(): string | undefined {
-        return this._description;
+        return this.#description;
     }
 
     /** The prompt's args schema */
     get argsSchema(): AnyObjectSchema | undefined {
-        return this._argsSchema;
+        return this.#argsSchema;
     }
 
     /** The prompt's callback */
     get callback(): PromptCallback<ZodRawShapeCompat | undefined> {
-        return this._callback;
+        return this.#callback;
     }
 
     /**
      * Enables the prompt
      */
     enable(): this {
-        if (!this._enabled) {
-            this._enabled = true;
-            this._registry['notifyChanged']();
+        if (!this.#enabled) {
+            this.#enabled = true;
+            this.#registry['notifyChanged']();
         }
         return this;
     }
@@ -103,9 +102,9 @@ export class RegisteredPromptEntity implements RegisteredDefinition {
      * Disables the prompt
      */
     disable(): this {
-        if (this._enabled) {
-            this._enabled = false;
-            this._registry['notifyChanged']();
+        if (this.#enabled) {
+            this.#enabled = false;
+            this.#registry['notifyChanged']();
         }
         return this;
     }
@@ -114,7 +113,7 @@ export class RegisteredPromptEntity implements RegisteredDefinition {
      * Removes the prompt from its registry
      */
     remove(): void {
-        this._registry.remove(this._name);
+        this.#registry.remove(this.#name);
     }
 
     /**
@@ -123,8 +122,8 @@ export class RegisteredPromptEntity implements RegisteredDefinition {
      * @param newName - The new name for the prompt
      */
     rename(newName: string): this {
-        this._registry['_rename'](this._name, newName);
-        this._name = newName;
+        this.#registry['_rename'](this.#name, newName);
+        this.#name = newName;
         return this;
     }
 
@@ -141,12 +140,12 @@ export class RegisteredPromptEntity implements RegisteredDefinition {
             }
             this.rename(updates.name);
         }
-        if (updates.title !== undefined) this._title = updates.title;
-        if (updates.description !== undefined) this._description = updates.description;
-        if (updates.argsSchema !== undefined) this._argsSchema = objectFromShape(updates.argsSchema);
-        if (updates.callback !== undefined) this._callback = updates.callback;
+        if (updates.title !== undefined) this.#title = updates.title;
+        if (updates.description !== undefined) this.#description = updates.description;
+        if (updates.argsSchema !== undefined) this.#argsSchema = objectFromShape(updates.argsSchema);
+        if (updates.callback !== undefined) this.#callback = updates.callback;
         if (updates.enabled === undefined) {
-            this._registry['notifyChanged']();
+            this.#registry['notifyChanged']();
         } else {
             if (updates.enabled) {
                 this.enable();
@@ -161,10 +160,10 @@ export class RegisteredPromptEntity implements RegisteredDefinition {
      */
     toProtocolPrompt(): Prompt {
         return {
-            name: this._name,
-            title: this._title,
-            description: this._description,
-            arguments: this._argsSchema ? promptArgumentsFromSchema(this._argsSchema) : undefined
+            name: this.#name,
+            title: this.#title,
+            description: this.#description,
+            arguments: this.#argsSchema ? promptArgumentsFromSchema(this.#argsSchema) : undefined
         };
     }
 }
@@ -172,7 +171,7 @@ export class RegisteredPromptEntity implements RegisteredDefinition {
 /**
  * Registry for managing prompts.
  */
-export class PromptRegistry extends BaseRegistry<RegisteredPromptEntity> {
+export class PromptRegistry extends BaseRegistry<RegisteredPrompt> {
     /**
      * Creates a new PromptRegistry.
      *
@@ -193,12 +192,12 @@ export class PromptRegistry extends BaseRegistry<RegisteredPromptEntity> {
      * @returns The registered prompt
      * @throws If a prompt with the same name already exists
      */
-    register(config: PromptConfig): RegisteredPromptEntity {
+    register(config: PromptConfig): RegisteredPrompt {
         if (this._items.has(config.name)) {
             throw new Error(`Prompt '${config.name}' is already registered`);
         }
 
-        const prompt = new RegisteredPromptEntity(config, this);
+        const prompt = new RegisteredPrompt(config, this);
         this._set(config.name, prompt);
         this.notifyChanged();
         return prompt;
@@ -219,7 +218,7 @@ export class PromptRegistry extends BaseRegistry<RegisteredPromptEntity> {
      * @param name - The prompt name
      * @returns The registered prompt or undefined
      */
-    getPrompt(name: string): RegisteredPromptEntity | undefined {
+    getPrompt(name: string): RegisteredPrompt | undefined {
         return this.get(name);
     }
 }

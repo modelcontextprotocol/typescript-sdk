@@ -4,10 +4,9 @@
  * This example demonstrates using the McpServer.builder() fluent API
  * to create and configure an MCP server with:
  * - Tools, resources, and prompts registration
- * - Middleware (logging, rate limiting, custom metrics)
+ * - Middleware (logging, custom metrics)
  * - Per-tool middleware (authorization)
  * - Error handlers (onError, onProtocolError)
- * - Session management with SessionStore
  * - Context helpers (logging, notifications)
  *
  * Run with: npx tsx src/simpleStreamableHttpBuilder.ts
@@ -17,14 +16,8 @@ import { randomUUID } from 'node:crypto';
 
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import type { CallToolResult, GetPromptResult, ReadResourceResult ,ToolMiddleware} from '@modelcontextprotocol/server';
-import {
-    createLoggingMiddleware,
-    createSessionStore,
-    isInitializeRequest,
-    McpServer,
-    text
-} from '@modelcontextprotocol/server';
+import type { CallToolResult, GetPromptResult, ReadResourceResult, ToolMiddleware } from '@modelcontextprotocol/server';
+import { createLoggingMiddleware, isInitializeRequest, McpServer, text } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -68,7 +61,7 @@ const adminAuthMiddleware: ToolMiddleware = async (ctx, next) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Session Store Setup
+// Session Management
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -80,25 +73,9 @@ interface SessionData {
 }
 
 /**
- * Create session store with lifecycle events and timeout.
- * This replaces the manual session map management.
+ * Simple Map-based session storage.
  */
-const sessionStore = createSessionStore<SessionData>({
-    sessionTimeout: 30 * 60 * 1000, // 30 minutes
-    maxSessions: 100,
-    cleanupInterval: 60_000, // Check for expired sessions every minute
-    events: {
-        onSessionCreated: (id) => {
-            console.log(`[SESSION] Created: ${id}`);
-        },
-        onSessionDestroyed: (id) => {
-            console.log(`[SESSION] Destroyed: ${id}`);
-        },
-        onSessionUpdated: (id) => {
-            console.log(`[SESSION] Updated: ${id}`);
-        }
-    }
-});
+const sessions = new Map<string, SessionData>();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Server Factory
@@ -140,12 +117,10 @@ const getServer = () => {
         )
 
         // ─── Tool-Specific Middleware ───
-        .useToolMiddleware(
-            async (ctx, next) => {
-                console.log(`Tool '${ctx.name}' called`);
-                return next();
-            }
-        )
+        .useToolMiddleware(async (ctx, next) => {
+            console.log(`Tool '${ctx.name}' called`);
+            return next();
+        })
 
         // Custom metrics middleware
         .useToolMiddleware(metricsMiddleware)
@@ -199,7 +174,7 @@ const getServer = () => {
                 }
             },
             async function ({ name }, ctx): Promise<CallToolResult> {
-                const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+                const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
                 // Use context logging helper
                 await ctx.loggingNotification.debug(`Starting multi-greet for ${name}`);
@@ -304,7 +279,10 @@ const getServer = () => {
                 }
             },
             async ({ errorType }): Promise<CallToolResult> => {
-                const error = errorType === 'application' ? new Error('This is a test application error') : new Error('Validation failed: invalid input format');
+                const error =
+                    errorType === 'application'
+                        ? new Error('This is a test application error')
+                        : new Error('Validation failed: invalid input format');
                 throw error;
             }
         )
@@ -330,23 +308,23 @@ const getServer = () => {
             }
         )
 
-        // Resource demonstrating session info
+        // Resource demonstrating server info
         .resource(
-            'session-info',
-            'https://example.com/session/info',
+            'server-info',
+            'https://example.com/server/info',
             {
-                title: 'Session Information',
-                description: 'Returns current session statistics'
+                title: 'Server Information',
+                description: 'Returns current server statistics'
             },
             async (): Promise<ReadResourceResult> => {
                 const stats = {
-                    activeSessions: sessionStore.size(),
-                    sessionIds: sessionStore.keys()
+                    activeSessions: sessions.size,
+                    uptime: process.uptime()
                 };
                 return {
                     contents: [
                         {
-                            uri: 'https://example.com/session/info',
+                            uri: 'https://example.com/server/info',
                             mimeType: 'application/json',
                             text: JSON.stringify(stats, null, 2)
                         }
@@ -396,14 +374,14 @@ const app = createMcpExpressApp();
 
 /**
  * MCP POST endpoint handler.
- * Uses SessionStore for session management.
+ * Uses a simple Map for session management.
  */
 const mcpPostHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     try {
         // Check for existing session
-        const session = sessionId ? sessionStore.get(sessionId) : undefined;
+        const session = sessionId ? sessions.get(sessionId) : undefined;
 
         if (session) {
             // Reuse existing transport
@@ -420,9 +398,9 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             const transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore,
-                onsessioninitialized: (sid) => {
-                    // Store session with SessionStore
-                    sessionStore.set(sid, {
+                onsessioninitialized: sid => {
+                    // Store session
+                    sessions.set(sid, {
                         transport,
                         createdAt: new Date()
                     });
@@ -433,7 +411,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             transport.onclose = () => {
                 const sid = transport.sessionId;
                 if (sid) {
-                    sessionStore.delete(sid);
+                    sessions.delete(sid);
                 }
             };
 
@@ -476,7 +454,7 @@ app.post('/mcp', mcpPostHandler);
  */
 const mcpGetHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    const session = sessionId ? sessionStore.get(sessionId) : undefined;
+    const session = sessionId ? sessions.get(sessionId) : undefined;
 
     if (!session) {
         res.status(400).send('Invalid or missing session ID');
@@ -500,7 +478,7 @@ app.get('/mcp', mcpGetHandler);
  */
 const mcpDeleteHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    const session = sessionId ? sessionStore.get(sessionId) : undefined;
+    const session = sessionId ? sessions.get(sessionId) : undefined;
 
     if (!session) {
         res.status(400).send('Invalid or missing session ID');
@@ -525,7 +503,7 @@ app.delete('/mcp', mcpDeleteHandler);
 // Server Startup
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.listen(PORT, (error) => {
+app.listen(PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
         // eslint-disable-next-line unicorn/no-process-exit
@@ -540,10 +518,9 @@ app.listen(PORT, (error) => {
     console.log('Features demonstrated:');
     console.log('  - Builder pattern for server configuration');
     console.log('  - Universal middleware (logging)');
-    console.log('  - Tool-specific middleware (rate limiting, metrics)');
+    console.log('  - Tool-specific middleware (metrics)');
     console.log('  - Per-tool middleware (authorization)');
     console.log('  - Error handlers (onError, onProtocolError)');
-    console.log('  - Session management with SessionStore');
     console.log('  - Context helpers (logging, notifications)');
     console.log('═══════════════════════════════════════════════════════════════');
 });
@@ -555,23 +532,18 @@ app.listen(PORT, (error) => {
 process.on('SIGINT', async () => {
     console.log('\n[SHUTDOWN] Received SIGINT, shutting down...');
 
-    // Close all sessions using SessionStore
-    const sessionIds = sessionStore.keys();
-    for (const sid of sessionIds) {
+    // Close all sessions
+    for (const [sid, session] of sessions) {
         try {
-            const session = sessionStore.get(sid);
-            if (session) {
-                console.log(`[SHUTDOWN] Closing session ${sid}`);
-                await session.transport.close();
-            }
+            console.log(`[SHUTDOWN] Closing session ${sid}`);
+            await session.transport.close();
         } catch (error) {
             console.error(`[SHUTDOWN] Error closing session ${sid}:`, error);
         }
     }
 
-    // Clear the session store (also stops cleanup timer)
-    sessionStore.clear();
-    (sessionStore as { dispose?: () => void }).dispose?.();
+    // Clear the sessions map
+    sessions.clear();
 
     console.log('[SHUTDOWN] Complete');
     process.exit(0);

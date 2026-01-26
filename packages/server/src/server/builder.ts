@@ -19,7 +19,8 @@
 import type { ToolAnnotations, ToolExecution, ZodRawShapeCompat } from '@modelcontextprotocol/core';
 import { objectFromShape } from '@modelcontextprotocol/core';
 
-import type { McpServer, PromptCallback, ReadResourceCallback, ResourceMetadata, ToolCallback } from './mcp.js';
+import type { PromptCallback, ReadResourceCallback } from '../types/types.js';
+import type { McpServer, ResourceMetadata, ToolCallback } from './mcp.js';
 import type { PromptMiddleware, ResourceMiddleware, ToolMiddleware, UniversalMiddleware } from './middleware.js';
 import { PromptRegistry } from './registries/promptRegistry.js';
 import { ResourceRegistry } from './registries/resourceRegistry.js';

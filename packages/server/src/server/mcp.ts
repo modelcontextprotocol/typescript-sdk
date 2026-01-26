@@ -17,7 +17,6 @@ import type {
     ListToolsResult,
     LoggingMessageNotification,
     PromptReference,
-    ReadResourceResult,
     Resource,
     ResourceTemplateReference,
     Result,
@@ -28,7 +27,6 @@ import type {
     ToolAnnotations,
     ToolExecution,
     Transport,
-    Variables,
     ZodRawShapeCompat
 } from '@modelcontextprotocol/core';
 import {
@@ -56,6 +54,7 @@ import { ZodOptional } from 'zod';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
+import type { PromptArgsRawShape, PromptCallback, ReadResourceCallback, ReadResourceTemplateCallback } from '../types/types.js';
 import type {
     BuilderResult,
     ErrorContext,
@@ -77,11 +76,11 @@ import type {
     UniversalMiddleware
 } from './middleware.js';
 import { MiddlewareManager } from './middleware.js';
-import type { RegisteredPromptEntity } from './registries/promptRegistry.js';
+import type { RegisteredPrompt } from './registries/promptRegistry.js';
 import { PromptRegistry } from './registries/promptRegistry.js';
 import type { RegisteredResourceEntity, RegisteredResourceTemplateEntity } from './registries/resourceRegistry.js';
 import { ResourceRegistry, ResourceTemplateRegistry } from './registries/resourceRegistry.js';
-import type { RegisteredToolEntity } from './registries/toolRegistry.js';
+import type { RegisteredTool } from './registries/toolRegistry.js';
 import { ToolRegistry } from './registries/toolRegistry.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
@@ -461,7 +460,7 @@ export class McpServer {
      * Validates tool input arguments against the tool's input schema.
      */
     private async validateToolInput<
-        Tool extends RegisteredToolEntity,
+        Tool extends RegisteredTool,
         Args extends Tool['inputSchema'] extends infer InputSchema
             ? InputSchema extends AnySchema
                 ? SchemaOutput<InputSchema>
@@ -489,11 +488,7 @@ export class McpServer {
     /**
      * Validates tool output against the tool's output schema.
      */
-    private async validateToolOutput(
-        tool: RegisteredToolEntity,
-        result: CallToolResult | CreateTaskResult,
-        toolName: string
-    ): Promise<void> {
+    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string): Promise<void> {
         if (!tool.outputSchema) {
             return;
         }
@@ -531,7 +526,7 @@ export class McpServer {
      * Executes a tool handler (either regular or task-based).
      */
     private async executeToolHandler(
-        tool: RegisteredToolEntity,
+        tool: RegisteredTool,
         args: unknown,
         ctx: ServerContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
@@ -570,7 +565,7 @@ export class McpServer {
      * Handles automatic task polling for tools with taskSupport 'optional'.
      */
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        tool: RegisteredToolEntity,
+        tool: RegisteredTool,
         request: RequestT,
         ctx: ServerContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
@@ -842,7 +837,10 @@ export class McpServer {
                         if (!parseResult.success) {
                             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
                             const errorMessage = getParseErrorMessage(error);
-                            throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`);
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`
+                            );
                         }
 
                         const args = parseResult.data;
@@ -935,7 +933,7 @@ export class McpServer {
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
-    ): RegisteredToolEntity {
+    ): RegisteredTool {
         const { title, description, inputSchema, outputSchema, annotations, execution, _meta } = config;
 
         const registeredTool = this._toolRegistry.register({
@@ -965,7 +963,7 @@ export class McpServer {
             argsSchema?: Args;
         },
         cb: PromptCallback<Args>
-    ): RegisteredPromptEntity {
+    ): RegisteredPrompt {
         const { title, description, argsSchema } = config;
 
         const registeredPrompt = this._promptRegistry.register({
@@ -1249,32 +1247,6 @@ export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema 
  */
 export type AnyToolHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
-export type RegisteredTool = {
-    title?: string;
-    description?: string;
-    inputSchema?: AnySchema;
-    outputSchema?: AnySchema;
-    annotations?: ToolAnnotations;
-    execution?: ToolExecution;
-    _meta?: Record<string, unknown>;
-    handler: AnyToolHandler<undefined | ZodRawShapeCompat>;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(updates: {
-        name?: string | null;
-        title?: string;
-        description?: string;
-        paramsSchema?: InputArgs;
-        outputSchema?: OutputArgs;
-        annotations?: ToolAnnotations;
-        _meta?: Record<string, unknown>;
-        callback?: ToolCallback<InputArgs>;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
-
 /**
  * Checks if a value looks like a Zod schema by checking for parse/safeParse methods.
  */
@@ -1356,86 +1328,6 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
 export type ListResourcesCallback = (
     ctx: ServerContextInterface<ServerRequest, ServerNotification>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
-
-/**
- * Callback to read a resource at a given URI.
- */
-export type ReadResourceCallback = (
-    uri: URL,
-    ctx: ServerContextInterface<ServerRequest, ServerNotification>
-) => ReadResourceResult | Promise<ReadResourceResult>;
-
-export type RegisteredResource = {
-    name: string;
-    title?: string;
-    metadata?: ResourceMetadata;
-    readCallback: ReadResourceCallback;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update(updates: {
-        name?: string;
-        title?: string;
-        uri?: string | null;
-        metadata?: ResourceMetadata;
-        callback?: ReadResourceCallback;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
-
-/**
- * Callback to read a resource at a given URI, following a filled-in URI template.
- */
-export type ReadResourceTemplateCallback = (
-    uri: URL,
-    variables: Variables,
-    ctx: ServerContextInterface<ServerRequest, ServerNotification>
-) => ReadResourceResult | Promise<ReadResourceResult>;
-
-export type RegisteredResourceTemplate = {
-    resourceTemplate: ResourceTemplate;
-    title?: string;
-    metadata?: ResourceMetadata;
-    readCallback: ReadResourceTemplateCallback;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update(updates: {
-        name?: string | null;
-        title?: string;
-        template?: ResourceTemplate;
-        metadata?: ResourceMetadata;
-        callback?: ReadResourceTemplateCallback;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
-
-type PromptArgsRawShape = ZodRawShapeCompat;
-
-export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (args: ShapeOutput<Args>, ctx: ServerContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
-
-export type RegisteredPrompt = {
-    title?: string;
-    description?: string;
-    argsSchema?: AnyObjectSchema;
-    callback: PromptCallback<undefined | PromptArgsRawShape>;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update<Args extends PromptArgsRawShape>(updates: {
-        name?: string | null;
-        title?: string;
-        description?: string;
-        argsSchema?: Args;
-        callback?: PromptCallback<Args>;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
 
 function getMethodValue(schema: AnyObjectSchema): string {
     const shape = getObjectShape(schema);

@@ -7,7 +7,8 @@
 
 import type { Resource, ResourceTemplateType as ResourceTemplateProtocol, Variables } from '@modelcontextprotocol/core';
 
-import type { ReadResourceCallback, ReadResourceTemplateCallback, ResourceMetadata, ResourceTemplate } from '../mcp.js';
+import type { ReadResourceCallback, ReadResourceTemplateCallback } from '../../types/types.js';
+import type { ResourceMetadata, ResourceTemplate } from '../mcp.js';
 import type { RegisteredDefinition } from './baseRegistry.js';
 import { BaseRegistry } from './baseRegistry.js';
 
