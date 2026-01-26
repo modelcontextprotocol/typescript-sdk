@@ -2407,7 +2407,7 @@ describe('Task-based execution', () => {
             // Client creates task on server via tool call
             await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                 task: {
-                    ttl: 60000
+                    ttl: 60_000
                 }
             });
 
@@ -2482,7 +2482,7 @@ describe('Task-based execution', () => {
 
             // Create a task
             await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: { ttl: 60000 }
+                task: { ttl: 60_000 }
             });
 
             // Query task status by listing tasks and getting the first one
@@ -2560,7 +2560,7 @@ describe('Task-based execution', () => {
             // Create a task using callToolStream to capture the task ID
             let taskId: string | undefined;
             const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: { ttl: 60000 }
+                task: { ttl: 60_000 }
             });
 
             for await (const message of stream) {
@@ -2643,7 +2643,7 @@ describe('Task-based execution', () => {
 
             for (let i = 0; i < 2; i++) {
                 await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                    task: { ttl: 60000 }
+                    task: { ttl: 60_000 }
                 });
 
                 // Get the task ID from the task list
@@ -2759,7 +2759,7 @@ describe('Task-based execution', () => {
                     }
                 },
                 CreateTaskResultSchema,
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             // Verify CreateTaskResult structure
@@ -2849,7 +2849,7 @@ describe('Task-based execution', () => {
                     }
                 },
                 CreateTaskResultSchema,
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             // Verify CreateTaskResult structure
@@ -2941,7 +2941,7 @@ describe('Task-based execution', () => {
                     }
                 },
                 CreateTaskResultSchema,
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             // Verify CreateTaskResult structure
@@ -3034,7 +3034,7 @@ describe('Task-based execution', () => {
                         }
                     },
                     CreateTaskResultSchema,
-                    { task: { ttl: 60000 } }
+                    { task: { ttl: 60_000 } }
                 );
 
                 // Verify CreateTaskResult structure and capture taskId
@@ -3141,7 +3141,7 @@ describe('Task-based execution', () => {
 
         for (let i = 0; i < 3; i++) {
             await client.callTool({ name: 'test-tool', arguments: { id: `task-${i + 1}` } }, CallToolResultSchema, {
-                task: { ttl: 60000 }
+                task: { ttl: 60_000 }
             });
 
             // Get the task ID from the task list
@@ -3412,7 +3412,7 @@ test('should respect server task capabilities', async () => {
     // These should work because server supports tasks
     await expect(
         client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-            task: { ttl: 60000 }
+            task: { ttl: 60_000 }
         })
     ).resolves.not.toThrow();
     await expect(client.experimental.tasks.listTasks()).resolves.not.toThrow();
@@ -4130,5 +4130,131 @@ describe('getSupportedElicitationModes', () => {
         const result = getSupportedElicitationModes({ form: { applyDefaults: true } });
         expect(result.supportsFormMode).toBe(true);
         expect(result.supportsUrlMode).toBe(false);
+    });
+});
+
+describe('Client sampling validation with tools', () => {
+    test('should validate array content with tool_use when request includes tools', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        // Handler returns array content with tool_use - should validate with CreateMessageResultWithToolsSchema
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            stopReason: 'toolUse',
+            content: [{ type: 'tool_use', id: 'call_1', name: 'test_tool', input: { arg: 'value' } }]
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100,
+            tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+        });
+
+        expect(result.stopReason).toBe('toolUse');
+        expect(Array.isArray(result.content)).toBe(true);
+        expect((result.content as Array<{ type: string }>)[0].type).toBe('tool_use');
+    });
+
+    test('should validate single content when request includes tools', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        // Handler returns single content (text) - should still validate with CreateMessageResultWithToolsSchema
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'No tool needed' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100,
+            tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+        });
+
+        expect((result.content as { type: string }).type).toBe('text');
+    });
+
+    test('should validate single content when request has no tools', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        // Handler returns single content - should validate with CreateMessageResultSchema
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100
+        });
+
+        expect((result.content as { type: string }).type).toBe('text');
+    });
+
+    test('should reject array content when request has no tools', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        // Handler returns array content - should fail validation with CreateMessageResultSchema
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Array response' }]
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+                maxTokens: 100
+            })
+        ).rejects.toThrow('Invalid sampling result');
+    });
+
+    test('should validate array content when request includes toolChoice', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        // Handler returns array content with tool_use
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            stopReason: 'toolUse',
+            content: [{ type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} }]
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100,
+            tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }],
+            toolChoice: { mode: 'auto' }
+        });
+
+        expect(result.stopReason).toBe('toolUse');
+        expect(Array.isArray(result.content)).toBe(true);
     });
 });

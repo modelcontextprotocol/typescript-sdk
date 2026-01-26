@@ -28,7 +28,7 @@ export function createPrivateKeyJwtAuth(options: {
 }): AddClientAuthentication {
     return async (_headers, params, url, metadata) => {
         // Lazy import to avoid heavy dependency unless used
-        if (typeof globalThis.crypto === 'undefined') {
+        if (globalThis.crypto === undefined) {
             throw new TypeError(
                 'crypto is not available, please ensure you add have Web Crypto API support for older Node.js versions (see https://github.com/modelcontextprotocol/typescript-sdk#nodejs-web-crypto-globalthiscrypto-compatibility)'
             );
@@ -64,12 +64,8 @@ export function createPrivateKeyJwtAuth(options: {
                 throw new Error(`Unsupported algorithm ${alg}`);
             }
         } else if (options.privateKey instanceof Uint8Array) {
-            if (alg.startsWith('HS')) {
-                key = options.privateKey;
-            } else {
-                // Assume PKCS#8 DER in Uint8Array for asymmetric algorithms
-                key = await jose.importPKCS8(new TextDecoder().decode(options.privateKey), alg);
-            }
+            // Assume PKCS#8 DER in Uint8Array for asymmetric algorithms
+            key = alg.startsWith('HS') ? options.privateKey : await jose.importPKCS8(new TextDecoder().decode(options.privateKey), alg);
         } else {
             // Treat as JWK
             key = await jose.importJWK(options.privateKey as JWK, alg);

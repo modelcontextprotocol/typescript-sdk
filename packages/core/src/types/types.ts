@@ -216,29 +216,22 @@ export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultR
     JSONRPCResultResponseSchema.safeParse(value).success;
 
 /**
- * @deprecated Use {@link isJSONRPCResultResponse} instead.
- *
- * Please note that {@link JSONRPCResponse} is a union of {@link JSONRPCResultResponse} and {@link JSONRPCErrorResponse} as per the updated JSON-RPC specification. (was previously just {@link JSONRPCResultResponse})
- */
-export const isJSONRPCResponse = isJSONRPCResultResponse;
-
-/**
  * Error codes defined by the JSON-RPC specification.
  */
 export enum ErrorCode {
     // SDK error codes
-    ConnectionClosed = -32000,
-    RequestTimeout = -32001,
+    ConnectionClosed = -32_000,
+    RequestTimeout = -32_001,
 
     // Standard JSON-RPC error codes
-    ParseError = -32700,
-    InvalidRequest = -32600,
-    MethodNotFound = -32601,
-    InvalidParams = -32602,
-    InternalError = -32603,
+    ParseError = -32_700,
+    InvalidRequest = -32_600,
+    MethodNotFound = -32_601,
+    InvalidParams = -32_602,
+    InternalError = -32_603,
 
     // MCP-specific error codes
-    UrlElicitationRequired = -32042
+    UrlElicitationRequired = -32_042
 }
 
 /**
@@ -266,11 +259,6 @@ export const JSONRPCErrorResponseSchema = z
     .strict();
 
 /**
- * @deprecated Use {@link JSONRPCErrorResponseSchema} instead.
- */
-export const JSONRPCErrorSchema = JSONRPCErrorResponseSchema;
-
-/**
  * Checks if a value is a valid JSONRPCErrorResponse.
  * @param value - The value to check.
  *
@@ -278,11 +266,6 @@ export const JSONRPCErrorSchema = JSONRPCErrorResponseSchema;
  */
 export const isJSONRPCErrorResponse = (value: unknown): value is JSONRPCErrorResponse =>
     JSONRPCErrorResponseSchema.safeParse(value).success;
-
-/**
- * @deprecated Use {@link isJSONRPCErrorResponse} instead.
- */
-export const isJSONRPCError = isJSONRPCErrorResponse;
 
 export const JSONRPCMessageSchema = z.union([
     JSONRPCRequestSchema,
@@ -424,10 +407,8 @@ const FormElicitationCapabilitySchema = z.intersection(
 
 const ElicitationCapabilitySchema = z.preprocess(
     value => {
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            if (Object.keys(value as Record<string, unknown>).length === 0) {
-                return { form: {} };
-            }
+        if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length === 0) {
+            return { form: {} };
         }
         return value;
     },
@@ -2118,11 +2099,6 @@ export const ResourceTemplateReferenceSchema = z.object({
 });
 
 /**
- * @deprecated Use ResourceTemplateReferenceSchema instead
- */
-export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
-
-/**
  * Identifies a prompt.
  */
 export const PromptReferenceSchema = z.object({
@@ -2385,18 +2361,13 @@ type Flatten<T> = T extends Primitive
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
 /**
- * Headers that are compatible with both Node.js and the browser.
- */
-export type IsomorphicHeaders = Record<string, string | string[] | undefined>;
-
-/**
  * Information about the incoming request.
  */
 export interface RequestInfo {
     /**
      * The headers of the request.
      */
-    headers: IsomorphicHeaders;
+    headers: Headers;
 }
 
 /**
@@ -2439,12 +2410,6 @@ export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
 export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
 export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 export type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
-/**
- * @deprecated Use {@link JSONRPCErrorResponse} instead.
- *
- * Please note that spec types have renamed {@link JSONRPCError} to {@link JSONRPCErrorResponse} as per the updated JSON-RPC specification. (was previously just {@link JSONRPCError}) and future versions will remove {@link JSONRPCError}.
- */
-export type JSONRPCError = JSONRPCErrorResponse;
 export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
 
 export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
@@ -2616,10 +2581,6 @@ export type ElicitResult = Infer<typeof ElicitResultSchema>;
 
 /* Autocomplete */
 export type ResourceTemplateReference = Infer<typeof ResourceTemplateReferenceSchema>;
-/**
- * @deprecated Use ResourceTemplateReference instead
- */
-export type ResourceReference = ResourceTemplateReference;
 export type PromptReference = Infer<typeof PromptReferenceSchema>;
 export type CompleteRequestParams = Infer<typeof CompleteRequestParamsSchema>;
 export type CompleteRequest = Infer<typeof CompleteRequestSchema>;

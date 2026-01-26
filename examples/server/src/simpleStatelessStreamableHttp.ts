@@ -121,7 +121,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -136,7 +136,7 @@ app.get('/mcp', async (req: Request, res: Response) => {
         JSON.stringify({
             jsonrpc: '2.0',
             error: {
-                code: -32000,
+                code: -32_000,
                 message: 'Method not allowed.'
             },
             id: null
@@ -150,7 +150,7 @@ app.delete('/mcp', async (req: Request, res: Response) => {
         JSON.stringify({
             jsonrpc: '2.0',
             error: {
-                code: -32000,
+                code: -32_000,
                 message: 'Method not allowed.'
             },
             id: null
@@ -163,6 +163,7 @@ const PORT = 3000;
 app.listen(PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
@@ -171,5 +172,6 @@ app.listen(PORT, error => {
 // Handle server shutdown
 process.on('SIGINT', async () => {
     console.log('Shutting down server...');
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(0);
 });

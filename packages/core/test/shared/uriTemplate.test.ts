@@ -200,7 +200,7 @@ describe('UriTemplate', () => {
 
     describe('security and edge cases', () => {
         it('should handle extremely long input strings', () => {
-            const longString = 'x'.repeat(100000);
+            const longString = 'x'.repeat(100_000);
             const template = new UriTemplate(`/api/{param}`);
             expect(template.expand({ param: longString })).toBe(`/api/${longString}`);
             expect(template.match(`/api/${longString}`)).toEqual({ param: longString });
@@ -234,7 +234,7 @@ describe('UriTemplate', () => {
         it('should handle pathological regex patterns', () => {
             const template = new UriTemplate('/api/{param}');
             // Create a string that could cause catastrophic backtracking
-            const input = '/api/' + 'a'.repeat(100000);
+            const input = '/api/' + 'a'.repeat(100_000);
             expect(() => template.match(input)).not.toThrow();
         });
 
@@ -273,15 +273,14 @@ describe('UriTemplate', () => {
 
         it('should handle maximum template expression limit', () => {
             // Create a template with many expressions
-            const expressions = Array(10000).fill('{param}').join('');
+            const expressions = Array.from({ length: 10_000 }).fill('{param}').join('');
             expect(() => new UriTemplate(expressions)).not.toThrow();
         });
 
         it('should handle maximum variable name length', () => {
-            const longName = 'a'.repeat(10000);
+            const longName = 'a'.repeat(10_000);
             const template = new UriTemplate(`{${longName}}`);
-            const vars: Record<string, string> = {};
-            vars[longName] = 'value';
+            const vars: Record<string, string> = { [longName]: 'value' };
             expect(() => template.expand(vars)).not.toThrow();
         });
 

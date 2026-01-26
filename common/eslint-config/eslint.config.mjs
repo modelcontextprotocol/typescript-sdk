@@ -8,6 +8,7 @@ import eslintConfigPrettier from 'eslint-config-prettier/flat';
 import importPlugin from 'eslint-plugin-import';
 import nodePlugin from 'eslint-plugin-n';
 import simpleImportSortPlugin from 'eslint-plugin-simple-import-sort';
+import eslintPluginUnicorn from 'eslint-plugin-unicorn';
 import { configs } from 'typescript-eslint';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +18,7 @@ export default defineConfig(
     ...configs.recommended,
     importPlugin.flatConfigs.recommended,
     importPlugin.flatConfigs.typescript,
+    eslintPluginUnicorn.configs.recommended,
     {
         languageOptions: {
             parserOptions: {
@@ -42,6 +44,10 @@ export default defineConfig(
             }
         },
         rules: {
+            'unicorn/prevent-abbreviations': 'off',
+            'unicorn/no-null': 'off',
+            'unicorn/prefer-add-event-listener': 'off',
+            'unicorn/no-useless-undefined': ['error', { checkArguments: false }],
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
             'n/prefer-node-protocol': 'error',
             '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
@@ -64,7 +70,20 @@ export default defineConfig(
                     optionalDependencies: false,
                     peerDependencies: true
                 }
+            ],
+            'unicorn/filename-case': [
+                'error',
+                {
+                    case: 'camelCase'
+                }
             ]
+        }
+    },
+    {
+        // Disable consistent-function-scoping in test files where helper functions are common
+        files: ['**/*.test.ts', '**/*.test.tsx', '**/test/**'],
+        rules: {
+            'unicorn/consistent-function-scoping': 'off'
         }
     },
     {

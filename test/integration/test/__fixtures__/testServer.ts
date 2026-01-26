@@ -11,6 +11,7 @@ await server.connect(transport);
 
 const exit = async () => {
     await server.close();
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(0);
 };
 
