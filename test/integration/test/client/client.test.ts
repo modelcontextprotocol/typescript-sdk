@@ -596,6 +596,79 @@ test('should respect server capabilities', async () => {
 });
 
 /***
+ * Test: Return empty lists for missing capabilities (default behavior)
+ * When enforceStrictCapabilities is not set (default), list methods should
+ * return empty lists instead of sending requests to servers that don't
+ * advertise those capabilities.
+ */
+test('should return empty lists for missing capabilities by default', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                // Server only supports tools - no prompts or resources
+                tools: {}
+            }
+        }
+    );
+
+    server.setRequestHandler(InitializeRequestSchema, _request => ({
+        protocolVersion: LATEST_PROTOCOL_VERSION,
+        capabilities: {
+            tools: {}
+        },
+        serverInfo: {
+            name: 'test',
+            version: '1.0'
+        }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, () => ({
+        tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }]
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    // Client with default settings (enforceStrictCapabilities not set)
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Server only supports tools
+    expect(client.getServerCapabilities()).toEqual({
+        tools: {}
+    });
+
+    // listTools should work and return actual tools
+    const toolsResult = await client.listTools();
+    expect(toolsResult.tools).toHaveLength(1);
+    expect(toolsResult.tools[0].name).toBe('test-tool');
+
+    // listPrompts should return empty list without sending request
+    const promptsResult = await client.listPrompts();
+    expect(promptsResult.prompts).toEqual([]);
+
+    // listResources should return empty list without sending request
+    const resourcesResult = await client.listResources();
+    expect(resourcesResult.resources).toEqual([]);
+
+    // listResourceTemplates should return empty list without sending request
+    const templatesResult = await client.listResourceTemplates();
+    expect(templatesResult.resourceTemplates).toEqual([]);
+});
+
+/***
  * Test: Respect Client Notification Capabilities
  */
 test('should respect client notification capabilities', async () => {
@@ -1885,7 +1958,7 @@ describe('outputSchema validation', () => {
         // Set up server handlers
         server.setRequestHandler(InitializeRequestSchema, async request => ({
             protocolVersion: request.params.protocolVersion,
-            capabilities: {},
+            capabilities: { tools: {} },
             serverInfo: {
                 name: 'test-server',
                 version: '1.0.0'
@@ -1977,7 +2050,7 @@ describe('outputSchema validation', () => {
         // Set up server handlers
         server.setRequestHandler(InitializeRequestSchema, async request => ({
             protocolVersion: request.params.protocolVersion,
-            capabilities: {},
+            capabilities: { tools: {} },
             serverInfo: {
                 name: 'test-server',
                 version: '1.0.0'
@@ -2270,7 +2343,7 @@ describe('outputSchema validation', () => {
         // Set up server handlers
         server.setRequestHandler(InitializeRequestSchema, async request => ({
             protocolVersion: request.params.protocolVersion,
-            capabilities: {},
+            capabilities: { tools: {} },
             serverInfo: {
                 name: 'test-server',
                 version: '1.0.0'
