@@ -271,7 +271,7 @@ export class McpServer {
         // If that fails, use the schema directly (for union/intersection/etc)
         const inputObj = normalizeObjectSchema(tool.inputSchema);
         const schemaToParse = inputObj ?? (tool.inputSchema as AnySchema);
-        const parseResult = await safeParseAsync(schemaToParse, args);
+        const parseResult = await safeParseAsync(schemaToParse, args ?? {});
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
