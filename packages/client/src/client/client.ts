@@ -1,6 +1,5 @@
 import type {
     AnyObjectSchema,
-    BaseRequestContext,
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -8,7 +7,6 @@ import type {
     ClientResult,
     CompatibilityCallToolResultSchema,
     CompleteRequest,
-    ContextInterface,
     GetPromptRequest,
     Implementation,
     JSONRPCRequest,
@@ -78,7 +76,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
-import type { ClientRequestContext } from './context.js';
+import type { ClientContextInterface, ClientRequestContext } from './context.js';
 import { ClientContext } from './context.js';
 
 /**
@@ -345,7 +343,7 @@ export class Client<
         requestSchema: T,
         handler: (
             request: SchemaOutput<T>,
-            extra: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
+            ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
         ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
     ): void {
         const shape = getObjectShape(requestSchema);
@@ -373,7 +371,7 @@ export class Client<
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                ctx: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
+                ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -446,7 +444,7 @@ export class Client<
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                ctx: ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext>
+                ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -501,7 +499,7 @@ export class Client<
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
-    }): ContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT, BaseRequestContext> {
+    }): ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT> {
         const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
         const sessionId = capturedTransport?.sessionId;
 

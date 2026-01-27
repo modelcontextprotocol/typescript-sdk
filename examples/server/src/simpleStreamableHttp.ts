@@ -60,7 +60,15 @@ const getServer = () => {
                 name: z.string().describe('Name to greet')
             }
         },
-        async ({ name }): Promise<CallToolResult> => {
+        async ({ name }, ctx): Promise<CallToolResult> => {
+            await ctx.loggingNotification.log(
+                {
+                    level: 'debug',
+                    data: `Starting greet for ${name}`
+                },
+                ctx.mcpCtx.sessionId
+            );
+
             return {
                 content: [
                     {
@@ -300,7 +308,15 @@ const getServer = () => {
                 name: z.string().describe('Name to include in greeting')
             }
         },
-        async ({ name }): Promise<GetPromptResult> => {
+        async ({ name }, ctx): Promise<GetPromptResult> => {
+            await ctx.loggingNotification.log(
+                {
+                    level: 'debug',
+                    data: `Starting greeting template for ${name}`
+                },
+                ctx.mcpCtx.sessionId
+            );
+
             return {
                 messages: [
                     {
@@ -387,7 +403,15 @@ const getServer = () => {
             description: 'First example file for ResourceLink demonstration',
             mimeType: 'text/plain'
         },
-        async (): Promise<ReadResourceResult> => {
+        async (_, ctx): Promise<ReadResourceResult> => {
+            await ctx.loggingNotification.log(
+                {
+                    level: 'debug',
+                    data: `Starting example file 1`
+                },
+                ctx.mcpCtx.sessionId
+            );
+
             return {
                 contents: [
                     {

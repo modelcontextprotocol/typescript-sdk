@@ -7,7 +7,6 @@ import type {
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
-    ContextInterface,
     CreateTaskResult,
     GetPromptResult,
     Implementation,
@@ -63,6 +62,7 @@ import { ZodOptional } from 'zod';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
+import type { ServerContextInterface } from './context.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
@@ -324,7 +324,7 @@ export class McpServer {
     private async executeToolHandler(
         tool: RegisteredTool,
         args: unknown,
-        ctx: ContextInterface<ServerRequest, ServerNotification>
+        ctx: ServerContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
         const isTaskHandler = 'createTask' in handler;
@@ -363,7 +363,7 @@ export class McpServer {
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
         request: RequestT,
-        ctx: ContextInterface<ServerRequest, ServerNotification>
+        ctx: ServerContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
         if (!ctx.taskCtx?.store) {
             throw new Error('No task store provided for task-capable tool.');
@@ -1021,7 +1021,7 @@ export class ResourceTemplate {
 
 export type BaseToolCallback<
     SendResultT extends Result,
-    Extra extends ContextInterface<ServerRequest, ServerNotification>,
+    Extra extends ServerContextInterface<ServerRequest, ServerNotification>,
     Args extends undefined | ZodRawShapeCompat | AnySchema
 > = Args extends ZodRawShapeCompat
     ? (args: ShapeOutput<Args>, ctx: Extra) => SendResultT | Promise<SendResultT>
@@ -1041,7 +1041,7 @@ export type BaseToolCallback<
  */
 export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = BaseToolCallback<
     CallToolResult,
-    ContextInterface<ServerRequest, ServerNotification>,
+    ServerContextInterface<ServerRequest, ServerNotification>,
     Args
 >;
 
@@ -1160,7 +1160,7 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-    ctx: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContextInterface<ServerRequest, ServerNotification>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -1168,7 +1168,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
     uri: URL,
-    ctx: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResource = {
@@ -1196,7 +1196,7 @@ export type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
-    ctx: ContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResourceTemplate = {
@@ -1221,8 +1221,11 @@ export type RegisteredResourceTemplate = {
 type PromptArgsRawShape = ZodRawShapeCompat;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (args: ShapeOutput<Args>, ctx: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+    ? (
+          args: ShapeOutput<Args>,
+          ctx: ServerContextInterface<ServerRequest, ServerNotification>
+      ) => GetPromptResult | Promise<GetPromptResult>
+    : (ctx: ServerContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {
     title?: string;
