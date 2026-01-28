@@ -710,6 +710,9 @@ app.listen(MCP_PORT, error => {
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
+    if (useOAuth) {
+        console.log(`  Protected Resource Metadata: http://localhost:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
+    }
 });
 
 // Handle server shutdown
