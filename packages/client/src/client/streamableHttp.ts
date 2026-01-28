@@ -7,7 +7,8 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    normalizeHeaders
+    normalizeHeaders,
+    StateError
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
@@ -422,9 +423,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async start() {
         if (this._abortController) {
-            throw new Error(
-                'StreamableHTTPClientTransport already started! If using Client class, note that connect() calls start() automatically.'
-            );
+            throw StateError.alreadyConnected();
         }
 
         this._abortController = new AbortController();

@@ -16,11 +16,12 @@ import {
     ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
+    isTextContent,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
-    McpError,
+    ProtocolError,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
     ResourceListChangedNotificationSchema,
@@ -273,7 +274,7 @@ async function connect(url?: string): Promise<void> {
         // Set up elicitation request handler with proper validation
         client.setRequestHandler(ElicitRequestSchema, async request => {
             if (request.params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+                throw new ProtocolError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
@@ -737,7 +738,7 @@ async function runNotificationsToolWithResumability(interval: number, count: num
 
         console.log('Tool result:');
         for (const item of result.content) {
-            if (item.type === 'text') {
+            if (isTextContent(item)) {
                 console.log(`  ${item.text}`);
             } else {
                 console.log(`  ${item.type} content:`, item);
@@ -791,7 +792,7 @@ async function getPrompt(name: string, args: Record<string, unknown>): Promise<v
         const promptResult = await client.request(promptRequest, GetPromptResultSchema);
         console.log('Prompt template:');
         for (const [index, msg] of promptResult.messages.entries()) {
-            console.log(`  [${index + 1}] ${msg.role}: ${msg.content.type === 'text' ? msg.content.text : JSON.stringify(msg.content)}`);
+            console.log(`  [${index + 1}] ${msg.role}: ${isTextContent(msg.content) ? msg.content.text : JSON.stringify(msg.content)}`);
         }
     } catch (error) {
         console.log(`Error getting prompt ${name}: ${error}`);
@@ -913,7 +914,7 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
                     console.log('Task completed!');
                     console.log('Tool result:');
                     for (const item of message.result.content) {
-                        if (item.type === 'text') {
+                        if (isTextContent(item)) {
                             console.log(`  ${item.text}`);
                         }
                     }

@@ -1,6 +1,6 @@
 // Run with: pnpm tsx src/toolWithSampleServer.ts
 
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { isTextContent, McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
 const mcpServer = new McpServer({
@@ -37,7 +37,7 @@ mcpServer.registerTool(
             content: [
                 {
                     type: 'text',
-                    text: response.content.type === 'text' ? response.content.text : 'Unable to generate summary'
+                    text: isTextContent(response.content) ? response.content.text : 'Unable to generate summary'
                 }
             ]
         };

@@ -9,6 +9,7 @@ import type * as z4c from 'zod/v4/core';
 import * as z4mini from 'zod/v4-mini';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
+import { ValidationError } from '../errors.js';
 import type { AnyObjectSchema, AnySchema } from './zodCompat.js';
 import { getLiteralValue, getObjectShape, isZ4Schema, safeParse } from './zodCompat.js';
 
@@ -48,7 +49,7 @@ export function getMethodLiteral(schema: AnyObjectSchema): string {
     const shape = getObjectShape(schema);
     const methodSchema = shape?.method as AnySchema | undefined;
     if (!methodSchema) {
-        throw new Error('Schema is missing a method literal');
+        throw ValidationError.invalidSchema('Schema is missing a method literal');
     }
 
     const value = getLiteralValue(methodSchema);

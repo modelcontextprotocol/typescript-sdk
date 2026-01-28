@@ -9,14 +9,15 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
+import type { ContentBlock, CreateMessageRequest, CreateMessageResult } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
     CreateMessageRequestSchema,
     ElicitRequestSchema,
     ErrorCode,
-    McpError,
+    isTextContent,
+    ProtocolError,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
 
@@ -34,9 +35,9 @@ function question(prompt: string): Promise<string> {
     });
 }
 
-function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
-    const textContent = result.content.find((c): c is TextContent => c.type === 'text');
-    return textContent?.text ?? '(no text)';
+function getTextContent(result: { content: ContentBlock[] }): string | undefined {
+    const textContent = result.content.find(element => isTextContent(element));
+    return textContent?.text;
 }
 
 async function elicitationCallback(params: {
@@ -104,7 +105,7 @@ async function run(url: string): Promise<void> {
     // Set up elicitation request handler
     client.setRequestHandler(ElicitRequestSchema, async request => {
         if (request.params.mode && request.params.mode !== 'form') {
-            throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+            throw new ProtocolError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
         }
         return elicitationCallback(request.params);
     });

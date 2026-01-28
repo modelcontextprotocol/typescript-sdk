@@ -1,7 +1,27 @@
-import type { FetchLike } from '@modelcontextprotocol/core';
+/**
+ * Client Middleware System
+ *
+ * This module provides two distinct middleware systems:
+ *
+ * 1. Fetch Middleware - For HTTP/fetch level operations (OAuth, logging, etc.)
+ * 2. MCP Client Middleware - For MCP protocol level operations (tool calls, sampling, etc.)
+ */
+
+import type {
+    AuthInfo,
+    CallToolResult,
+    CreateMessageResult,
+    ElicitResult,
+    FetchLike,
+    ReadResourceResult
+} from '@modelcontextprotocol/core';
 
 import type { OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fetch Middleware (HTTP Level)
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -320,3 +340,391 @@ export const applyMiddlewares = (...middleware: Middleware[]): Middleware => {
 export const createMiddleware = (handler: (next: FetchLike, input: string | URL, init?: RequestInit) => Promise<Response>): Middleware => {
     return next => (input, init) => handler(next, input as string | URL, init);
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP Client Middleware (Protocol Level)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Base context shared by all MCP client middleware
+ */
+interface BaseClientContext {
+    /** The request ID */
+    requestId: string;
+    /** Abort signal for cancellation */
+    signal: AbortSignal;
+}
+
+/**
+ * Context for outgoing requests (client → server)
+ */
+export interface OutgoingContext extends BaseClientContext {
+    direction: 'outgoing';
+    /** The type of outgoing request */
+    type:
+        | 'callTool'
+        | 'readResource'
+        | 'getPrompt'
+        | 'listTools'
+        | 'listResources'
+        | 'listPrompts'
+        | 'ping'
+        | 'complete'
+        | 'initialize'
+        | 'other';
+    /** The JSON-RPC method name */
+    method: string;
+    /** The request parameters */
+    params: unknown;
+}
+
+/**
+ * Context for incoming requests (server → client)
+ */
+export interface IncomingContext extends BaseClientContext {
+    direction: 'incoming';
+    /** The type of incoming request */
+    type: 'sampling' | 'elicitation' | 'rootsList' | 'other';
+    /** The JSON-RPC method name */
+    method: string;
+    /** The request parameters */
+    params: unknown;
+    /** Authentication info if available */
+    authInfo?: AuthInfo;
+}
+
+/**
+ * Union type for all client contexts
+ */
+export type ClientContext = OutgoingContext | IncomingContext;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Type-Specific Contexts
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Context for tool call requests
+ */
+export interface ToolCallContext extends OutgoingContext {
+    type: 'callTool';
+    params: {
+        name: string;
+        arguments?: unknown;
+    };
+}
+
+/**
+ * Context for resource read requests
+ */
+export interface ResourceReadContext extends OutgoingContext {
+    type: 'readResource';
+    params: {
+        uri: string;
+    };
+}
+
+/**
+ * Context for sampling requests (server → client)
+ */
+export interface SamplingContext extends IncomingContext {
+    type: 'sampling';
+    params: {
+        messages: unknown[];
+        maxTokens?: number;
+        [key: string]: unknown;
+    };
+}
+
+/**
+ * Context for elicitation requests (server → client)
+ */
+export interface ElicitationContext extends IncomingContext {
+    type: 'elicitation';
+    params: {
+        message?: string;
+        [key: string]: unknown;
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP Middleware Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Next function for MCP client middleware
+ */
+export type ClientNextFn<T = unknown> = (modifiedParams?: unknown) => Promise<T>;
+
+/**
+ * Universal middleware for all MCP client requests
+ */
+export type ClientMiddleware = (ctx: ClientContext, next: ClientNextFn<unknown>) => Promise<unknown>;
+
+/**
+ * Middleware for outgoing requests only
+ */
+export type OutgoingMiddleware = (ctx: OutgoingContext, next: ClientNextFn<unknown>) => Promise<unknown>;
+
+/**
+ * Middleware for incoming requests only
+ */
+export type IncomingMiddleware = (ctx: IncomingContext, next: ClientNextFn<unknown>) => Promise<unknown>;
+
+/**
+ * Middleware specifically for tool calls
+ */
+export type ToolCallMiddleware = (ctx: ToolCallContext, next: ClientNextFn<CallToolResult>) => Promise<CallToolResult>;
+
+/**
+ * Middleware specifically for resource reads
+ */
+export type ResourceReadMiddleware = (ctx: ResourceReadContext, next: ClientNextFn<ReadResourceResult>) => Promise<ReadResourceResult>;
+
+/**
+ * Middleware specifically for sampling requests
+ */
+export type SamplingMiddleware = (ctx: SamplingContext, next: ClientNextFn<CreateMessageResult>) => Promise<CreateMessageResult>;
+
+/**
+ * Middleware specifically for elicitation requests
+ */
+export type ElicitationMiddleware = (ctx: ElicitationContext, next: ClientNextFn<ElicitResult>) => Promise<ElicitResult>;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP Middleware Manager
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Manages MCP middleware registration and execution for Client.
+ */
+export class ClientMiddlewareManager {
+    private _universalMiddleware: ClientMiddleware[] = [];
+    private _outgoingMiddleware: OutgoingMiddleware[] = [];
+    private _incomingMiddleware: IncomingMiddleware[] = [];
+    private _toolCallMiddleware: ToolCallMiddleware[] = [];
+    private _resourceReadMiddleware: ResourceReadMiddleware[] = [];
+    private _samplingMiddleware: SamplingMiddleware[] = [];
+    private _elicitationMiddleware: ElicitationMiddleware[] = [];
+
+    /**
+     * Registers universal middleware that runs for all requests.
+     */
+    useMiddleware(middleware: ClientMiddleware): this {
+        this._universalMiddleware.push(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware for outgoing requests only.
+     */
+    useOutgoingMiddleware(middleware: OutgoingMiddleware): this {
+        this._outgoingMiddleware.push(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware for incoming requests only.
+     */
+    useIncomingMiddleware(middleware: IncomingMiddleware): this {
+        this._incomingMiddleware.push(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for tool calls.
+     */
+    useToolCallMiddleware(middleware: ToolCallMiddleware): this {
+        this._toolCallMiddleware.push(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for resource reads.
+     */
+    useResourceReadMiddleware(middleware: ResourceReadMiddleware): this {
+        this._resourceReadMiddleware.push(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for sampling requests.
+     */
+    useSamplingMiddleware(middleware: SamplingMiddleware): this {
+        this._samplingMiddleware.push(middleware);
+        return this;
+    }
+
+    /**
+     * Registers middleware specifically for elicitation requests.
+     */
+    useElicitationMiddleware(middleware: ElicitationMiddleware): this {
+        this._elicitationMiddleware.push(middleware);
+        return this;
+    }
+
+    /**
+     * Executes the middleware chain for an outgoing tool call.
+     */
+    async executeToolCall(ctx: ToolCallContext, handler: (params?: unknown) => Promise<CallToolResult>): Promise<CallToolResult> {
+        return this._executeChain(
+            ctx,
+            [
+                ...this._adaptToTyped<ToolCallContext, CallToolResult>(this._universalMiddleware),
+                ...this._adaptToTyped<ToolCallContext, CallToolResult>(this._outgoingMiddleware as unknown as ClientMiddleware[]),
+                ...this._toolCallMiddleware
+            ],
+            handler
+        );
+    }
+
+    /**
+     * Executes the middleware chain for an outgoing resource read.
+     */
+    async executeResourceRead(
+        ctx: ResourceReadContext,
+        handler: (params?: unknown) => Promise<ReadResourceResult>
+    ): Promise<ReadResourceResult> {
+        return this._executeChain(
+            ctx,
+            [
+                ...this._adaptToTyped<ResourceReadContext, ReadResourceResult>(this._universalMiddleware),
+                ...this._adaptToTyped<ResourceReadContext, ReadResourceResult>(this._outgoingMiddleware as unknown as ClientMiddleware[]),
+                ...this._resourceReadMiddleware
+            ],
+            handler
+        );
+    }
+
+    /**
+     * Executes the middleware chain for an incoming sampling request.
+     */
+    async executeSampling(ctx: SamplingContext, handler: (params?: unknown) => Promise<CreateMessageResult>): Promise<CreateMessageResult> {
+        return this._executeChain(
+            ctx,
+            [
+                ...this._adaptToTyped<SamplingContext, CreateMessageResult>(this._universalMiddleware),
+                ...this._adaptToTyped<SamplingContext, CreateMessageResult>(this._incomingMiddleware as unknown as ClientMiddleware[]),
+                ...this._samplingMiddleware
+            ],
+            handler
+        );
+    }
+
+    /**
+     * Executes the middleware chain for an incoming elicitation request.
+     */
+    async executeElicitation(ctx: ElicitationContext, handler: (params?: unknown) => Promise<ElicitResult>): Promise<ElicitResult> {
+        return this._executeChain(
+            ctx,
+            [
+                ...this._adaptToTyped<ElicitationContext, ElicitResult>(this._universalMiddleware),
+                ...this._adaptToTyped<ElicitationContext, ElicitResult>(this._incomingMiddleware as unknown as ClientMiddleware[]),
+                ...this._elicitationMiddleware
+            ],
+            handler
+        );
+    }
+
+    /**
+     * Executes the middleware chain for a generic outgoing request.
+     */
+    async executeOutgoing<T>(ctx: OutgoingContext, handler: (params?: unknown) => Promise<T>): Promise<T> {
+        return this._executeChain(
+            ctx,
+            [
+                ...this._adaptToTyped<OutgoingContext, T>(this._universalMiddleware),
+                ...this._adaptToTyped<OutgoingContext, T>(this._outgoingMiddleware as unknown as ClientMiddleware[])
+            ],
+            handler
+        );
+    }
+
+    /**
+     * Executes the middleware chain for a generic incoming request.
+     */
+    async executeIncoming<T>(ctx: IncomingContext, handler: (params?: unknown) => Promise<T>): Promise<T> {
+        return this._executeChain(
+            ctx,
+            [
+                ...this._adaptToTyped<IncomingContext, T>(this._universalMiddleware),
+                ...this._adaptToTyped<IncomingContext, T>(this._incomingMiddleware as unknown as ClientMiddleware[])
+            ],
+            handler
+        );
+    }
+
+    /**
+     * Checks if any middleware is registered.
+     */
+    hasMiddleware(): boolean {
+        return (
+            this._universalMiddleware.length > 0 ||
+            this._outgoingMiddleware.length > 0 ||
+            this._incomingMiddleware.length > 0 ||
+            this._toolCallMiddleware.length > 0 ||
+            this._resourceReadMiddleware.length > 0 ||
+            this._samplingMiddleware.length > 0 ||
+            this._elicitationMiddleware.length > 0
+        );
+    }
+
+    /**
+     * Clears all registered middleware.
+     */
+    clear(): void {
+        this._universalMiddleware = [];
+        this._outgoingMiddleware = [];
+        this._incomingMiddleware = [];
+        this._toolCallMiddleware = [];
+        this._resourceReadMiddleware = [];
+        this._samplingMiddleware = [];
+        this._elicitationMiddleware = [];
+    }
+
+    /**
+     * Adapts generic middleware to a typed middleware.
+     */
+    private _adaptToTyped<TCtx extends ClientContext, TResult>(
+        middlewares: ClientMiddleware[]
+    ): Array<(ctx: TCtx, next: ClientNextFn<TResult>) => Promise<TResult>> {
+        return middlewares.map(mw => {
+            return async (ctx: TCtx, next: ClientNextFn<TResult>): Promise<TResult> => {
+                return (await mw(ctx, next as ClientNextFn<unknown>)) as TResult;
+            };
+        });
+    }
+
+    /**
+     * Executes a chain of middleware.
+     */
+    private async _executeChain<TCtx extends ClientContext, TResult>(
+        ctx: TCtx,
+        middlewares: Array<(ctx: TCtx, next: ClientNextFn<TResult>) => Promise<TResult>>,
+        handler: (params?: unknown) => Promise<TResult>
+    ): Promise<TResult> {
+        let index = -1;
+        let currentParams: unknown = ctx.params;
+
+        const dispatch = async (i: number, params?: unknown): Promise<TResult> => {
+            if (i <= index) {
+                throw new Error('next() called multiple times');
+            }
+            index = i;
+            if (params !== undefined) {
+                currentParams = params;
+            }
+
+            if (i >= middlewares.length) {
+                return handler(currentParams);
+            }
+
+            const middleware = middlewares[i];
+            if (!middleware) {
+                return handler(currentParams);
+            }
+            return middleware(ctx, (modifiedParams?: unknown) => dispatch(i + 1, modifiedParams));
+        };
+
+        return dispatch(0);
+    }
+}

@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
+import { JSONRPCMessageSchema, StateError } from '@modelcontextprotocol/core';
 
 const SUBPROTOCOL = 'mcp';
 
@@ -20,9 +20,7 @@ export class WebSocketClientTransport implements Transport {
 
     start(): Promise<void> {
         if (this._socket) {
-            throw new Error(
-                'WebSocketClientTransport already started! If using Client class, note that connect() calls start() automatically.'
-            );
+            throw StateError.alreadyConnected();
         }
 
         return new Promise((resolve, reject) => {
@@ -63,7 +61,7 @@ export class WebSocketClientTransport implements Transport {
     send(message: JSONRPCMessage): Promise<void> {
         return new Promise((resolve, reject) => {
             if (!this._socket) {
-                reject(new Error('Not connected'));
+                reject(StateError.notConnected('send message'));
                 return;
             }
 

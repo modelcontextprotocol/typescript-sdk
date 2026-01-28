@@ -26,7 +26,7 @@ import {
     ErrorCode,
     getDisplayName,
     ListToolsResultSchema,
-    McpError,
+    ProtocolError,
     StreamableHTTPClientTransport,
     UnauthorizedError,
     UrlElicitationRequiredError
@@ -339,7 +339,7 @@ async function handleElicitationRequest(request: ElicitRequest): Promise<ElicitR
     } else {
         // Should not happen because the client declares its capabilities to the server,
         // but being defensive is a good practice:
-        throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${mode}`);
+        throw new ProtocolError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${mode}`);
     }
 }
 

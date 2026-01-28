@@ -2302,48 +2302,9 @@ export const ServerResultSchema = z.union([
     CreateTaskResultSchema
 ]);
 
-export class McpError extends Error {
-    constructor(
-        public readonly code: number,
-        message: string,
-        public readonly data?: unknown
-    ) {
-        super(`MCP error ${code}: ${message}`);
-        this.name = 'McpError';
-    }
-
-    /**
-     * Factory method to create the appropriate error type based on the error code and data
-     */
-    static fromError(code: number, message: string, data?: unknown): McpError {
-        // Check for specific error types
-        if (code === ErrorCode.UrlElicitationRequired && data) {
-            const errorData = data as { elicitations?: unknown[] };
-            if (errorData.elicitations) {
-                return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], message);
-            }
-        }
-
-        // Default to generic McpError
-        return new McpError(code, message, data);
-    }
-}
-
-/**
- * Specialized error type when a tool requires a URL mode elicitation.
- * This makes it nicer for the client to handle since there is specific data to work with instead of just a code to check against.
- */
-export class UrlElicitationRequiredError extends McpError {
-    constructor(elicitations: ElicitRequestURLParams[], message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`) {
-        super(ErrorCode.UrlElicitationRequired, message, {
-            elicitations: elicitations
-        });
-    }
-
-    get elicitations(): ElicitRequestURLParams[] {
-        return (this.data as { elicitations: ElicitRequestURLParams[] })?.elicitations ?? [];
-    }
-}
+// Note: McpError has been removed. Use ProtocolError from '../errors.js' instead.
+// ProtocolError is for errors with locked codes (SDK-generated or user-intentional).
+// For customizable errors, throw a plain Error and use the onError handler.
 
 type Primitive = string | number | boolean | bigint | null | undefined;
 type Flatten<T> = T extends Primitive

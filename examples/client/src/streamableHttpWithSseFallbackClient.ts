@@ -2,6 +2,7 @@ import type { CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/cl
 import {
     CallToolResultSchema,
     Client,
+    isTextContent,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     SSEClientTransport,
@@ -173,7 +174,7 @@ async function startNotificationTool(client: Client): Promise<void> {
 
         console.log('Tool result:');
         for (const item of result.content) {
-            if (item.type === 'text') {
+            if (isTextContent(item)) {
                 console.log(`  ${item.text}`);
             } else {
                 console.log(`  ${item.type} content:`, item);

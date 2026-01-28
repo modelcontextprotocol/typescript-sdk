@@ -1,6 +1,8 @@
 import type {
     AnyObjectSchema,
+    BaseRequestContext,
     ClientCapabilities,
+    ContextInterface,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
@@ -9,19 +11,22 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    ErrorInterceptor,
     Implementation,
     InitializeRequest,
     InitializeResult,
+    JSONRPCRequest,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
+    McpContext,
+    MessageExtraInfo,
     Notification,
     NotificationOptions,
     ProtocolOptions,
     Request,
-    RequestHandlerExtra,
     RequestOptions,
     ResourceUpdatedNotification,
     Result,
@@ -32,6 +37,7 @@ import type {
     ServerResult,
     ToolResultContent,
     ToolUseContent,
+    Transport,
     ZodV3Internal,
     ZodV4Internal
 } from '@modelcontextprotocol/core';
@@ -41,12 +47,12 @@ import {
     assertToolsCallTaskCapability,
     CallToolRequestSchema,
     CallToolResultSchema,
+    CapabilityError,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    ErrorCode,
     getObjectShape,
     InitializedNotificationSchema,
     InitializeRequestSchema,
@@ -54,15 +60,18 @@ import {
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
-    McpError,
     mergeCapabilities,
     Protocol,
+    ProtocolError,
     safeParse,
     SetLevelRequestSchema,
+    StateError,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
+import type { ServerRequestContext } from './context.js';
+import { ServerContext } from './context.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -166,9 +175,10 @@ export class Server<
         this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
+            this.setRequestHandler(SetLevelRequestSchema, async (request, ctx) => {
+                const serverCtx = ctx as ServerContext<RequestT, NotificationT, ResultT>;
                 const transportSessionId: string | undefined =
-                    extra.sessionId || (extra.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
+                    serverCtx.mcpCtx.sessionId || (serverCtx.requestCtx.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
                 const parseResult = LoggingLevelSchema.safeParse(level);
                 if (parseResult.success) {
@@ -214,9 +224,35 @@ export class Server<
      */
     public registerCapabilities(capabilities: ServerCapabilities): void {
         if (this.transport) {
-            throw new Error('Cannot register capabilities after connecting to transport');
+            throw StateError.registrationAfterConnect('capabilities');
         }
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Sets an error interceptor that can customize error responses before they are sent.
+     *
+     * The interceptor is called for both protocol errors (method not found, etc.) and
+     * application errors (when a handler throws). It can modify the error message and data.
+     * For application errors, it can also change the error code.
+     *
+     * @param interceptor - The error interceptor function, or undefined to clear
+     *
+     * @example
+     * ```typescript
+     * server.setErrorInterceptor(async (error, ctx) => {
+     *     console.error(`Error in ${ctx.method}: ${error.message}`);
+     *     if (ctx.type === 'application') {
+     *         return {
+     *             message: 'An error occurred',
+     *             data: { originalMessage: error.message }
+     *         };
+     *     }
+     * });
+     * ```
+     */
+    public override setErrorInterceptor(interceptor: ErrorInterceptor | undefined): void {
+        super.setErrorInterceptor(interceptor);
     }
 
     /**
@@ -226,9 +262,31 @@ export class Server<
         requestSchema: T,
         handler: (
             request: SchemaOutput<T>,
-            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+            extra: ServerContext<RequestT, NotificationT, ResultT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
+        // Wrap the handler to ensure the context is a ServerContext and return a decorated handler that can be passed to the base implementation
+
+        // Factory function to create a handler decorator that ensures the context is a ServerContext and returns a decorated handler that can be passed to the base implementation
+        const handlerDecoratorFactory = (
+            innerHandler: (
+                request: SchemaOutput<T>,
+                ctx: ServerContext<RequestT, NotificationT, ResultT>
+            ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+        ) => {
+            const decoratedHandler = (
+                request: SchemaOutput<T>,
+                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
+            ) => {
+                if (!this.isContextExtra(ctx)) {
+                    throw new Error('Internal error: Expected ServerContext for request handler context');
+                }
+                return innerHandler(request, ctx);
+            };
+
+            return decoratedHandler;
+        };
+
         const shape = getObjectShape(requestSchema);
         const methodSchema = shape?.method;
         if (!methodSchema) {
@@ -255,18 +313,18 @@ export class Server<
         if (method === 'tools/call') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
+                    throw ProtocolError.invalidParams(`Invalid tools/call request: ${errorMessage}`);
                 }
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handlerDecoratorFactory(handler)(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -276,7 +334,7 @@ export class Server<
                             taskValidationResult.error instanceof Error
                                 ? taskValidationResult.error.message
                                 : String(taskValidationResult.error);
-                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                        throw ProtocolError.invalidParams(`Invalid task creation result: ${errorMessage}`);
                     }
                     return taskValidationResult.data;
                 }
@@ -286,39 +344,46 @@ export class Server<
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+                    throw ProtocolError.invalidParams(`Invalid tools/call result: ${errorMessage}`);
                 }
 
                 return validationResult.data;
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(requestSchema, handlerDecoratorFactory(wrappedHandler));
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(requestSchema, handler);
+        return super.setRequestHandler(requestSchema, handlerDecoratorFactory(handler));
+    }
+
+    // Runtime type guard: ensure extra is our ServerContext
+    private isContextExtra(
+        extra: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
+    ): extra is ServerContext<RequestT, NotificationT, ResultT> {
+        return extra instanceof ServerContext;
     }
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
         switch (method as ServerRequest['method']) {
             case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
-                    throw new Error(`Client does not support sampling (required for ${method})`);
+                    throw CapabilityError.clientDoesNotSupport('sampling', method);
                 }
                 break;
             }
 
             case 'elicitation/create': {
                 if (!this._clientCapabilities?.elicitation) {
-                    throw new Error(`Client does not support elicitation (required for ${method})`);
+                    throw CapabilityError.clientDoesNotSupport('elicitation', method);
                 }
                 break;
             }
 
             case 'roots/list': {
                 if (!this._clientCapabilities?.roots) {
-                    throw new Error(`Client does not support listing roots (required for ${method})`);
+                    throw CapabilityError.clientDoesNotSupport('roots', method);
                 }
                 break;
             }
@@ -334,7 +399,7 @@ export class Server<
         switch (method as ServerNotification['method']) {
             case 'notifications/message': {
                 if (!this._capabilities.logging) {
-                    throw new Error(`Server does not support logging (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('logging', method);
                 }
                 break;
             }
@@ -342,28 +407,28 @@ export class Server<
             case 'notifications/resources/updated':
             case 'notifications/resources/list_changed': {
                 if (!this._capabilities.resources) {
-                    throw new Error(`Server does not support notifying about resources (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('resources', method);
                 }
                 break;
             }
 
             case 'notifications/tools/list_changed': {
                 if (!this._capabilities.tools) {
-                    throw new Error(`Server does not support notifying of tool list changes (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('tools', method);
                 }
                 break;
             }
 
             case 'notifications/prompts/list_changed': {
                 if (!this._capabilities.prompts) {
-                    throw new Error(`Server does not support notifying of prompt list changes (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('prompts', method);
                 }
                 break;
             }
 
             case 'notifications/elicitation/complete': {
                 if (!this._clientCapabilities?.elicitation?.url) {
-                    throw new Error(`Client does not support URL elicitation (required for ${method})`);
+                    throw CapabilityError.clientDoesNotSupport('elicitation.url', method);
                 }
                 break;
             }
@@ -390,14 +455,14 @@ export class Server<
         switch (method) {
             case 'completion/complete': {
                 if (!this._capabilities.completions) {
-                    throw new Error(`Server does not support completions (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('completions', method);
                 }
                 break;
             }
 
             case 'logging/setLevel': {
                 if (!this._capabilities.logging) {
-                    throw new Error(`Server does not support logging (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('logging', method);
                 }
                 break;
             }
@@ -405,7 +470,7 @@ export class Server<
             case 'prompts/get':
             case 'prompts/list': {
                 if (!this._capabilities.prompts) {
-                    throw new Error(`Server does not support prompts (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('prompts', method);
                 }
                 break;
             }
@@ -414,7 +479,7 @@ export class Server<
             case 'resources/templates/list':
             case 'resources/read': {
                 if (!this._capabilities.resources) {
-                    throw new Error(`Server does not support resources (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('resources', method);
                 }
                 break;
             }
@@ -422,7 +487,7 @@ export class Server<
             case 'tools/call':
             case 'tools/list': {
                 if (!this._capabilities.tools) {
-                    throw new Error(`Server does not support tools (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('tools', method);
                 }
                 break;
             }
@@ -432,7 +497,7 @@ export class Server<
             case 'tasks/result':
             case 'tasks/cancel': {
                 if (!this._capabilities.tasks) {
-                    throw new Error(`Server does not support tasks capability (required for ${method})`);
+                    throw CapabilityError.serverDoesNotSupport('tasks', method);
                 }
                 break;
             }
@@ -493,6 +558,40 @@ export class Server<
         return this._capabilities;
     }
 
+    protected createRequestContext(args: {
+        request: JSONRPCRequest;
+        abortController: AbortController;
+        capturedTransport: Transport | undefined;
+        extra?: MessageExtraInfo;
+    }): ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext> {
+        const { request, abortController, capturedTransport, extra } = args;
+        const sessionId = capturedTransport?.sessionId;
+
+        // Build the MCP context using the helper from Protocol
+        const mcpContext: McpContext = this.buildMcpContext({ request, sessionId });
+
+        // Build the server request context with HTTP details (server-specific)
+        const requestCtx: ServerRequestContext = {
+            signal: abortController.signal,
+            authInfo: extra?.authInfo,
+            // URL is not available in MessageExtraInfo, use a placeholder
+            uri: new URL('mcp://request'),
+            headers: extra?.requestInfo?.headers ?? new Headers(),
+            stream: {
+                closeSSEStream: extra?.closeSSEStream,
+                closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
+            }
+        };
+
+        // Return a ServerContext instance (task context is added by plugins if needed)
+        return new ServerContext<RequestT, NotificationT, ResultT>({
+            server: this,
+            request,
+            mcpContext,
+            requestCtx
+        });
+    }
+
     async ping() {
         return this.request({ method: 'ping' }, EmptyResultSchema);
     }
@@ -525,7 +624,7 @@ export class Server<
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
-            throw new Error('Client does not support sampling tools capability.');
+            throw CapabilityError.clientDoesNotSupport('sampling.tools', 'sampling/createMessage');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
@@ -583,7 +682,7 @@ export class Server<
         switch (mode) {
             case 'url': {
                 if (!this._clientCapabilities?.elicitation?.url) {
-                    throw new Error('Client does not support url elicitation.');
+                    throw CapabilityError.clientDoesNotSupport('elicitation.url', 'elicitation/create');
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
@@ -591,7 +690,7 @@ export class Server<
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
-                    throw new Error('Client does not support form elicitation.');
+                    throw CapabilityError.clientDoesNotSupport('elicitation.form', 'elicitation/create');
                 }
 
                 const formParams: ElicitRequestFormParams =
@@ -605,17 +704,15 @@ export class Server<
                         const validationResult = validator(result.content);
 
                         if (!validationResult.valid) {
-                            throw new McpError(
-                                ErrorCode.InvalidParams,
+                            throw ProtocolError.invalidParams(
                                 `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
                             );
                         }
                     } catch (error) {
-                        if (error instanceof McpError) {
+                        if (error instanceof ProtocolError) {
                             throw error;
                         }
-                        throw new McpError(
-                            ErrorCode.InternalError,
+                        throw ProtocolError.internalError(
                             `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
                         );
                     }
@@ -635,7 +732,7 @@ export class Server<
      */
     createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
         if (!this._clientCapabilities?.elicitation?.url) {
-            throw new Error('Client does not support URL elicitation (required for notifications/elicitation/complete)');
+            throw CapabilityError.clientDoesNotSupport('elicitation.url', 'notifications/elicitation/complete');
         }
 
         return () =>

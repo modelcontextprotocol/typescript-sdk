@@ -7,7 +7,8 @@
 
 import type { AnySchema, TaskToolExecution, ToolAnnotations, ToolExecution, ZodRawShapeCompat } from '@modelcontextprotocol/core';
 
-import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
+import type { AnyToolHandler, McpServer } from '../../server/mcp.js';
+import type { RegisteredTool } from '../../server/registries/toolRegistry.js';
 import type { ToolTaskHandler } from './interfaces.js';
 
 /**
@@ -55,16 +56,16 @@ export class ExperimentalMcpServerTasks {
      *   inputSchema: { input: z.string() },
      *   execution: { taskSupport: 'required' }
      * }, {
-     *   createTask: async (args, extra) => {
-     *     const task = await extra.taskStore.createTask({ ttl: 300000 });
+     *   createTask: async (args, ctx) => {
+     *     const task = await ctx.taskCtx!.store.createTask({ ttl: 300000 });
      *     startBackgroundWork(task.taskId, args);
      *     return { task };
      *   },
-     *   getTask: async (args, extra) => {
-     *     return extra.taskStore.getTask(extra.taskId);
+     *   getTask: async (args, ctx) => {
+     *     return ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
      *   },
-     *   getTaskResult: async (args, extra) => {
-     *     return extra.taskStore.getTaskResult(extra.taskId);
+     *   getTaskResult: async (args, ctx) => {
+     *     return ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
      *   }
      * });
      * ```

@@ -2,6 +2,7 @@ import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/clie
 import {
     CallToolResultSchema,
     Client,
+    isTextContent,
     LoggingMessageNotificationSchema,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -133,7 +134,7 @@ async function main(): Promise<void> {
             console.log(`\n[${id}] Tool result:`);
             if (Array.isArray(result.content)) {
                 for (const item of result.content) {
-                    if (item.type === 'text' && item.text) {
+                    if (isTextContent(item)) {
                         console.log(`  ${item.text}`);
                     } else {
                         console.log(`  ${item.type} content:`, item);
