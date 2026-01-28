@@ -530,7 +530,8 @@ const app = createMcpExpressApp();
 // This allows cross-origin requests and exposes WWW-Authenticate header for OAuth
 app.use(
     cors({
-        exposedHeaders: ['WWW-Authenticate', 'Mcp-Session-Id']
+        exposedHeaders: ['WWW-Authenticate', 'Mcp-Session-Id', 'Last-Event-Id', 'Mcp-Protocol-Version'],
+        origin: '*'
     })
 );
 

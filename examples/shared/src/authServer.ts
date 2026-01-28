@@ -106,6 +106,7 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     authApp.use(
         cors({
             exposedHeaders: ['WWW-Authenticate']
+            origin: "*"
         })
     );
 
