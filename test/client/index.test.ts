@@ -1872,6 +1872,102 @@ describe('outputSchema validation', () => {
     });
 
     /***
+     * Test: Do Not Validate structuredContent when isError is true
+     */
+    test('should not validate structuredContent when tool returns isError', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        // Set up server handlers
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: { tools: {} },
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'test-tool',
+                    description: 'A test tool',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            result: { type: 'string' }
+                        },
+                        required: ['result']
+                    }
+                }
+            ]
+        }));
+
+        server.setRequestHandler(CallToolRequestSchema, async request => {
+            if (request.params.name === 'test-tool') {
+                return {
+                    content: [{ type: 'text', text: 'Tool failed' }],
+                    structuredContent: {},
+                    isError: true
+                };
+            }
+            throw new Error('Unknown tool');
+        });
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            },
+                            tasks: {
+                                get: true,
+                                list: {},
+                                result: true
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // List tools to cache the schemas
+        await client.listTools();
+
+        const result = await client.callTool({ name: 'test-tool' });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toEqual({});
+        expect(result.content).toEqual([{ type: 'text', text: 'Tool failed' }]);
+
+        await client.close();
+        await server.close();
+    });
+
+    /***
      * Test: Throw Error when structuredContent Does Not Match Schema
      */
     test('should throw error when structuredContent does not match schema', async () => {
