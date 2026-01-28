@@ -40,7 +40,7 @@
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/hono": "workspace:^",
-        "better-auth": "^1.4.7",
+        "better-auth": "^1.4.17",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly",
