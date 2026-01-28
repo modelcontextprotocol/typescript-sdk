@@ -103,10 +103,10 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     const authApp = express();
 
     // Enable CORS for all origins (demo only) - must be before other middleware
+    // WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
     authApp.use(
         cors({
-            exposedHeaders: ['WWW-Authenticate']
-            origin: "*"
+            origin: '*' // WARNING: This allows all origins to access the auth server. In production, you should restrict this to specific origins.
         })
     );
 

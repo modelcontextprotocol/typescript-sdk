@@ -528,10 +528,11 @@ const app = createMcpExpressApp();
 
 // Enable CORS for browser-based clients (demo only)
 // This allows cross-origin requests and exposes WWW-Authenticate header for OAuth
+// WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
 app.use(
     cors({
         exposedHeaders: ['WWW-Authenticate', 'Mcp-Session-Id', 'Last-Event-Id', 'Mcp-Protocol-Version'],
-        origin: '*'
+        origin: '*' // WARNING: This allows all origins to access the MCP server. In production, you should restrict this to specific origins.
     })
 );
 
