@@ -31,6 +31,18 @@ A typical flow:
 
 See [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts) for an interactive CLI client that exercises these methods and shows how to handle notifications, elicitation and tasks.
 
+## Notifications
+
+Clients can subscribe to server notifications and react to changes. For example, when the server reports that its tool list changed, refresh your cached tool list:
+
+```typescript
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/client';
+
+client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+    await client.listTools();
+});
+```
+
 ## Transports and backwards compatibility
 
 To support both modern Streamable HTTP and legacy SSE servers, use a client that:
