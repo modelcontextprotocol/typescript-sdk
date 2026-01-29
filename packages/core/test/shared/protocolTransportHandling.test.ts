@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
+import type { TaskStore } from '../../src/experimental/tasks/interfaces.js';
+import type { BaseRequestContext, ContextInterface } from '../../src/shared/context.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
-import type { JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
+import type {
+    JSONRPCMessage,
+    JSONRPCRequest,
+    MessageExtraInfo,
+    Notification,
+    Request,
+    Result,
+    TaskCreationParams
+} from '../../src/types/types.js';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -28,19 +38,66 @@ class MockTransport implements Transport {
     }
 }
 
+/**
+ * Creates a mock ContextInterface for testing.
+ */
+function createMockContext(args: {
+    request: JSONRPCRequest;
+    abortController: AbortController;
+    sessionId?: string;
+}): ContextInterface<Request, Notification, BaseRequestContext> {
+    return {
+        mcpCtx: {
+            requestId: args.request.id,
+            method: args.request.method,
+            _meta: args.request.params?._meta,
+            sessionId: args.sessionId
+        },
+        requestCtx: {
+            signal: args.abortController.signal,
+            authInfo: undefined
+        },
+        taskCtx: undefined,
+        sendNotification: async () => {},
+        sendRequest: async () => ({}) as never
+    };
+}
+
+/**
+ * Creates a test Protocol class with all abstract methods implemented.
+ */
+function createTestProtocolClass() {
+    return class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+        protected assertTaskCapability(): void {}
+        protected assertTaskHandlerCapability(): void {}
+        protected createRequestContext(args: {
+            request: JSONRPCRequest;
+            taskStore: TaskStore | undefined;
+            relatedTaskId: string | undefined;
+            taskCreationParams: TaskCreationParams | undefined;
+            abortController: AbortController;
+            capturedTransport: Transport | undefined;
+            extra?: MessageExtraInfo;
+        }): ContextInterface<Request, Notification, BaseRequestContext> {
+            return createMockContext({
+                request: args.request,
+                abortController: args.abortController,
+                sessionId: args.capturedTransport?.sessionId
+            });
+        }
+    };
+}
+
 describe('Protocol transport handling bug', () => {
     let protocol: Protocol<Request, Notification, Result>;
     let transportA: MockTransport;
     let transportB: MockTransport;
 
     beforeEach(() => {
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
+        protocol = new (createTestProtocolClass())();
 
         transportA = new MockTransport('A');
         transportB = new MockTransport('B');
@@ -138,14 +195,14 @@ describe('Protocol transport handling bug', () => {
         });
 
         // Set up handler with variable delay
-        protocol.setRequestHandler(DelayedRequestSchema, async (request, extra) => {
+        protocol.setRequestHandler(DelayedRequestSchema, async (request, ctx) => {
             const delay = request.params?.delay || 0;
             delays.push(delay);
 
             await new Promise(resolve => setTimeout(resolve, delay));
 
             return {
-                processedBy: `handler-${extra.requestId}`,
+                processedBy: `handler-${ctx.mcpCtx.requestId}`,
                 delay: delay
             } as Result;
         });

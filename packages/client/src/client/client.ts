@@ -9,6 +9,7 @@ import type {
     CompleteRequest,
     GetPromptRequest,
     Implementation,
+    JSONRPCRequest,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -19,16 +20,20 @@ import type {
     ListResourceTemplatesRequest,
     ListToolsRequest,
     LoggingLevel,
+    McpContext,
+    MessageExtraInfo,
     Notification,
     ProtocolOptions,
     ReadResourceRequest,
     Request,
-    RequestHandlerExtra,
     RequestOptions,
     Result,
     SchemaOutput,
     ServerCapabilities,
     SubscribeRequest,
+    TaskContext,
+    TaskCreationParams,
+    TaskStore,
     Tool,
     Transport,
     UnsubscribeRequest,
@@ -71,6 +76,8 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import type { ClientContextInterface, ClientRequestContext } from './context.js';
+import { ClientContext } from './context.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.
@@ -338,7 +345,7 @@ export class Client<
         requestSchema: T,
         handler: (
             request: SchemaOutput<T>,
-            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
         ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
     ): void {
         const shape = getObjectShape(requestSchema);
@@ -366,7 +373,7 @@ export class Client<
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+                ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -388,7 +395,7 @@ export class Client<
                     throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -439,7 +446,7 @@ export class Client<
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+                ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -450,7 +457,7 @@ export class Client<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -484,6 +491,46 @@ export class Client<
 
         // Other handlers use default behavior
         return super.setRequestHandler(requestSchema, handler);
+    }
+
+    protected createRequestContext(args: {
+        request: JSONRPCRequest;
+        taskStore: TaskStore | undefined;
+        relatedTaskId: string | undefined;
+        taskCreationParams: TaskCreationParams | undefined;
+        abortController: AbortController;
+        capturedTransport: Transport | undefined;
+        extra?: MessageExtraInfo;
+    }): ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT> {
+        const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
+        const sessionId = capturedTransport?.sessionId;
+
+        // Build the MCP context using the helper from Protocol
+        const mcpContext: McpContext = this.buildMcpContext({ request, sessionId });
+
+        // Build the client request context (minimal, no HTTP details - client-specific)
+        const requestCtx: ClientRequestContext = {
+            signal: abortController.signal,
+            authInfo: extra?.authInfo
+        };
+
+        // Build the task context using the helper from Protocol
+        const taskCtx: TaskContext | undefined = this.buildTaskContext({
+            taskStore,
+            request,
+            sessionId,
+            relatedTaskId,
+            taskCreationParams
+        });
+
+        // Return a ClientContext instance
+        return new ClientContext<RequestT, NotificationT, ResultT>({
+            client: this,
+            request,
+            mcpContext,
+            requestCtx,
+            task: taskCtx
+        });
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {

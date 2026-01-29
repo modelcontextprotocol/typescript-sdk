@@ -1,4 +1,5 @@
 export * from './server/completable.js';
+export * from './server/context.js';
 export * from './server/mcp.js';
 export * from './server/middleware/hostHeaderValidation.js';
 export * from './server/server.js';

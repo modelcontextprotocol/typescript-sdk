@@ -62,7 +62,15 @@ const getServer = () => {
                 name: z.string().describe('Name to greet')
             }
         },
-        async ({ name }): Promise<CallToolResult> => {
+        async ({ name }, ctx): Promise<CallToolResult> => {
+            await ctx.loggingNotification.log(
+                {
+                    level: 'debug',
+                    data: `Starting greet for ${name}`
+                },
+                ctx.mcpCtx.sessionId
+            );
+
             return {
                 content: [
                     {
@@ -88,7 +96,7 @@ const getServer = () => {
                 openWorldHint: false
             }
         },
-        async ({ name }, extra): Promise<CallToolResult> => {
+        async ({ name }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
             await server.sendLoggingMessage(
@@ -96,7 +104,7 @@ const getServer = () => {
                     level: 'debug',
                     data: `Starting multi-greet for ${name}`
                 },
-                extra.sessionId
+                ctx.mcpCtx.sessionId
             );
 
             await sleep(1000); // Wait 1 second before first greeting
@@ -106,7 +114,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending first greeting to ${name}`
                 },
-                extra.sessionId
+                ctx.mcpCtx.sessionId
             );
 
             await sleep(1000); // Wait another second before second greeting
@@ -116,7 +124,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending second greeting to ${name}`
                 },
-                extra.sessionId
+                ctx.mcpCtx.sessionId
             );
 
             return {
@@ -139,7 +147,7 @@ const getServer = () => {
                 infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
             }
         },
-        async ({ infoType }, extra): Promise<CallToolResult> => {
+        async ({ infoType }, ctx): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -238,8 +246,8 @@ const getServer = () => {
             }
 
             try {
-                // Use sendRequest through the extra parameter to elicit input
-                const result = await extra.sendRequest(
+                // Use sendRequest through the ctx parameter to elicit input
+                const result = await ctx.sendRequest(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -302,7 +310,15 @@ const getServer = () => {
                 name: z.string().describe('Name to include in greeting')
             }
         },
-        async ({ name }): Promise<GetPromptResult> => {
+        async ({ name }, ctx): Promise<GetPromptResult> => {
+            await ctx.loggingNotification.log(
+                {
+                    level: 'debug',
+                    data: `Starting greeting template for ${name}`
+                },
+                ctx.mcpCtx.sessionId
+            );
+
             return {
                 messages: [
                     {
@@ -327,7 +343,7 @@ const getServer = () => {
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
             }
         },
-        async ({ interval, count }, extra): Promise<CallToolResult> => {
+        async ({ interval, count }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
             let counter = 0;
 
@@ -339,7 +355,7 @@ const getServer = () => {
                             level: 'info',
                             data: `Periodic notification #${counter} at ${new Date().toISOString()}`
                         },
-                        extra.sessionId
+                        ctx.mcpCtx.sessionId
                     );
                 } catch (error) {
                     console.error('Error sending notification:', error);
@@ -389,7 +405,15 @@ const getServer = () => {
             description: 'First example file for ResourceLink demonstration',
             mimeType: 'text/plain'
         },
-        async (): Promise<ReadResourceResult> => {
+        async (_, ctx): Promise<ReadResourceResult> => {
+            await ctx.loggingNotification.log(
+                {
+                    level: 'debug',
+                    data: `Starting example file 1`
+                },
+                ctx.mcpCtx.sessionId
+            );
+
             return {
                 contents: [
                     {
@@ -484,10 +508,12 @@ const getServer = () => {
             }
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+            async createTask({ duration }, ctx) {
                 // Create the task
+                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
+                const taskStore = ctx.taskCtx.store;
                 const task = await taskStore.createTask({
-                    ttl: taskRequestedTtl
+                    ttl: ctx.taskCtx.requestedTtl
                 });
 
                 // Simulate out-of-band work
@@ -508,11 +534,13 @@ const getServer = () => {
                     task
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
-                return await taskStore.getTask(taskId);
+            async getTask(_args, ctx) {
+                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
+                return await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
-                const result = await taskStore.getTaskResult(taskId);
+            async getTaskResult(_args, ctx) {
+                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
+                const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
                 return result as CallToolResult;
             }
         }

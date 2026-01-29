@@ -1218,7 +1218,7 @@ test('should handle client cancelling a request', async () => {
     );
 
     // Set up server to delay responding to listResources
-    server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+    server.setRequestHandler(ListResourcesRequestSchema, async (request, ctx) => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return {
             resources: []
@@ -1269,10 +1269,10 @@ test('should handle request timeout', async () => {
     );
 
     // Set up server with a delayed response
-    server.setRequestHandler(ListResourcesRequestSchema, async (_request, extra) => {
+    server.setRequestHandler(ListResourcesRequestSchema, async (_request, ctx) => {
         const timer = new Promise(resolve => {
             const timeout = setTimeout(resolve, 100);
-            extra.signal.addEventListener('abort', () => clearTimeout(timeout));
+            ctx.requestCtx.signal.addEventListener('abort', () => clearTimeout(timeout));
         });
 
         await timer;
@@ -2442,27 +2442,27 @@ describe('Task-based execution', () => {
                     inputSchema: {}
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.taskStore.createTask({
-                            ttl: extra.taskRequestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.createTask({
+                            ttl: ctx.taskCtx!.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2518,27 +2518,27 @@ describe('Task-based execution', () => {
                     inputSchema: {}
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.taskStore.createTask({
-                            ttl: extra.taskRequestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.createTask({
+                            ttl: ctx.taskCtx!.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Success!' }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2595,27 +2595,27 @@ describe('Task-based execution', () => {
                     inputSchema: {}
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.taskStore.createTask({
-                            ttl: extra.taskRequestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.createTask({
+                            ttl: ctx.taskCtx!.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Result data!' }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2676,27 +2676,27 @@ describe('Task-based execution', () => {
                     inputSchema: {}
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.taskStore.createTask({
-                            ttl: extra.taskRequestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.createTask({
+                            ttl: ctx.taskCtx!.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Success!' }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2773,18 +2773,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler(ElicitRequestSchema, async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.taskCtx!.store) {
+                    const task = await ctx.taskCtx!.store.createTask({
+                        ttl: ctx.taskCtx!.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2866,18 +2866,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler(ElicitRequestSchema, async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.taskCtx!.store) {
+                    const task = await ctx.taskCtx!.store.createTask({
+                        ttl: ctx.taskCtx!.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2958,18 +2958,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler(ElicitRequestSchema, async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'result-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.taskCtx!.store) {
+                    const task = await ctx.taskCtx!.store.createTask({
+                        ttl: ctx.taskCtx!.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -3049,18 +3049,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler(ElicitRequestSchema, async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.taskCtx!.store) {
+                    const task = await ctx.taskCtx!.store.createTask({
+                        ttl: ctx.taskCtx!.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -3161,27 +3161,27 @@ describe('Task-based execution', () => {
                 }
             },
             {
-                async createTask({ id }, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                async createTask({ id }, ctx) {
+                    const task = await ctx.taskCtx!.store.createTask({
+                        ttl: ctx.taskCtx!.requestedTtl
                     });
 
                     const result = {
                         content: [{ type: 'text', text: `Result for ${id || 'unknown'}` }]
                     };
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.taskCtx!.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -3429,27 +3429,27 @@ test('should respect server task capabilities', async () => {
             inputSchema: {}
         },
         {
-            async createTask(_args, extra) {
-                const task = await extra.taskStore.createTask({
-                    ttl: extra.taskRequestedTtl
+            async createTask(_args, ctx) {
+                const task = await ctx.taskCtx!.store.createTask({
+                    ttl: ctx.taskCtx!.requestedTtl
                 });
 
                 const result = {
                     content: [{ type: 'text', text: 'Success!' }]
                 };
-                await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
 
                 return { task };
             },
-            async getTask(_args, extra) {
-                const task = await extra.taskStore.getTask(extra.taskId);
+            async getTask(_args, ctx) {
+                const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
                 if (!task) {
-                    throw new Error(`Task ${extra.taskId} not found`);
+                    throw new Error(`Task ${ctx.taskCtx!.id} not found`);
                 }
                 return task;
             },
-            async getTaskResult(_args, extra) {
-                const result = await extra.taskStore.getTaskResult(extra.taskId);
+            async getTaskResult(_args, ctx) {
+                const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
                 return result as { content: Array<{ type: 'text'; text: string }> };
             }
         }
@@ -4231,7 +4231,7 @@ describe('Client sampling validation with tools', () => {
 
         expect(result.stopReason).toBe('toolUse');
         expect(Array.isArray(result.content)).toBe(true);
-        expect((result.content as Array<{ type: string }>)[0].type).toBe('tool_use');
+        expect((result.content as Array<{ type: string }>)[0]!.type).toBe('tool_use');
     });
 
     test('should validate single content when request includes tools', async () => {
