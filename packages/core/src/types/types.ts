@@ -2345,6 +2345,12 @@ export class UrlElicitationRequiredError extends McpError {
     }
 }
 
+export class UnsupportedCapabilityError extends Error {
+    constructor(message: string) {
+        super(message);
+    }
+}
+
 type Primitive = string | number | boolean | bigint | null | undefined;
 type Flatten<T> = T extends Primitive
     ? T
