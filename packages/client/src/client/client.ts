@@ -43,6 +43,7 @@ import {
     CompleteResultSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
@@ -252,6 +253,7 @@ export class Client<
     private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
+    private _enforceStrictCapabilities: boolean;
 
     /**
      * Initializes this client with the given name and version information.
@@ -263,6 +265,7 @@ export class Client<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -357,7 +360,7 @@ export class Client<
         }
 
         if (typeof methodValue !== 'string') {
-            throw new Error('Schema method literal must be a string');
+            throw new TypeError('Schema method literal must be a string');
         }
         const method = methodValue;
         if (method === 'elicitation/create') {
@@ -412,13 +415,17 @@ export class Client<
                 const validatedResult = validationResult.data;
                 const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
-                if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
-                    if (this._capabilities.elicitation?.form?.applyDefaults) {
-                        try {
-                            applyElicitationDefaults(requestedSchema, validatedResult.content);
-                        } catch {
-                            // gracefully ignore errors in default application
-                        }
+                if (
+                    params.mode === 'form' &&
+                    validatedResult.action === 'accept' &&
+                    validatedResult.content &&
+                    requestedSchema &&
+                    this._capabilities.elicitation?.form?.applyDefaults
+                ) {
+                    try {
+                        applyElicitationDefaults(requestedSchema, validatedResult.content);
+                    } catch {
+                        // gracefully ignore errors in default application
                     }
                 }
 
@@ -458,8 +465,10 @@ export class Client<
                     return taskValidationResult.data;
                 }
 
-                // For non-task requests, validate against CreateMessageResultSchema
-                const validationResult = safeParse(CreateMessageResultSchema, result);
+                // For non-task requests, validate against appropriate schema based on tools presence
+                const hasTools = params.tools || params.toolChoice;
+                const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
+                const validationResult = safeParse(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
@@ -560,24 +569,26 @@ export class Client<
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
         switch (method as ClientRequest['method']) {
-            case 'logging/setLevel':
+            case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
                     throw new Error(`Server does not support logging (required for ${method})`);
                 }
                 break;
+            }
 
             case 'prompts/get':
-            case 'prompts/list':
+            case 'prompts/list': {
                 if (!this._serverCapabilities?.prompts) {
                     throw new Error(`Server does not support prompts (required for ${method})`);
                 }
                 break;
+            }
 
             case 'resources/list':
             case 'resources/templates/list':
             case 'resources/read':
             case 'resources/subscribe':
-            case 'resources/unsubscribe':
+            case 'resources/unsubscribe': {
                 if (!this._serverCapabilities?.resources) {
                     throw new Error(`Server does not support resources (required for ${method})`);
                 }
@@ -587,49 +598,58 @@ export class Client<
                 }
 
                 break;
+            }
 
             case 'tools/call':
-            case 'tools/list':
+            case 'tools/list': {
                 if (!this._serverCapabilities?.tools) {
                     throw new Error(`Server does not support tools (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'completion/complete':
+            case 'completion/complete': {
                 if (!this._serverCapabilities?.completions) {
                     throw new Error(`Server does not support completions (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'initialize':
+            case 'initialize': {
                 // No specific capability required for initialize
                 break;
+            }
 
-            case 'ping':
+            case 'ping': {
                 // No specific capability required for ping
                 break;
+            }
         }
     }
 
     protected assertNotificationCapability(method: NotificationT['method']): void {
         switch (method as ClientNotification['method']) {
-            case 'notifications/roots/list_changed':
+            case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {
                     throw new Error(`Client does not support roots list changed notifications (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/initialized':
+            case 'notifications/initialized': {
                 // No specific capability required for initialized
                 break;
+            }
 
-            case 'notifications/cancelled':
+            case 'notifications/cancelled': {
                 // Cancellation notifications are always allowed
                 break;
+            }
 
-            case 'notifications/progress':
+            case 'notifications/progress': {
                 // Progress notifications are always allowed
                 break;
+            }
         }
     }
 
@@ -641,36 +661,41 @@ export class Client<
         }
 
         switch (method) {
-            case 'sampling/createMessage':
+            case 'sampling/createMessage': {
                 if (!this._capabilities.sampling) {
                     throw new Error(`Client does not support sampling capability (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'elicitation/create':
+            case 'elicitation/create': {
                 if (!this._capabilities.elicitation) {
                     throw new Error(`Client does not support elicitation capability (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'roots/list':
+            case 'roots/list': {
                 if (!this._capabilities.roots) {
                     throw new Error(`Client does not support roots capability (required for ${method})`);
                 }
                 break;
+            }
 
             case 'tasks/get':
             case 'tasks/list':
             case 'tasks/result':
-            case 'tasks/cancel':
+            case 'tasks/cancel': {
                 if (!this._capabilities.tasks) {
                     throw new Error(`Client does not support tasks capability (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'ping':
+            case 'ping': {
                 // No specific capability required for ping
                 break;
+            }
         }
     }
 
@@ -705,14 +730,31 @@ export class Client<
     }
 
     async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions) {
+        if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
+            // Respect capability negotiation: server does not support prompts
+            console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
+            return { prompts: [] };
+        }
         return this.request({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
     }
 
     async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions) {
+        if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
+            // Respect capability negotiation: server does not support resources
+            console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
+            return { resources: [] };
+        }
         return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
     }
 
     async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions) {
+        if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
+            // Respect capability negotiation: server does not support resources
+            console.debug(
+                'Client.listResourceTemplates() called but server does not advertise resources capability - returning empty list'
+            );
+            return { resourceTemplates: [] };
+        }
         return this.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
     }
 
@@ -837,6 +879,11 @@ export class Client<
     }
 
     async listTools(params?: ListToolsRequest['params'], options?: RequestOptions) {
+        if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
+            // Respect capability negotiation: server does not support tools
+            console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
+            return { tools: [] };
+        }
         const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
@@ -863,7 +910,7 @@ export class Client<
 
         // Validate callback
         if (typeof options.onChanged !== 'function') {
-            throw new Error(`Invalid ${listType} listChanged options: onChanged must be a function`);
+            throw new TypeError(`Invalid ${listType} listChanged options: onChanged must be a function`);
         }
 
         const { autoRefresh, debounceMs } = parseResult.data;
@@ -878,9 +925,9 @@ export class Client<
             try {
                 const items = await fetcher();
                 onChanged(null, items);
-            } catch (e) {
-                const error = e instanceof Error ? e : new Error(String(e));
-                onChanged(error, null);
+            } catch (error) {
+                const newError = error instanceof Error ? error : new Error(String(error));
+                onChanged(newError, null);
             }
         };
 

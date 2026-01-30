@@ -61,7 +61,7 @@ import {
 import { ZodOptional } from 'zod';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
-import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
+import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
@@ -256,10 +256,8 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof McpError) {
-                    if (error.code === ErrorCode.UrlElicitationRequired) {
-                        throw error; // Return the error to the caller without wrapping in CallToolResult
-                    }
+                if (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired) {
+                    throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
@@ -305,7 +303,7 @@ export class McpServer {
         // If that fails, use the schema directly (for union/intersection/etc)
         const inputObj = normalizeObjectSchema(tool.inputSchema);
         const schemaToParse = inputObj ?? (tool.inputSchema as AnySchema);
-        const parseResult = await safeParseAsync(schemaToParse, args);
+        const parseResult = await safeParseAsync(schemaToParse, args ?? {});
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
@@ -447,16 +445,19 @@ export class McpServer {
 
         this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
-                case 'ref/prompt':
+                case 'ref/prompt': {
                     assertCompleteRequestPrompt(request);
                     return this.handlePromptCompletion(request, request.params.ref);
+                }
 
-                case 'ref/resource':
+                case 'ref/resource': {
                     assertCompleteRequestResourceTemplate(request);
                     return this.handleResourceCompletion(request, request.params.ref);
+                }
 
-                default:
+                default: {
                     throw new McpError(ErrorCode.InvalidParams, `Invalid completion reference: ${request.params.ref}`);
+                }
             }
         });
 
@@ -661,78 +662,6 @@ export class McpServer {
     }
 
     /**
-     * Registers a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
-     * @deprecated Use `registerResource` instead.
-     */
-    resource(name: string, uri: string, readCallback: ReadResourceCallback): RegisteredResource;
-
-    /**
-     * Registers a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
-     * @deprecated Use `registerResource` instead.
-     */
-    resource(name: string, uri: string, metadata: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
-
-    /**
-     * Registers a resource `name` with a template pattern, which will use the given callback to respond to read requests.
-     * @deprecated Use `registerResource` instead.
-     */
-    resource(name: string, template: ResourceTemplate, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
-
-    /**
-     * Registers a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
-     * @deprecated Use `registerResource` instead.
-     */
-    resource(
-        name: string,
-        template: ResourceTemplate,
-        metadata: ResourceMetadata,
-        readCallback: ReadResourceTemplateCallback
-    ): RegisteredResourceTemplate;
-
-    resource(name: string, uriOrTemplate: string | ResourceTemplate, ...rest: unknown[]): RegisteredResource | RegisteredResourceTemplate {
-        let metadata: ResourceMetadata | undefined;
-        if (typeof rest[0] === 'object') {
-            metadata = rest.shift() as ResourceMetadata;
-        }
-
-        const readCallback = rest[0] as ReadResourceCallback | ReadResourceTemplateCallback;
-
-        if (typeof uriOrTemplate === 'string') {
-            if (this._registeredResources[uriOrTemplate]) {
-                throw new Error(`Resource ${uriOrTemplate} is already registered`);
-            }
-
-            const registeredResource = this._createRegisteredResource(
-                name,
-                undefined,
-                uriOrTemplate,
-                metadata,
-                readCallback as ReadResourceCallback
-            );
-
-            this.setResourceRequestHandlers();
-            this.sendResourceListChanged();
-            return registeredResource;
-        } else {
-            if (this._registeredResourceTemplates[name]) {
-                throw new Error(`Resource template ${name} is already registered`);
-            }
-
-            const registeredResourceTemplate = this._createRegisteredResourceTemplate(
-                name,
-                undefined,
-                uriOrTemplate,
-                metadata,
-                readCallback as ReadResourceTemplateCallback
-            );
-
-            this.setResourceRequestHandlers();
-            this.sendResourceListChanged();
-            return registeredResourceTemplate;
-        }
-    }
-
-    /**
      * Registers a resource with a config object and callback.
      * For static resources, use a URI string. For dynamic resources, use a ResourceTemplate.
      */
@@ -801,15 +730,15 @@ export class McpServer {
             enable: () => registeredResource.update({ enabled: true }),
             remove: () => registeredResource.update({ uri: null }),
             update: updates => {
-                if (typeof updates.uri !== 'undefined' && updates.uri !== uri) {
+                if (updates.uri !== undefined && updates.uri !== uri) {
                     delete this._registeredResources[uri];
                     if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
                 }
-                if (typeof updates.name !== 'undefined') registeredResource.name = updates.name;
-                if (typeof updates.title !== 'undefined') registeredResource.title = updates.title;
-                if (typeof updates.metadata !== 'undefined') registeredResource.metadata = updates.metadata;
-                if (typeof updates.callback !== 'undefined') registeredResource.readCallback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredResource.enabled = updates.enabled;
+                if (updates.name !== undefined) registeredResource.name = updates.name;
+                if (updates.title !== undefined) registeredResource.title = updates.title;
+                if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
+                if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
+                if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
         };
@@ -834,15 +763,15 @@ export class McpServer {
             enable: () => registeredResourceTemplate.update({ enabled: true }),
             remove: () => registeredResourceTemplate.update({ name: null }),
             update: updates => {
-                if (typeof updates.name !== 'undefined' && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredResourceTemplates[name];
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
                 }
-                if (typeof updates.title !== 'undefined') registeredResourceTemplate.title = updates.title;
-                if (typeof updates.template !== 'undefined') registeredResourceTemplate.resourceTemplate = updates.template;
-                if (typeof updates.metadata !== 'undefined') registeredResourceTemplate.metadata = updates.metadata;
-                if (typeof updates.callback !== 'undefined') registeredResourceTemplate.readCallback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredResourceTemplate.enabled = updates.enabled;
+                if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
+                if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
+                if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
+                if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
+                if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
         };
@@ -875,15 +804,15 @@ export class McpServer {
             enable: () => registeredPrompt.update({ enabled: true }),
             remove: () => registeredPrompt.update({ name: null }),
             update: updates => {
-                if (typeof updates.name !== 'undefined' && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredPrompts[name];
                     if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
                 }
-                if (typeof updates.title !== 'undefined') registeredPrompt.title = updates.title;
-                if (typeof updates.description !== 'undefined') registeredPrompt.description = updates.description;
-                if (typeof updates.argsSchema !== 'undefined') registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
-                if (typeof updates.callback !== 'undefined') registeredPrompt.callback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredPrompt.enabled = updates.enabled;
+                if (updates.title !== undefined) registeredPrompt.title = updates.title;
+                if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates.argsSchema !== undefined) registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
+                if (updates.callback !== undefined) registeredPrompt.callback = updates.callback;
+                if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
                 this.sendPromptListChanged();
             }
         };
@@ -931,21 +860,21 @@ export class McpServer {
             enable: () => registeredTool.update({ enabled: true }),
             remove: () => registeredTool.update({ name: null }),
             update: updates => {
-                if (typeof updates.name !== 'undefined' && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
                         validateAndWarnToolName(updates.name);
                     }
                     delete this._registeredTools[name];
                     if (updates.name) this._registeredTools[updates.name] = registeredTool;
                 }
-                if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
-                if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
-                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
-                if (typeof updates.outputSchema !== 'undefined') registeredTool.outputSchema = objectFromShape(updates.outputSchema);
-                if (typeof updates.callback !== 'undefined') registeredTool.handler = updates.callback;
-                if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
-                if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
-                if (typeof updates.enabled !== 'undefined') registeredTool.enabled = updates.enabled;
+                if (updates.title !== undefined) registeredTool.title = updates.title;
+                if (updates.description !== undefined) registeredTool.description = updates.description;
+                if (updates.paramsSchema !== undefined) registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
+                if (updates.outputSchema !== undefined) registeredTool.outputSchema = objectFromShape(updates.outputSchema);
+                if (updates.callback !== undefined) registeredTool.handler = updates.callback;
+                if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
+                if (updates._meta !== undefined) registeredTool._meta = updates._meta;
+                if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
             }
         };
@@ -955,129 +884,6 @@ export class McpServer {
         this.sendToolListChanged();
 
         return registeredTool;
-    }
-
-    /**
-     * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
-     * @deprecated Use `registerTool` instead.
-     */
-    tool(name: string, cb: ToolCallback): RegisteredTool;
-
-    /**
-     * Registers a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
-     * @deprecated Use `registerTool` instead.
-     */
-    tool(name: string, description: string, cb: ToolCallback): RegisteredTool;
-
-    /**
-     * Registers a tool taking either a parameter schema for validation or annotations for additional metadata.
-     * This unified overload handles both `tool(name, paramsSchema, cb)` and `tool(name, annotations, cb)` cases.
-     *
-     * Note: We use a union type for the second parameter because TypeScript cannot reliably disambiguate
-     * between ToolAnnotations and ZodRawShapeCompat during overload resolution, as both are plain object types.
-     * @deprecated Use `registerTool` instead.
-     */
-    tool<Args extends ZodRawShapeCompat>(
-        name: string,
-        paramsSchemaOrAnnotations: Args | ToolAnnotations,
-        cb: ToolCallback<Args>
-    ): RegisteredTool;
-
-    /**
-     * Registers a tool `name` (with a description) taking either parameter schema or annotations.
-     * This unified overload handles both `tool(name, description, paramsSchema, cb)` and
-     * `tool(name, description, annotations, cb)` cases.
-     *
-     * Note: We use a union type for the third parameter because TypeScript cannot reliably disambiguate
-     * between ToolAnnotations and ZodRawShapeCompat during overload resolution, as both are plain object types.
-     * @deprecated Use `registerTool` instead.
-     */
-    tool<Args extends ZodRawShapeCompat>(
-        name: string,
-        description: string,
-        paramsSchemaOrAnnotations: Args | ToolAnnotations,
-        cb: ToolCallback<Args>
-    ): RegisteredTool;
-
-    /**
-     * Registers a tool with both parameter schema and annotations.
-     * @deprecated Use `registerTool` instead.
-     */
-    tool<Args extends ZodRawShapeCompat>(
-        name: string,
-        paramsSchema: Args,
-        annotations: ToolAnnotations,
-        cb: ToolCallback<Args>
-    ): RegisteredTool;
-
-    /**
-     * Registers a tool with description, parameter schema, and annotations.
-     * @deprecated Use `registerTool` instead.
-     */
-    tool<Args extends ZodRawShapeCompat>(
-        name: string,
-        description: string,
-        paramsSchema: Args,
-        annotations: ToolAnnotations,
-        cb: ToolCallback<Args>
-    ): RegisteredTool;
-
-    /**
-     * tool() implementation. Parses arguments passed to overrides defined above.
-     */
-    tool(name: string, ...rest: unknown[]): RegisteredTool {
-        if (this._registeredTools[name]) {
-            throw new Error(`Tool ${name} is already registered`);
-        }
-
-        let description: string | undefined;
-        let inputSchema: ZodRawShapeCompat | undefined;
-        let outputSchema: ZodRawShapeCompat | undefined;
-        let annotations: ToolAnnotations | undefined;
-
-        // Tool properties are passed as separate arguments, with omissions allowed.
-        // Support for this style is frozen as of protocol version 2025-03-26. Future additions
-        // to tool definition should *NOT* be added.
-
-        if (typeof rest[0] === 'string') {
-            description = rest.shift() as string;
-        }
-
-        // Handle the different overload combinations
-        if (rest.length > 1) {
-            // We have at least one more arg before the callback
-            const firstArg = rest[0];
-
-            if (isZodRawShapeCompat(firstArg)) {
-                // We have a params schema as the first arg
-                inputSchema = rest.shift() as ZodRawShapeCompat;
-
-                // Check if the next arg is potentially annotations
-                if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !isZodRawShapeCompat(rest[0])) {
-                    // Case: tool(name, paramsSchema, annotations, cb)
-                    // Or: tool(name, description, paramsSchema, annotations, cb)
-                    annotations = rest.shift() as ToolAnnotations;
-                }
-            } else if (typeof firstArg === 'object' && firstArg !== null) {
-                // Not a ZodRawShapeCompat, so must be annotations in this position
-                // Case: tool(name, annotations, cb)
-                // Or: tool(name, description, annotations, cb)
-                annotations = rest.shift() as ToolAnnotations;
-            }
-        }
-        const callback = rest[0] as ToolCallback<ZodRawShapeCompat | undefined>;
-
-        return this._createRegisteredTool(
-            name,
-            undefined,
-            description,
-            inputSchema,
-            outputSchema,
-            annotations,
-            { taskSupport: 'forbidden' },
-            undefined,
-            callback
-        );
     }
 
     /**
@@ -1112,59 +918,6 @@ export class McpServer {
             _meta,
             cb as ToolCallback<ZodRawShapeCompat | undefined>
         );
-    }
-
-    /**
-     * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt(name: string, cb: PromptCallback): RegisteredPrompt;
-
-    /**
-     * Registers a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt(name: string, description: string, cb: PromptCallback): RegisteredPrompt;
-
-    /**
-     * Registers a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt<Args extends PromptArgsRawShape>(name: string, argsSchema: Args, cb: PromptCallback<Args>): RegisteredPrompt;
-
-    /**
-     * Registers a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-     * @deprecated Use `registerPrompt` instead.
-     */
-    prompt<Args extends PromptArgsRawShape>(
-        name: string,
-        description: string,
-        argsSchema: Args,
-        cb: PromptCallback<Args>
-    ): RegisteredPrompt;
-
-    prompt(name: string, ...rest: unknown[]): RegisteredPrompt {
-        if (this._registeredPrompts[name]) {
-            throw new Error(`Prompt ${name} is already registered`);
-        }
-
-        let description: string | undefined;
-        if (typeof rest[0] === 'string') {
-            description = rest.shift() as string;
-        }
-
-        let argsSchema: PromptArgsRawShape | undefined;
-        if (rest.length > 1) {
-            argsSchema = rest.shift() as PromptArgsRawShape;
-        }
-
-        const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
-        const registeredPrompt = this._createRegisteredPrompt(name, undefined, description, argsSchema, cb);
-
-        this.setPromptRequestHandlers();
-        this.sendPromptListChanged();
-
-        return registeredPrompt;
     }
 
     /**
@@ -1416,7 +1169,7 @@ function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
     }
 
     // A raw shape has at least one property that is a Zod schema
-    return Object.values(obj).some(isZodTypeLike);
+    return Object.values(obj).some(element => isZodTypeLike(element));
 }
 
 /**

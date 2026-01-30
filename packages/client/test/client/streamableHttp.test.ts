@@ -1,6 +1,6 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
-import { type Mock, type Mocked } from 'vitest';
+import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
@@ -28,7 +28,7 @@ describe('StreamableHTTPClientTransport', () => {
             invalidateCredentials: vi.fn()
         };
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider: mockAuthProvider });
-        vi.spyOn(global, 'fetch');
+        vi.spyOn(globalThis, 'fetch');
     });
 
     afterEach(async () => {
@@ -44,7 +44,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
             headers: new Headers()
@@ -52,7 +52,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         await transport.send(message);
 
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect(globalThis.fetch).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
                 method: 'POST',
@@ -68,7 +68,7 @@ describe('StreamableHTTPClientTransport', () => {
             { jsonrpc: '2.0', method: 'test2', params: {}, id: 'id2' }
         ];
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream' }),
@@ -77,7 +77,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         await transport.send(messages);
 
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect(globalThis.fetch).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
                 method: 'POST',
@@ -98,7 +98,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'init-id'
         };
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
@@ -107,7 +107,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message);
 
         // Send a second message that should include the session ID
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
             headers: new Headers()
@@ -116,8 +116,8 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
 
         // Check that second request included session ID header
-        const calls = (global.fetch as Mock).mock.calls;
-        const lastCall = calls[calls.length - 1]!;
+        const calls = (globalThis.fetch as Mock).mock.calls;
+        const lastCall = calls.at(-1)!;
         expect(lastCall[1].headers).toBeDefined();
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
     });
@@ -134,7 +134,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'init-id'
         };
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
@@ -144,7 +144,7 @@ describe('StreamableHTTPClientTransport', () => {
         expect(transport.sessionId).toBe('test-session-id');
 
         // Now terminate the session
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers()
@@ -153,8 +153,8 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.terminateSession();
 
         // Verify the DELETE request was sent with the session ID
-        const calls = (global.fetch as Mock).mock.calls;
-        const lastCall = calls[calls.length - 1]!;
+        const calls = (globalThis.fetch as Mock).mock.calls;
+        const lastCall = calls.at(-1)!;
         expect(lastCall[1].method).toBe('DELETE');
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
 
@@ -174,7 +174,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'init-id'
         };
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
@@ -183,7 +183,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message);
 
         // Now terminate the session, but server responds with 405
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: false,
             status: 405,
             statusText: 'Method Not Allowed',
@@ -201,7 +201,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: false,
             status: 404,
             statusText: 'Not Found',
@@ -230,7 +230,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'application/json' }),
@@ -247,7 +247,7 @@ describe('StreamableHTTPClientTransport', () => {
 
     it('should attempt initial GET connection and handle 405 gracefully', async () => {
         // Mock the server not supporting GET for SSE (returning 405)
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: false,
             status: 405,
             statusText: 'Method Not Allowed'
@@ -258,7 +258,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
         await expect(transport['_startOrAuthSse']({})).resolves.not.toThrow('Failed to open SSE stream: Method Not Allowed');
         // Check that GET was attempted
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect(globalThis.fetch).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
                 method: 'GET',
@@ -267,14 +267,14 @@ describe('StreamableHTTPClientTransport', () => {
         );
 
         // Verify transport still works after 405
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
             headers: new Headers()
         });
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
-        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
     it('should handle successful initial GET connection for SSE', async () => {
@@ -289,7 +289,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         // Mock successful GET connection
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream' }),
@@ -326,7 +326,7 @@ describe('StreamableHTTPClientTransport', () => {
             });
         };
 
-        (global.fetch as Mock)
+        (globalThis.fetch as Mock)
             .mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -376,7 +376,7 @@ describe('StreamableHTTPClientTransport', () => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             reconnectionOptions: {
                 initialReconnectionDelay: 500,
-                maxReconnectionDelay: 10000,
+                maxReconnectionDelay: 10_000,
                 reconnectionDelayGrowFactor: 2,
                 maxRetries: 5
             }
@@ -396,7 +396,7 @@ describe('StreamableHTTPClientTransport', () => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
         // Mock fetch to verify headers sent
-        const fetchSpy = global.fetch as Mock;
+        const fetchSpy = globalThis.fetch as Mock;
         fetchSpy.mockReset();
         fetchSpy.mockResolvedValue({
             ok: true,
@@ -444,7 +444,7 @@ describe('StreamableHTTPClientTransport', () => {
         const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
-        (global.fetch as Mock).mockResolvedValueOnce({
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/plain' }),
@@ -477,7 +477,7 @@ describe('StreamableHTTPClientTransport', () => {
         expect(customFetch).toHaveBeenCalled();
 
         // Global fetch should never have been called
-        expect(global.fetch).not.toHaveBeenCalled();
+        expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
     it('should always send specified custom headers', async () => {
@@ -493,7 +493,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         let actualReqInit: RequestInit = {};
 
-        (global.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
             actualReqInit = reqInit;
             return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
         });
@@ -509,7 +509,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('SecondCustomValue');
 
-        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
     it('should always send specified custom headers (Headers class)', async () => {
@@ -525,7 +525,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         let actualReqInit: RequestInit = {};
 
-        (global.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
             actualReqInit = reqInit;
             return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
         });
@@ -541,7 +541,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('SecondCustomValue');
 
-        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
     it('should always send specified custom headers (array of tuples)', async () => {
@@ -556,7 +556,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         let actualReqInit: RequestInit = {};
 
-        (global.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
             actualReqInit = reqInit;
             return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
         });
@@ -608,18 +608,22 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as Mock)
+        (globalThis.fetch as Mock)
             .mockResolvedValueOnce({
                 ok: false,
                 status: 401,
                 statusText: 'Unauthorized',
                 headers: new Headers(),
-                text: async () => Promise.reject('dont read my body')
+                text: async () => {
+                    throw 'dont read my body';
+                }
             })
             .mockResolvedValue({
                 ok: false,
                 status: 404,
-                text: async () => Promise.reject('dont read my body')
+                text: async () => {
+                    throw 'dont read my body';
+                }
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
@@ -634,7 +638,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        const fetchMock = global.fetch as Mock;
+        const fetchMock = globalThis.fetch as Mock;
         fetchMock
             // First call: returns 403 with insufficient_scope
             .mockResolvedValueOnce({
@@ -685,7 +689,7 @@ describe('StreamableHTTPClientTransport', () => {
         };
 
         // Mock fetch calls to always return 403 with insufficient_scope
-        const fetchMock = global.fetch as Mock;
+        const fetchMock = globalThis.fetch as Mock;
         fetchMock.mockResolvedValue({
             ok: false,
             status: 403,
@@ -745,7 +749,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
             // Mock the initial GET request, which will fail.
             fetchMock.mockResolvedValueOnce({
                 ok: true,
@@ -799,7 +803,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
             // Mock the POST request. It returns a streaming content-type but a failing body.
             fetchMock.mockResolvedValueOnce({
                 ok: true,
@@ -854,7 +858,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
             // First call: POST returns streaming response with priming event
             fetchMock.mockResolvedValueOnce({
                 ok: true,
@@ -917,7 +921,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
             fetchMock.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -966,7 +970,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
 
             // POST request returns streaming response
             fetchMock.mockResolvedValueOnce({
@@ -1016,7 +1020,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
             fetchMock.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -1065,9 +1069,11 @@ describe('StreamableHTTPClientTransport', () => {
             status: 401,
             statusText: 'Unauthorized',
             headers: new Headers(),
-            text: async () => Promise.reject('dont read my body')
+            text: async () => {
+                throw 'dont read my body';
+            }
         };
-        (global.fetch as Mock)
+        (globalThis.fetch as Mock)
             // Initial connection
             .mockResolvedValueOnce(unauthedResponse)
             // Resource discovery, path aware
@@ -1120,9 +1126,11 @@ describe('StreamableHTTPClientTransport', () => {
             status: 401,
             statusText: 'Unauthorized',
             headers: new Headers(),
-            text: async () => Promise.reject('dont read my body')
+            text: async () => {
+                throw 'dont read my body';
+            }
         };
-        (global.fetch as Mock)
+        (globalThis.fetch as Mock)
             // Initial connection
             .mockResolvedValueOnce(unauthedResponse)
             // Resource discovery, path aware
@@ -1147,7 +1155,9 @@ describe('StreamableHTTPClientTransport', () => {
             .mockResolvedValue({
                 ok: false,
                 status: 404,
-                text: async () => Promise.reject('dont read my body')
+                text: async () => {
+                    throw 'dont read my body';
+                }
             });
 
         // As above, just ensure the auth flow completes without unhandled
@@ -1174,9 +1184,11 @@ describe('StreamableHTTPClientTransport', () => {
             status: 401,
             statusText: 'Unauthorized',
             headers: new Headers(),
-            text: async () => Promise.reject('dont read my body')
+            text: async () => {
+                throw 'dont read my body';
+            }
         };
-        (global.fetch as Mock)
+        (globalThis.fetch as Mock)
             // Initial connection
             .mockResolvedValueOnce(unauthedResponse)
             // Resource discovery, path aware
@@ -1201,7 +1213,9 @@ describe('StreamableHTTPClientTransport', () => {
             .mockResolvedValue({
                 ok: false,
                 status: 404,
-                text: async () => Promise.reject('dont read my body')
+                text: async () => {
+                    throw 'dont read my body';
+                }
             });
 
         // Behavior for InvalidGrantError during auth is covered in dedicated OAuth
@@ -1217,7 +1231,9 @@ describe('StreamableHTTPClientTransport', () => {
                 status: 401,
                 statusText: 'Unauthorized',
                 headers: new Headers(),
-                text: async () => Promise.reject('dont read my body')
+                text: async () => {
+                    throw 'dont read my body';
+                }
             };
 
             // Create custom fetch
@@ -1278,7 +1294,7 @@ describe('StreamableHTTPClientTransport', () => {
             expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
 
             // Global fetch should never have been called
-            expect(global.fetch).not.toHaveBeenCalled();
+            expect(globalThis.fetch).not.toHaveBeenCalled();
         });
 
         it('uses custom fetch in finishAuth method - no global fetch fallback', async () => {
@@ -1353,14 +1369,14 @@ describe('StreamableHTTPClientTransport', () => {
             });
 
             // Global fetch should never have been called
-            expect(global.fetch).not.toHaveBeenCalled();
+            expect(globalThis.fetch).not.toHaveBeenCalled();
         });
     });
 
     describe('SSE retry field handling', () => {
         beforeEach(() => {
             vi.useFakeTimers();
-            (global.fetch as Mock).mockReset();
+            (globalThis.fetch as Mock).mockReset();
         });
         afterEach(() => vi.useRealTimers());
 
@@ -1387,7 +1403,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
             fetchMock.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -1463,7 +1479,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
+            const fetchMock = globalThis.fetch as Mock;
             fetchMock.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -1582,10 +1598,12 @@ describe('StreamableHTTPClientTransport', () => {
                 status: 401,
                 statusText: 'Unauthorized',
                 headers: new Headers(),
-                text: async () => Promise.reject('dont read my body')
+                text: async () => {
+                    throw 'dont read my body';
+                }
             };
 
-            (global.fetch as Mock)
+            (globalThis.fetch as Mock)
                 // First request - 401, triggers auth flow
                 .mockResolvedValueOnce(unauthedResponse)
                 // Resource discovery, path aware

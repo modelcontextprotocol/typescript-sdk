@@ -84,7 +84,7 @@ class InteractiveOAuthClient {
                 const error = parsedUrl.searchParams.get('error');
 
                 if (code) {
-                    console.log(`✅ Authorization code received: ${code?.substring(0, 10)}...`);
+                    console.log(`✅ Authorization code received: ${code?.slice(0, 10)}...`);
                     res.writeHead(200, { 'Content-Type': 'text/html' });
                     res.end(`
             <html>
@@ -256,13 +256,13 @@ class InteractiveOAuthClient {
 
             if (result.tools && result.tools.length > 0) {
                 console.log('\n📋 Available tools:');
-                result.tools.forEach((tool, index) => {
+                for (const [index, tool] of result.tools.entries()) {
                     console.log(`${index + 1}. ${tool.name}`);
                     if (tool.description) {
                         console.log(`   Description: ${tool.description}`);
                     }
                     console.log();
-                });
+                }
             } else {
                 console.log('No tools available');
             }
@@ -314,13 +314,13 @@ class InteractiveOAuthClient {
 
             console.log(`\n🔧 Tool '${toolName}' result:`);
             if (result.content) {
-                result.content.forEach(content => {
+                for (const content of result.content) {
                     if (content.type === 'text') {
                         console.log(content.text);
                     } else {
                         console.log(content);
                     }
-                });
+                }
             } else {
                 console.log(result);
             }
@@ -372,7 +372,7 @@ class InteractiveOAuthClient {
                 {
                     task: {
                         taskId: `task-${Date.now()}`,
-                        ttl: 60000
+                        ttl: 60_000
                     }
                 }
             );
@@ -380,32 +380,36 @@ class InteractiveOAuthClient {
             // Iterate through all messages yielded by the generator
             for await (const message of stream) {
                 switch (message.type) {
-                    case 'taskCreated':
+                    case 'taskCreated': {
                         console.log(`✓ Task created: ${message.task.taskId}`);
                         break;
+                    }
 
-                    case 'taskStatus':
+                    case 'taskStatus': {
                         console.log(`⟳ Status: ${message.task.status}`);
                         if (message.task.statusMessage) {
                             console.log(`  ${message.task.statusMessage}`);
                         }
                         break;
+                    }
 
-                    case 'result':
+                    case 'result': {
                         console.log('✓ Completed!');
-                        message.result.content.forEach(content => {
+                        for (const content of message.result.content) {
                             if (content.type === 'text') {
                                 console.log(content.text);
                             } else {
                                 console.log(content);
                             }
-                        });
+                        }
                         break;
+                    }
 
-                    case 'error':
+                    case 'error': {
                         console.log('✗ Error:');
                         console.log(`  ${message.error.message}`);
                         break;
+                    }
                 }
             }
         } catch (error) {
@@ -456,8 +460,11 @@ async function main(): Promise<void> {
     }
 }
 
-// Run if this file is executed directly
-main().catch(error => {
-    console.error('Unhandled error:', error);
+try {
+    // Run if this file is executed directly
+    await main();
+} catch (error) {
+    console.error('Error running client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}
