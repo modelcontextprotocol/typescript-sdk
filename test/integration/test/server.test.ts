@@ -12,7 +12,6 @@ import type {
     Task,
     Transport
 } from '@modelcontextprotocol/core';
-import { toArrayAsync } from '@modelcontextprotocol/core';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
@@ -33,7 +32,8 @@ import {
     RequestSchema,
     ResultSchema,
     SetLevelRequestSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    toArrayAsync
 } from '@modelcontextprotocol/core';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
@@ -2054,7 +2054,7 @@ describe('createMessageStream', () => {
 
             expect(terminalMessages.length).toBe(1);
 
-            const lastMessage = messages[messages.length - 1];
+            const lastMessage = messages.at(-1);
             expect(lastMessage.type === 'result' || lastMessage.type === 'error').toBe(true);
 
             if (lastMessage.type === 'result') {
@@ -2136,7 +2136,7 @@ describe('createMessageStream', () => {
                     messages: [{ role: 'user', content: { type: 'text', text: 'Task-augmented message' } }],
                     maxTokens: 100
                 },
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             const messages = await toArrayAsync(stream);
@@ -2150,7 +2150,7 @@ describe('createMessageStream', () => {
             expect(taskCreated.task.taskId).toBeDefined();
 
             // Last message should be result
-            const lastMessage = messages[messages.length - 1];
+            const lastMessage = messages.at(-1);
             expect(lastMessage.type).toBe('result');
             if (lastMessage.type === 'result') {
                 expect((lastMessage.result as CreateMessageResult).model).toBe('test-model');
@@ -3688,7 +3688,7 @@ describe('elicitInputStream', () => {
             expect(terminalMessages.length).toBe(1);
 
             // Verify terminal message is the last message
-            const lastMessage = messages[messages.length - 1];
+            const lastMessage = messages.at(-1);
             expect(lastMessage.type === 'result' || lastMessage.type === 'error').toBe(true);
 
             // Verify result content matches expected action
@@ -3786,7 +3786,7 @@ describe('elicitInputStream', () => {
                         required: ['username']
                     }
                 },
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             const messages = await toArrayAsync(stream);
@@ -3800,7 +3800,7 @@ describe('elicitInputStream', () => {
             expect(taskCreated.task.taskId).toBeDefined();
 
             // Last message should be result
-            const lastMessage = messages[messages.length - 1];
+            const lastMessage = messages.at(-1);
             expect(lastMessage.type).toBe('result');
             if (lastMessage.type === 'result') {
                 expect((lastMessage.result as ElicitResult).action).toBe('accept');

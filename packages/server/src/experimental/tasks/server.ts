@@ -130,21 +130,19 @@ export class ExperimentalServerTasks<
         const clientCapabilities = (this._server as unknown as ServerWithCapabilities).getClientCapabilities();
 
         // Capability check - only required when tools/toolChoice are provided
-        if (params.tools || params.toolChoice) {
-            if (!clientCapabilities?.sampling?.tools) {
-                throw new Error('Client does not support sampling tools capability.');
-            }
+        if ((params.tools || params.toolChoice) && !clientCapabilities?.sampling?.tools) {
+            throw new Error('Client does not support sampling tools capability.');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
         // These may appear even without tools/toolChoice in the current request when
         // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
-            const lastMessage = params.messages[params.messages.length - 1]!;
+            const lastMessage = params.messages.at(-1)!;
             const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
             const hasToolResults = lastContent.some(c => c.type === 'tool_result');
 
-            const previousMessage = params.messages.length > 1 ? params.messages[params.messages.length - 2] : undefined;
+            const previousMessage = params.messages.length > 1 ? params.messages.at(-2) : undefined;
             const previousContent = previousMessage
                 ? Array.isArray(previousMessage.content)
                     ? previousMessage.content
@@ -236,16 +234,18 @@ export class ExperimentalServerTasks<
 
         // Capability check based on mode
         switch (mode) {
-            case 'url':
+            case 'url': {
                 if (!clientCapabilities?.elicitation?.url) {
                     throw new Error('Client does not support url elicitation.');
                 }
                 break;
-            case 'form':
+            }
+            case 'form': {
                 if (!clientCapabilities?.elicitation?.form) {
                     throw new Error('Client does not support form elicitation.');
                 }
                 break;
+            }
         }
 
         // Normalize params to ensure mode is set

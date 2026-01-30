@@ -145,9 +145,10 @@ function commandLoop(): void {
                     break;
                 }
 
-                case 'collect-info-task':
+                case 'collect-info-task': {
                     await callCollectInfoWithTask(args[1] || 'contact');
                     break;
+                }
 
                 case 'start-notifications': {
                     const interval = args[1] ? Number.parseInt(args[1], 10) : 2000;
