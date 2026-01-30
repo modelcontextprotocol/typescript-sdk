@@ -508,10 +508,10 @@ const getServer = () => {
                     task
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
+            async getTask({ taskId, taskStore }) {
                 return await taskStore.getTask(taskId);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
+            async getTaskResult({ taskId, taskStore }) {
                 const result = await taskStore.getTaskResult(taskId);
                 return result as CallToolResult;
             }

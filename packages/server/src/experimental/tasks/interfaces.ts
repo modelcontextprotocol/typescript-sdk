@@ -31,12 +31,12 @@ export type CreateTaskRequestHandler<
 
 /**
  * Handler for task operations (get, getResult).
+ * These handlers do not receive the original args - only the extra context with taskId and taskStore.
+ * This design supports horizontal scaling where the server handling getTask/getTaskResult
+ * may be different from the one that handled createTask.
  * @experimental
  */
-export type TaskRequestHandler<
-    SendResultT extends Result,
-    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
-> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra, Args>;
+export type TaskRequestHandler<SendResultT extends Result> = (extra: TaskRequestHandlerExtra) => SendResultT | Promise<SendResultT>;
 
 /**
  * Interface for task-based tool handlers.
@@ -44,6 +44,6 @@ export type TaskRequestHandler<
  */
 export interface ToolTaskHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> {
     createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
-    getTask: TaskRequestHandler<GetTaskResult, Args>;
-    getTaskResult: TaskRequestHandler<CallToolResult, Args>;
+    getTask: TaskRequestHandler<GetTaskResult>;
+    getTaskResult: TaskRequestHandler<CallToolResult>;
 }
