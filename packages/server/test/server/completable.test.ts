@@ -1,6 +1,8 @@
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { describe, expect, it } from 'vitest';
+
 import { completable, getCompleter } from '../../src/server/completable.js';
-import type { ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
-import { zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 
 describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;

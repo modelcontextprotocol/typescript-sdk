@@ -14,8 +14,10 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 
@@ -33,11 +35,12 @@ const server = new McpServer(
 );
 
 // Register a long-running tool that demonstrates server-initiated disconnect
-server.tool(
+server.registerTool(
     'long-task',
-    'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.',
-    {},
-    async (_args, extra): Promise<CallToolResult> => {
+    {
+        description: 'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.'
+    },
+    async (extra): Promise<CallToolResult> => {
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
         console.log(`[${extra.sessionId}] Starting long-task...`);
@@ -111,7 +114,7 @@ app.use(cors());
 const eventStore = new InMemoryEventStore();
 
 // Track transports by session ID for session reuse
-const transports = new Map<string, StreamableHTTPServerTransport>();
+const transports = new Map<string, NodeStreamableHTTPServerTransport>();
 
 // Handle all MCP requests
 app.all('/mcp', async (req: Request, res: Response) => {
@@ -121,7 +124,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
     let transport = sessionId ? transports.get(sessionId) : undefined;
 
     if (!transport) {
-        transport = new StreamableHTTPServerTransport({
+        transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             eventStore,
             retryInterval: 2000, // Default retry interval for priming events

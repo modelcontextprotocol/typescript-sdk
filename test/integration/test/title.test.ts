@@ -1,7 +1,8 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/server';
-import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
@@ -43,7 +44,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
             // Register tool without title
-            server.tool('test-tool', 'A test tool', { value: z.string() }, async () => ({ content: [{ type: 'text', text: 'result' }] }));
+            server.registerTool('test-tool', { description: 'A test tool', inputSchema: { value: z.string() } }, async () => ({
+                content: [{ type: 'text', text: 'result' }]
+            }));
 
             const client = new Client({ name: 'test-client', version: '1.0.0' });
 
@@ -63,7 +66,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
             // Register prompt with title by updating after creation
-            const prompt = server.prompt('test-prompt', 'A test prompt', async () => ({
+            const prompt = server.registerPrompt('test-prompt', { description: 'A test prompt' }, async () => ({
                 messages: [{ role: 'user', content: { type: 'text', text: 'test' } }]
             }));
             prompt.update({ title: 'Test Prompt Display Name' });

@@ -14,11 +14,11 @@ export default defineConfig({
         exclude: ignorePatterns,
         deps: {
             moduleDirectories: ['node_modules', path.resolve(__dirname, '../../packages'), path.resolve(__dirname, '../../common')]
-        },
-        poolOptions: {
-            threads: {
-                useAtomics: true
-            }
+        }
+    },
+    poolOptions: {
+        threads: {
+            useAtomics: true
         }
     },
     plugins: [tsconfigPaths()]

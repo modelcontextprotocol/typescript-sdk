@@ -30,7 +30,9 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
-import { createMcpExpressApp, InMemoryTaskMessageQueue, InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
+import type { Request, Response } from 'express';
 import supertest from 'supertest';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
@@ -1300,11 +1302,7 @@ test('should allow elicitation reject and cancel without validation', async () =
     let requestCount = 0;
     client.setRequestHandler(ElicitRequestSchema, _request => {
         requestCount++;
-        if (requestCount === 1) {
-            return { action: 'decline' };
-        } else {
-            return { action: 'cancel' };
-        }
+        return requestCount === 1 ? { action: 'decline' } : { action: 'cancel' };
     });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -2066,7 +2064,7 @@ describe('createMcpExpressApp', () => {
 
     test('should parse JSON bodies', async () => {
         const app = createMcpExpressApp({ host: '0.0.0.0' }); // Disable host validation for this test
-        app.post('/test', (req, res) => {
+        app.post('/test', (req: Request, res: Response) => {
             res.json({ received: req.body });
         });
 
@@ -2078,7 +2076,7 @@ describe('createMcpExpressApp', () => {
 
     test('should reject requests with invalid Host header by default', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2088,7 +2086,7 @@ describe('createMcpExpressApp', () => {
         expect(response.body).toEqual({
             jsonrpc: '2.0',
             error: {
-                code: -32000,
+                code: -32_000,
                 message: 'Invalid Host: evil.com'
             },
             id: null
@@ -2097,7 +2095,7 @@ describe('createMcpExpressApp', () => {
 
     test('should allow requests with localhost Host header', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2109,7 +2107,7 @@ describe('createMcpExpressApp', () => {
 
     test('should allow requests with 127.0.0.1 Host header', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2121,7 +2119,7 @@ describe('createMcpExpressApp', () => {
 
     test('should not apply host validation when host is 0.0.0.0', async () => {
         const app = createMcpExpressApp({ host: '0.0.0.0' });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2134,7 +2132,7 @@ describe('createMcpExpressApp', () => {
 
     test('should apply host validation when host is explicitly localhost', async () => {
         const app = createMcpExpressApp({ host: 'localhost' });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2146,7 +2144,7 @@ describe('createMcpExpressApp', () => {
 
     test('should allow requests with IPv6 localhost Host header', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2158,7 +2156,7 @@ describe('createMcpExpressApp', () => {
 
     test('should apply host validation when host is ::1 (IPv6 localhost)', async () => {
         const app = createMcpExpressApp({ host: '::1' });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2185,7 +2183,7 @@ describe('createMcpExpressApp', () => {
     test('should use custom allowedHosts when provided', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local', 'localhost'] });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2205,7 +2203,7 @@ describe('createMcpExpressApp', () => {
     test('should override default localhost validation when allowedHosts is provided', async () => {
         // Even though host is localhost, we're using custom allowedHosts
         const app = createMcpExpressApp({ host: 'localhost', allowedHosts: ['custom.local'] });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2306,7 +2304,7 @@ describe('Task-based execution', () => {
         let taskId: string | undefined;
         const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
             task: {
-                ttl: 60000
+                ttl: 60_000
             }
         });
 
@@ -2533,7 +2531,7 @@ describe('Task-based execution', () => {
         let taskId: string | undefined;
         const stream = client.experimental.tasks.callToolStream({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
             task: {
-                ttl: 60000
+                ttl: 60_000
             }
         });
 
@@ -2643,7 +2641,7 @@ describe('Task-based execution', () => {
                     }
                 },
                 CreateTaskResultSchema,
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             // Verify CreateTaskResult structure
@@ -2720,7 +2718,7 @@ describe('Task-based execution', () => {
                     }
                 },
                 CreateTaskResultSchema,
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             // Verify CreateTaskResult structure
@@ -2802,7 +2800,7 @@ describe('Task-based execution', () => {
                     }
                 },
                 CreateTaskResultSchema,
-                { task: { ttl: 60000 } }
+                { task: { ttl: 60_000 } }
             );
 
             // Verify CreateTaskResult structure
@@ -2895,7 +2893,7 @@ describe('Task-based execution', () => {
                         }
                     },
                     CreateTaskResultSchema,
-                    { task: { ttl: 60000 } }
+                    { task: { ttl: 60_000 } }
                 );
 
                 // Verify CreateTaskResult structure and capture taskId
@@ -3006,7 +3004,7 @@ describe('Task-based execution', () => {
         // Create multiple tasks concurrently
         const pendingRequests = Array.from({ length: 4 }, (_, index) =>
             client.callTool({ name: 'async-tool', arguments: { delay: 10 + index * 5, taskNum: index + 1 } }, CallToolResultSchema, {
-                task: { ttl: 60000 }
+                task: { ttl: 60_000 }
             })
         );
 
@@ -3022,12 +3020,12 @@ describe('Task-based execution', () => {
         const taskIds = taskList.tasks.map(t => t.taskId);
 
         // Verify all tasks completed successfully
-        for (let i = 0; i < taskIds.length; i++) {
-            const task = await client.experimental.tasks.getTask(taskIds[i]!);
+        for (const [i, taskId] of taskIds.entries()) {
+            const task = await client.experimental.tasks.getTask(taskId!);
             expect(task.status).toBe('completed');
-            expect(task.taskId).toBe(taskIds[i]!);
+            expect(task.taskId).toBe(taskId!);
 
-            const result = await client.experimental.tasks.getTaskResult(taskIds[i]!, CallToolResultSchema);
+            const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
             expect(result.content).toEqual([{ type: 'text', text: `Completed task ${i + 1}` }]);
         }
 
@@ -3251,7 +3249,7 @@ test('should respect client task capabilities', async () => {
             }
         },
         CreateTaskResultSchema,
-        { task: { ttl: 60000 } }
+        { task: { ttl: 60_000 } }
     );
 
     // Verify CreateTaskResult structure
@@ -3273,7 +3271,7 @@ test('should respect client task capabilities', async () => {
                 }
             },
             CreateMessageResultSchema,
-            { task: { taskId: 'test-task-2', keepAlive: 60000 } }
+            { task: { taskId: 'test-task-2', keepAlive: 60_000 } }
         )
     ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
 

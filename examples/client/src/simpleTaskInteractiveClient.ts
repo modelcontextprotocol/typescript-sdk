@@ -130,23 +130,27 @@ async function run(url: string): Promise<void> {
     const confirmStream = client.experimental.tasks.callToolStream(
         { name: 'confirm_delete', arguments: { filename: 'important.txt' } },
         CallToolResultSchema,
-        { task: { ttl: 60000 } }
+        { task: { ttl: 60_000 } }
     );
 
     for await (const message of confirmStream) {
         switch (message.type) {
-            case 'taskCreated':
+            case 'taskCreated': {
                 console.log(`Task created: ${message.task.taskId}`);
                 break;
-            case 'taskStatus':
+            }
+            case 'taskStatus': {
                 console.log(`Task status: ${message.task.status}`);
                 break;
-            case 'result':
+            }
+            case 'result': {
                 console.log(`Result: ${getTextContent(message.result)}`);
                 break;
-            case 'error':
+            }
+            case 'error': {
                 console.error(`Error: ${message.error}`);
                 break;
+            }
         }
     }
 
@@ -158,24 +162,28 @@ async function run(url: string): Promise<void> {
         { name: 'write_haiku', arguments: { topic: 'autumn leaves' } },
         CallToolResultSchema,
         {
-            task: { ttl: 60000 }
+            task: { ttl: 60_000 }
         }
     );
 
     for await (const message of haikuStream) {
         switch (message.type) {
-            case 'taskCreated':
+            case 'taskCreated': {
                 console.log(`Task created: ${message.task.taskId}`);
                 break;
-            case 'taskStatus':
+            }
+            case 'taskStatus': {
                 console.log(`Task status: ${message.task.status}`);
                 break;
-            case 'result':
+            }
+            case 'result': {
                 console.log(`Result:\n${getTextContent(message.result)}`);
                 break;
-            case 'error':
+            }
+            case 'error': {
                 console.error(`Error: ${message.error}`);
                 break;
+            }
         }
     }
 
@@ -197,7 +205,10 @@ for (let i = 0; i < args.length; i++) {
 }
 
 // Run the client
-run(url).catch(error => {
+try {
+    await run(url);
+} catch (error) {
     console.error('Error running client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

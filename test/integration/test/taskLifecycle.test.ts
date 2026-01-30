@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { TaskRequestOptions } from '@modelcontextprotocol/server';
 import {
     CallToolResultSchema,
@@ -14,7 +16,6 @@ import {
     McpError,
     McpServer,
     RELATED_TASK_META_KEY,
-    StreamableHTTPServerTransport,
     TaskSchema
 } from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
@@ -23,7 +24,7 @@ import { z } from 'zod';
 describe('Task Lifecycle Integration Tests', () => {
     let server: Server;
     let mcpServer: McpServer;
-    let serverTransport: StreamableHTTPServerTransport;
+    let serverTransport: NodeStreamableHTTPServerTransport;
     let baseUrl: URL;
     let taskStore: InMemoryTaskStore;
 
@@ -65,7 +66,7 @@ describe('Task Lifecycle Integration Tests', () => {
             {
                 async createTask({ duration, shouldFail }, extra) {
                     const task = await extra.task.store.createTask({
-                        ttl: 60000,
+                        ttl: 60_000,
                         pollInterval: 100
                     });
 
@@ -74,16 +75,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         await new Promise(resolve => setTimeout(resolve, duration));
 
                         try {
-                            if (shouldFail) {
-                                await extra.task.store.storeTaskResult(task.taskId, 'failed', {
-                                    content: [{ type: 'text', text: 'Task failed as requested' }],
-                                    isError: true
-                                });
-                            } else {
-                                await extra.task.store.storeTaskResult(task.taskId, 'completed', {
-                                    content: [{ type: 'text', text: `Completed after ${duration}ms` }]
-                                });
-                            }
+                            await (shouldFail
+                                ? extra.task.store.storeTaskResult(task.taskId, 'failed', {
+                                      content: [{ type: 'text', text: 'Task failed as requested' }],
+                                      isError: true
+                                  })
+                                : extra.task.store.storeTaskResult(task.taskId, 'completed', {
+                                      content: [{ type: 'text', text: `Completed after ${duration}ms` }]
+                                  }));
                         } catch {
                             // Task may have been cleaned up if test ended
                         }
@@ -118,7 +117,7 @@ describe('Task Lifecycle Integration Tests', () => {
             {
                 async createTask({ userName }, extra) {
                     const task = await extra.task.store.createTask({
-                        ttl: 60000,
+                        ttl: 60_000,
                         pollInterval: 100
                     });
 
@@ -127,7 +126,16 @@ describe('Task Lifecycle Integration Tests', () => {
                         await new Promise(resolve => setTimeout(resolve, 100));
 
                         // If userName not provided, request it via elicitation
-                        if (!userName) {
+                        if (userName) {
+                            // Complete immediately if userName was provided
+                            try {
+                                await extra.task.store.storeTaskResult(task.taskId, 'completed', {
+                                    content: [{ type: 'text', text: `Hello, ${userName}!` }]
+                                });
+                            } catch {
+                                // Task may have been cleaned up if test ended
+                            }
+                        } else {
                             const elicitationResult = await extra.sendRequest(
                                 {
                                     method: 'elicitation/create',
@@ -159,15 +167,6 @@ describe('Task Lifecycle Integration Tests', () => {
                             } catch {
                                 // Task may have been cleaned up if test ended
                             }
-                        } else {
-                            // Complete immediately if userName was provided
-                            try {
-                                await extra.task.store.storeTaskResult(task.taskId, 'completed', {
-                                    content: [{ type: 'text', text: `Hello, ${userName}!` }]
-                                });
-                            } catch {
-                                // Task may have been cleaned up if test ended
-                            }
                         }
                     })();
 
@@ -188,7 +187,7 @@ describe('Task Lifecycle Integration Tests', () => {
         );
 
         // Create transport
-        serverTransport = new StreamableHTTPServerTransport({
+        serverTransport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID()
         });
 
@@ -231,7 +230,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             shouldFail: false
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -242,7 +241,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(createResult).toHaveProperty('task');
             expect(createResult.task).toHaveProperty('taskId');
             expect(createResult.task.status).toBe('working');
-            expect(createResult.task.ttl).toBe(60000);
+            expect(createResult.task.ttl).toBe(60_000);
             expect(createResult.task.createdAt).toBeDefined();
             expect(createResult.task.pollInterval).toBe(100);
 
@@ -287,7 +286,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             shouldFail: true
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -331,7 +330,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             duration: 5000
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -380,7 +379,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             duration: 100
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -422,7 +421,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     async createTask({ requestCount }, extra) {
                         const task = await extra.task.store.createTask({
-                            ttl: 60000,
+                            ttl: 60_000,
                             pollInterval: 100
                         });
 
@@ -532,7 +531,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             requestCount: 3
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -574,7 +573,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(task.status).toBe('completed');
 
             await transport.close();
-        }, 10000);
+        }, 10_000);
     });
 
     describe('Input Required Flow', () => {
@@ -628,7 +627,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         name: 'input-task',
                         arguments: {},
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -693,7 +692,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(finalTask.status).toBe('completed');
 
             await transport.close();
-        }, 15000);
+        }, 15_000);
     });
 
     describe('Task Listing and Pagination', () => {
@@ -718,7 +717,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 duration: 1000
                             },
                             task: {
-                                ttl: 60000
+                                ttl: 60_000
                             }
                         }
                     },
@@ -756,7 +755,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 duration: 5000
                             },
                             task: {
-                                ttl: 60000
+                                ttl: 60_000
                             }
                         }
                     },
@@ -879,7 +878,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const taskId = createResult.task.taskId;
 
             // Verify TTL is set correctly
-            expect(createResult.task.ttl).toBe(60000); // The task store uses 60000 as default
+            expect(createResult.task.ttl).toBe(60_000); // The task store uses 60000 as default
 
             // Task should exist
             const task = await client.request(
@@ -890,7 +889,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 TaskSchema
             );
             expect(task).toBeDefined();
-            expect(task.ttl).toBe(60000);
+            expect(task.ttl).toBe(60_000);
 
             await transport.close();
         });
@@ -911,7 +910,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     async createTask({ messageCount }, extra) {
                         const task = await extra.task.store.createTask({
-                            ttl: 60000,
+                            ttl: 60_000,
                             pollInterval: 100
                         });
 
@@ -1011,7 +1010,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             messageCount: 2
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -1040,7 +1039,7 @@ describe('Task Lifecycle Integration Tests', () => {
                     method: 'tasks/cancel',
                     params: { taskId }
                 },
-                z.object({ _meta: z.record(z.unknown()).optional() })
+                z.object({ _meta: z.record(z.string(), z.unknown()).optional() })
             );
 
             // Verify task is cancelled
@@ -1090,7 +1089,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(elicitationCallCount).toBe(0);
 
             await transport.close();
-        }, 10000);
+        }, 10_000);
     });
 
     describe('Continuous Message Delivery', () => {
@@ -1109,7 +1108,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     async createTask({ messageCount, delayBetweenMessages }, extra) {
                         const task = await extra.task.store.createTask({
-                            ttl: 60000,
+                            ttl: 60_000,
                             pollInterval: 100
                         });
 
@@ -1239,7 +1238,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             delayBetweenMessages: 300
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -1307,7 +1306,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(task.status).toBe('completed');
 
             await transport.close();
-        }, 15000); // Increase timeout to 15 seconds to allow for message delays
+        }, 15_000); // Increase timeout to 15 seconds to allow for message delays
     });
 
     describe('Terminal Task with Queued Messages', () => {
@@ -1325,7 +1324,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     async createTask({ messageCount }, extra) {
                         const task = await extra.task.store.createTask({
-                            ttl: 60000,
+                            ttl: 60_000,
                             pollInterval: 100
                         });
 
@@ -1444,7 +1443,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             messageCount: 2
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -1492,7 +1491,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(result2.content).toEqual([{ type: 'text', text: 'Task completed quickly' }]);
 
             await transport.close();
-        }, 10000);
+        }, 10_000);
     });
 
     describe('Concurrent Operations', () => {
@@ -1516,7 +1515,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 duration: 500
                             },
                             task: {
-                                ttl: 60000
+                                ttl: 60_000
                             }
                         }
                     },
@@ -1557,7 +1556,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             duration: 2000
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 },
@@ -1625,7 +1624,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Use callToolStream instead of raw request()
             const stream = client.experimental.tasks.callToolStream({ name: 'input-task', arguments: {} }, CallToolResultSchema, {
-                task: { ttl: 60000 }
+                task: { ttl: 60_000 }
             });
 
             // Collect all stream messages
@@ -1646,7 +1645,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(statusMessages.length).toBeGreaterThanOrEqual(1);
 
             // Last message should be result
-            const lastMessage = messages[messages.length - 1]!;
+            const lastMessage = messages.at(-1)!;
             expect(lastMessage.type).toBe('result');
             expect(lastMessage.result).toBeDefined();
 
@@ -1659,6 +1658,6 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(result.content).toEqual([{ type: 'text', text: 'Hello, StreamUser!' }]);
 
             await transport.close();
-        }, 15000);
+        }, 15_000);
     });
 });
