@@ -1,5 +1,5 @@
-import { isTerminal, TaskCreationParamsSchema } from '@modelcontextprotocol/core';
 import type { Task } from '@modelcontextprotocol/core';
+import { isTerminal, TaskCreationParamsSchema } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
 
 describe('Task utility functions', () => {
@@ -118,7 +118,7 @@ describe('Task Schema Validation', () => {
 
 describe('TaskCreationParams Schema Validation', () => {
     it('should accept ttl as a number', () => {
-        const result = TaskCreationParamsSchema.safeParse({ ttl: 60000 });
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60_000 });
         expect(result.success).toBe(true);
     });
 
@@ -138,7 +138,7 @@ describe('TaskCreationParams Schema Validation', () => {
     });
 
     it('should accept both ttl and pollInterval', () => {
-        const result = TaskCreationParamsSchema.safeParse({ ttl: 60000, pollInterval: 1000 });
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60_000, pollInterval: 1000 });
         expect(result.success).toBe(true);
     });
 });
