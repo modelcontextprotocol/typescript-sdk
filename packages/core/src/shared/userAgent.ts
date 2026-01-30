@@ -6,6 +6,11 @@ export type UserAgentProvider = () => Promise<string>;
 
 const UA_LANG = 'lang/js';
 
+// Declare window for browser environment detection
+declare global {
+    var window: { navigator?: { userAgent?: string } } | undefined;
+}
+
 function isBrowser(): boolean {
     return globalThis.window !== undefined;
 }
