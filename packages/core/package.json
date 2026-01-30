@@ -2,7 +2,7 @@
     "name": "@modelcontextprotocol/core",
     "private": true,
     "version": "2.0.0-alpha.0",
-    "description": "Model Context Protocol implementation for TypeScript",
+    "description": "Model Context Protocol implementation for TypeScript - Core package",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
@@ -19,7 +19,8 @@
     "packageManager": "pnpm@10.24.0",
     "keywords": [
         "modelcontextprotocol",
-        "mcp"
+        "mcp",
+        "core"
     ],
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",

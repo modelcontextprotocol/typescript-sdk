@@ -17,7 +17,7 @@ import {
     selectClientAuthMethod,
     startAuthorization
 } from '../../src/client/auth.js';
-import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
+import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({

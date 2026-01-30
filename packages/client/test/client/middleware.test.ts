@@ -1022,9 +1022,9 @@ describe('createMiddleware', () => {
 
             if (response.headers.get('content-type')?.includes('application/json')) {
                 const data = (await response.json()) as Record<string, unknown>;
-                const transformed = { ...data, timestamp: 123456789 };
+                const transformed = { ...data, timestamp: 123_456_789 };
 
-                return new Response(JSON.stringify(transformed), {
+                return Response.json(transformed, {
                     status: response.status,
                     statusText: response.statusText,
                     headers: response.headers
@@ -1040,7 +1040,7 @@ describe('createMiddleware', () => {
 
         expect(result).toEqual({
             data: 'original',
-            timestamp: 123456789
+            timestamp: 123_456_789
         });
     });
 

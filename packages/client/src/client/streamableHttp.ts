@@ -18,7 +18,7 @@ import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
     initialReconnectionDelay: 1000,
-    maxReconnectionDelay: 30000,
+    maxReconnectionDelay: 30_000,
     reconnectionDelayGrowFactor: 1.5,
     maxRetries: 2
 };
@@ -246,7 +246,7 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
-                await response.body?.cancel();
+                await response.text?.().catch(() => {});
 
                 if (response.status === 401 && this._authProvider) {
                     // Need to authenticate
@@ -480,8 +480,8 @@ export class StreamableHTTPClientTransport implements Transport {
 
             if (resumptionToken) {
                 // If we have at last event ID, we need to reconnect the SSE stream
-                this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(err =>
-                    this.onerror?.(err)
+                this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
+                    error => this.onerror?.(error)
                 );
                 return;
             }
@@ -507,7 +507,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                const text = await response.text().catch(() => null);
+                const text = await response.text?.().catch(() => null);
 
                 if (response.status === 401 && this._authProvider) {
                     // Prevent infinite recursion when server returns 401 after successful auth
@@ -582,12 +582,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
-                await response.body?.cancel();
+                await response.text?.().catch(() => {});
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
                     // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(err => this.onerror?.(err));
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
                 }
                 return;
             }
@@ -595,7 +595,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // Get original message(s) for detecting request IDs
             const messages = Array.isArray(message) ? message : [message];
 
-            const hasRequests = messages.filter(msg => 'method' in msg && 'id' in msg && msg.id !== undefined).length > 0;
+            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
 
             // Check the response type
             const contentType = response.headers.get('content-type');
@@ -617,12 +617,12 @@ export class StreamableHTTPClientTransport implements Transport {
                         this.onmessage?.(msg);
                     }
                 } else {
-                    await response.body?.cancel();
+                    await response.text?.().catch(() => {});
                     throw new StreamableHTTPError(-1, `Unexpected content type: ${contentType}`);
                 }
             } else {
                 // No requests in message but got 200 OK - still need to release connection
-                await response.body?.cancel();
+                await response.text?.().catch(() => {});
             }
         } catch (error) {
             this.onerror?.(error as Error);
@@ -661,7 +661,7 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
-            await response.body?.cancel();
+            await response.text?.().catch(() => {});
 
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
