@@ -38,8 +38,11 @@ export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): 
     }
 
     // v3 branch — use vendored converter
+    // Use 'jsonSchema2020-12' to omit the $schema field, which prevents Claude's API
+    // from rejecting the schema due to draft-07 declaration. The actual schema syntax
+    // produced is compatible with draft-2020-12.
     return zodToJsonSchema(schema as z3.ZodTypeAny, {
-        target: 'jsonSchema2020-12',
+        target: 'jsonSchema2020-12' as 'jsonSchema2019-09',
         strictUnions: opts?.strictUnions ?? true,
         pipeStrategy: opts?.pipeStrategy ?? 'input'
     }) as JsonSchema;
