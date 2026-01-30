@@ -1,4 +1,4 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport, UserAgentProvider } from '@modelcontextprotocol/core';
 import { createFetchWithInit, createUserAgentProvider, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/core';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
