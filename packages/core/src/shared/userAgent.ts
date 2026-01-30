@@ -10,7 +10,7 @@ const UA_LANG = 'lang/js';
 declare const window: { navigator?: { userAgent?: string } } | undefined;
 
 function isBrowser(): boolean {
-    return typeof window !== 'undefined';
+    return window !== undefined;
 }
 
 function uaProduct(): string {
@@ -19,20 +19,12 @@ function uaProduct(): string {
 
 function uaOS(os: string | undefined, version: string | undefined) {
     const osSegment = `os/${os ?? 'unknown'}`;
-    if (version) {
-        return `${osSegment}#${version}`;
-    } else {
-        return osSegment;
-    }
+    return version ? `${osSegment}#${version}` : osSegment;
 }
 
 function uaNode(version: string | undefined) {
     const nodeSegment = 'md/nodejs';
-    if (version) {
-        return `${nodeSegment}#${version}`;
-    } else {
-        return nodeSegment;
-    }
+    return version ? `${nodeSegment}#${version}` : nodeSegment;
 }
 
 function browserUserAgent(): string {
