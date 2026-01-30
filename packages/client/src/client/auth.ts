@@ -277,17 +277,21 @@ function applyClientAuthentication(
     const { client_id, client_secret } = clientInformation;
 
     switch (method) {
-        case 'client_secret_basic':
+        case 'client_secret_basic': {
             applyBasicAuth(client_id, client_secret, headers);
             return;
-        case 'client_secret_post':
+        }
+        case 'client_secret_post': {
             applyPostAuth(client_id, client_secret, params);
             return;
-        case 'none':
+        }
+        case 'none': {
             applyPublicAuth(client_id, params);
             return;
-        default:
+        }
+        default: {
             throw new Error(`Unsupported client authentication method: ${method}`);
+        }
     }
 }
 
@@ -611,7 +615,7 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
         return null;
     }
 
-    const pattern = new RegExp(`${fieldName}=(?:"([^"]+)"|([^\\s,]+))`);
+    const pattern = new RegExp(String.raw`${fieldName}=(?:"([^"]+)"|([^\s,]+))`);
     const match = wwwAuthHeader.match(pattern);
 
     if (match) {
@@ -670,12 +674,12 @@ export async function discoverOAuthProtectedResourceMetadata(
     });
 
     if (!response || response.status === 404) {
-        await response?.body?.cancel();
+        await response?.text?.().catch(() => {});
         throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
     }
 
     if (!response.ok) {
-        await response.body?.cancel();
+        await response.text?.().catch(() => {});
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`);
     }
     return OAuthProtectedResourceMetadataSchema.parse(await response.json());
@@ -689,13 +693,9 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
         return await fetchFn(url, { headers });
     } catch (error) {
         if (error instanceof TypeError) {
-            if (headers) {
-                // CORS errors come back as TypeError, retry without headers
-                return fetchWithCorsRetry(url, undefined, fetchFn);
-            } else {
-                // We're getting CORS errors on retry too, return undefined
-                return undefined;
-            }
+            // CORS errors come back as TypeError, retry without headers
+            // We're getting CORS errors on retry too, return undefined
+            return headers ? fetchWithCorsRetry(url, undefined, fetchFn) : undefined;
         }
         throw error;
     }
@@ -803,12 +803,12 @@ export async function discoverOAuthMetadata(
     });
 
     if (!response || response.status === 404) {
-        await response?.body?.cancel();
+        await response?.text?.().catch(() => {});
         return undefined;
     }
 
     if (!response.ok) {
-        await response.body?.cancel();
+        await response.text?.().catch(() => {});
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth metadata`);
     }
 
@@ -827,17 +827,20 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
     const urlsToTry: { url: URL; type: 'oauth' | 'oidc' }[] = [];
 
     if (!hasPath) {
-        // Root path: https://example.com/.well-known/oauth-authorization-server
-        urlsToTry.push({
-            url: new URL('/.well-known/oauth-authorization-server', url.origin),
-            type: 'oauth'
-        });
+        urlsToTry.push(
+            // Root path: https://example.com/.well-known/oauth-authorization-server
 
-        // OIDC: https://example.com/.well-known/openid-configuration
-        urlsToTry.push({
-            url: new URL(`/.well-known/openid-configuration`, url.origin),
-            type: 'oidc'
-        });
+            {
+                url: new URL('/.well-known/oauth-authorization-server', url.origin),
+                type: 'oauth'
+            },
+            // OIDC: https://example.com/.well-known/openid-configuration
+
+            {
+                url: new URL(`/.well-known/openid-configuration`, url.origin),
+                type: 'oidc'
+            }
+        );
 
         return urlsToTry;
     }
@@ -848,25 +851,26 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         pathname = pathname.slice(0, -1);
     }
 
-    // 1. OAuth metadata at the given URL
-    // Insert well-known before the path: https://example.com/.well-known/oauth-authorization-server/tenant1
-    urlsToTry.push({
-        url: new URL(`/.well-known/oauth-authorization-server${pathname}`, url.origin),
-        type: 'oauth'
-    });
+    urlsToTry.push(
+        // 1. OAuth metadata at the given URL
+        // Insert well-known before the path: https://example.com/.well-known/oauth-authorization-server/tenant1
+        {
+            url: new URL(`/.well-known/oauth-authorization-server${pathname}`, url.origin),
+            type: 'oauth'
+        },
+        // 2. OIDC metadata endpoints
+        // RFC 8414 style: Insert /.well-known/openid-configuration before the path
+        {
+            url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
+            type: 'oidc'
+        },
+        // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
 
-    // 2. OIDC metadata endpoints
-    // RFC 8414 style: Insert /.well-known/openid-configuration before the path
-    urlsToTry.push({
-        url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
-        type: 'oidc'
-    });
-
-    // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
-    urlsToTry.push({
-        url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
-        type: 'oidc'
-    });
+        {
+            url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
+            type: 'oidc'
+        }
+    );
 
     return urlsToTry;
 }
@@ -918,7 +922,7 @@ export async function discoverAuthorizationServerMetadata(
         }
 
         if (!response.ok) {
-            await response.body?.cancel();
+            await response.text?.().catch(() => {});
             // Continue looking for any 4xx response code.
             if (response.status >= 400 && response.status < 500) {
                 continue; // Try next URL
@@ -929,11 +933,9 @@ export async function discoverAuthorizationServerMetadata(
         }
 
         // Parse and validate based on type
-        if (type === 'oauth') {
-            return OAuthMetadataSchema.parse(await response.json());
-        } else {
-            return OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
-        }
+        return type === 'oauth'
+            ? OAuthMetadataSchema.parse(await response.json())
+            : OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
     }
 
     return undefined;
@@ -1086,7 +1088,18 @@ async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthTokensSchema.parse(await response.json());
+    const json: unknown = await response.json();
+
+    try {
+        return OAuthTokensSchema.parse(json);
+    } catch (parseError) {
+        // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
+        // Check for error field only if token parsing failed.
+        if (typeof json === 'object' && json !== null && 'error' in json) {
+            throw await parseErrorResponse(JSON.stringify(json));
+        }
+        throw parseError;
+    }
 }
 
 /**

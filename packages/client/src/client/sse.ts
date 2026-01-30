@@ -1,6 +1,7 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/core';
-import { type ErrorEvent, EventSource, type EventSourceInit } from 'eventsource';
+import type { ErrorEvent, EventSourceInit } from 'eventsource';
+import { EventSource } from 'eventsource';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
@@ -260,7 +261,7 @@ export class SSEClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
-                const text = await response.text().catch(() => null);
+                const text = await response.text?.().catch(() => null);
 
                 if (response.status === 401 && this._authProvider) {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -285,7 +286,7 @@ export class SSEClientTransport implements Transport {
             }
 
             // Release connection - POST responses don't have content we need
-            await response.body?.cancel();
+            await response.text?.().catch(() => {});
         } catch (error) {
             this.onerror?.(error as Error);
             throw error;
