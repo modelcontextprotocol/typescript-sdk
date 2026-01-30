@@ -2000,7 +2000,14 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
         type: z.literal('object'),
         properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
         required: z.array(z.string()).optional()
-    })
+    }) as z.ZodType<
+        | {
+              type?: 'object' | (string & {});
+              properties?: Record<string, PrimitiveSchemaDefinition>;
+              required?: string[];
+          }
+        | { [key: string]: unknown }
+    >
 });
 
 /**
