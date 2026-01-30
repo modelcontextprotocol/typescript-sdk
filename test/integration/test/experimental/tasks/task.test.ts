@@ -1,5 +1,5 @@
-import { isTerminal } from '@modelcontextprotocol/core';
-import type { Task } from '@modelcontextprotocol/server';
+import type { Task } from '@modelcontextprotocol/core';
+import { isTerminal, TaskCreationParamsSchema } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
 
 describe('Task utility functions', () => {
@@ -113,5 +113,32 @@ describe('Task Schema Validation', () => {
             };
             expect(task.status).toBe(status);
         }
+    });
+});
+
+describe('TaskCreationParams Schema Validation', () => {
+    it('should accept ttl as a number', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60_000 });
+        expect(result.success).toBe(true);
+    });
+
+    it('should accept missing ttl (optional)', () => {
+        const result = TaskCreationParamsSchema.safeParse({});
+        expect(result.success).toBe(true);
+    });
+
+    it('should reject null ttl (not allowed in request, only response)', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: null });
+        expect(result.success).toBe(false);
+    });
+
+    it('should accept pollInterval as a number', () => {
+        const result = TaskCreationParamsSchema.safeParse({ pollInterval: 1000 });
+        expect(result.success).toBe(true);
+    });
+
+    it('should accept both ttl and pollInterval', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60_000, pollInterval: 1000 });
+        expect(result.success).toBe(true);
     });
 });

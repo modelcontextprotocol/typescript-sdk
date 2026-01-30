@@ -330,10 +330,10 @@ export class McpServer {
         const isTaskHandler = 'createTask' in handler;
 
         if (isTaskHandler) {
-            if (!extra.taskStore) {
+            if (!extra.task?.store) {
                 throw new Error('No task store provided.');
             }
-            const taskExtra = { ...extra, taskStore: extra.taskStore };
+            const taskExtra = { ...extra, task: extra.task };
 
             if (tool.inputSchema) {
                 const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
@@ -365,14 +365,14 @@ export class McpServer {
         request: RequestT,
         extra: RequestHandlerExtra<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
-        if (!extra.taskStore) {
+        if (!extra.task?.store) {
             throw new Error('No task store provided for task-capable tool.');
         }
 
         // Validate input and create task
         const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
         const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
-        const taskExtra = { ...extra, taskStore: extra.taskStore };
+        const taskExtra = { ...extra, task: extra.task };
 
         const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
             ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, taskExtra))
@@ -386,7 +386,7 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await extra.taskStore.getTask(taskId);
+            const updatedTask = await extra.task.store.getTask(taskId);
             if (!updatedTask) {
                 throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
             }
@@ -394,7 +394,7 @@ export class McpServer {
         }
 
         // Return the final result
-        return (await extra.taskStore.getTaskResult(taskId)) as CallToolResult;
+        return (await extra.task.store.getTaskResult(taskId)) as CallToolResult;
     }
 
     private _completionHandlerInitialized = false;

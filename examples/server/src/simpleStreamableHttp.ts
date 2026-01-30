@@ -484,16 +484,16 @@ const getServer = () => {
             }
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+            async createTask({ duration }, { task }) {
                 // Create the task
-                const task = await taskStore.createTask({
-                    ttl: taskRequestedTtl
+                const newTask = await task.store.createTask({
+                    ttl: task.requestedTtl
                 });
 
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    await taskStore.storeTaskResult(task.taskId, 'completed', {
+                    await task.store.storeTaskResult(newTask.taskId, 'completed', {
                         content: [
                             {
                                 type: 'text',
@@ -505,14 +505,14 @@ const getServer = () => {
 
                 // Return CreateTaskResult with the created task
                 return {
-                    task
+                    task: newTask
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
-                return await taskStore.getTask(taskId);
+            async getTask(_args, { task }) {
+                return await task.store.getTask(task.id);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
-                const result = await taskStore.getTaskResult(taskId);
+            async getTaskResult(_args, { task }) {
+                const result = await task.store.getTaskResult(task.id);
                 return result as CallToolResult;
             }
         }
