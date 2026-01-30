@@ -6763,7 +6763,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async (_args, extra) => {
-                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                        const task = await extra.taskStore.createTask({ ttl: 60_000, pollInterval: 100 });
                         taskCreatedAt = Date.now();
                         return { task };
                     },
@@ -6794,7 +6794,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     params: {
                         name: 'task-tool',
                         arguments: { data: 'test' },
-                        task: { ttl: 60000 }
+                        task: { ttl: 60_000 }
                     }
                 },
                 CreateTaskResultSchema
