@@ -39,6 +39,7 @@ export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): 
 
     // v3 branch — use vendored converter
     return zodToJsonSchema(schema as z3.ZodTypeAny, {
+        target: 'jsonSchema2020-12',
         strictUnions: opts?.strictUnions ?? true,
         pipeStrategy: opts?.pipeStrategy ?? 'input'
     }) as JsonSchema;
