@@ -37,8 +37,9 @@
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
-        "better-auth": "1.4.7",
-        "better-sqlite3": "^12.4.1",
+        "better-auth": "^1.4.17",
+        "better-sqlite3": "^12.6.2",
+        "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
@@ -48,6 +49,7 @@
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@types/better-sqlite3": "^7.6.13",
+        "@types/cors": "catalog:devTools",
         "@types/express": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",

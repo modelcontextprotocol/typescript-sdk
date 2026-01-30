@@ -5,6 +5,7 @@
 Respect capability negotiation in list methods by returning empty lists when server lacks capability
 
 The Client now returns empty lists instead of sending requests to servers that don't advertise the corresponding capability:
+
 - `listPrompts()` returns `{ prompts: [] }` if server lacks prompts capability
 - `listResources()` returns `{ resources: [] }` if server lacks resources capability
 - `listResourceTemplates()` returns `{ resourceTemplates: [] }` if server lacks resources capability

@@ -22,6 +22,7 @@ import {
     isInitializeRequest,
     McpServer
 } from '@modelcontextprotocol/server';
+import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -30,6 +31,7 @@ import { InMemoryEventStore } from './inMemoryEventStore.js';
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
+const dangerousLoggingEnabled = process.argv.includes('--dangerous-logging-enabled');
 
 // Create shared task store for demonstration
 const taskStore = new InMemoryTaskStore();
@@ -524,6 +526,16 @@ const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AU
 
 const app = createMcpExpressApp();
 
+// Enable CORS for browser-based clients (demo only)
+// This allows cross-origin requests and exposes WWW-Authenticate header for OAuth
+// WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
+app.use(
+    cors({
+        exposedHeaders: ['WWW-Authenticate', 'Mcp-Session-Id', 'Last-Event-Id', 'Mcp-Protocol-Version'],
+        origin: '*' // WARNING: This allows all origins to access the MCP server. In production, you should restrict this to specific origins.
+    })
+);
+
 // Set up OAuth if enabled
 let authMiddleware = null;
 if (useOAuth) {
@@ -531,11 +543,12 @@ if (useOAuth) {
     const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
     const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-    setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth, demoMode: true });
+    setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth, demoMode: true, dangerousLoggingEnabled });
 
     // Add protected resource metadata route to the MCP server
     // This allows clients to discover the auth server
-    app.use(createProtectedResourceMetadataRouter());
+    // Pass the resource path so metadata is served at /.well-known/oauth-protected-resource/mcp
+    app.use(createProtectedResourceMetadataRouter('/mcp'));
 
     authMiddleware = requireBearerAuth({
         requiredScopes: [],
@@ -699,6 +712,9 @@ app.listen(MCP_PORT, error => {
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
+    if (useOAuth) {
+        console.log(`  Protected Resource Metadata: http://localhost:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
+    }
 });
 
 // Handle server shutdown
