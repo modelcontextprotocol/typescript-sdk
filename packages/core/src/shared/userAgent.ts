@@ -6,11 +6,8 @@ export type UserAgentProvider = () => Promise<string>;
 
 const UA_LANG = 'lang/js';
 
-// Declare window for browser environment detection
-declare const window: { navigator?: { userAgent?: string } } | undefined;
-
 function isBrowser(): boolean {
-    return window !== undefined;
+    return globalThis.window !== undefined;
 }
 
 function uaProduct(): string {
@@ -29,7 +26,7 @@ function uaNode(version: string | undefined) {
 
 function browserUserAgent(): string {
     // window is guaranteed to exist when this function is called (checked by isBrowser())
-    const userAgent = window?.navigator?.userAgent;
+    const userAgent = globalThis.window?.navigator?.userAgent;
     const ua = userAgent ? Bowser.parse(userAgent) : undefined;
     return `${uaProduct()} ${uaOS(ua?.os.name, ua?.os.version)} ${UA_LANG}`;
 }
