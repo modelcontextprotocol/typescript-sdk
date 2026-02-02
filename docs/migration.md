@@ -290,6 +290,10 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 - All Zod schemas and type definitions from `types.ts` (except the aliases listed above)
 - Tool, prompt, and resource callback return types
 
+## Using an LLM to migrate your code
+
+An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as a skill.
+
 ## Need Help?
 
 If you encounter issues during migration:
