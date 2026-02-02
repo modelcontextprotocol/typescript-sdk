@@ -237,6 +237,103 @@ app.use(hostHeaderValidation(['example.com']));
 
 Note: the v2 signature takes a plain `string[]` instead of an options object.
 
+### Context API replaces `RequestHandlerExtra`
+
+The `extra` parameter in tool, prompt, and resource callbacks has been replaced with a structured context object (`ctx`). The old flat `RequestHandlerExtra` interface is replaced by `ServerContextInterface` (for server callbacks) and `ClientContextInterface` (for client callbacks).
+
+**Before (v1):**
+
+```typescript
+server.registerTool('my-tool', { inputSchema: { query: z.string() } }, async ({ query }, extra) => {
+  // Flat properties
+  console.log(extra.requestId);
+  console.log(extra.sessionId);
+  console.log(extra.authInfo?.token);
+  
+  // Check cancellation
+  if (extra.signal.aborted) throw new Error('Cancelled');
+  
+  // Send notification
+  await extra.sendNotification({ method: 'notifications/progress', params: { progress: 50 } });
+  
+  // Task access
+  if (extra.taskStore) {
+    await extra.taskStore.updateTaskStatus(extra.taskId!, 'running');
+  }
+  
+  // SSE stream control
+  extra.closeSSEStream?.();
+  
+  return { content: [{ type: 'text', text: 'Done' }] };
+});
+```
+
+**After (v2):**
+
+```typescript
+server.registerTool('my-tool', { inputSchema: { query: z.string() } }, async ({ query }, ctx) => {
+  // Grouped into nested objects
+  console.log(ctx.mcpReq.id);          // was extra.requestId
+  console.log(ctx.sessionId);           // still at top level
+  console.log(ctx.http?.authInfo?.token); // was extra.authInfo
+  
+  // Check cancellation (signal moved to mcpReq)
+  if (ctx.mcpReq.signal.aborted) throw new Error('Cancelled');
+  
+  // Send notification (via notification.send)
+  await ctx.notification.send({ method: 'notifications/progress', params: { progress: 50 } });
+  
+  // Task access (grouped in task object)
+  if (ctx.task) {
+    await ctx.task.store.updateTaskStatus(ctx.task.id, 'running');
+  }
+  
+  // SSE stream control (moved to http)
+  ctx.http?.closeSSE?.();
+  
+  // Server-specific: logging methods on notification
+  await ctx.notification.info('Processing query');
+  await ctx.notification.debug('Debug details', { query });
+  
+  // Server-specific: elicitation and sampling on mcpReq
+  const userInput = await ctx.mcpReq.elicitInput({ message: 'Confirm?', mode: 'form', form: {} });
+  const message = await ctx.mcpReq.requestSampling({ messages: [...], maxTokens: 100 });
+  
+  return { content: [{ type: 'text', text: 'Done' }] };
+});
+```
+
+#### Property mapping
+
+| v1 (`extra.`) | v2 (`ctx.`) |
+|---------------|-------------|
+| `extra.requestId` | `ctx.mcpReq.id` |
+| `extra.sessionId` | `ctx.sessionId` |
+| `extra._meta` | `ctx.mcpReq._meta` |
+| `extra.signal` | `ctx.mcpReq.signal` |
+| `extra.authInfo` | `ctx.http?.authInfo` |
+| `extra.requestInfo?.headers` | `ctx.http?.req.headers` |
+| `extra.sendNotification(n)` | `ctx.notification.send(n)` |
+| `extra.sendRequest(r, s, o)` | `ctx.mcpReq.send(r, s, o)` |
+| `extra.taskId` | `ctx.task?.id` |
+| `extra.taskStore` | `ctx.task?.store` |
+| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+| `extra.closeSSEStream?.()` | `ctx.http?.closeSSE?.()` |
+| `extra.closeStandaloneSSEStream?.()` | `ctx.http?.closeStandaloneSSE?.()` |
+
+#### Server-specific additions on context
+
+| Method | Description |
+|--------|-------------|
+| `ctx.notification.log(params)` | Send logging message |
+| `ctx.notification.debug(msg, data?)` | Send debug log |
+| `ctx.notification.info(msg, data?)` | Send info log |
+| `ctx.notification.warning(msg, data?)` | Send warning log |
+| `ctx.notification.error(msg, data?)` | Send error log |
+| `ctx.mcpReq.elicitInput(params, opts?)` | Request user input via elicitation |
+| `ctx.mcpReq.requestSampling(params, opts?)` | Request LLM sampling from client |
+| `ctx.http?.req` | Raw fetch `Request` object (access URL, headers, etc.) |
+
 ### Client list methods return empty results for missing capabilities
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.

@@ -202,7 +202,88 @@ The server package now exports framework-agnostic alternatives: `validateHostHea
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 10. Migration Steps (apply in this order)
+## 10. Context API (replaces `RequestHandlerExtra`)
+
+Tool, prompt, and resource callbacks now receive a structured context object (`ctx`) instead of the flat `extra` parameter.
+
+### Property Mapping
+
+| v1 (`extra.`) | v2 (`ctx.`) |
+|---------------|-------------|
+| `extra.requestId` | `ctx.mcpReq.id` |
+| `extra.sessionId` | `ctx.sessionId` |
+| `extra._meta` | `ctx.mcpReq._meta` |
+| `extra.signal` | `ctx.mcpReq.signal` |
+| `extra.authInfo` | `ctx.http?.authInfo` |
+| `extra.requestInfo?.headers` | `ctx.http?.req.headers` |
+| `extra.sendNotification(n)` | `ctx.notification.send(n)` |
+| `extra.sendRequest(r, s, o)` | `ctx.mcpReq.send(r, s, o)` |
+| `extra.taskId` | `ctx.task?.id` |
+| `extra.taskStore` | `ctx.task?.store` |
+| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+| `extra.closeSSEStream?.()` | `ctx.http?.closeSSE?.()` |
+| `extra.closeStandaloneSSEStream?.()` | `ctx.http?.closeStandaloneSSE?.()` |
+
+### Server-specific context methods
+
+| Method | Description |
+|--------|-------------|
+| `ctx.notification.log(params)` | Send logging message |
+| `ctx.notification.debug(msg, data?)` | Send debug log |
+| `ctx.notification.info(msg, data?)` | Send info log |
+| `ctx.notification.warning(msg, data?)` | Send warning log |
+| `ctx.notification.error(msg, data?)` | Send error log |
+| `ctx.mcpReq.elicitInput(params, opts?)` | Request user input via elicitation |
+| `ctx.mcpReq.requestSampling(params, opts?)` | Request LLM sampling from client |
+| `ctx.http?.req` | Raw fetch `Request` object |
+
+### Context structure overview
+
+```typescript
+// Common structure (client and server)
+ctx.sessionId                // top-level
+ctx.mcpReq.id                // request ID
+ctx.mcpReq.method            // request method
+ctx.mcpReq._meta             // request metadata
+ctx.mcpReq.signal            // abort signal
+ctx.mcpReq.send(req, schema) // send related request
+ctx.http?.authInfo           // auth info (HTTP transports)
+ctx.task?.id                 // task ID (if task-augmented)
+ctx.task?.store              // task store
+ctx.task?.requestedTtl       // task TTL
+ctx.notification.send(n)     // send notification
+
+// Server additions
+ctx.http?.req                // raw fetch Request object
+ctx.http?.closeSSE?.()       // close SSE stream
+ctx.http?.closeStandaloneSSE?.() // close standalone SSE
+ctx.notification.log(params) // logging
+ctx.notification.debug/info/warning/error(msg, data?)
+ctx.mcpReq.elicitInput(params, opts?)
+ctx.mcpReq.requestSampling(params, opts?)
+```
+
+### Example migration
+
+```typescript
+// v1
+server.registerTool('my-tool', { inputSchema: { q: z.string() } }, async ({ q }, extra) => {
+  if (extra.signal.aborted) throw new Error('Cancelled');
+  await extra.sendNotification({ method: 'n', params: {} });
+  if (extra.taskStore) await extra.taskStore.updateTaskStatus(extra.taskId!, 'running');
+  return { content: [{ type: 'text', text: 'Done' }] };
+});
+
+// v2
+server.registerTool('my-tool', { inputSchema: { q: z.string() } }, async ({ q }, ctx) => {
+  if (ctx.mcpReq.signal.aborted) throw new Error('Cancelled');
+  await ctx.notification.send({ method: 'n', params: {} });
+  if (ctx.task) await ctx.task.store.updateTaskStatus(ctx.task.id, 'running');
+  return { content: [{ type: 'text', text: 'Done' }] };
+});
+```
+
+## 12. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
@@ -213,4 +294,5 @@ The server package now exports framework-agnostic alternatives: `validateHostHea
 7. If using server SSE transport, migrate to Streamable HTTP
 8. If using server auth from the SDK, migrate to an external auth library
 9. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-10. Verify: build with `tsc` / run tests
+10. Update tool/prompt/resource callbacks: rename `extra` parameter to `ctx` and update property access per section 10
+11. Verify: build with `tsc` / run tests

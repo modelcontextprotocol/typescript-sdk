@@ -178,9 +178,9 @@ The `ctx` parameter in handlers provides a structured context with grouped field
   - `method`: The method being called
   - `_meta`: Request metadata
   - `signal`: AbortSignal for cancellation
-- `ctx.req`: Request context with authentication and send method
-  - `authInfo`: Validated auth token info (if authenticated)
   - `send(request, schema, options?)`: Send request (for bidirectional flows)
+- `ctx.http`: HTTP request context (optional, present for HTTP transports)
+  - `authInfo`: Validated auth token info (if authenticated)
 - `ctx.task`: Task context (when tasks are enabled)
   - `id`: Current task ID (updates after `store.createTask()`)
   - `store`: Request-scoped task store (`RequestTaskStore`)
@@ -190,18 +190,19 @@ The `ctx` parameter in handlers provides a structured context with grouped field
 
 **Server-specific additions**:
 
-- `ctx.req.raw`: Raw fetch Request object (access to URL, headers, etc.)
+- `ctx.http`: Extended with additional fields
+  - `req`: Raw fetch Request object (access to URL, headers, etc.)
+  - `closeSSE?()`: Close SSE stream for polling
+  - `closeStandaloneSSE?()`: Close standalone SSE stream
+- `ctx.mcpReq`: Extended with server-to-client request methods
+  - `requestSampling(params, options?)`: Request sampling from client
+  - `elicitInput(params, options?)`: Request user input from client
 - `ctx.notification`: Extended with logging methods
   - `log(params)`: Send logging notification
   - `debug(message, extraLogData?)`: Send debug log
   - `info(message, extraLogData?)`: Send info log
   - `warning(message, extraLogData?)`: Send warning log
   - `error(message, extraLogData?)`: Send error log
-- `ctx.stream`: SSE stream control
-  - `closeSSE?()`: Close SSE stream for polling
-  - `closeStandaloneSSE?()`: Close standalone SSE stream
-- `ctx.requestSampling(params, options?)`: Request sampling from client
-- `ctx.elicitInput(params, options?)`: Request user input from client
 
 ### Capability Checking
 
