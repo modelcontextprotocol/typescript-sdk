@@ -24,14 +24,13 @@ pnpm --filter @modelcontextprotocol/core test -- -t "test name"
 
 ## Breaking Changes
 
-When making breaking changes, document them in `docs/migration.md`. Include:
+When making breaking changes, document them in **both**:
 
-- What changed
-- Why it changed (briefly)
-- Before/after code examples showing how to migrate
+- `docs/migration.md` — human-readable guide with before/after code examples
+- `.claude/skills/migrate-v1-to-v2/SKILL.md` — LLM-optimized mapping tables for mechanical migration
 
-Search for related sections in the migration guide and group related changes together
-rather than adding new standalone sections.
+Include what changed, why, and how to migrate. Search for related sections and group
+related changes together rather than adding new standalone sections.
 
 ## Code Style Guidelines
 
