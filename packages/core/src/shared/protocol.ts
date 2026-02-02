@@ -609,6 +609,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        if (this._transport) {
+            throw new Error(
+                'Protocol is already connected to a transport. ' +
+                    'Call close() before connecting to a new transport, ' +
+                    'or create a new Protocol instance for concurrent connections.'
+            );
+        }
+
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
