@@ -8,7 +8,6 @@ import type { TaskRequestOptions } from '@modelcontextprotocol/server';
 import {
     CallToolResultSchema,
     CreateTaskResultSchema,
-    ElicitRequestSchema,
     ElicitResultSchema,
     ErrorCode,
     InMemoryTaskMessageQueue,
@@ -498,7 +497,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const receivedMessages: Array<{ method: string; message: string }> = [];
 
             // Set up elicitation handler on client to track message order
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 // Track the message
                 receivedMessages.push({
                     method: request.method,
@@ -604,7 +603,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let elicitationRequestMeta: Record<string, unknown> | undefined;
 
             // Set up elicitation handler on client
-            elicitClient.setRequestHandler(ElicitRequestSchema, async request => {
+            elicitClient.setRequestHandler('elicitation/create', async request => {
                 elicitationReceived = true;
                 elicitationRequestMeta = request.params._meta;
 
@@ -987,7 +986,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let elicitationCallCount = 0;
 
             // Set up elicitation handler to track if any messages are delivered
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 elicitationCallCount++;
                 return {
                     action: 'accept' as const,
@@ -1204,7 +1203,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let tasksResultStartTime = 0;
 
             // Set up elicitation handler to track when messages arrive
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 const timestamp = Date.now();
                 receivedMessages.push({
                     message: request.params.message,
@@ -1412,7 +1411,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const receivedMessages: Array<{ type: string; message?: string; content?: unknown }> = [];
 
             // Set up elicitation handler to track message order
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 receivedMessages.push({
                     type: 'elicitation',
                     message: request.params.message
@@ -1607,7 +1606,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let elicitationMessage = '';
 
             // Set up elicitation handler on client
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 elicitationReceived = true;
                 elicitationMessage = request.params.message;
 

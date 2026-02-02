@@ -12,18 +12,15 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ElicitRequestSchema,
     ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
     McpError,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
-    ResourceListChangedNotificationSchema,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
@@ -271,7 +268,7 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.setRequestHandler(ElicitRequestSchema, async request => {
+        client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
                 throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
@@ -296,7 +293,7 @@ async function connect(url?: string): Promise<void> {
                 attempts++;
                 console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
-                const content: Record<string, unknown> = {};
+                const content: Record<string, string | number | boolean | string[]> = {};
                 let inputCancelled = false;
 
                 // Collect input for each field
@@ -360,7 +357,7 @@ async function connect(url?: string): Promise<void> {
                     // Parse and validate the input
                     try {
                         if (answer === '' && field.default !== undefined) {
-                            content[fieldName] = field.default;
+                            content[fieldName] = field.default as string | number | boolean | string[];
                         } else if (answer === '' && !isRequired) {
                             // Skip optional empty fields
                             continue;
@@ -368,7 +365,7 @@ async function connect(url?: string): Promise<void> {
                             throw new Error(`${fieldName} is required`);
                         } else {
                             // Parse the value based on type
-                            let parsedValue: unknown;
+                            let parsedValue: string | number | boolean | string[];
 
                             switch (field.type) {
                                 case 'boolean': {
@@ -414,7 +411,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return { action: 'cancel' };
+                    return { action: 'cancel' as const };
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -427,7 +424,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return { action: 'decline' as const };
                     }
                 }
 
@@ -446,7 +443,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return { action: 'decline' as const };
                     }
                 }
 
@@ -496,14 +493,14 @@ async function connect(url?: string): Promise<void> {
         });
 
         // Set up notification handlers
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             notificationCount++;
             console.log(`\nNotification #${notificationCount}: ${notification.params.level} - ${notification.params.data}`);
             // Re-display the prompt
             process.stdout.write('> ');
         });
 
-        client.setNotificationHandler(ResourceListChangedNotificationSchema, async _ => {
+        client.setNotificationHandler('notifications/resources/list_changed', async _ => {
             console.log(`\nResource list changed notification received!`);
             try {
                 if (!client) {

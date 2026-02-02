@@ -2605,3 +2605,41 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Protocol type maps */
+type MethodToTypeMap<U> = {
+    [T in U as T extends { method: infer M extends string } ? M : never]: T;
+};
+export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
+export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
+export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
+export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+
+/* Runtime schema lookup */
+type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
+type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
+
+function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
+    const map: Record<string, T> = {};
+    for (const schema of schemas) {
+        const method = schema.shape.method.value;
+        map[method] = schema;
+    }
+    return map;
+}
+
+const requestSchemas = buildSchemaMap([...ClientRequestSchema.options, ...ServerRequestSchema.options] as const) as Record<
+    RequestMethod,
+    RequestSchemaType
+>;
+const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options, ...ServerNotificationSchema.options] as const) as Record<
+    NotificationMethod,
+    NotificationSchemaType
+>;
+
+export function getRequestSchema<M extends RequestMethod>(method: M) {
+    return requestSchemas[method];
+}
+export function getNotificationSchema<M extends NotificationMethod>(method: M) {
+    return notificationSchemas[method];
+}

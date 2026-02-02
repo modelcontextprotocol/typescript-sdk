@@ -15,7 +15,6 @@
 import {
     Client,
     StreamableHTTPClientTransport,
-    ElicitRequestSchema,
     ClientCredentialsProvider,
     PrivateKeyJwtProvider
 } from '@modelcontextprotocol/client';
@@ -265,7 +264,7 @@ async function runElicitationDefaultsClient(serverUrl: string): Promise<void> {
 
     // Register elicitation handler that returns empty content
     // The SDK should fill in defaults for all omitted fields
-    client.setRequestHandler(ElicitRequestSchema, async request => {
+    client.setRequestHandler('elicitation/create', async request => {
         logger.debug('Received elicitation request:', JSON.stringify(request.params, null, 2));
         logger.debug('Accepting with empty content - SDK should apply defaults');
 
