@@ -75,7 +75,7 @@ Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-
 |-----------|-----------|------------|
 | `StreamableHTTPServerTransport` | `NodeStreamableHTTPServerTransport` | `@modelcontextprotocol/node` |
 
-## 5. Removed Type Aliases
+## 5. Removed / Renamed Type Aliases and Symbols
 
 | v1 (removed) | v2 (replacement) |
 |--------------|------------------|
@@ -85,6 +85,8 @@ Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-
 | `isJSONRPCResponse` | `isJSONRPCResultResponse` |
 | `ResourceReference` | `ResourceTemplateReference` |
 | `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
+| `IsomorphicHeaders` | REMOVED (use Web Standard `Headers`) |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
 
 ## 6. McpServer API Changes
 
@@ -150,27 +152,37 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ## 7. Headers API
 
-Transport constructors now use the `Headers` object instead of plain objects for headers.
+Transport constructors and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain objects.
 
 ```typescript
-// v1
+// v1: plain object, bracket access
 headers: { 'Authorization': 'Bearer token' }
+extra.requestInfo?.headers['mcp-session-id']
 
-// v2
+// v2: Headers object, .get() access
 headers: new Headers({ 'Authorization': 'Bearer token' })
+extra.requestInfo?.headers.get('mcp-session-id')
 ```
 
 ## 8. Removed Server Features
 
 ### SSE server transport
 
-Removed entirely. Migrate to Streamable HTTP transport. Client-side SSE transport is still available for connecting to legacy servers.
+`SSEServerTransport` removed entirely. Migrate to `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`). Client-side `SSEClientTransport` still available for connecting to legacy servers.
 
 ### Server-side auth
 
-Removed from the SDK. Use an external auth library (e.g., `better-auth`). See `examples/server/src/` for demos.
+All server OAuth exports removed: `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and associated types. Use an external auth library (e.g., `better-auth`). See `examples/server/src/` for demos.
 
-## 9. Migration Steps (for applying to a codebase)
+### Host header validation (Express)
+
+`hostHeaderValidation()` and `localhostHostValidation()` moved from server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic alternatives: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
+
+## 9. Client Behavioral Changes
+
+`Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
+
+## 10. Migration Steps (for applying to a codebase)
 
 1. Update `package.json`: replace `@modelcontextprotocol/sdk` with the appropriate v2 packages
 2. Find all imports from `@modelcontextprotocol/sdk/...` and replace using the import mapping table
@@ -178,6 +190,9 @@ Removed from the SDK. Use an external auth library (e.g., `better-auth`). See `e
 4. Replace `.tool()` / `.prompt()` / `.resource()` calls with `registerTool` / `registerPrompt` / `registerResource`
 5. Replace removed type aliases (`JSONRPCError` → `JSONRPCErrorResponse`, etc.)
 6. Replace plain header objects with `new Headers({...})` in transport constructors
-7. If using server SSE transport, migrate to Streamable HTTP
-8. If using server auth from the SDK, migrate to an external auth library
-9. Verify: build with `tsc` / run tests
+7. Replace bracket header access (`headers['x']`) with `.get()` calls (`headers.get('x')`)
+8. If using `hostHeaderValidation` from server, import from `@modelcontextprotocol/express` instead
+9. If using server SSE transport, migrate to Streamable HTTP
+10. If using server auth from the SDK, migrate to an external auth library
+11. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
+12. Verify: build with `tsc` / run tests

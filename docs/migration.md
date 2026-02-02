@@ -107,15 +107,22 @@ The SSE transport has been removed from the server. Servers should migrate to St
 
 ### Server auth removed
 
-Server-side OAuth/auth has been removed from the SDK. Use a dedicated auth library (e.g., `better-auth`) or a full Authorization Server instead. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
+Server-side OAuth/auth has been removed entirely from the SDK. This includes `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and all associated types.
+
+Use a dedicated auth library (e.g., `better-auth`) or a full Authorization Server instead. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
+
+Note: `AuthInfo` has moved from `server/auth/types.ts` to `@modelcontextprotocol/core` (it's now a core type).
 
 ### `Headers` object instead of plain objects
 
-Transport APIs now use the standard `Headers` object instead of plain `Record<string, string>` objects.
+Transport APIs and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain `Record<string, string | string[] | undefined>` (`IsomorphicHeaders` has been removed).
+
+This affects both transport constructors and request handler code that reads headers:
 
 **Before (v1):**
 
 ```typescript
+// Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
   requestInit: {
     headers: {
@@ -124,11 +131,15 @@ const transport = new StreamableHTTPClientTransport(url, {
     },
   },
 });
+
+// Reading headers in a request handler
+const sessionId = extra.requestInfo?.headers['mcp-session-id'];
 ```
 
 **After (v2):**
 
 ```typescript
+// Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
   requestInit: {
     headers: new Headers({
@@ -137,6 +148,9 @@ const transport = new StreamableHTTPClientTransport(url, {
     }),
   },
 });
+
+// Reading headers in a request handler
+const sessionId = extra.requestInfo?.headers.get('mcp-session-id');
 ```
 
 ### `McpServer.tool()`, `.prompt()`, `.resource()` removed
@@ -196,6 +210,36 @@ server.registerPrompt('summarize', { argsSchema: { text: z.string() } }, async (
 // Resource
 server.registerResource('config', 'config://app', {}, async (uri) => {
   return { contents: [{ uri: uri.href, text: '{}' }] };
+});
+```
+
+### Host header validation moved
+
+Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
+
+**Before (v1):**
+
+```typescript
+import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware.js';
+app.use(hostHeaderValidation({ allowedHosts: ['example.com'] }));
+```
+
+**After (v2):**
+
+```typescript
+import { hostHeaderValidation } from '@modelcontextprotocol/express';
+app.use(hostHeaderValidation({ allowedHosts: ['example.com'] }));
+```
+
+### Client list methods return empty results for missing capabilities
+
+`Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.
+
+To restore v1 behavior (throw an error when capabilities are missing), set `enforceStrictCapabilities: true`:
+
+```typescript
+const client = new Client({ name: 'my-client', version: '1.0.0' }, {
+  enforceStrictCapabilities: true,
 });
 ```
 
