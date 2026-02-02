@@ -22,6 +22,17 @@ pnpm --filter @modelcontextprotocol/core test -- path/to/file.test.ts
 pnpm --filter @modelcontextprotocol/core test -- -t "test name"
 ```
 
+## Breaking Changes
+
+When making breaking changes, document them in `docs/migration.md`. Include:
+
+- What changed
+- Why it changed (briefly)
+- Before/after code examples showing how to migrate
+
+Search for related sections in the migration guide and group related changes together
+rather than adding new standalone sections.
+
 ## Code Style Guidelines
 
 - **TypeScript**: Strict type checking, ES modules, explicit return types
