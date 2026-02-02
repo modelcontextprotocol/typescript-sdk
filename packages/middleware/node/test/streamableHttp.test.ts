@@ -12,7 +12,7 @@ import type {
     JSONRPCResultResponse,
     RequestId
 } from '@modelcontextprotocol/core';
-import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
+import type { EventStore } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
@@ -1328,18 +1328,18 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             },
 
             async replayEventsAfter(
-                lastEventId: EventId,
+                laststring: string,
                 {
                     send
                 }: {
-                    send: (eventId: EventId, message: JSONRPCMessage) => Promise<void>;
+                    send: (eventId: string, message: JSONRPCMessage) => Promise<void>;
                 }
-            ): Promise<StreamId> {
-                const streamId = lastEventId.split('_')[0]!;
+            ): Promise<string> {
+                const streamId = laststring.split('_')[0]!;
                 // Extract stream ID from the event ID
-                // For test simplicity, just return all events with matching streamId that aren't the lastEventId
+                // For test simplicity, just return all events with matching streamId that aren't the laststring
                 for (const [eventId, { message }] of storedEvents.entries()) {
-                    if (eventId.startsWith(streamId) && eventId !== lastEventId) {
+                    if (eventId.startsWith(streamId) && eventId !== laststring) {
                         await send(eventId, message);
                     }
                 }
@@ -1442,7 +1442,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Extract the event ID
             const idMatch = text.match(/id: ([^\n]+)/);
             expect(idMatch).toBeTruthy();
-            const firstEventId = idMatch![1]!;
+            const firststring = idMatch![1]!;
 
             // Send a second notification
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Second notification from MCP server' });
@@ -1457,7 +1457,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
                     'mcp-protocol-version': '2025-11-25',
-                    'last-event-id': firstEventId
+                    'last-event-id': firststring
                 }
             });
 
@@ -1497,7 +1497,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Extract the event ID
             const idMatch = text.match(/id: ([^\n]+)/);
             expect(idMatch).toBeTruthy();
-            const lastEventId = idMatch![1]!;
+            const laststring = idMatch![1]!;
 
             // Close the SSE stream to simulate a disconnect
             await reader!.cancel();
@@ -1514,7 +1514,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
                     'mcp-protocol-version': '2025-11-25',
-                    'last-event-id': lastEventId
+                    'last-event-id': laststring
                 }
             });
 
@@ -1656,14 +1656,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     return event?.streamId;
                 },
                 async replayEventsAfter(
-                    lastEventId: EventId,
-                    { send }: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
-                ): Promise<StreamId> {
-                    const event = storedEvents.get(lastEventId);
-                    const streamId = event?.streamId || lastEventId.split('::')[0]!;
+                    laststring: string,
+                    { send }: { send: (eventId: string, message: JSONRPCMessage) => Promise<void> }
+                ): Promise<string> {
+                    const event = storedEvents.get(laststring);
+                    const streamId = event?.streamId || laststring.split('::')[0]!;
                     const eventsToReplay: Array<[string, { message: JSONRPCMessage }]> = [];
                     for (const [eventId, data] of storedEvents.entries()) {
-                        if (data.streamId === streamId && eventId > lastEventId) {
+                        if (data.streamId === streamId && eventId > laststring) {
                             eventsToReplay.push([eventId, data]);
                         }
                     }
@@ -2261,7 +2261,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const text = new TextDecoder().decode(value);
             const idMatch = text.match(/id: ([^\n]+)/);
             expect(idMatch).toBeTruthy();
-            const lastEventId = idMatch![1]!;
+            const laststring = idMatch![1]!;
 
             // Call the tool to close the standalone SSE stream
             const toolCallRequest: JSONRPCMessage = {
@@ -2313,7 +2313,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
                     'mcp-protocol-version': '2025-11-25',
-                    'last-event-id': lastEventId
+                    'last-event-id': laststring
                 }
             });
             expect(reconnectResponse.status).toBe(200);
