@@ -239,7 +239,8 @@ setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: t
 
 // Add protected resource metadata route to the MCP server
 // This allows clients to discover the auth server
-app.use(createProtectedResourceMetadataRouter());
+// Pass the resource path so metadata is served at /.well-known/oauth-protected-resource/mcp
+app.use(createProtectedResourceMetadataRouter('/mcp'));
 
 authMiddleware = requireBearerAuth({
     requiredScopes: [],
@@ -709,6 +710,7 @@ app.listen(MCP_PORT, error => {
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
+    console.log(`  Protected Resource Metadata: http://localhost:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
 });
 
 // Handle server shutdown

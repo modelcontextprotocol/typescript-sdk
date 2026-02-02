@@ -3,6 +3,8 @@
     "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
+        "declaration": false,
+        "declarationMap": false,
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
