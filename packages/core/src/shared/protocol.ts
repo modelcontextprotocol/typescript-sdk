@@ -378,7 +378,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this.setRequestHandler(
             'ping',
             // Automatic pong by default.
-            _request => ({}) as unknown as SendResultT
+            _request => ({}) as SendResultT
         );
 
         // Install task handlers if TaskStore is provided
@@ -1410,7 +1410,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         this._requestHandlers.set(method, (request, extra) => {
             const parsed = parseWithCompat(schema, request) as RequestTypeMap[M];
-            return Promise.resolve(handler(parsed, extra)) as Promise<SendResultT>;
+            return Promise.resolve(handler(parsed, extra));
         });
     }
 
