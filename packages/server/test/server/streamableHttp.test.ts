@@ -808,7 +808,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Parse error');
+            expect(errors[0]!.message).toContain('Parse error');
         });
 
         it('should call onerror for invalid JSON-RPC message', async () => {
@@ -825,7 +825,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Parse error');
+            expect(errors[0]!.message).toContain('Parse error');
         });
 
         it('should call onerror for missing Accept header on POST', async () => {
@@ -835,7 +835,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(406);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Not Acceptable');
+            expect(errors[0]!.message).toContain('Not Acceptable');
         });
 
         it('should call onerror for unsupported Content-Type', async () => {
@@ -852,7 +852,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(415);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Unsupported Media Type');
+            expect(errors[0]!.message).toContain('Unsupported Media Type');
         });
 
         it('should call onerror for server not initialized', async () => {
@@ -862,7 +862,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Server not initialized');
+            expect(errors[0]!.message).toContain('Server not initialized');
         });
 
         it('should call onerror for invalid session ID', async () => {
@@ -874,7 +874,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(404);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Session not found');
+            expect(errors[0]!.message).toContain('Session not found');
         });
 
         it('should call onerror for re-initialization attempt', async () => {
@@ -886,7 +886,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Server already initialized');
+            expect(errors[0]!.message).toContain('Server already initialized');
         });
 
         it('should call onerror for GET without Accept header', async () => {
@@ -898,7 +898,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(406);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Not Acceptable');
+            expect(errors[0]!.message).toContain('Not Acceptable');
         });
 
         it('should call onerror for concurrent SSE streams', async () => {
@@ -912,7 +912,7 @@ describe('Zod v4', () => {
 
             expect(response2.status).toBe(409);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Conflict');
+            expect(errors[0]!.message).toContain('Conflict');
         });
 
         it('should call onerror for unsupported protocol version', async () => {
@@ -933,7 +933,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0].message).toContain('Unsupported protocol version');
+            expect(errors[0]!.message).toContain('Unsupported protocol version');
         });
     });
 });
