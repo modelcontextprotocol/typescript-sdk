@@ -6,6 +6,7 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    ElicitRequestFormParamsSchema,
     LATEST_PROTOCOL_VERSION,
     PromptMessageSchema,
     ResourceLinkSchema,
@@ -981,6 +982,53 @@ describe('Types', () => {
                 expect(result.data.sampling?.context).toBeDefined();
                 expect(result.data.sampling?.tools).toBeDefined();
             }
+        });
+    });
+
+    describe('ElicitRequestFormParams', () => {
+        test('should accept requestedSchema with $schema and additionalProperties from Zod toJSONSchema output', () => {
+            const formParams = {
+                mode: 'form',
+                message: 'Please provide information',
+                requestedSchema: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: {
+                        name: {
+                            type: 'string',
+                            description: 'Your name'
+                        },
+                        age: {
+                            type: 'number',
+                            description: 'Your age'
+                        }
+                    },
+                    required: ['name'],
+                    additionalProperties: false
+                }
+            };
+
+            const result = ElicitRequestFormParamsSchema.safeParse(formParams);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept requestedSchema without optional $schema and additionalProperties', () => {
+            const formParams = {
+                mode: 'form',
+                message: 'Please provide information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        name: {
+                            type: 'string',
+                            description: 'Your name'
+                        }
+                    }
+                }
+            };
+
+            const result = ElicitRequestFormParamsSchema.safeParse(formParams);
+            expect(result.success).toBe(true);
         });
     });
 });

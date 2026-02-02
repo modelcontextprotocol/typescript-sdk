@@ -2158,6 +2158,7 @@ export interface ElicitRequestFormParams extends TaskAugmentedRequestParams {
             [key: string]: PrimitiveSchemaDefinition;
         };
         required?: string[];
+        additionalProperties?: boolean;
     };
 }
 

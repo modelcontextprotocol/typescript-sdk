@@ -1997,9 +1997,11 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
      * Only top-level properties are allowed, without nesting.
      */
     requestedSchema: z.object({
+        $schema: z.string().optional(),
         type: z.literal('object'),
         properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
-        required: z.array(z.string()).optional()
+        required: z.array(z.string()).optional(),
+        additionalProperties: z.boolean().optional()
     })
 });
 
