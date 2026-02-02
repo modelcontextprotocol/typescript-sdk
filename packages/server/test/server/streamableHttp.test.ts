@@ -811,7 +811,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Parse error');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Parse error');
         });
 
         it('should call onerror for invalid JSON-RPC message', async () => {
@@ -828,7 +830,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Parse error');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Parse error');
         });
 
         it('should call onerror for missing Accept header on POST', async () => {
@@ -838,7 +842,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(406);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Not Acceptable');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Not Acceptable');
         });
 
         it('should call onerror for unsupported Content-Type', async () => {
@@ -855,7 +861,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(415);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Unsupported Media Type');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Unsupported Media Type');
         });
 
         it('should call onerror for server not initialized', async () => {
@@ -865,7 +873,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Server not initialized');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Server not initialized');
         });
 
         it('should call onerror for invalid session ID', async () => {
@@ -877,7 +887,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(404);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Session not found');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Session not found');
         });
 
         it('should call onerror for re-initialization attempt', async () => {
@@ -889,7 +901,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Server already initialized');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Server already initialized');
         });
 
         it('should call onerror for GET without Accept header', async () => {
@@ -901,7 +915,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(406);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Not Acceptable');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Not Acceptable');
         });
 
         it('should call onerror for concurrent SSE streams', async () => {
@@ -915,7 +931,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response2.status).toBe(409);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Conflict');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Conflict');
         });
 
         it('should call onerror for unsupported protocol version', async () => {
@@ -936,7 +954,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBeGreaterThan(0);
-            expect(errors[0]!.message).toContain('Unsupported protocol version');
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Unsupported protocol version');
         });
     });
 });
