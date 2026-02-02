@@ -4,7 +4,8 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 
 ## Overview
 
-Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`, `@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
+Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
+`@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
 
 ## Breaking Changes
 
@@ -12,11 +13,11 @@ Version 2 of the MCP TypeScript SDK introduces several breaking changes to impro
 
 The single `@modelcontextprotocol/sdk` package has been split into three packages:
 
-| v1 | v2 |
-|----|-----|
+| v1                          | v2                                                         |
+| --------------------------- | ---------------------------------------------------------- |
 | `@modelcontextprotocol/sdk` | `@modelcontextprotocol/core` (types, protocol, transports) |
-| | `@modelcontextprotocol/client` (client implementation) |
-| | `@modelcontextprotocol/server` (server implementation) |
+|                             | `@modelcontextprotocol/client` (client implementation)     |
+|                             | `@modelcontextprotocol/server` (server implementation)     |
 
 Remove the old package and install only the packages you need:
 
@@ -64,6 +65,7 @@ Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-
 v2 requires **Node.js 20+** and ships **ESM only** (no more CommonJS builds).
 
 If your project uses CommonJS (`require()`), you will need to either:
+
 - Migrate to ESM (`import`/`export`)
 - Use dynamic `import()` to load the SDK
 
@@ -71,11 +73,11 @@ If your project uses CommonJS (`require()`), you will need to either:
 
 The server package no longer depends on Express or Hono. HTTP framework integrations are now separate middleware packages:
 
-| v1 | v2 |
-|----|-----|
+| v1                                     | v2                                          |
+| -------------------------------------- | ------------------------------------------- |
 | Built into `@modelcontextprotocol/sdk` | `@modelcontextprotocol/node` (Node.js HTTP) |
-| | `@modelcontextprotocol/express` (Express) |
-| | `@modelcontextprotocol/hono` (Hono) |
+|                                        | `@modelcontextprotocol/express` (Express)   |
+|                                        | `@modelcontextprotocol/hono` (Hono)         |
 
 Install the middleware package for your framework:
 
@@ -128,12 +130,12 @@ This affects both transport constructors and request handler code that reads hea
 ```typescript
 // Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
-  requestInit: {
-    headers: {
-      'Authorization': 'Bearer token',
-      'X-Custom': 'value',
-    },
-  },
+    requestInit: {
+        headers: {
+            Authorization: 'Bearer token',
+            'X-Custom': 'value'
+        }
+    }
 });
 
 // Reading headers in a request handler
@@ -145,12 +147,12 @@ const sessionId = extra.requestInfo?.headers['mcp-session-id'];
 ```typescript
 // Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
-  requestInit: {
-    headers: new Headers({
-      'Authorization': 'Bearer token',
-      'X-Custom': 'value',
-    }),
-  },
+    requestInit: {
+        headers: new Headers({
+            Authorization: 'Bearer token',
+            'X-Custom': 'value'
+        })
+    }
 });
 
 // Reading headers in a request handler
@@ -170,22 +172,22 @@ const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
 server.tool('greet', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
 server.tool('greet', 'Greet a user', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
 server.prompt('summarize', { text: z.string() }, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
 // Resource
-server.resource('config', 'config://app', async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.resource('config', 'config://app', async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
 
@@ -198,28 +200,29 @@ const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
 server.registerTool('greet', { inputSchema: { name: z.string() } }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
 server.registerTool('greet', { description: 'Greet a user', inputSchema: { name: z.string() } }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
 server.registerPrompt('summarize', { argsSchema: { text: z.string() } }, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
 // Resource
-server.registerResource('config', 'config://app', {}, async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.registerResource('config', 'config://app', {}, async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
 
 ### Host header validation moved
 
-Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
+Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`,
+`hostHeaderValidationResponse()`.
 
 **Before (v1):**
 
@@ -237,6 +240,48 @@ app.use(hostHeaderValidation(['example.com']));
 
 Note: the v2 signature takes a plain `string[]` instead of an options object.
 
+### Registered primitives are now classes
+
+`RegisteredTool`, `RegisteredPrompt`, `RegisteredResource`, and `RegisteredResourceTemplate` are now proper classes instead of plain object types. They are exported from `@modelcontextprotocol/server`.
+
+The `update()` method now uses `inputSchema` and `handler` instead of `paramsSchema` and `callback`:
+
+**Before (v1):**
+
+```typescript
+const tool = server.registerTool('my-tool', { inputSchema: { name: z.string() } }, handler);
+
+tool.update({
+    paramsSchema: { name: z.string(), value: z.number() },
+    callback: newHandler
+});
+```
+
+**After (v2):**
+
+```typescript
+const tool = server.registerTool('my-tool', { inputSchema: { name: z.string() } }, handler);
+
+tool.update({
+    inputSchema: { name: z.string(), value: z.number() },
+    handler: newHandler
+});
+```
+
+New getter methods are available on `McpServer` to access all registered items:
+
+```typescript
+// Get all registered tools
+for (const [name, tool] of mcpServer.tools) {
+    console.log(name, tool.description, tool.enabled);
+}
+
+// Similarly for prompts, resources, resourceTemplates
+mcpServer.prompts;
+mcpServer.resources;
+mcpServer.resourceTemplates;
+```
+
 ### Client list methods return empty results for missing capabilities
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.
@@ -244,24 +289,27 @@ Note: the v2 signature takes a plain `string[]` instead of an options object.
 To restore v1 behavior (throw an error when capabilities are missing), set `enforceStrictCapabilities: true`:
 
 ```typescript
-const client = new Client({ name: 'my-client', version: '1.0.0' }, {
-  enforceStrictCapabilities: true,
-});
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    {
+        enforceStrictCapabilities: true
+    }
+);
 ```
 
 ### Removed type aliases and deprecated exports
 
 The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
 
-| Removed | Replacement |
-|---------|-------------|
-| `JSONRPCError` | `JSONRPCErrorResponse` |
-| `JSONRPCErrorSchema` | `JSONRPCErrorResponseSchema` |
-| `isJSONRPCError` | `isJSONRPCErrorResponse` |
-| `isJSONRPCResponse` | `isJSONRPCResultResponse` |
-| `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
-| `ResourceReference` | `ResourceTemplateReference` |
-| `IsomorphicHeaders` | Use Web Standard `Headers` |
+| Removed                                  | Replacement                                      |
+| ---------------------------------------- | ------------------------------------------------ |
+| `JSONRPCError`                           | `JSONRPCErrorResponse`                           |
+| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                     |
+| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                         |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                        |
+| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
+| `ResourceReference`                      | `ResourceTemplateReference`                      |
+| `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
 
 All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names in `@modelcontextprotocol/core`.
@@ -292,7 +340,8 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 
 ## Using an LLM to migrate your code
 
-An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as a skill.
+An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as
+a skill.
 
 ## Need Help?
 

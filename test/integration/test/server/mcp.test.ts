@@ -351,7 +351,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Update the tool
             tool.update({
-                callback: async () => ({
+                handler: async () => ({
                     content: [
                         {
                             type: 'text',
@@ -424,11 +424,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Update the tool with a different schema
             tool.update({
-                paramsSchema: {
+                inputSchema: {
                     name: z.string(),
                     value: z.number()
                 },
-                callback: async ({ name, value }) => ({
+                handler: async ({ name, value }) => ({
                     content: [
                         {
                             type: 'text',
@@ -522,7 +522,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     result: z.number(),
                     sum: z.number()
                 },
-                callback: async () => ({
+                handler: async () => ({
                     content: [{ type: 'text', text: '' }],
                     structuredContent: {
                         result: 42,
@@ -607,7 +607,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Now update the tool
             tool.update({
-                callback: async () => ({
+                handler: async () => ({
                     content: [
                         {
                             type: 'text',

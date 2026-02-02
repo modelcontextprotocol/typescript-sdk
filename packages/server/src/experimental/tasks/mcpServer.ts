@@ -7,7 +7,8 @@
 
 import type { AnySchema, TaskToolExecution, ToolAnnotations, ToolExecution, ZodRawShapeCompat } from '@modelcontextprotocol/core';
 
-import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
+import type { McpServer } from '../../server/mcp.js';
+import type { AnyToolHandler, RegisteredTool } from '../../server/primitives/index.js';
 import type { ToolTaskHandler } from './interfaces.js';
 
 /**
