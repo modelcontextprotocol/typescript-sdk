@@ -7,9 +7,8 @@
  * detects the error field and surfaces the actual OAuth error message.
  */
 
-import { describe, expect, it, vi } from 'vitest';
-
 import { exchangeAuthorization } from '../../../../packages/client/src/client/auth.js';
+import { describe, expect, it, vi } from 'vitest';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);

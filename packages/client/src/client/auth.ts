@@ -5,6 +5,7 @@ import type {
     OAuthClientInformationFull,
     OAuthClientInformationMixed,
     OAuthClientMetadata,
+    OAuthMetadata,
     OAuthProtectedResourceMetadata,
     OAuthTokens
 } from '@modelcontextprotocol/core';
@@ -629,6 +630,34 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
 }
 
 /**
+ * Extract resource_metadata from response header.
+ * @deprecated Use `extractWWWAuthenticateParams` instead.
+ */
+export function extractResourceMetadataUrl(res: Response): URL | undefined {
+    const authenticateHeader = res.headers.get('WWW-Authenticate');
+    if (!authenticateHeader) {
+        return undefined;
+    }
+
+    const [type, scheme] = authenticateHeader.split(' ');
+    if (type?.toLowerCase() !== 'bearer' || !scheme) {
+        return undefined;
+    }
+    const regex = /resource_metadata="([^"]*)"/;
+    const match = regex.exec(authenticateHeader);
+
+    if (!match || !match[1]) {
+        return undefined;
+    }
+
+    try {
+        return new URL(match[1]);
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * Looks up RFC 9728 OAuth 2.0 Protected Resource Metadata.
  *
  * If the server returns a 404 for the well-known endpoint, this function will
@@ -736,6 +765,54 @@ async function discoverMetadataWithFallback(
     }
 
     return response;
+}
+
+/**
+ * Looks up RFC 8414 OAuth 2.0 Authorization Server Metadata.
+ *
+ * If the server returns a 404 for the well-known endpoint, this function will
+ * return `undefined`. Any other errors will be thrown as exceptions.
+ *
+ * @deprecated This function is deprecated in favor of `discoverAuthorizationServerMetadata`.
+ */
+export async function discoverOAuthMetadata(
+    issuer: string | URL,
+    {
+        authorizationServerUrl,
+        protocolVersion
+    }: {
+        authorizationServerUrl?: string | URL;
+        protocolVersion?: string;
+    } = {},
+    fetchFn: FetchLike = fetch
+): Promise<OAuthMetadata | undefined> {
+    if (typeof issuer === 'string') {
+        issuer = new URL(issuer);
+    }
+    if (!authorizationServerUrl) {
+        authorizationServerUrl = issuer;
+    }
+    if (typeof authorizationServerUrl === 'string') {
+        authorizationServerUrl = new URL(authorizationServerUrl);
+    }
+    protocolVersion ??= LATEST_PROTOCOL_VERSION;
+
+    const response = await discoverMetadataWithFallback(authorizationServerUrl, 'oauth-authorization-server', fetchFn, {
+        protocolVersion,
+        metadataServerUrl: authorizationServerUrl
+    });
+
+    if (!response || response.status === 404) {
+        await response?.text?.().catch(() => {});
+        return undefined;
+    }
+
+    if (!response.ok) {
+        await response.text?.().catch(() => {});
+        throw new Error(`HTTP ${response.status} trying to load well-known OAuth metadata`);
+    }
+
+    return OAuthMetadataSchema.parse(await response.json());
 }
 
 /**

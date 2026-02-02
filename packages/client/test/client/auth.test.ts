@@ -6,6 +6,7 @@ import {
     auth,
     buildDiscoveryUrls,
     discoverAuthorizationServerMetadata,
+    discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
@@ -427,6 +428,302 @@ describe('OAuth Authorization', () => {
 
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
+            expect(options.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
+    });
+
+    describe('discoverOAuthMetadata', () => {
+        const validMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+            registration_endpoint: 'https://auth.example.com/register',
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+
+        it('returns metadata when discovery succeeds', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            expect(metadata).toEqual(validMetadata);
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(1);
+            const [url, options] = calls[0]!;
+            expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+            expect(options.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
+
+        it('returns metadata when discovery succeeds with path', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            expect(metadata).toEqual(validMetadata);
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(1);
+            const [url, options] = calls[0]!;
+            expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
+            expect(options.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
+
+        it('falls back to root discovery when path-aware discovery returns 404', async () => {
+            // First call (path-aware) returns 404
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            // Second call (root fallback) succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            expect(metadata).toEqual(validMetadata);
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(2);
+
+            // First call should be path-aware
+            const [firstUrl, firstOptions] = calls[0]!;
+            expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
+            expect(firstOptions.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+
+            // Second call should be root fallback
+            const [secondUrl, secondOptions] = calls[1]!;
+            expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+            expect(secondOptions.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
+
+        it('returns undefined when both path-aware and root discovery return 404', async () => {
+            // First call (path-aware) returns 404
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            // Second call (root fallback) also returns 404
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            expect(metadata).toBeUndefined();
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(2);
+        });
+
+        it('does not fallback when the original URL is already at root path', async () => {
+            // First call (path-aware for root) returns 404
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/');
+            expect(metadata).toBeUndefined();
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(1); // Should not attempt fallback
+
+            const [url] = calls[0]!;
+            expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+        });
+
+        it('does not fallback when the original URL has no path', async () => {
+            // First call (path-aware for no path) returns 404
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            expect(metadata).toBeUndefined();
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(1); // Should not attempt fallback
+
+            const [url] = calls[0]!;
+            expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+        });
+
+        it('falls back when path-aware discovery encounters CORS error', async () => {
+            // First call (path-aware) fails with TypeError (CORS)
+            mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('CORS error')));
+
+            // Retry path-aware without headers (simulating CORS retry)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            // Second call (root fallback) succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/deep/path');
+            expect(metadata).toEqual(validMetadata);
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(3);
+
+            // Final call should be root fallback
+            const [lastUrl, lastOptions] = calls[2]!;
+            expect(lastUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+            expect(lastOptions.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
+
+        it('returns metadata when first fetch fails but second without MCP header succeeds', async () => {
+            // Set up a counter to control behavior
+            let callCount = 0;
+
+            // Mock implementation that changes behavior based on call count
+            mockFetch.mockImplementation((_url, _options) => {
+                callCount++;
+
+                if (callCount === 1) {
+                    // First call with MCP header - fail with TypeError (simulating CORS error)
+                    // We need to use TypeError specifically because that's what the implementation checks for
+                    return Promise.reject(new TypeError('Network error'));
+                } else {
+                    // Second call without header - succeed
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validMetadata
+                    });
+                }
+            });
+
+            // Should succeed with the second call
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            expect(metadata).toEqual(validMetadata);
+
+            // Verify both calls were made
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+
+            // Verify first call had MCP header
+            expect(mockFetch.mock.calls[0]![1]?.headers).toHaveProperty('MCP-Protocol-Version');
+        });
+
+        it('throws an error when all fetch attempts fail', async () => {
+            // Set up a counter to control behavior
+            let callCount = 0;
+
+            // Mock implementation that changes behavior based on call count
+            mockFetch.mockImplementation((_url, _options) => {
+                callCount++;
+
+                if (callCount === 1) {
+                    // First call - fail with TypeError
+                    return Promise.reject(new TypeError('First failure'));
+                } else {
+                    // Second call - fail with different error
+                    return Promise.reject(new Error('Second failure'));
+                }
+            });
+
+            // Should fail with the second error
+            await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('Second failure');
+
+            // Verify both calls were made
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('returns undefined when both CORS requests fail in fetchWithCorsRetry', async () => {
+            // fetchWithCorsRetry tries with headers (fails with CORS), then retries without headers (also fails with CORS)
+            // simulating a 404 w/o headers set. We want this to return undefined, not throw TypeError
+            mockFetch.mockImplementation(() => {
+                // Both the initial request with headers and retry without headers fail with CORS TypeError
+                return Promise.reject(new TypeError('Failed to fetch'));
+            });
+
+            // This should return undefined (the desired behavior after the fix)
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path');
+            expect(metadata).toBeUndefined();
+        });
+
+        it('returns undefined when discovery endpoint returns 404', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            expect(metadata).toBeUndefined();
+        });
+
+        it('throws on non-404 errors', async () => {
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+            await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
+        });
+
+        it('validates metadata schema', async () => {
+            mockFetch.mockResolvedValueOnce(
+                Response.json(
+                    {
+                        // Missing required fields
+                        issuer: 'https://auth.example.com'
+                    },
+                    { status: 200 }
+                )
+            );
+
+            await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow();
+        });
+
+        it('supports overriding the fetch function used for requests', async () => {
+            const validMetadata = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/authorize',
+                token_endpoint: 'https://auth.example.com/token',
+                registration_endpoint: 'https://auth.example.com/register',
+                response_types_supported: ['code'],
+                code_challenge_methods_supported: ['S256']
+            };
+
+            const customFetch = vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com', {}, customFetch);
+
+            expect(metadata).toEqual(validMetadata);
+            expect(customFetch).toHaveBeenCalledTimes(1);
+            expect(mockFetch).not.toHaveBeenCalled();
+
+            const [url, options] = customFetch.mock.calls[0]!;
+            expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(options.headers).toEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
