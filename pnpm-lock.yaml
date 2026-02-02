@@ -847,18 +847,12 @@ importers:
 
   test/helpers:
     devDependencies:
-      '@modelcontextprotocol/client':
-        specifier: workspace:^
-        version: link:../../packages/client
       '@modelcontextprotocol/core':
         specifier: workspace:^
         version: link:../../packages/core
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
-      '@modelcontextprotocol/server':
-        specifier: workspace:^
-        version: link:../../packages/server
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
