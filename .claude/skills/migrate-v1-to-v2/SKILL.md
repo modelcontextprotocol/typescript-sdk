@@ -52,9 +52,10 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/server/mcp.js` | `@modelcontextprotocol/server` |
 | `@modelcontextprotocol/sdk/server/index.js` | `@modelcontextprotocol/server` |
 | `@modelcontextprotocol/sdk/server/stdio.js` | `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (renamed, see below) |
+| `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) |
 | `@modelcontextprotocol/sdk/server/sse.js` | REMOVED (migrate to Streamable HTTP) |
 | `@modelcontextprotocol/sdk/server/auth/*` | REMOVED (use external auth library) |
+| `@modelcontextprotocol/sdk/server/middleware.js` | `@modelcontextprotocol/express` (signature changed, see section 8) |
 
 ### Types / shared imports
 
@@ -67,7 +68,10 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/core` |
 | `@modelcontextprotocol/sdk/shared/auth.js` | `@modelcontextprotocol/core` |
 
-Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
+Notes:
+- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
+- When multiple v1 imports map to the same v2 package, consolidate them into a single import statement.
+- If code imports from `sdk/client/...`, install `@modelcontextprotocol/client`. If from `sdk/server/...`, install `@modelcontextprotocol/server`. If from `sdk/types.js` or `sdk/shared/...` only, install `@modelcontextprotocol/core`.
 
 ## 4. Renamed Symbols
 
@@ -87,6 +91,10 @@ Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-
 | `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
 | `IsomorphicHeaders` | REMOVED (use Web Standard `Headers`) |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
+
+All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
+
+**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types.
 
 ## 6. McpServer API Changes
 
@@ -176,23 +184,33 @@ All server OAuth exports removed: `mcpAuthRouter`, `OAuthServerProvider`, `OAuth
 
 ### Host header validation (Express)
 
-`hostHeaderValidation()` and `localhostHostValidation()` moved from server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic alternatives: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
+`hostHeaderValidation()` and `localhostHostValidation()` moved from server package to `@modelcontextprotocol/express`. Signature changed: takes `string[]` instead of options object.
+
+```typescript
+// v1
+import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware.js';
+app.use(hostHeaderValidation({ allowedHosts: ['example.com'] }));
+
+// v2
+import { hostHeaderValidation } from '@modelcontextprotocol/express';
+app.use(hostHeaderValidation(['example.com']));
+```
+
+The server package now exports framework-agnostic alternatives: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
 
 ## 9. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 10. Migration Steps (for applying to a codebase)
+## 10. Migration Steps (apply in this order)
 
-1. Update `package.json`: replace `@modelcontextprotocol/sdk` with the appropriate v2 packages
-2. Find all imports from `@modelcontextprotocol/sdk/...` and replace using the import mapping table
-3. Rename `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
-4. Replace `.tool()` / `.prompt()` / `.resource()` calls with `registerTool` / `registerPrompt` / `registerResource`
-5. Replace removed type aliases (`JSONRPCError` → `JSONRPCErrorResponse`, etc.)
-6. Replace plain header objects with `new Headers({...})` in transport constructors
-7. Replace bracket header access (`headers['x']`) with `.get()` calls (`headers.get('x')`)
-8. If using `hostHeaderValidation` from server, import from `@modelcontextprotocol/express` instead
-9. If using server SSE transport, migrate to Streamable HTTP
-10. If using server auth from the SDK, migrate to an external auth library
-11. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-12. Verify: build with `tsc` / run tests
+1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
+2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
+3. Replace removed type aliases (`JSONRPCError` → `JSONRPCErrorResponse`, etc.) per section 5
+4. Replace `.tool()` / `.prompt()` / `.resource()` calls with `registerTool` / `registerPrompt` / `registerResource` per section 6
+5. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
+6. If using `hostHeaderValidation` from server, update import and signature per section 8
+7. If using server SSE transport, migrate to Streamable HTTP
+8. If using server auth from the SDK, migrate to an external auth library
+9. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
+10. Verify: build with `tsc` / run tests

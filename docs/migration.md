@@ -18,9 +18,11 @@ The single `@modelcontextprotocol/sdk` package has been split into three package
 | | `@modelcontextprotocol/client` (client implementation) |
 | | `@modelcontextprotocol/server` (server implementation) |
 
-Install only the packages you need:
+Remove the old package and install only the packages you need:
 
 ```bash
+npm uninstall @modelcontextprotocol/sdk
+
 # If you only need a client
 npm install @modelcontextprotocol/client
 
@@ -48,12 +50,14 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 ```typescript
 import { Client, StreamableHTTPClientTransport, StdioClientTransport } from '@modelcontextprotocol/client';
-import { McpServer } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import { CallToolResultSchema } from '@modelcontextprotocol/core';
 
-// Server-side transports are now in the @modelcontextprotocol/node package (see below)
-import { NodeStreamableHTTPServerTransport, StdioServerTransport } from '@modelcontextprotocol/node';
+// Node.js HTTP server transport is in the @modelcontextprotocol/node package
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 ```
+
+Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
 
 ### Dropped Node.js 18 and CommonJS
 
@@ -228,8 +232,10 @@ app.use(hostHeaderValidation({ allowedHosts: ['example.com'] }));
 
 ```typescript
 import { hostHeaderValidation } from '@modelcontextprotocol/express';
-app.use(hostHeaderValidation({ allowedHosts: ['example.com'] }));
+app.use(hostHeaderValidation(['example.com']));
 ```
+
+Note: the v2 signature takes a plain `string[]` instead of an options object.
 
 ### Client list methods return empty results for missing capabilities
 
@@ -255,6 +261,10 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `isJSONRPCResponse` | `isJSONRPCResultResponse` |
 | `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
 | `ResourceReference` | `ResourceTemplateReference` |
+| `IsomorphicHeaders` | Use Web Standard `Headers` |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
+
+All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names in `@modelcontextprotocol/core`.
 
 **Before (v1):**
 
@@ -267,6 +277,18 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 ```typescript
 import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
 ```
+
+## Unchanged APIs
+
+The following APIs are unchanged between v1 and v2 (only the import paths changed):
+
+- `Client` constructor and all client methods (`connect`, `callTool`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.)
+- `McpServer` constructor, `server.connect(transport)`, `server.close()`
+- `Server` (low-level) constructor and all methods
+- `StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport` constructors and options
+- `StdioServerTransport` constructor and options
+- All Zod schemas and type definitions from `types.ts` (except the aliases listed above)
+- Tool, prompt, and resource callback return types
 
 ## Need Help?
 
