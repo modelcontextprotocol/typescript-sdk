@@ -258,7 +258,7 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
             redirect_uris: [],
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'private_key_jwt',
-            scope: options.scope,
+            scope: options.scope
         };
         this.addClientAuthentication = createPrivateKeyJwtAuth({
             issuer: options.clientId,
@@ -362,7 +362,7 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
             redirect_uris: [],
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'private_key_jwt',
-            scope: options.scope,
+            scope: options.scope
         };
 
         const assertion = options.jwtBearerAssertion;
