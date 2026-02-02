@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import type { CallToolResult, ServerRequestContext } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
@@ -42,8 +42,7 @@ server.registerTool(
     },
     async (ctx): Promise<CallToolResult> => {
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-        const sessionId = ctx.mcpCtx.sessionId;
-        const requestCtx = ctx.requestCtx as ServerRequestContext;
+        const sessionId = ctx.sessionId;
 
         console.log(`[${sessionId}] Starting long-task...`);
 
@@ -69,10 +68,10 @@ server.registerTool(
 
         // Server decides to disconnect the client to free resources
         // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
-        // Use requestCtx.stream.closeSSEStream callback - available when eventStore is configured
-        if (requestCtx.stream.closeSSEStream) {
+        // Use ctx.stream.closeSSE callback - available when eventStore is configured
+        if (ctx.http?.closeSSE) {
             console.log(`[${sessionId}] Closing SSE stream to trigger client polling...`);
-            requestCtx.stream.closeSSEStream();
+            ctx.http.closeSSE();
         }
 
         // Continue processing while client is disconnected

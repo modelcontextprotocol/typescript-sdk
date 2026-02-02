@@ -531,7 +531,7 @@ const createServer = (): Server => {
             pollInterval: taskParams.pollInterval ?? 1000
         };
 
-        const task = await taskStore.createTask(taskOptions, ctx.mcpCtx.requestId, request, ctx.mcpCtx.sessionId);
+        const task = await taskStore.createTask(taskOptions, ctx.mcpReq.id, request, ctx.sessionId);
 
         console.log(`\n[Server] ${name} called, task created: ${task.taskId}`);
 
@@ -609,7 +609,7 @@ const createServer = (): Server => {
         activeTaskExecutions.set(task.taskId, {
             promise: taskExecution,
             server,
-            sessionId: ctx.mcpCtx.sessionId ?? ''
+            sessionId: ctx.sessionId ?? ''
         });
 
         return { task };
@@ -629,7 +629,7 @@ const createServer = (): Server => {
     server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, ctx): Promise<GetTaskPayloadResult> => {
         const { taskId } = request.params;
         console.log(`[Server] tasks/result called for task ${taskId}`);
-        return taskResultHandler.handle(taskId, server, ctx.mcpCtx.sessionId ?? '');
+        return taskResultHandler.handle(taskId, server, ctx.sessionId ?? '');
     });
 
     return server;

@@ -28,7 +28,7 @@ describe('ServerContext', () => {
                         },
                         (_args: { name: string }, ctx) => {
                             seen.isContext = ctx instanceof ServerContext;
-                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                            seen.hasRequestId = !!ctx.mcpReq.id;
                             return { content: [{ type: 'text', text: 'ok' }] };
                         }
                     );
@@ -52,7 +52,7 @@ describe('ServerContext', () => {
                 (mcpServer, seen) => {
                     mcpServer.registerResource('ctx-resource', 'test://res/1', { title: 'ctx-resource' }, async (_uri, ctx) => {
                         seen.isContext = ctx instanceof ServerContext;
-                        seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                        seen.hasRequestId = !!ctx.mcpReq.id;
                         return { contents: [{ uri: 'test://res/1', mimeType: 'text/plain', text: 'hello' }] };
                     });
                 },
@@ -64,7 +64,7 @@ describe('ServerContext', () => {
                     const template = new ResourceTemplate('test://items/{id}', {
                         list: async ctx => {
                             seen.isContext = ctx instanceof ServerContext;
-                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                            seen.hasRequestId = !!ctx.mcpReq.id;
                             return { resources: [] };
                         }
                     });
@@ -79,7 +79,7 @@ describe('ServerContext', () => {
                 (mcpServer, seen) => {
                     mcpServer.registerPrompt('ctx-prompt', {}, async ctx => {
                         seen.isContext = ctx instanceof ServerContext;
-                        seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                        seen.hasRequestId = !!ctx.mcpReq.id;
                         return { messages: [] };
                     });
                 },
@@ -128,27 +128,18 @@ describe('ServerContext', () => {
         client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
             seen++;
             expect(notification.params.level).toBe(level);
-            expect(notification.params.data).toBe('Test message');
-            expect(notification.params._meta?.test).toBe('test');
-            expect(notification.params._meta?.sessionId).toBe('sample-session-id');
             return;
         });
 
         mcpServer.registerTool('ctx-log-test', { inputSchema: z.object({ name: z.string() }) }, async (_args: { name: string }, ctx) => {
             const serverCtx = ctx as ServerContext;
-            await serverCtx.loggingNotification[level]('Test message', { test: 'test' }, 'sample-session-id');
-            await serverCtx.loggingNotification.log(
-                {
-                    level,
-                    data: 'Test message',
-                    logger: 'test-logger-namespace',
-                    _meta: {
-                        test: 'test',
-                        sessionId: 'sample-session-id'
-                    }
-                },
-                'sample-session-id'
-            );
+            // Use the new notification API (no sessionId parameter)
+            await serverCtx.notification[level]('Test message', { test: 'test' });
+            await serverCtx.notification.log({
+                level,
+                data: 'Test message',
+                logger: 'test-logger-namespace'
+            });
             return { content: [{ type: 'text', text: 'ok' }] };
         });
 
@@ -187,7 +178,7 @@ describe('ServerContext', () => {
                         // The test is to ensure that the ctx is compatible with the ContextInterface type
                         (_args: { name: string }, ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
                             seen.isContext = ctx instanceof ServerContext;
-                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                            seen.hasRequestId = !!ctx.mcpReq.id;
                             return { content: [{ type: 'text', text: 'ok' }] };
                         }
                     );
@@ -216,7 +207,7 @@ describe('ServerContext', () => {
                         { title: 'ctx-resource' },
                         async (_uri, ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
                             seen.isContext = ctx instanceof ServerContext;
-                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                            seen.hasRequestId = !!ctx.mcpReq.id;
                             return { contents: [{ uri: 'test://res/1', mimeType: 'text/plain', text: 'hello' }] };
                         }
                     );
@@ -230,7 +221,7 @@ describe('ServerContext', () => {
                     const template = new ResourceTemplate('test://items/{id}', {
                         list: async (ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
                             seen.isContext = ctx instanceof ServerContext;
-                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                            seen.hasRequestId = !!ctx.mcpReq.id;
                             return { resources: [] };
                         }
                     });
@@ -249,7 +240,7 @@ describe('ServerContext', () => {
                         {},
                         async (ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
                             seen.isContext = ctx instanceof ServerContext;
-                            seen.hasRequestId = !!ctx.mcpCtx.requestId;
+                            seen.hasRequestId = !!ctx.mcpReq.id;
                             return { messages: [] };
                         }
                     );

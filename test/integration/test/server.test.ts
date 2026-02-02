@@ -1491,9 +1491,9 @@ test('should handle request timeout', async () => {
     client.setRequestHandler(CreateMessageRequestSchema, async (_request, ctx) => {
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(resolve, 100);
-            ctx.requestCtx.signal.addEventListener('abort', () => {
+            ctx.mcpReq.signal.addEventListener('abort', () => {
                 clearTimeout(timeout);
-                reject(ctx.requestCtx.signal.reason);
+                reject(ctx.mcpReq.signal.reason);
             });
         });
 
@@ -2249,8 +2249,8 @@ describe('Task-based execution', () => {
             },
             {
                 async createTask(_args, ctx) {
-                    const task = await ctx.taskCtx!.store.createTask({
-                        ttl: ctx.taskCtx!.requestedTtl
+                    const task = await ctx.task!.store.createTask({
+                        ttl: ctx.task!.requestedTtl
                     });
 
                     // Simulate some async work
@@ -2259,20 +2259,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
                         };
-                        await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
                 async getTask(_args, ctx) {
-                    const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                    const task = await ctx.task!.store.getTask(ctx.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                        throw new Error(`Task ${ctx.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, ctx) {
-                    const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                    const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2444,9 +2444,9 @@ describe('Task-based execution', () => {
             let taskId: string | undefined;
 
             // Check if task creation is requested
-            if (request.params.task && ctx.taskCtx!.store) {
-                const createdTask = await ctx.taskCtx!.store.createTask({
-                    ttl: ctx.taskCtx!.requestedTtl
+            if (request.params.task && ctx.task!.store) {
+                const createdTask = await ctx.task!.store.createTask({
+                    ttl: ctx.task!.requestedTtl
                 });
                 taskId = createdTask.taskId;
             }
@@ -2471,14 +2471,14 @@ describe('Task-based execution', () => {
             },
             {
                 async createTask(_args, ctx) {
-                    const task = await ctx.taskCtx!.store.createTask({
-                        ttl: ctx.taskCtx!.requestedTtl
+                    const task = await ctx.task!.store.createTask({
+                        ttl: ctx.task!.requestedTtl
                     });
 
                     // Perform async work that makes a nested request
                     (async () => {
                         // During tool execution, make a nested request to the client using ctx.sendRequest
-                        const elicitResult = await ctx.sendRequest(
+                        const elicitResult = await ctx.mcpReq.send(
                             {
                                 method: 'elicitation/create',
                                 params: {
@@ -2504,20 +2504,20 @@ describe('Task-based execution', () => {
                                 }
                             ]
                         };
-                        await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
                 async getTask(_args, ctx) {
-                    const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                    const task = await ctx.task!.store.getTask(ctx.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                        throw new Error(`Task ${ctx.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, ctx) {
-                    const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                    const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2601,11 +2601,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && ctx.taskCtx!.store) {
-                    const task = await ctx.taskCtx!.store.createTask({
-                        ttl: ctx.taskCtx!.requestedTtl
+                if (request.params.task && ctx.task!.store) {
+                    const task = await ctx.task!.store.createTask({
+                        ttl: ctx.task!.requestedTtl
                     });
-                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2682,11 +2682,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && ctx.taskCtx!.store) {
-                    const task = await ctx.taskCtx!.store.createTask({
-                        ttl: ctx.taskCtx!.requestedTtl
+                if (request.params.task && ctx.task!.store) {
+                    const task = await ctx.task!.store.createTask({
+                        ttl: ctx.task!.requestedTtl
                     });
-                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2761,11 +2761,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && ctx.taskCtx!.store) {
-                    const task = await ctx.taskCtx!.store.createTask({
-                        ttl: ctx.taskCtx!.requestedTtl
+                if (request.params.task && ctx.task!.store) {
+                    const task = await ctx.task!.store.createTask({
+                        ttl: ctx.task!.requestedTtl
                     });
-                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2842,11 +2842,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && ctx.taskCtx!.store) {
-                    const task = await ctx.taskCtx!.store.createTask({
-                        ttl: ctx.taskCtx!.requestedTtl
+                if (request.params.task && ctx.task!.store) {
+                    const task = await ctx.task!.store.createTask({
+                        ttl: ctx.task!.requestedTtl
                     });
-                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2950,8 +2950,8 @@ describe('Task-based execution', () => {
             },
             {
                 async createTask({ delay, taskNum }, ctx) {
-                    const task = await ctx.taskCtx!.store.createTask({
-                        ttl: ctx.taskCtx!.requestedTtl
+                    const task = await ctx.task!.store.createTask({
+                        ttl: ctx.task!.requestedTtl
                     });
 
                     // Simulate async work
@@ -2960,20 +2960,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
                         };
-                        await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
                 async getTask(_args, ctx) {
-                    const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                    const task = await ctx.task!.store.getTask(ctx.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                        throw new Error(`Task ${ctx.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, ctx) {
-                    const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                    const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -3185,11 +3185,11 @@ test('should respect client task capabilities', async () => {
         };
 
         // Check if task creation is requested
-        if (request.params.task && ctx.taskCtx!.store) {
-            const task = await ctx.taskCtx!.store.createTask({
-                ttl: ctx.taskCtx!.requestedTtl
+        if (request.params.task && ctx.task!.store) {
+            const task = await ctx.task!.store.createTask({
+                ttl: ctx.task!.requestedTtl
             });
-            await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', result);
+            await ctx.task!.store.storeTaskResult(task.taskId, 'completed', result);
             // Return CreateTaskResult when task creation is requested
             return { task };
         }

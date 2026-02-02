@@ -61,7 +61,7 @@ const getServer = () => {
                             level: 'info',
                             data: `Periodic notification #${counter} at ${new Date().toISOString()}`
                         },
-                        ctx.mcpCtx.sessionId
+                        ctx.sessionId
                     );
                 } catch (error) {
                     console.error('Error sending notification:', error);

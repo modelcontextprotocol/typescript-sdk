@@ -1,4 +1,5 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/types.js';
+import type { JSONRPCMessage, RequestId } from '../types/types.js';
+import type { MessageExtraInfo } from '../types/utility.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 

@@ -125,12 +125,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async ({ steps }, ctx) => {
-                    const progressToken = ctx.mcpCtx._meta?.progressToken;
+                    const progressToken = ctx.mcpReq._meta?.progressToken;
 
                     if (progressToken) {
                         // Send progress notification for each step
                         for (let i = 1; i <= steps; i++) {
-                            await ctx.sendNotification({
+                            await ctx.notification.send({
                                 method: 'notifications/progress',
                                 params: {
                                     progressToken,
@@ -1345,7 +1345,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             let receivedSessionId: string | undefined;
             mcpServer.registerTool('test-tool', {}, async ctx => {
-                receivedSessionId = ctx.mcpCtx.sessionId;
+                receivedSessionId = ctx.sessionId;
                 return {
                     content: [
                         {
@@ -1391,12 +1391,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             let receivedRequestId: string | number | undefined;
             mcpServer.registerTool('request-id-test', {}, async ctx => {
-                receivedRequestId = ctx.mcpCtx.requestId;
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Received request ID: ${ctx.mcpCtx.requestId}`
+                            text: `Received request ID: ${ctx.mcpReq.id}`
                         }
                     ]
                 };
@@ -1453,7 +1453,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             mcpServer.registerTool('test-tool', {}, async extra => {
-                await extra.sendNotification({
+                await extra.notification.send({
                     method: 'notifications/message',
                     params: { level: 'debug', data: loggingMessage }
                 });
@@ -1800,18 +1800,18 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async (_args, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.createTask({ ttl: 60_000 });
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.createTask({ ttl: 60_000 });
                         return { task };
                     },
                     getTask: async (_args, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.getTask(ctx.task.id!);
                         return task;
                     },
                     getTaskResult: async (_args, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        return (await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!)) as CallToolResult;
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        return (await ctx.task.store.getTaskResult(ctx.task.id!)) as CallToolResult;
                     }
                 }
             );
@@ -1871,17 +1871,17 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async (_args, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.createTask({ ttl: 60_000 });
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.createTask({ ttl: 60_000 });
                         return { task };
                     },
                     getTask: async (_args, ctx) => {
-                        const task = await ctx.taskCtx?.store?.getTask(ctx.taskCtx.id!);
+                        const task = await ctx.task?.store?.getTask(ctx.task.id!);
                         if (!task) throw new Error('Task not found');
                         return task;
                     },
                     getTaskResult: async (_args, ctx) => {
-                        return (await ctx.taskCtx?.store?.getTaskResult(ctx.taskCtx.id!)) as CallToolResult;
+                        return (await ctx.task?.store?.getTaskResult(ctx.task.id!)) as CallToolResult;
                     }
                 }
             );
@@ -2869,12 +2869,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             let receivedRequestId: string | number | undefined;
             mcpServer.registerResource('request-id-test', 'test://resource', {}, async (_uri, ctx) => {
-                receivedRequestId = ctx.mcpCtx.requestId;
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     contents: [
                         {
                             uri: 'test://resource',
-                            text: `Received request ID: ${ctx.mcpCtx.requestId}`
+                            text: `Received request ID: ${ctx.mcpReq.id}`
                         }
                     ]
                 };
@@ -3807,14 +3807,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             let receivedRequestId: string | number | undefined;
             mcpServer.registerPrompt('request-id-test', {}, async ctx => {
-                receivedRequestId = ctx.mcpCtx.requestId;
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     messages: [
                         {
                             role: 'assistant',
                             content: {
                                 type: 'text',
-                                text: `Received request ID: ${ctx.mcpCtx.requestId}`
+                                text: `Received request ID: ${ctx.mcpReq.id}`
                             }
                         }
                     ]
@@ -6238,11 +6238,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ({ input }, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = ctx.taskCtx.store;
+                        const store = ctx.task.store;
 
                         // Simulate async work
                         setTimeout(async () => {
@@ -6254,13 +6254,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         return { task };
                     },
                     getTask: async (_args, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.getTask(ctx.task.id!);
                         return task;
                     },
                     getTaskResult: async (_input, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id!);
                         return result as CallToolResult;
                     }
                 }
@@ -6343,11 +6343,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ({ value }, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = ctx.taskCtx.store;
+                        const store = ctx.task.store;
 
                         // Simulate async work
                         setTimeout(async () => {
@@ -6360,13 +6360,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         return { task };
                     },
                     getTask: async (_args, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.getTask(ctx.task.id!);
                         return task;
                     },
                     getTaskResult: async (_value, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id!);
                         return result as CallToolResult;
                     }
                 }
@@ -6451,11 +6451,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ({ data }, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = ctx.taskCtx.store;
+                        const store = ctx.task.store;
 
                         // Simulate async work
                         setTimeout(async () => {
@@ -6469,13 +6469,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         return { task };
                     },
                     getTask: async (_args, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.getTask(ctx.task.id!);
                         return task;
                     },
                     getTaskResult: async (_data, ctx) => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id!);
                         return result as CallToolResult;
                     }
                 }
@@ -6569,11 +6569,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ctx => {
-                        if (!ctx.taskCtx) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        if (!ctx.task) throw new Error('Task store not found');
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = ctx.taskCtx.store;
+                        const store = ctx.task.store;
 
                         // Simulate async failure
                         setTimeout(async () => {
@@ -6587,12 +6587,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         return { task };
                     },
                     getTask: async ctx => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.getTask(ctx.task.id!);
                         return task;
                     },
                     getTaskResult: async ctx => {
-                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id!);
+                        const result = await ctx.task!.store.getTaskResult(ctx.task!.id!);
                         return result as CallToolResult;
                     }
                 }
@@ -6674,11 +6674,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ctx => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = ctx.taskCtx.store;
+                        const store = ctx.task.store;
 
                         // Simulate async cancellation
                         setTimeout(async () => {
@@ -6689,13 +6689,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         return { task };
                     },
                     getTask: async ctx => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const task = await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const task = await ctx.task.store.getTask(ctx.task.id!);
                         return task;
                     },
                     getTaskResult: async ctx => {
-                        if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                        const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
+                        if (!ctx.task?.store) throw new Error('Task store not found');
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id!);
                         return result as CallToolResult;
                     }
                 }
@@ -6761,18 +6761,18 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     },
                     {
                         createTask: async (_args, ctx) => {
-                            if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                            const task = await ctx.taskCtx.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                            if (!ctx.task?.store) throw new Error('Task store not found');
+                            const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
                             return { task };
                         },
                         getTask: async (_args, ctx) => {
-                            if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                            const task = await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                            if (!ctx.task?.store) throw new Error('Task store not found');
+                            const task = await ctx.task.store.getTask(ctx.task.id!);
                             return task;
                         },
                         getTaskResult: async (_args, ctx) => {
-                            if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                            const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
+                            if (!ctx.task?.store) throw new Error('Task store not found');
+                            const result = await ctx.task.store.getTaskResult(ctx.task.id!);
                             return result as CallToolResult;
                         }
                     }

@@ -11,7 +11,7 @@ import type {
     TaskStore
 } from '../../src/experimental/tasks/interfaces.js';
 import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/inMemory.js';
-import type { BaseRequestContext, ContextInterface } from '../../src/shared/context.js';
+import type { ContextInterface } from '../../src/shared/context.js';
 import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
 import type { ErrorMessage, ResponseMessage } from '../../src/shared/responseMessage.js';
 import { toArrayAsync } from '../../src/shared/responseMessage.js';
@@ -22,7 +22,6 @@ import type {
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResultResponse,
-    MessageExtraInfo,
     Notification,
     Request,
     RequestId,
@@ -32,6 +31,7 @@ import type {
     TaskCreationParams
 } from '../../src/types/types.js';
 import { CallToolRequestSchema, ErrorCode, McpError, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+import type { MessageExtraInfo } from '../../src/types/utility.js';
 
 // Type helper for accessing private/protected Protocol properties in tests
 interface TestProtocol {
@@ -150,32 +150,6 @@ function assertQueuedRequest(o?: QueuedMessage): asserts o is QueuedRequest {
 }
 
 /**
- * Creates a mock ContextInterface for testing.
- * This provides a minimal implementation of the context interface.
- */
-function createMockContext(args: {
-    request: JSONRPCRequest;
-    abortController: AbortController;
-    sessionId?: string;
-}): ContextInterface<Request, Notification, BaseRequestContext> {
-    return {
-        mcpCtx: {
-            requestId: args.request.id,
-            method: args.request.method,
-            _meta: args.request.params?._meta,
-            sessionId: args.sessionId
-        },
-        requestCtx: {
-            signal: args.abortController.signal,
-            authInfo: undefined
-        },
-        taskCtx: undefined,
-        sendNotification: async () => {},
-        sendRequest: async () => ({}) as never
-    };
-}
-
-/**
  * Creates a mock Protocol class for testing with all abstract methods implemented.
  */
 function createTestProtocolClass(options?: {
@@ -199,34 +173,37 @@ function createTestProtocolClass(options?: {
             abortController: AbortController;
             capturedTransport: Transport | undefined;
             extra?: MessageExtraInfo;
-        }): ContextInterface<Request, Notification, BaseRequestContext> {
+        }): ContextInterface<Request, Notification> {
             // Create a context that properly delegates to the protocol
-            const mcpCtx = {
-                requestId: args.request.id,
-                method: args.request.method,
-                _meta: args.request.params?._meta,
-                sessionId: args.capturedTransport?.sessionId
-            };
+            const sessionId = args.capturedTransport?.sessionId;
+            const requestId = args.request.id;
 
             return {
-                mcpCtx,
-                requestCtx: {
+                sessionId,
+                mcpReq: {
+                    id: requestId,
+                    method: args.request.method,
+                    _meta: args.request.params?._meta,
                     signal: args.abortController.signal,
+                    send: async () => ({}) as never
+                },
+                http: {
                     authInfo: undefined
                 },
-                taskCtx: undefined,
-                sendNotification: async (notification: Notification) => {
-                    // Properly delegate to the protocol's notification method with relatedTask metadata
-                    const notificationOptions: { relatedRequestId?: RequestId; relatedTask?: { taskId: string } } = {
-                        relatedRequestId: mcpCtx.requestId
-                    };
-                    // Extract relatedTask from the original request's _meta if present
-                    if (args.relatedTaskId) {
-                        notificationOptions.relatedTask = { taskId: args.relatedTaskId };
+                task: undefined,
+                notification: {
+                    send: async (notification: Notification) => {
+                        // Properly delegate to the protocol's notification method with relatedTask metadata
+                        const notificationOptions: { relatedRequestId?: RequestId; relatedTask?: { taskId: string } } = {
+                            relatedRequestId: requestId
+                        };
+                        // Extract relatedTask from the original request's _meta if present
+                        if (args.relatedTaskId) {
+                            notificationOptions.relatedTask = { taskId: args.relatedTaskId };
+                        }
+                        await this.notification(notification, notificationOptions);
                     }
-                    await this.notification(notification, notificationOptions);
-                },
-                sendRequest: async () => ({}) as never
+                }
             };
         }
 
@@ -1964,8 +1941,8 @@ describe('Task-based execution', () => {
 
             // Set up a handler that uses sendRequest and sendNotification
             serverProtocol.setRequestHandler(CallToolRequestSchema, async (_request, ctx) => {
-                // Send a notification using the ctx.sendNotification
-                await ctx.sendNotification({
+                // Send a notification using the ctx.notification.send
+                await ctx.notification.send({
                     method: 'notifications/message',
                     params: { level: 'info', data: 'test' }
                 });
@@ -2048,7 +2025,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             protocol.setRequestHandler(TestRequestSchema, async (_request, ctx) => {
                 // Simulate a long-running operation
                 await new Promise(resolve => setTimeout(resolve, 100));
-                wasAborted = ctx.requestCtx.signal.aborted;
+                wasAborted = ctx.mcpReq.signal.aborted;
                 return { _meta: {} } as Result;
             });
 
@@ -2419,12 +2396,12 @@ describe('Progress notification support for tasks', () => {
 
         // Set up a request handler that will complete the task
         protocol.setRequestHandler(CallToolRequestSchema, async (request, ctx) => {
-            if (ctx.taskCtx?.store) {
-                const task = await ctx.taskCtx.store.createTask({ ttl: 60_000 });
+            if (ctx.task?.store) {
+                const task = await ctx.task.store.createTask({ ttl: 60_000 });
 
                 // Simulate async work then complete the task
                 setTimeout(async () => {
-                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: 'Done' }]
                     });
                 }, 50);

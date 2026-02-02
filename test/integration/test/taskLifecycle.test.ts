@@ -65,7 +65,7 @@ describe('Task Lifecycle Integration Tests', () => {
             },
             {
                 async createTask({ duration, shouldFail }, ctx) {
-                    const task = await ctx.taskCtx!.store.createTask({
+                    const task = await ctx.task!.store.createTask({
                         ttl: 60_000,
                         pollInterval: 100
                     });
@@ -76,11 +76,11 @@ describe('Task Lifecycle Integration Tests', () => {
 
                         try {
                             await (shouldFail
-                                ? ctx.taskCtx!.store.storeTaskResult(task.taskId, 'failed', {
+                                ? ctx.task!.store.storeTaskResult(task.taskId, 'failed', {
                                       content: [{ type: 'text', text: 'Task failed as requested' }],
                                       isError: true
                                   })
-                                : ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                                : ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                                       content: [{ type: 'text', text: `Completed after ${duration}ms` }]
                                   }));
                         } catch {
@@ -91,14 +91,14 @@ describe('Task Lifecycle Integration Tests', () => {
                     return { task };
                 },
                 async getTask(_args, ctx) {
-                    const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                    const task = await ctx.task!.store.getTask(ctx.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                        throw new Error(`Task ${ctx.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, ctx) {
-                    const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                    const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -116,7 +116,7 @@ describe('Task Lifecycle Integration Tests', () => {
             },
             {
                 async createTask({ userName }, ctx) {
-                    const task = await ctx.taskCtx!.store.createTask({
+                    const task = await ctx.task!.store.createTask({
                         ttl: 60_000,
                         pollInterval: 100
                     });
@@ -129,14 +129,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         if (userName) {
                             // Complete immediately if userName was provided
                             try {
-                                await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                                await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${userName}!` }]
                                 });
                             } catch {
                                 // Task may have been cleaned up if test ended
                             }
                         } else {
-                            const elicitationResult = await ctx.sendRequest(
+                            const elicitationResult = await ctx.mcpReq.send(
                                 {
                                     method: 'elicitation/create',
                                     params: {
@@ -161,7 +161,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                     ? elicitationResult.content.userName
                                     : 'Unknown';
                             try {
-                                await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                                await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${name}!` }]
                                 });
                             } catch {
@@ -173,14 +173,14 @@ describe('Task Lifecycle Integration Tests', () => {
                     return { task };
                 },
                 async getTask(_args, ctx) {
-                    const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                    const task = await ctx.task!.store.getTask(ctx.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                        throw new Error(`Task ${ctx.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, ctx) {
-                    const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                    const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -420,7 +420,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ requestCount }, ctx) {
-                        const task = await ctx.taskCtx!.store.createTask({
+                        const task = await ctx.task!.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -433,7 +433,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                             // Send multiple elicitation requests
                             for (let i = 0; i < requestCount; i++) {
-                                const elicitationResult = await ctx.sendRequest(
+                                const elicitationResult = await ctx.mcpReq.send(
                                     {
                                         method: 'elicitation/create',
                                         params: {
@@ -459,7 +459,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                             // Complete with all responses
                             try {
-                                await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                                await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Received responses: ${responses.join(', ')}` }]
                                 });
                             } catch {
@@ -470,14 +470,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, ctx) {
-                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                        const task = await ctx.task!.store.getTask(ctx.task!.id);
                         if (!task) {
-                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                            throw new Error(`Task ${ctx.task!.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, ctx) {
-                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                        const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -909,7 +909,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount }, ctx) {
-                        const task = await ctx.taskCtx!.store.createTask({
+                        const task = await ctx.task!.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -922,26 +922,28 @@ describe('Task Lifecycle Integration Tests', () => {
                                 // Queue multiple elicitation requests
                                 for (let i = 0; i < messageCount; i++) {
                                     // Send request but don't await - let it queue
-                                    ctx.sendRequest(
-                                        {
-                                            method: 'elicitation/create',
-                                            params: {
-                                                mode: 'form',
-                                                message: `Message ${i + 1} of ${messageCount}`,
-                                                requestedSchema: {
-                                                    type: 'object',
-                                                    properties: {
-                                                        response: { type: 'string' }
-                                                    },
-                                                    required: ['response']
+                                    ctx.mcpReq
+                                        .send(
+                                            {
+                                                method: 'elicitation/create',
+                                                params: {
+                                                    mode: 'form',
+                                                    message: `Message ${i + 1} of ${messageCount}`,
+                                                    requestedSchema: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            response: { type: 'string' }
+                                                        },
+                                                        required: ['response']
+                                                    }
                                                 }
-                                            }
-                                        },
-                                        ElicitResultSchema,
-                                        { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
-                                    ).catch(() => {
-                                        // Ignore errors from cancelled requests
-                                    });
+                                            },
+                                            ElicitResultSchema,
+                                            { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                        )
+                                        .catch(() => {
+                                            // Ignore errors from cancelled requests
+                                        });
                                 }
 
                                 // Don't complete - let the task be cancelled
@@ -957,14 +959,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, ctx) {
-                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                        const task = await ctx.task!.store.getTask(ctx.task!.id);
                         if (!task) {
-                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                            throw new Error(`Task ${ctx.task!.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, ctx) {
-                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                        const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -1105,7 +1107,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount, delayBetweenMessages }, ctx) {
-                        const task = await ctx.taskCtx!.store.createTask({
+                        const task = await ctx.task!.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -1120,7 +1122,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Send messages with delays between them
                                 for (let i = 0; i < messageCount; i++) {
-                                    const elicitationResult = await ctx.sendRequest(
+                                    const elicitationResult = await ctx.mcpReq.send(
                                         {
                                             method: 'elicitation/create',
                                             params: {
@@ -1151,7 +1153,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Complete with all responses
                                 try {
-                                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: `Received all responses: ${responses.join(', ')}` }]
                                     });
                                 } catch {
@@ -1160,7 +1162,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             } catch (error) {
                                 // Handle errors
                                 try {
-                                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'failed', {
+                                    await ctx.task!.store.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
                                     });
@@ -1173,14 +1175,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, ctx) {
-                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                        const task = await ctx.task!.store.getTask(ctx.task!.id);
                         if (!task) {
-                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                            throw new Error(`Task ${ctx.task!.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, ctx) {
-                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                        const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -1321,7 +1323,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount }, ctx) {
-                        const task = await ctx.taskCtx!.store.createTask({
+                        const task = await ctx.task!.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -1334,31 +1336,33 @@ describe('Task Lifecycle Integration Tests', () => {
                                 for (let i = 0; i < messageCount; i++) {
                                     // Start the request but don't wait for response
                                     // The request gets queued when sendRequest is called
-                                    ctx.sendRequest(
-                                        {
-                                            method: 'elicitation/create',
-                                            params: {
-                                                mode: 'form',
-                                                message: `Quick message ${i + 1} of ${messageCount}`,
-                                                requestedSchema: {
-                                                    type: 'object',
-                                                    properties: {
-                                                        response: { type: 'string' }
-                                                    },
-                                                    required: ['response']
+                                    ctx.mcpReq
+                                        .send(
+                                            {
+                                                method: 'elicitation/create',
+                                                params: {
+                                                    mode: 'form',
+                                                    message: `Quick message ${i + 1} of ${messageCount}`,
+                                                    requestedSchema: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            response: { type: 'string' }
+                                                        },
+                                                        required: ['response']
+                                                    }
                                                 }
-                                            }
-                                        },
-                                        ElicitResultSchema,
-                                        { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
-                                    ).catch(() => {});
+                                            },
+                                            ElicitResultSchema,
+                                            { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                        )
+                                        .catch(() => {});
                                     // Small delay to ensure message is queued before next iteration
                                     await new Promise(resolve => setTimeout(resolve, 10));
                                 }
 
                                 // Complete the task after all messages are queued
                                 try {
-                                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'completed', {
+                                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: 'Task completed quickly' }]
                                     });
                                 } catch {
@@ -1367,7 +1371,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             } catch (error) {
                                 // Handle errors
                                 try {
-                                    await ctx.taskCtx!.store.storeTaskResult(task.taskId, 'failed', {
+                                    await ctx.task!.store.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
                                     });
@@ -1380,14 +1384,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, ctx) {
-                        const task = await ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+                        const task = await ctx.task!.store.getTask(ctx.task!.id);
                         if (!task) {
-                            throw new Error(`Task ${ctx.taskCtx!.id} not found`);
+                            throw new Error(`Task ${ctx.task!.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, ctx) {
-                        const result = await ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+                        const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }

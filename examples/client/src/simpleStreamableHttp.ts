@@ -276,7 +276,7 @@ async function connect(url?: string): Promise<void> {
                 throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
 
-            console.log(`${ctx.mcpCtx.method} elicitation request received`);
+            console.log(`${ctx.mcpReq.method} elicitation request received`);
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
             console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);

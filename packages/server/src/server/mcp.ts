@@ -330,10 +330,10 @@ export class McpServer {
         const isTaskHandler = 'createTask' in handler;
 
         if (isTaskHandler) {
-            if (!ctx.taskCtx?.store) {
+            if (!ctx.task?.store) {
                 throw new Error('No task store provided.');
             }
-            const taskCtx = ctx;
+            const task = ctx;
 
             if (tool.inputSchema) {
                 const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
@@ -342,7 +342,7 @@ export class McpServer {
             } else {
                 const typedHandler = handler as ToolTaskHandler<undefined>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((typedHandler.createTask as any)(taskCtx));
+                return await Promise.resolve((typedHandler.createTask as any)(task));
             }
         }
 
@@ -365,7 +365,7 @@ export class McpServer {
         request: RequestT,
         ctx: ServerContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
-        if (!ctx.taskCtx?.store) {
+        if (!ctx.task?.store) {
             throw new Error('No task store provided for task-capable tool.');
         }
 
@@ -385,12 +385,12 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await ctx.taskCtx!.store.getTask(taskId);
+            const updatedTask = await ctx.task!.store.getTask(taskId);
             task = updatedTask;
         }
 
         // Return the final result
-        return (await ctx.taskCtx!.store.getTaskResult(taskId)) as CallToolResult;
+        return (await ctx.task!.store.getTaskResult(taskId)) as CallToolResult;
     }
 
     private _completionHandlerInitialized = false;

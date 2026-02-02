@@ -12,7 +12,14 @@ import type {
     JSONRPCResultResponse,
     RequestId
 } from '@modelcontextprotocol/core';
-import type { EventId, EventStore, ServerRequestContext, StreamId } from '@modelcontextprotocol/server';
+import type {
+    EventId,
+    EventStore,
+    ServerContextInterface,
+    ServerNotification,
+    ServerRequest,
+    StreamId
+} from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
@@ -214,11 +221,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 description: 'A user profile data tool',
                 inputSchema: { active: z.boolean().describe('Profile status') }
             },
-            async ({ active }, { requestCtx }): Promise<CallToolResult> => {
+            async ({ active }, ctx): Promise<CallToolResult> => {
                 return {
-                    content: [
-                        { type: 'text', text: `${active ? 'Active' : 'Inactive'} profile from token: ${requestCtx.authInfo?.token}!` }
-                    ]
+                    content: [{ type: 'text', text: `${active ? 'Active' : 'Inactive'} profile from token: ${ctx.http?.authInfo?.token}!` }]
                 };
             }
         );
@@ -411,9 +416,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 async ({ name }, ctx): Promise<CallToolResult> => {
                     // Convert Headers object to plain object for JSON serialization
                     // Headers is a Web API class that doesn't serialize with JSON.stringify
-                    const requestCtx = ctx.requestCtx as ServerRequestContext;
+                    const serverCtx = ctx as ServerContextInterface<ServerRequest, ServerNotification>;
                     const serializedRequestInfo = {
-                        headers: Object.fromEntries(requestCtx.headers ?? new Headers())
+                        headers: Object.fromEntries(serverCtx.http?.req.headers ?? new Headers())
                     };
                     return {
                         content: [
@@ -1858,8 +1863,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Register a tool that closes its own SSE stream via extra callback
             mcpServer.registerTool('close-stream-tool', { description: 'Closes its own stream' }, async ctx => {
                 // Close the SSE stream for this request
-                const requestCtx = ctx.requestCtx as ServerRequestContext;
-                requestCtx.stream.closeSSEStream?.();
+                ctx.http?.closeSSE?.();
                 streamCloseCalled = true;
 
                 // Wait before returning so we can observe the stream closure
@@ -1924,10 +1928,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Track whether closeSSEStream callback was provided
             let receivedCloseSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.requestCtx.stream.closeSSEStream callback
+            // Register a tool that captures the ctx.http?.closeSSE callback
             mcpServer.registerTool('test-callback-tool', { description: 'Test tool' }, async ctx => {
-                const requestCtx = ctx.requestCtx as ServerRequestContext;
-                receivedCloseSSEStream = requestCtx.stream.closeSSEStream;
+                receivedCloseSSEStream = ctx.http?.closeSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -1984,11 +1987,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let receivedCloseSSEStream: (() => void) | undefined;
             let receivedCloseStandaloneSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.requestCtx.stream callbacks
+            // Register a tool that captures the ctx.http? callbacks
             mcpServer.registerTool('test-old-version-tool', { description: 'Test tool' }, async ctx => {
-                const requestCtx = ctx.requestCtx as ServerRequestContext;
-                receivedCloseSSEStream = requestCtx.stream.closeSSEStream;
-                receivedCloseStandaloneSSEStream = requestCtx.stream.closeStandaloneSSEStream;
+                receivedCloseSSEStream = ctx.http?.closeSSE;
+                receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2044,10 +2046,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Track whether closeSSEStream callback was provided
             let receivedCloseSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.requestCtx.stream.closeSSEStream callback
+            // Register a tool that captures the ctx.http?.closeSSE callback
             mcpServer.registerTool('test-no-callback-tool', { description: 'Test tool' }, async ctx => {
-                const requestCtx = ctx.requestCtx as ServerRequestContext;
-                receivedCloseSSEStream = requestCtx.stream.closeSSEStream;
+                receivedCloseSSEStream = ctx.http?.closeSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2102,10 +2103,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Track whether closeStandaloneSSEStream callback was provided
             let receivedCloseStandaloneSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.requestCtx.stream.closeStandaloneSSEStream callback
+            // Register a tool that captures the ctx.http?.closeStandaloneSSE callback
             mcpServer.registerTool('test-standalone-callback-tool', { description: 'Test tool' }, async ctx => {
-                const requestCtx = ctx.requestCtx as ServerRequestContext;
-                receivedCloseStandaloneSSEStream = requestCtx.stream.closeStandaloneSSEStream;
+                receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2160,8 +2160,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Register a tool that closes the standalone SSE stream via ctx callback
             mcpServer.registerTool('close-standalone-stream-tool', { description: 'Closes standalone stream' }, async ctx => {
-                const requestCtx = ctx.requestCtx as ServerRequestContext;
-                requestCtx.stream.closeStandaloneSSEStream?.();
+                ctx.http?.closeStandaloneSSE?.();
                 return { content: [{ type: 'text', text: 'Stream closed' }] };
             });
 
@@ -2242,8 +2241,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Register a tool that closes the standalone SSE stream
             mcpServer.registerTool('close-standalone-for-reconnect', { description: 'Closes standalone stream' }, async ctx => {
-                const requestCtx = ctx.requestCtx as ServerRequestContext;
-                requestCtx.stream.closeStandaloneSSEStream?.();
+                ctx.http?.closeStandaloneSSE?.();
                 return { content: [{ type: 'text', text: 'Stream closed' }] };
             });
 

@@ -51,7 +51,7 @@ const getServer = () => {
         In a real world scenario, there would be some logic here to check if the user has the provided cartId.
         For the purposes of this example, we'll throw an error (-> elicits the client to open a URL to confirm payment)
         */
-            const sessionId = ctx.mcpCtx.sessionId;
+            const sessionId = ctx.sessionId;
             if (!sessionId) {
                 throw new Error('Expected a Session ID');
             }
@@ -87,7 +87,7 @@ const getServer = () => {
         If we don't, we can throw an ElicitationRequiredError to request the user to authenticate.
         For the purposes of this example, we'll throw an error (-> elicits the client to open a URL to authenticate).
       */
-            const sessionId = ctx.mcpCtx.sessionId;
+            const sessionId = ctx.sessionId;
             if (!sessionId) {
                 throw new Error('Expected a Session ID');
             }

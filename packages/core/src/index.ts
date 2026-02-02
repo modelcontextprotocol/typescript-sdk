@@ -10,6 +10,7 @@ export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
 export * from './types/types.js';
+export * from './types/utility.js';
 export * from './util/inMemory.js';
 export * from './util/zodCompat.js';
 export * from './util/zodJsonSchemaCompat.js';

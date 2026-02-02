@@ -2,18 +2,11 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { TaskStore } from '../../src/experimental/tasks/interfaces.js';
-import type { BaseRequestContext, ContextInterface } from '../../src/shared/context.js';
+import type { ContextInterface } from '../../src/shared/context.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
-import type {
-    JSONRPCMessage,
-    JSONRPCRequest,
-    MessageExtraInfo,
-    Notification,
-    Request,
-    Result,
-    TaskCreationParams
-} from '../../src/types/types.js';
+import type { JSONRPCMessage, JSONRPCRequest, Notification, Request, Result, TaskCreationParams } from '../../src/types/types.js';
+import type { MessageExtraInfo } from '../../src/types/utility.js';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -45,21 +38,23 @@ function createMockContext(args: {
     request: JSONRPCRequest;
     abortController: AbortController;
     sessionId?: string;
-}): ContextInterface<Request, Notification, BaseRequestContext> {
+}): ContextInterface<Request, Notification> {
     return {
-        mcpCtx: {
-            requestId: args.request.id,
+        sessionId: args.sessionId,
+        mcpReq: {
+            id: args.request.id,
             method: args.request.method,
             _meta: args.request.params?._meta,
-            sessionId: args.sessionId
-        },
-        requestCtx: {
             signal: args.abortController.signal,
+            send: async () => ({}) as never
+        },
+        http: {
             authInfo: undefined
         },
-        taskCtx: undefined,
-        sendNotification: async () => {},
-        sendRequest: async () => ({}) as never
+        task: undefined,
+        notification: {
+            send: async () => {}
+        }
     };
 }
 
@@ -81,7 +76,7 @@ function createTestProtocolClass() {
             abortController: AbortController;
             capturedTransport: Transport | undefined;
             extra?: MessageExtraInfo;
-        }): ContextInterface<Request, Notification, BaseRequestContext> {
+        }): ContextInterface<Request, Notification> {
             return createMockContext({
                 request: args.request,
                 abortController: args.abortController,
@@ -202,7 +197,7 @@ describe('Protocol transport handling bug', () => {
             await new Promise(resolve => setTimeout(resolve, delay));
 
             return {
-                processedBy: `handler-${ctx.mcpCtx.requestId}`,
+                processedBy: `handler-${ctx.mcpReq.id}`,
                 delay: delay
             } as Result;
         });

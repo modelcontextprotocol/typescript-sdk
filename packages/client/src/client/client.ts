@@ -20,7 +20,6 @@ import type {
     ListResourceTemplatesRequest,
     ListToolsRequest,
     LoggingLevel,
-    McpContext,
     MessageExtraInfo,
     Notification,
     ProtocolOptions,
@@ -76,7 +75,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
-import type { ClientContextInterface, ClientRequestContext } from './context.js';
+import type { ClientContextInterface } from './context.js';
 import { ClientContext } from './context.js';
 
 /**
@@ -505,17 +504,8 @@ export class Client<
         const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
         const sessionId = capturedTransport?.sessionId;
 
-        // Build the MCP context using the helper from Protocol
-        const mcpContext: McpContext = this.buildMcpContext({ request, sessionId });
-
-        // Build the client request context (minimal, no HTTP details - client-specific)
-        const requestCtx: ClientRequestContext = {
-            signal: abortController.signal,
-            authInfo: extra?.authInfo
-        };
-
         // Build the task context using the helper from Protocol
-        const taskCtx: TaskContext | undefined = this.buildTaskContext({
+        const task: TaskContext | undefined = this.buildTaskContext({
             taskStore,
             request,
             sessionId,
@@ -527,9 +517,19 @@ export class Client<
         return new ClientContext<RequestT, NotificationT, ResultT>({
             client: this,
             request,
-            mcpContext,
-            requestCtx,
-            task: taskCtx
+            sessionId,
+            mcpReq: {
+                id: request.id,
+                method: request.method,
+                _meta: request.params?._meta,
+                signal: abortController.signal
+            },
+            http: extra?.authInfo
+                ? {
+                      authInfo: extra?.authInfo
+                  }
+                : undefined,
+            task: task
         });
     }
 

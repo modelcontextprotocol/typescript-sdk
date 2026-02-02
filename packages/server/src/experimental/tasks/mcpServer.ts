@@ -56,15 +56,15 @@ export class ExperimentalMcpServerTasks {
      *   execution: { taskSupport: 'required' }
      * }, {
      *   createTask: async (args, ctx) => {
-     *     const task = await ctx.taskCtx!.store.createTask({ ttl: 300000 });
+     *     const task = await ctx.task!.store.createTask({ ttl: 300000 });
      *     startBackgroundWork(task.taskId, args);
      *     return { task };
      *   },
      *   getTask: async (args, ctx) => {
-     *     return ctx.taskCtx!.store.getTask(ctx.taskCtx!.id);
+     *     return ctx.task!.store.getTask(ctx.task!.id);
      *   },
      *   getTaskResult: async (args, ctx) => {
-     *     return ctx.taskCtx!.store.getTaskResult(ctx.taskCtx!.id);
+     *     return ctx.task!.store.getTaskResult(ctx.task!.id);
      *   }
      * });
      * ```

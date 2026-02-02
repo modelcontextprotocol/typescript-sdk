@@ -2360,43 +2360,6 @@ type Flatten<T> = T extends Primitive
 
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
-/**
- * Information about the incoming request.
- */
-export interface RequestInfo {
-    /**
-     * The headers of the request.
-     */
-    headers: Headers;
-}
-
-/**
- * Extra information about a message.
- */
-export interface MessageExtraInfo {
-    /**
-     * The request information.
-     */
-    requestInfo?: RequestInfo;
-
-    /**
-     * The authentication information.
-     */
-    authInfo?: AuthInfo;
-
-    /**
-     * Callback to close the SSE stream for this request, triggering client reconnection.
-     * Only available when using NodeStreamableHTTPServerTransport with eventStore configured.
-     */
-    closeSSEStream?: () => void;
-
-    /**
-     * Callback to close the standalone GET SSE stream, triggering client reconnection.
-     * Only available when using NodeStreamableHTTPServerTransport with eventStore configured.
-     */
-    closeStandaloneSSEStream?: () => void;
-}
-
 /* JSON-RPC types */
 export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 export type Cursor = Infer<typeof CursorSchema>;

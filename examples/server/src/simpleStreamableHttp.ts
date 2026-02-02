@@ -63,12 +63,12 @@ const getServer = () => {
             }
         },
         async ({ name }, ctx): Promise<CallToolResult> => {
-            await ctx.loggingNotification.log(
+            await ctx.notification.log(
                 {
                     level: 'debug',
                     data: `Starting greet for ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             return {
@@ -104,7 +104,7 @@ const getServer = () => {
                     level: 'debug',
                     data: `Starting multi-greet for ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             await sleep(1000); // Wait 1 second before first greeting
@@ -114,7 +114,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending first greeting to ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             await sleep(1000); // Wait another second before second greeting
@@ -124,7 +124,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending second greeting to ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             return {
@@ -247,7 +247,7 @@ const getServer = () => {
 
             try {
                 // Use sendRequest through the ctx parameter to elicit input
-                const result = await ctx.sendRequest(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -311,12 +311,12 @@ const getServer = () => {
             }
         },
         async ({ name }, ctx): Promise<GetPromptResult> => {
-            await ctx.loggingNotification.log(
+            await ctx.notification.log(
                 {
                     level: 'debug',
                     data: `Starting greeting template for ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             return {
@@ -355,7 +355,7 @@ const getServer = () => {
                             level: 'info',
                             data: `Periodic notification #${counter} at ${new Date().toISOString()}`
                         },
-                        ctx.mcpCtx.sessionId
+                        ctx.sessionId
                     );
                 } catch (error) {
                     console.error('Error sending notification:', error);
@@ -406,12 +406,12 @@ const getServer = () => {
             mimeType: 'text/plain'
         },
         async (_, ctx): Promise<ReadResourceResult> => {
-            await ctx.loggingNotification.log(
+            await ctx.notification.log(
                 {
                     level: 'debug',
                     data: `Starting example file 1`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             return {
@@ -510,10 +510,10 @@ const getServer = () => {
         {
             async createTask({ duration }, ctx) {
                 // Create the task
-                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                const taskStore = ctx.taskCtx.store;
+                if (!ctx.task?.store) throw new Error('Task store not found');
+                const taskStore = ctx.task.store;
                 const task = await taskStore.createTask({
-                    ttl: ctx.taskCtx.requestedTtl
+                    ttl: ctx.task.requestedTtl
                 });
 
                 // Simulate out-of-band work
@@ -535,12 +535,12 @@ const getServer = () => {
                 };
             },
             async getTask(_args, ctx) {
-                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                return await ctx.taskCtx.store.getTask(ctx.taskCtx.id!);
+                if (!ctx.task?.store) throw new Error('Task store not found');
+                return await ctx.task.store.getTask(ctx.task.id!);
             },
             async getTaskResult(_args, ctx) {
-                if (!ctx.taskCtx?.store) throw new Error('Task store not found');
-                const result = await ctx.taskCtx.store.getTaskResult(ctx.taskCtx.id!);
+                if (!ctx.task?.store) throw new Error('Task store not found');
+                const result = await ctx.task.store.getTaskResult(ctx.task.id!);
                 return result as CallToolResult;
             }
         }

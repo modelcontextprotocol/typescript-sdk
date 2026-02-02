@@ -1,15 +1,17 @@
 import type {
-    BaseRequestContext,
     ContextInterface,
     CreateMessageRequest,
     CreateMessageResult,
     ElicitRequest,
     ElicitResult,
+    HttpReqContext,
     JSONRPCRequest,
     LoggingMessageNotification,
-    McpContext,
+    McpReqContext,
+    McpReqContextInput,
     Notification,
-    Request,
+    NotificationContext,
+    Request as SdkRequest,
     RequestOptions,
     Result,
     ServerNotification,
@@ -22,41 +24,11 @@ import { BaseContext, ElicitResultSchema } from '@modelcontextprotocol/core';
 import type { Server } from './server.js';
 
 /**
- * Server-specific request context with HTTP request details.
- * Extends BaseRequestContext with fields only available on the server side.
+ * Server-specific notification context with logging methods.
  */
-export type ServerRequestContext = BaseRequestContext & {
-    /**
-     * The URI of the incoming HTTP request.
-     */
-    uri: URL;
-    /**
-     * The headers of the incoming HTTP request.
-     */
-    headers: Headers;
-    /**
-     * Stream control methods for SSE connections.
-     */
-    stream: {
-        /**
-         * Closes the SSE stream for this request, triggering client reconnection.
-         * Only available when using StreamableHTTPServerTransport with eventStore configured.
-         * Use this to implement polling behavior during long-running operations.
-         */
-        closeSSEStream: (() => void) | undefined;
-        /**
-         * Closes the standalone GET SSE stream, triggering client reconnection.
-         * Only available when using StreamableHTTPServerTransport with eventStore configured.
-         * Use this to implement polling behavior for server-initiated notifications.
-         */
-        closeStandaloneSSEStream: (() => void) | undefined;
-    };
-};
-
-/**
- * Interface for sending logging messages to the client via {@link LoggingMessageNotification}.
- */
-export interface LoggingMessageNotificationSenderInterface {
+export type ServerNotificationContext<NotificationT extends Notification = Notification> = NotificationContext<
+    NotificationT | ServerNotification
+> & {
     /**
      * Sends a logging message to the client.
      */
@@ -64,22 +36,21 @@ export interface LoggingMessageNotificationSenderInterface {
     /**
      * Sends a debug log message to the client.
      */
-    debug(message: string, extraLogData?: Record<string, unknown>, sessionId?: string): Promise<void>;
+    debug(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
     /**
      * Sends an info log message to the client.
      */
-    info(message: string, extraLogData?: Record<string, unknown>, sessionId?: string): Promise<void>;
+    info(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
     /**
      * Sends a warning log message to the client.
      */
-    warning(message: string, extraLogData?: Record<string, unknown>, sessionId?: string): Promise<void>;
+    warning(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
     /**
      * Sends an error log message to the client.
      */
-    error(message: string, extraLogData?: Record<string, unknown>, sessionId?: string): Promise<void>;
-}
-
-export class ServerLogger implements LoggingMessageNotificationSenderInterface {
+    error(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
+};
+class NotificationLogHelper {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(private readonly server: Server<any, any, any>) {}
 
@@ -163,20 +134,44 @@ export class ServerLogger implements LoggingMessageNotificationSenderInterface {
  * Server-specific context interface extending the base ContextInterface.
  * Includes server-specific methods for logging, elicitation, and sampling.
  */
-export interface ServerContextInterface<RequestT extends Request = Request, NotificationT extends Notification = Notification>
-    extends ContextInterface<RequestT | ServerRequest, NotificationT | ServerNotification, ServerRequestContext> {
+export interface ServerContextInterface<RequestT extends SdkRequest = SdkRequest, NotificationT extends Notification = Notification>
+    extends ContextInterface<RequestT | ServerRequest, NotificationT | ServerNotification> {
+    mcpReq: McpReqContext & {
+        /**
+         * Sends an elicitation request to the client.
+         */
+        elicitInput: (params: ElicitRequest['params'], options?: RequestOptions) => Promise<ElicitResult>;
+        /**
+         * Sends a sampling request to the client.
+         */
+        requestSampling: (params: CreateMessageRequest['params'], options?: RequestOptions) => Promise<CreateMessageResult>;
+    };
+
     /**
-     * Logger for sending logging messages to the client.
+     * Request context with authentication, send method, and raw Request object.
      */
-    loggingNotification: LoggingMessageNotificationSenderInterface;
+    http?: HttpReqContext & {
+        /**
+         * The raw Request object (fetch API Request).
+         * Provides access to url, headers, and other request properties.
+         */
+        req: Request;
+
+        /**
+         * Closes the SSE stream for this request, triggering client reconnection.
+         * Only available when using StreamableHTTPServerTransport with eventStore configured.
+         */
+        closeSSE?: () => void;
+        /**
+         * Closes the standalone GET SSE stream, triggering client reconnection.
+         * Only available when using StreamableHTTPServerTransport with eventStore configured.
+         */
+        closeStandaloneSSE?: () => void;
+    };
     /**
-     * Sends an elicitation request to the client.
+     * Notification context with logging methods.
      */
-    elicitInput: (params: ElicitRequest['params'], options?: RequestOptions) => Promise<ElicitResult>;
-    /**
-     * Sends a sampling request to the client.
-     */
-    requestSampling: (params: CreateMessageRequest['params'], options?: RequestOptions) => Promise<CreateMessageResult>;
+    notification: ServerNotificationContext<NotificationT>;
 }
 
 /**
@@ -184,35 +179,72 @@ export interface ServerContextInterface<RequestT extends Request = Request, Noti
  * Provides access to MCP context, request context, task context, and server-specific methods.
  */
 export class ServerContext<
-        RequestT extends Request = Request,
+        RequestT extends SdkRequest = SdkRequest,
         NotificationT extends Notification = Notification,
         ResultT extends Result = Result
     >
-    extends BaseContext<RequestT | ServerRequest, NotificationT | ServerNotification, ServerRequestContext, ServerResult | ResultT>
+    extends BaseContext<RequestT | ServerRequest, NotificationT | ServerNotification, ServerResult | ResultT>
     implements ServerContextInterface<RequestT, NotificationT>
 {
     private readonly server: Server<RequestT, NotificationT, ResultT>;
 
     /**
-     * Logger for sending logging messages to the client.
+     * MCP request context containing protocol-level information.
      */
-    public readonly loggingNotification: LoggingMessageNotificationSenderInterface;
+    declare public readonly mcpReq: ServerContextInterface<RequestT, NotificationT>['mcpReq'];
+    /**
+     * HTTP request context with authentication, send method, and raw Request object.
+     */
+    declare public readonly http?: ServerContextInterface<RequestT, NotificationT>['http'];
+
+    /**
+     * Notification context with logging methods.
+     */
+    declare public readonly notification: ServerNotificationContext<NotificationT>;
+
+    private readonly _notificationLogHelper: NotificationLogHelper;
 
     constructor(args: {
-        server: Server<RequestT, NotificationT, ResultT>;
+        sessionId?: string;
         request: JSONRPCRequest;
-        mcpContext: McpContext;
-        requestCtx: ServerRequestContext;
+        mcpReq: McpReqContextInput;
+        http?: ServerContextInterface['http'];
         task: TaskContext | undefined;
+        server: Server<RequestT, NotificationT, ResultT>;
     }) {
         super({
+            sessionId: args.sessionId,
             request: args.request,
-            mcpContext: args.mcpContext,
-            requestCtx: args.requestCtx,
+            mcpReq: args.mcpReq,
+            http: args.http,
             task: args.task
         });
+
         this.server = args.server;
-        this.loggingNotification = new ServerLogger(args.server);
+
+        this.mcpReq = {
+            ...this.mcpReq,
+            elicitInput: this._elicitInput.bind(this),
+            requestSampling: this._requestSampling.bind(this)
+        };
+
+        // Override req with server-specific version that includes raw Request
+        this.http = args.http;
+
+        // Capture base notification for delegation
+        const baseNotification = this.notification;
+        this._notificationLogHelper = new NotificationLogHelper(this.server);
+
+        // Override notification with server-specific version that includes logging
+        const helper = this._notificationLogHelper;
+        this.notification = {
+            send: baseNotification.send,
+            log: helper.log.bind(helper),
+            debug: helper.debug.bind(helper),
+            info: helper.info.bind(helper),
+            warning: helper.warning.bind(helper),
+            error: helper.error.bind(helper)
+        };
     }
 
     /**
@@ -225,18 +257,18 @@ export class ServerContext<
     /**
      * Sends a sampling request to the client.
      */
-    public requestSampling(params: CreateMessageRequest['params'], options?: RequestOptions) {
+    protected _requestSampling(params: CreateMessageRequest['params'], options?: RequestOptions) {
         return this.server.createMessage(params, options);
     }
 
     /**
      * Sends an elicitation request to the client.
      */
-    public async elicitInput(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult> {
+    protected async _elicitInput(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult> {
         const request: ElicitRequest = {
             method: 'elicitation/create',
             params
         };
-        return await this.server.request(request, ElicitResultSchema, { ...options, relatedRequestId: this.mcpCtx.requestId });
+        return await this.server.request(request, ElicitResultSchema, { ...options, relatedRequestId: this.mcpReq.id });
     }
 }

@@ -158,37 +158,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request, ctx) => {
 
 ### Request Handler Context
 
-The `ctx` parameter in handlers provides a structured context with three layers:
+The `ctx` parameter in handlers provides a structured context with grouped fields:
 
-**`ctx.mcpCtx`** - MCP-level context:
+**Common structure (both Client and Server)**:
 
-- `requestId`: JSON-RPC message ID
-- `method`: The method being called
-- `_meta`: Request metadata
-- `sessionId`: Transport session identifier
+- `ctx.sessionId`: Transport session identifier (top-level)
+- `ctx.mcpReq`: MCP protocol context
+  - `id`: JSON-RPC message ID
+  - `method`: The method being called
+  - `_meta`: Request metadata
+  - `signal`: AbortSignal for cancellation
+- `ctx.req`: Request context with authentication and send method
+  - `authInfo`: Validated auth token info (if authenticated)
+  - `send(request, schema, options?)`: Send request (for bidirectional flows)
+- `ctx.task`: Task context (when tasks are enabled)
+  - `id`: Current task ID (updates after `store.createTask()`)
+  - `store`: Request-scoped task store (`RequestTaskStore`)
+  - `requestedTtl`: Requested TTL for the task
+- `ctx.notification`: Notification context
+  - `send(notification)`: Send notification back
 
-**`ctx.requestCtx`** - Request-level context:
+**Server-specific additions**:
 
-- `signal`: AbortSignal for cancellation
-- `authInfo`: Validated auth token info (if authenticated)
-- For server: `uri`, `headers`, `stream` (HTTP details)
-
-**`ctx.taskCtx`** - Task context (when tasks are enabled):
-
-- `id`: Current task ID (updates after `store.createTask()`)
-- `store`: Request-scoped task store (`RequestTaskStore`)
-- `requestedTtl`: Requested TTL for the task
-
-**Context methods**:
-
-- `ctx.sendNotification(notification)`: Send notification back
-- `ctx.sendRequest(request, schema)`: Send request (for bidirectional flows)
-
-For server contexts, additional helpers:
-
-- `ctx.loggingNotification(level, data, logger)`: Send logging notification
-- `ctx.requestSampling(params)`: Request sampling from client
-- `ctx.elicitInput(params)`: Request user input from client
+- `ctx.req.raw`: Raw fetch Request object (access to URL, headers, etc.)
+- `ctx.notification`: Extended with logging methods
+  - `log(params)`: Send logging notification
+  - `debug(message, extraLogData?)`: Send debug log
+  - `info(message, extraLogData?)`: Send info log
+  - `warning(message, extraLogData?)`: Send warning log
+  - `error(message, extraLogData?)`: Send error log
+- `ctx.stream`: SSE stream control
+  - `closeSSE?()`: Close SSE stream for polling
+  - `closeStandaloneSSE?()`: Close standalone SSE stream
+- `ctx.requestSampling(params, options?)`: Request sampling from client
+- `ctx.elicitInput(params, options?)`: Request user input from client
 
 ### Capability Checking
 
@@ -231,7 +234,7 @@ client.setRequestHandler(CreateMessageRequestSchema, async (request, ctx) => {
 
 ```typescript
 server.setRequestHandler(SomeRequestSchema, async (request, ctx) => {
-    // ctx provides mcpCtx, requestCtx, taskCtx, sendNotification, sendRequest
+    // ctx provides mcpCtx, requestCtx, task, sendNotification, sendRequest
     return {
         /* result */
     };

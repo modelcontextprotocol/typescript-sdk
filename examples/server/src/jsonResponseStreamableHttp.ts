@@ -59,7 +59,7 @@ const getServer = () => {
                     level: 'debug',
                     data: `Starting multi-greet for ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             await sleep(1000); // Wait 1 second before first greeting
@@ -69,7 +69,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending first greeting to ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             await sleep(1000); // Wait another second before second greeting
@@ -79,7 +79,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending second greeting to ${name}`
                 },
-                ctx.mcpCtx.sessionId
+                ctx.sessionId
             );
 
             return {

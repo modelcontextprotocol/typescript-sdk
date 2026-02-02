@@ -1,6 +1,5 @@
 import type {
     AnyObjectSchema,
-    BaseRequestContext,
     ClientCapabilities,
     ContextInterface,
     CreateMessageRequest,
@@ -20,7 +19,6 @@ import type {
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
-    McpContext,
     MessageExtraInfo,
     Notification,
     NotificationOptions,
@@ -71,7 +69,6 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-import type { ServerRequestContext } from './context.js';
 import { ServerContext } from './context.js';
 
 export type ServerOptions = ProtocolOptions & {
@@ -178,8 +175,7 @@ export class Server<
         if (this._capabilities.logging) {
             this.setRequestHandler(SetLevelRequestSchema, async (request, ctx) => {
                 const serverCtx = ctx as ServerContext<RequestT, NotificationT, ResultT>;
-                const transportSessionId: string | undefined =
-                    serverCtx.mcpCtx.sessionId || (serverCtx.requestCtx.headers.get('mcp-session-id') as string) || undefined;
+                const transportSessionId: string | undefined = serverCtx.sessionId;
                 const { level } = request.params;
                 const parseResult = LoggingLevelSchema.safeParse(level);
                 if (parseResult.success) {
@@ -251,9 +247,9 @@ export class Server<
         ) => {
             const decoratedHandler = (
                 request: SchemaOutput<T>,
-                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
+                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT>
             ) => {
-                if (!this.isContextExtra(ctx)) {
+                if (!this.isServerContext(ctx)) {
                     throw new Error('Internal error: Expected ServerContext for request handler context');
                 }
                 return innerHandler(request, ctx);
@@ -288,7 +284,7 @@ export class Server<
         if (method === 'tools/call') {
             const wrappedHandler = async (
                 request: SchemaOutput<T>,
-                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
+                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -333,11 +329,11 @@ export class Server<
         return super.setRequestHandler(requestSchema, handlerDecoratorFactory(handler));
     }
 
-    // Runtime type guard: ensure extra is our ServerContext
-    private isContextExtra(
-        extra: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext>
-    ): extra is ServerContext<RequestT, NotificationT, ResultT> {
-        return extra instanceof ServerContext;
+    // Runtime type guard: ensure ctx is our ServerContext
+    private isServerContext(
+        ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT>
+    ): ctx is ServerContext<RequestT, NotificationT, ResultT> {
+        return ctx instanceof ServerContext;
     }
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
@@ -541,28 +537,12 @@ export class Server<
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
-    }): ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT, BaseRequestContext> {
+    }): ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT> {
         const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
         const sessionId = capturedTransport?.sessionId;
 
-        // Build the MCP context using the helper from Protocol
-        const mcpContext: McpContext = this.buildMcpContext({ request, sessionId });
-
-        // Build the server request context with HTTP details (server-specific)
-        const requestCtx: ServerRequestContext = {
-            signal: abortController.signal,
-            authInfo: extra?.authInfo,
-            // URL is not available in MessageExtraInfo, use a placeholder
-            uri: new URL('mcp://request'),
-            headers: extra?.requestInfo?.headers ?? new Headers(),
-            stream: {
-                closeSSEStream: extra?.closeSSEStream,
-                closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
-            }
-        };
-
         // Build the task context using the helper from Protocol
-        const taskCtx: TaskContext | undefined = this.buildTaskContext({
+        const task: TaskContext | undefined = this.buildTaskContext({
             taskStore,
             request,
             sessionId,
@@ -573,10 +553,23 @@ export class Server<
         // Return a ServerContext instance
         return new ServerContext<RequestT, NotificationT, ResultT>({
             server: this,
-            request,
-            mcpContext,
-            requestCtx,
-            task: taskCtx
+            sessionId: sessionId,
+            mcpReq: {
+                id: request.id,
+                method: request.method,
+                _meta: request.params?._meta,
+                signal: abortController.signal
+            },
+            task: task,
+            http: extra?.request
+                ? {
+                      req: extra?.request,
+                      authInfo: extra?.authInfo,
+                      closeSSE: extra?.closeSSEStream,
+                      closeStandaloneSSE: extra?.closeStandaloneSSEStream
+                  }
+                : undefined,
+            request: request
         });
     }
 
