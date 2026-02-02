@@ -22,6 +22,13 @@ export interface CreateMcpExpressAppOptions {
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
+
+    /**
+     * Maximum request body size for the JSON body parser.
+     * Accepts a number (bytes) or a string with units (e.g., '1mb', '100kb').
+     * Defaults to Express's default of '100kb'.
+     */
+    jsonLimit?: string | number;
 }
 
 /**
@@ -48,10 +55,10 @@ export interface CreateMcpExpressAppOptions {
  * ```
  */
 export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): Express {
-    const { host = '127.0.0.1', allowedHosts } = options;
+    const { host = '127.0.0.1', allowedHosts, jsonLimit } = options;
 
     const app = express();
-    app.use(express.json());
+    app.use(express.json(jsonLimit === undefined ? {} : { limit: jsonLimit }));
 
     // If allowedHosts is explicitly provided, use that for validation
     if (allowedHosts) {
