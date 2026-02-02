@@ -293,7 +293,7 @@ async function connect(url?: string): Promise<void> {
                 attempts++;
                 console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
-                const content: Record<string, string | number | boolean | string[]> = {};
+                const content: Record<string, unknown> = {};
                 let inputCancelled = false;
 
                 // Collect input for each field
@@ -357,7 +357,7 @@ async function connect(url?: string): Promise<void> {
                     // Parse and validate the input
                     try {
                         if (answer === '' && field.default !== undefined) {
-                            content[fieldName] = field.default as string | number | boolean | string[];
+                            content[fieldName] = field.default;
                         } else if (answer === '' && !isRequired) {
                             // Skip optional empty fields
                             continue;
@@ -365,7 +365,7 @@ async function connect(url?: string): Promise<void> {
                             throw new Error(`${fieldName} is required`);
                         } else {
                             // Parse the value based on type
-                            let parsedValue: string | number | boolean | string[];
+                            let parsedValue: unknown;
 
                             switch (field.type) {
                                 case 'boolean': {
@@ -411,7 +411,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return { action: 'cancel' as const };
+                    return { action: 'cancel' };
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -424,7 +424,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' as const };
+                        return { action: 'decline' };
                     }
                 }
 
@@ -443,7 +443,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' as const };
+                        return { action: 'decline' };
                     }
                 }
 
