@@ -204,6 +204,41 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     listChanged?: ListChangedHandlers;
+
+    /**
+     * The protocol version to request during initialization.
+     *
+     * @default LATEST_PROTOCOL_VERSION
+     *
+     * @example
+     * ```typescript
+     * const client = new Client(
+     *   { name: 'my-client', version: '1.0.0' },
+     *   {
+     *     protocolVersion: '2025-06-18'
+     *   }
+     * );
+     * ```
+     */
+    protocolVersion?: string;
+
+    /**
+     * List of protocol versions that this client will accept from servers.
+     * If the server responds with a version not in this list, connection will fail.
+     *
+     * @default SUPPORTED_PROTOCOL_VERSIONS
+     *
+     * @example
+     * ```typescript
+     * const client = new Client(
+     *   { name: 'my-client', version: '1.0.0' },
+     *   {
+     *     supportedProtocolVersions: ['2025-11-25', '2025-06-18', '2025-03-26']
+     *   }
+     * );
+     * ```
+     */
+    supportedProtocolVersions?: string[];
 };
 
 /**
@@ -248,6 +283,8 @@ export class Client<
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    private _protocolVersion: string;
+    private _supportedProtocolVersions: string[];
 
     /**
      * Initializes this client with the given name and version information.
@@ -260,6 +297,8 @@ export class Client<
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+        this._protocolVersion = options?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
+        this._supportedProtocolVersions = options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -476,7 +515,7 @@ export class Client<
                 {
                     method: 'initialize',
                     params: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: this._protocolVersion,
                         capabilities: this._capabilities,
                         clientInfo: this._clientInfo
                     }
@@ -489,7 +528,7 @@ export class Client<
                 throw new Error(`Server sent invalid initialize result: ${result}`);
             }
 
-            if (!SUPPORTED_PROTOCOL_VERSIONS.includes(result.protocolVersion)) {
+            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
                 throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
             }
 

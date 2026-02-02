@@ -142,6 +142,21 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * client reconnection timing for polling behavior.
      */
     retryInterval?: number;
+
+    /**
+     * List of protocol versions that this transport will accept.
+     * Used to validate the mcp-protocol-version header in incoming requests.
+     *
+     * @default SUPPORTED_PROTOCOL_VERSIONS
+     *
+     * @example
+     * ```typescript
+     * const transport = new WebStandardStreamableHTTPServerTransport({
+     *   supportedProtocolVersions: ['2025-11-25', '2025-06-18', '2025-03-26']
+     * });
+     * ```
+     */
+    supportedProtocolVersions?: string[];
 }
 
 /**
@@ -220,6 +235,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
+    private _supportedProtocolVersions: string[];
 
     sessionId?: string;
     onclose?: () => void;
@@ -236,6 +252,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
+        this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
     }
 
     /**
@@ -848,11 +865,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private validateProtocolVersion(req: Request): Response | undefined {
         const protocolVersion = req.headers.get('mcp-protocol-version');
 
-        if (protocolVersion !== null && !SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
+        if (protocolVersion !== null && !this._supportedProtocolVersions.includes(protocolVersion)) {
             return this.createJsonErrorResponse(
                 400,
                 -32_000,
-                `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
+                `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${this._supportedProtocolVersions.join(', ')})`
             );
         }
         return undefined;
