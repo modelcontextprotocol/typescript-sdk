@@ -268,6 +268,14 @@ tool.update({
 });
 ```
 
+**Note:** In v1, `RegisteredTool.update()` used `paramsSchema` which inconsistently differed from the `inputSchema` field used in `registerTool()`. This has been fixed in v2.
+
+**New:** `RegisteredTool` now supports the `icons` field for parity with the protocol `Tool` type:
+
+```typescript
+tool.update({ icons: [{ type: 'base64', mediaType: 'image/png', data: '...' }] });
+```
+
 New getter methods are available on `McpServer` to access all registered items:
 
 ```typescript

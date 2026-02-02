@@ -227,6 +227,10 @@ tool.update({ paramsSchema: { name: z.string() }, callback: handler });
 tool.update({ inputSchema: { name: z.string() }, handler: handler });
 ```
 
+**Note:** In v1, `paramsSchema` inconsistently differed from `inputSchema` used in `registerTool()`. Fixed in v2.
+
+**New:** `RegisteredTool` now supports `icons` field (parity with protocol `Tool` type).
+
 New getter methods on `McpServer`:
 
 | Getter                        | Returns                                           |
