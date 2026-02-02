@@ -198,11 +198,50 @@ app.use(hostHeaderValidation(['example.com']));
 
 The server package now exports framework-agnostic alternatives: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
 
-## 9. Client Behavioral Changes
+## 9. `setRequestHandler` / `setNotificationHandler` API
+
+The low-level handler registration methods now take a method string instead of a Zod schema.
+
+```typescript
+// v1: schema-based
+server.setRequestHandler(InitializeRequestSchema, async (request) => { ... });
+server.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => { ... });
+
+// v2: method string
+server.setRequestHandler('initialize', async (request) => { ... });
+server.setNotificationHandler('notifications/message', (notification) => { ... });
+```
+
+Schema to method string mapping:
+
+| v1 Schema | v2 Method String |
+|-----------|-----------------|
+| `InitializeRequestSchema` | `'initialize'` |
+| `CallToolRequestSchema` | `'tools/call'` |
+| `ListToolsRequestSchema` | `'tools/list'` |
+| `ListPromptsRequestSchema` | `'prompts/list'` |
+| `GetPromptRequestSchema` | `'prompts/get'` |
+| `ListResourcesRequestSchema` | `'resources/list'` |
+| `ReadResourceRequestSchema` | `'resources/read'` |
+| `CreateMessageRequestSchema` | `'sampling/createMessage'` |
+| `ElicitRequestSchema` | `'elicitation/create'` |
+| `SetLevelRequestSchema` | `'logging/setLevel'` |
+| `PingRequestSchema` | `'ping'` |
+| `LoggingMessageNotificationSchema` | `'notifications/message'` |
+| `ToolListChangedNotificationSchema` | `'notifications/tools/list_changed'` |
+| `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
+| `PromptListChangedNotificationSchema` | `'notifications/prompts/list_changed'` |
+| `ProgressNotificationSchema` | `'notifications/progress'` |
+| `CancelledNotificationSchema` | `'notifications/cancelled'` |
+| `InitializedNotificationSchema` | `'notifications/initialized'` |
+
+Request/notification params remain fully typed. Remove unused schema imports after migration.
+
+## 10. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 10. Migration Steps (apply in this order)
+## 11. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`

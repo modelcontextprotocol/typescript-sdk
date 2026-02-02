@@ -148,19 +148,19 @@ When a request arrives from the remote side:
     - Looks up handler in `_requestHandlers` map (keyed by method name)
     - Creates `RequestHandlerExtra` with `signal`, `sessionId`, `sendNotification`, `sendRequest`
     - Invokes handler, sends JSON-RPC response back via transport
-4. **Handler** was registered via `setRequestHandler(Schema, handler)`
+4. **Handler** was registered via `setRequestHandler('method', handler)`
 
 ### Handler Registration
 
 ```typescript
 // In Client (for server→client requests like sampling, elicitation)
-client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+client.setRequestHandler('sampling/createMessage', async (request, extra) => {
   // Handle sampling request from server
   return { role: "assistant", content: {...}, model: "..." };
 });
 
 // In Server (for client→server requests like tools/call)
-server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+server.setRequestHandler('tools/call', async (request, extra) => {
   // Handle tool call from client
   return { content: [...] };
 });
@@ -207,7 +207,7 @@ const result = await server.createMessage({
 });
 
 // Client must have registered handler:
-client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+client.setRequestHandler('sampling/createMessage', async (request, extra) => {
   // Client-side LLM call
   return { role: "assistant", content: {...} };
 });
@@ -218,7 +218,7 @@ client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
 ### Request Handler Registration (Low-Level Server)
 
 ```typescript
-server.setRequestHandler(SomeRequestSchema, async (request, extra) => {
+server.setRequestHandler('tools/call', async (request, extra) => {
     // extra contains sessionId, authInfo, sendNotification, etc.
     return {
         /* result */

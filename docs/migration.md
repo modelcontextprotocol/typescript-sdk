@@ -237,6 +237,66 @@ app.use(hostHeaderValidation(['example.com']));
 
 Note: the v2 signature takes a plain `string[]` instead of an options object.
 
+### `setRequestHandler` and `setNotificationHandler` use method strings
+
+The low-level `setRequestHandler` and `setNotificationHandler` methods on `Client`, `Server`, and `Protocol` now take a method string instead of a Zod schema.
+
+**Before (v1):**
+
+```typescript
+import { Server, InitializeRequestSchema, LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/server/index.js';
+
+const server = new Server({ name: 'my-server', version: '1.0.0' });
+
+// Request handler with schema
+server.setRequestHandler(InitializeRequestSchema, async (request) => {
+  return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } };
+});
+
+// Notification handler with schema
+server.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+  console.log(notification.params.data);
+});
+```
+
+**After (v2):**
+
+```typescript
+import { Server } from '@modelcontextprotocol/server';
+
+const server = new Server({ name: 'my-server', version: '1.0.0' });
+
+// Request handler with method string
+server.setRequestHandler('initialize', async (request) => {
+  return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } };
+});
+
+// Notification handler with method string
+server.setNotificationHandler('notifications/message', (notification) => {
+  console.log(notification.params.data);
+});
+```
+
+The request and notification parameters remain fully typed via `RequestTypeMap` and `NotificationTypeMap`. You no longer need to import the individual `*RequestSchema` or `*NotificationSchema` constants for handler registration.
+
+Common method string replacements:
+
+| Schema (v1) | Method string (v2) |
+|-------------|-------------------|
+| `InitializeRequestSchema` | `'initialize'` |
+| `CallToolRequestSchema` | `'tools/call'` |
+| `ListToolsRequestSchema` | `'tools/list'` |
+| `ListPromptsRequestSchema` | `'prompts/list'` |
+| `GetPromptRequestSchema` | `'prompts/get'` |
+| `ListResourcesRequestSchema` | `'resources/list'` |
+| `ReadResourceRequestSchema` | `'resources/read'` |
+| `CreateMessageRequestSchema` | `'sampling/createMessage'` |
+| `ElicitRequestSchema` | `'elicitation/create'` |
+| `LoggingMessageNotificationSchema` | `'notifications/message'` |
+| `ToolListChangedNotificationSchema` | `'notifications/tools/list_changed'` |
+| `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
+| `PromptListChangedNotificationSchema` | `'notifications/prompts/list_changed'` |
+
 ### Client list methods return empty results for missing capabilities
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.
