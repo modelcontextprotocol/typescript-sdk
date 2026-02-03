@@ -9,6 +9,9 @@
             "@modelcontextprotocol/core": [
                 "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core/src/index.ts"
             ],
+            "@modelcontextprotocol/core/public": [
+                "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core/src/publicExports.ts"
+            ],
             "@modelcontextprotocol/eslint-config": ["./node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
             "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
             "@modelcontextprotocol/examples-shared": ["./node_modules/@modelcontextprotocol/examples-shared/src/index.ts"]
