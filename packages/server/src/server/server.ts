@@ -167,6 +167,7 @@ export class Server<
             ...ctx,
             mcpReq: {
                 ...ctx.mcpReq,
+                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
                 elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
             },
@@ -175,10 +176,6 @@ export class Server<
                 req: transportInfo?.requestInfo,
                 closeSSE: transportInfo?.closeSSEStream,
                 closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
-            },
-            notification: {
-                ...ctx.notification,
-                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger })
             }
         };
     }

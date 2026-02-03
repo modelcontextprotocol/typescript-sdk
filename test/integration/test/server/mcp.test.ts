@@ -118,7 +118,7 @@ describe('Zod v4', () => {
                     if (progressToken) {
                         // Send progress notification for each step
                         for (let i = 1; i <= steps; i++) {
-                            await ctx.notification.send({
+                            await ctx.mcpReq.notify({
                                 method: 'notifications/progress',
                                 params: {
                                     progressToken,
@@ -1441,7 +1441,7 @@ describe('Zod v4', () => {
             });
 
             mcpServer.registerTool('test-tool', {}, async ctx => {
-                await ctx.notification.send({
+                await ctx.mcpReq.notify({
                     method: 'notifications/message',
                     params: { level: 'debug', data: loggingMessage }
                 });

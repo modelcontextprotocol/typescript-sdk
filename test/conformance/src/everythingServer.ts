@@ -203,7 +203,7 @@ function createMcpServer() {
             inputSchema: z.object({})
         },
         async (_args, ctx): Promise<CallToolResult> => {
-            await ctx.notification.send({
+            await ctx.mcpReq.notify({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -212,7 +212,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await ctx.notification.send({
+            await ctx.mcpReq.notify({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -221,7 +221,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await ctx.notification.send({
+            await ctx.mcpReq.notify({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -244,7 +244,7 @@ function createMcpServer() {
         async (_args, ctx): Promise<CallToolResult> => {
             const progressToken = ctx.mcpReq._meta?.progressToken ?? 0;
             console.log('Progress token:', progressToken);
-            await ctx.notification.send({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -255,7 +255,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await ctx.notification.send({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -266,7 +266,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await ctx.notification.send({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: {
                     progressToken,

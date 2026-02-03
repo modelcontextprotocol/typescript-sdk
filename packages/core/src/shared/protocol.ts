@@ -302,6 +302,13 @@ export type BaseContext<SendRequestT extends Request, SendNotificationT extends 
          * This is used by certain transports to correctly associate related messages.
          */
         send: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
+
+        /**
+         * Sends a notification that relates to the current request being handled.
+         *
+         * This is used by certain transports to correctly associate related messages.
+         */
+        notify: (notification: SendNotificationT) => Promise<void>;
     };
 
     /**
@@ -318,18 +325,6 @@ export type BaseContext<SendRequestT extends Request, SendNotificationT extends 
      * Task context, available when task storage is configured.
      */
     task?: TaskContext;
-
-    /**
-     * Outbound notification sending.
-     */
-    notification: {
-        /**
-         * Sends a notification that relates to the current request being handled.
-         *
-         * This is used by certain transports to correctly associate related messages.
-         */
-        send: (notification: SendNotificationT) => Promise<void>;
-    };
 };
 
 /**
@@ -340,6 +335,12 @@ export type ServerContext<
     SendNotificationT extends Notification = ServerNotification
 > = BaseContext<SendRequestT, SendNotificationT> & {
     mcpReq: {
+        /**
+         * Send a log message notification to the client.
+         * Respects the client's log level filter set via logging/setLevel.
+         */
+        log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
+
         /**
          * Send an elicitation request to the client, requesting user input.
          */
@@ -371,14 +372,6 @@ export type ServerContext<
          * Only available when using a StreamableHTTPServerTransport with eventStore configured.
          */
         closeStandaloneSSE?: () => void;
-    };
-
-    notification: {
-        /**
-         * Send a log message notification to the client.
-         * Respects the client's log level filter set via logging/setLevel.
-         */
-        log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
     };
 };
 
@@ -840,19 +833,17 @@ export abstract class Protocol<
                         await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
                     }
                     return await this.request(r, resultSchema, requestOptions);
-                }
-            },
-            http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
-            task,
-            notification: {
-                send: async notification => {
+                },
+                notify: async notification => {
                     const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
                     if (relatedTaskId) {
                         notificationOptions.relatedTask = { taskId: relatedTaskId };
                     }
                     await this.notification(notification, notificationOptions);
                 }
-            }
+            },
+            http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
+            task
         };
         const ctx = this.buildContext(baseCtx, extra);
 

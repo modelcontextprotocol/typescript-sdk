@@ -393,7 +393,7 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.requestId` | `ctx.mcpReq.id` |
 | `extra._meta` | `ctx.mcpReq._meta` |
 | `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
-| `extra.sendNotification(...)` | `ctx.notification.send(...)` |
+| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
 | `extra.authInfo` | `ctx.http?.authInfo` |
 | `extra.requestInfo` | `ctx.http?.req` (only on `ServerContext`) |
 | `extra.closeSSEStream` | `ctx.http?.closeSSE` (only on `ServerContext`) |
@@ -420,17 +420,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 server.setRequestHandler('tools/call', async (request, ctx) => {
   const headers = ctx.http?.req?.headers;
   const taskStore = ctx.task?.store;
-  await ctx.notification.send({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+  await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
   return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
 Context fields are organized into 4 groups:
 
-- **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, plus server-only `elicitInput()` and `requestSampling()`
+- **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
 - **`http?`** — HTTP transport concerns (undefined for stdio): `authInfo`, plus server-only `req`, `closeSSE`, `closeStandaloneSSE`
 - **`task?`** — task lifecycle: `id`, `store`, `requestedTtl`
-- **`notification`** — outbound notifications: `send()`, plus server-only `log()`
 
 `BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. `ServerContext` extends each group with server-specific additions via type intersection.
 
@@ -439,7 +438,7 @@ Context fields are organized into 4 groups:
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
   // Send a log message (respects client's log level filter)
-  await ctx.notification.log('info', 'Processing tool call', 'my-logger');
+  await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
 
   // Request client to sample an LLM
   const samplingResult = await ctx.mcpReq.requestSampling({

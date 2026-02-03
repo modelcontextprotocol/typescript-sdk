@@ -178,17 +178,15 @@ The `ctx` parameter in handlers provides a structured context:
   - `_meta?`: Request metadata
   - `signal`: AbortSignal for cancellation
   - `send(request, schema, options?)`: Send related request (for bidirectional flows)
+  - `notify(notification)`: Send related notification back
 - `http?`: HTTP transport info (undefined for stdio)
   - `authInfo?`: Validated auth token info
 - `task?`: Task context (`{ id?, store, requestedTtl? }`) when task storage is configured
-- `notification`: Outbound notifications
-  - `send(notification)`: Send related notification back
 
-**`ServerContext`** extends each `BaseContext` group via type intersection:
+**`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:
 
-- `mcpReq` adds: `elicitInput(params, options?)`, `requestSampling(params, options?)`
+- `mcpReq` adds: `log(level, data, logger?)`, `elicitInput(params, options?)`, `requestSampling(params, options?)`
 - `http?` adds: `req?` (HTTP request info), `closeSSE?`, `closeStandaloneSSE?`
-- `notification` adds: `log(level, data, logger?)`
 
 **`ClientContext`** is currently identical to `BaseContext`.
 

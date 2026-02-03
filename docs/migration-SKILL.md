@@ -378,7 +378,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.requestId` | `ctx.mcpReq.id` |
 | `extra._meta` | `ctx.mcpReq._meta` |
 | `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
-| `extra.sendNotification(...)` | `ctx.notification.send(...)` |
+| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
 | `extra.authInfo` | `ctx.http?.authInfo` |
 | `extra.sessionId` | `ctx.sessionId` |
 | `extra.requestInfo` | `ctx.http?.req` (only `ServerContext`) |
@@ -392,7 +392,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 
 | Method | Description | Replaces |
 |--------|-------------|----------|
-| `ctx.notification.log(level, data, logger?)` | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
+| `ctx.mcpReq.log(level, data, logger?)` | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
 | `ctx.mcpReq.elicitInput(params, options?)` | Elicit user input (form or URL) | `server.elicitInput(...)` from within handler |
 | `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client | `server.createMessage(...)` from within handler |
 
@@ -400,7 +400,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 11. Runtime-Specific JSON Schema Validators (Enhancement)
+## 12. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 - Node.js → `AjvJsonSchemaValidator` (no change from v1)
@@ -420,7 +420,7 @@ new McpServer({ name: 'server', version: '1.0.0' }, {});
 
 Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
 
-## 12. Migration Steps (apply in this order)
+## 13. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`

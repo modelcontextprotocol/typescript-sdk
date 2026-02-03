@@ -2081,8 +2081,8 @@ describe('Task-based execution', () => {
 
             // Set up a handler that uses sendRequest and sendNotification
             serverProtocol.setRequestHandler('tools/call', async (_request, ctx) => {
-                // Send a notification using the ctx.notification.send
-                await ctx.notification.send({
+                // Send a notification using the ctx.mcpReq.notify
+                await ctx.mcpReq.notify({
                     method: 'notifications/message',
                     params: { level: 'info', data: 'test' }
                 });
