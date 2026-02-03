@@ -1,6 +1,7 @@
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from '@modelcontextprotocol/client';
 import type { FetchLike, Middleware } from '@modelcontextprotocol/client';
-import { ConformanceOAuthProvider } from './ConformanceOAuthProvider.js';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError } from '@modelcontextprotocol/client';
+
+import { ConformanceOAuthProvider } from './conformanceOAuthProvider.js';
 
 export const handle401 = async (
     response: Response,
