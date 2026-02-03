@@ -78,10 +78,9 @@ async function main(): Promise<void> {
                     arguments: {}
                 }
             },
-            CallToolResultSchema,
             {
                 // Track resumption tokens for debugging
-                onresumptiontoken: token => {
+                onresumptiontoken: (token: string) => {
                     lastEventId = token;
                     console.log(`[Event ID] ${token}`);
                 }

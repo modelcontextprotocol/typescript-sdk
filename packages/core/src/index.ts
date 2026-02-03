@@ -8,6 +8,7 @@ export * from './shared/stdio.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
+export * from './types/mapping.js';
 export * from './types/types.js';
 export * from './util/inMemory.js';
 export * from './util/zodCompat.js';

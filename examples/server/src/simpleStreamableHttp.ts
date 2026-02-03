@@ -247,8 +247,7 @@ const getServer = () => {
                             message,
                             requestedSchema
                         }
-                    },
-                    ElicitResultSchema
+                    }
                 );
 
                 if (result.action === 'accept') {

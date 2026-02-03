@@ -808,7 +808,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -855,7 +855,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -903,7 +903,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1708,7 +1708,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-with-meta');
@@ -1744,7 +1744,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-without-meta');
@@ -1809,7 +1809,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('task-tool');
@@ -1878,7 +1878,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('optional-task-tool');
@@ -2202,7 +2202,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both resources are registered
-            let result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+            let result = await client.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(2);
 
@@ -2218,7 +2218,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the resource was removed
-            result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+            result = await client.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.uri).toBe('test://resource2');
@@ -2261,7 +2261,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify template is registered
-            const result = await client.request({ method: 'resources/templates/list' }, ListResourceTemplatesResultSchema);
+            const result = await client.request({ method: 'resources/templates/list' });
 
             expect(result.resourceTemplates).toHaveLength(1);
             expect(notifications).toHaveLength(0);
@@ -2276,7 +2276,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the template was removed
-            const result2 = await client.request({ method: 'resources/templates/list' }, ListResourceTemplatesResultSchema);
+            const result2 = await client.request({ method: 'resources/templates/list' });
 
             expect(result2.resourceTemplates).toHaveLength(0);
         });
@@ -3221,7 +3221,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both prompts are registered
-            let result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
+            let result = await client.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(2);
             expect(result.prompts.map(p => p.name).toSorted()).toEqual(['prompt1', 'prompt2']);
@@ -3238,7 +3238,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(notifications).toMatchObject([{ method: 'notifications/prompts/list_changed' }]);
 
             // Verify the prompt was removed
-            result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
+            result = await client.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('prompt2');
@@ -4076,7 +4076,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 
@@ -5366,7 +5366,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 

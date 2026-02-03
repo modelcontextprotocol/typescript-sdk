@@ -42,7 +42,7 @@ interface TestProtocol {
     // Protected task methods (exposed for testing)
     listTasks: (params?: { cursor?: string }) => Promise<{ tasks: Task[]; nextCursor?: string }>;
     cancelTask: (params: { taskId: string }) => Promise<Result>;
-    requestStream: <T extends Result>(request: Request, schema: ZodType<T>, options?: unknown) => AsyncGenerator<ResponseMessage<T>>;
+    requestStream: <T extends Result>(request: Request, options?: unknown) => AsyncGenerator<ResponseMessage<T>>;
 }
 
 // Mock Transport class
@@ -166,12 +166,8 @@ describe('protocol tests', () => {
 
     test('should throw a timeout error if the request exceeds the timeout', async () => {
         await protocol.connect(transport);
-        const request = { method: 'example', params: {} };
         try {
-            const mockSchema: ZodType<{ result: string }> = z.object({
-                result: z.string()
-            });
-            await protocol.request(request, mockSchema, {
+            await protocol.request({ method: 'ping', params: {} }, {
                 timeout: 0
             });
         } catch (error) {
@@ -210,7 +206,7 @@ describe('protocol tests', () => {
         test('should preserve existing _meta when adding progressToken', async () => {
             await protocol.connect(transport);
             const request = {
-                method: 'example',
+                method: 'ping',
                 params: {
                     data: 'test',
                     _meta: {
@@ -226,7 +222,7 @@ describe('protocol tests', () => {
 
             // Start request but don't await - we're testing the sent message
             void protocol
-                .request(request, mockSchema, {
+                .request(request as any, {
                     onprogress: onProgressMock
                 })
                 .catch(() => {
@@ -235,7 +231,7 @@ describe('protocol tests', () => {
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    method: 'example',
+                    method: 'ping',
                     params: {
                         data: 'test',
                         _meta: {
@@ -254,7 +250,7 @@ describe('protocol tests', () => {
         test('should create _meta with progressToken when no _meta exists', async () => {
             await protocol.connect(transport);
             const request = {
-                method: 'example',
+                method: 'ping',
                 params: {
                     data: 'test'
                 }
@@ -266,7 +262,7 @@ describe('protocol tests', () => {
 
             // Start request but don't await - we're testing the sent message
             void protocol
-                .request(request, mockSchema, {
+                .request(request as any, {
                     onprogress: onProgressMock
                 })
                 .catch(() => {
@@ -275,7 +271,7 @@ describe('protocol tests', () => {
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    method: 'example',
+                    method: 'ping',
                     params: {
                         data: 'test',
                         _meta: {
@@ -292,7 +288,7 @@ describe('protocol tests', () => {
         test('should not modify _meta when onprogress is not provided', async () => {
             await protocol.connect(transport);
             const request = {
-                method: 'example',
+                method: 'ping',
                 params: {
                     data: 'test',
                     _meta: {
@@ -305,13 +301,13 @@ describe('protocol tests', () => {
             });
 
             // Start request but don't await - we're testing the sent message
-            void protocol.request(request, mockSchema).catch(() => {
+            void protocol.request(request as any).catch(() => {
                 // May not complete, ignore error
             });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    method: 'example',
+                    method: 'ping',
                     params: {
                         data: 'test',
                         _meta: {
@@ -328,7 +324,7 @@ describe('protocol tests', () => {
         test('should handle params being undefined with onprogress', async () => {
             await protocol.connect(transport);
             const request = {
-                method: 'example'
+                method: 'ping'
             };
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
@@ -337,7 +333,7 @@ describe('protocol tests', () => {
 
             // Start request but don't await - we're testing the sent message
             void protocol
-                .request(request, mockSchema, {
+                .request(request as any, {
                     onprogress: onProgressMock
                 })
                 .catch(() => {
@@ -346,7 +342,7 @@ describe('protocol tests', () => {
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    method: 'example',
+                    method: 'ping',
                     params: {
                         _meta: {
                             progressToken: expect.any(Number)
@@ -370,12 +366,12 @@ describe('protocol tests', () => {
 
         test('should not reset timeout when resetTimeoutOnProgress is false', async () => {
             await protocol.connect(transport);
-            const request = { method: 'example', params: {} };
+            const request = { method: 'ping', params: {} };
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = protocol.request(request as any, {
                 timeout: 1000,
                 resetTimeoutOnProgress: false,
                 onprogress: onProgressMock
@@ -408,12 +404,12 @@ describe('protocol tests', () => {
 
         test('should reset timeout when progress notification is received', async () => {
             await protocol.connect(transport);
-            const request = { method: 'example', params: {} };
+            const request = { method: 'ping', params: {} };
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = protocol.request(request as any, {
                 timeout: 1000,
                 resetTimeoutOnProgress: true,
                 onprogress: onProgressMock
@@ -440,21 +436,21 @@ describe('protocol tests', () => {
                 transport.onmessage({
                     jsonrpc: '2.0',
                     id: 0,
-                    result: { result: 'success' }
+                    result: {}
                 });
             }
             await Promise.resolve();
-            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+            await expect(requestPromise).resolves.toEqual({});
         });
 
         test('should respect maxTotalTimeout', async () => {
             await protocol.connect(transport);
-            const request = { method: 'example', params: {} };
+            const request = { method: 'ping', params: {} };
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = protocol.request(request as any, {
                 timeout: 1000,
                 maxTotalTimeout: 150,
                 resetTimeoutOnProgress: true,
@@ -497,11 +493,11 @@ describe('protocol tests', () => {
 
         test('should timeout if no progress received within timeout period', async () => {
             await protocol.connect(transport);
-            const request = { method: 'example', params: {} };
+            const request = { method: 'ping', params: {} };
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = protocol.request(request as any, {
                 timeout: 100,
                 resetTimeoutOnProgress: true
             });
@@ -511,12 +507,12 @@ describe('protocol tests', () => {
 
         test('should handle multiple progress notifications correctly', async () => {
             await protocol.connect(transport);
-            const request = { method: 'example', params: {} };
+            const request = { method: 'ping', params: {} };
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = protocol.request(request as any, {
                 timeout: 1000,
                 resetTimeoutOnProgress: true,
                 onprogress: onProgressMock
@@ -546,22 +542,22 @@ describe('protocol tests', () => {
                 transport.onmessage({
                     jsonrpc: '2.0',
                     id: 0,
-                    result: { result: 'success' }
+                    result: {}
                 });
             }
             await Promise.resolve();
-            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+            await expect(requestPromise).resolves.toEqual({});
         });
 
         test('should handle progress notifications with message field', async () => {
             await protocol.connect(transport);
-            const request = { method: 'example', params: {} };
+            const request = { method: 'ping', params: {} };
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = vi.fn();
 
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = protocol.request(request as any, {
                 timeout: 1000,
                 onprogress: onProgressMock
             });
@@ -614,11 +610,11 @@ describe('protocol tests', () => {
                 transport.onmessage({
                     jsonrpc: '2.0',
                     id: 0,
-                    result: { result: 'success' }
+                    result: {}
                 });
             }
             await Promise.resolve();
-            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+            await expect(requestPromise).resolves.toEqual({});
         });
     });
 
@@ -1032,7 +1028,7 @@ describe('Task-based execution', () => {
             });
 
             void protocol
-                .request(request, resultSchema, {
+                .request(request as any, {
                     task: {
                         ttl: 30000,
                         pollInterval: 1000
@@ -1075,7 +1071,7 @@ describe('Task-based execution', () => {
             });
 
             void protocol
-                .request(request, resultSchema, {
+                .request(request as any, {
                     task: {
                         ttl: 60000
                     }
@@ -1112,7 +1108,7 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            const resultPromise = protocol.request(request, resultSchema, {
+            const resultPromise = protocol.request(request as any, {
                 task: {
                     ttl: 30000
                 }
@@ -1127,16 +1123,9 @@ describe('Task-based execution', () => {
         it('should inject relatedTask metadata into _meta field', async () => {
             await protocol.connect(transport);
 
-            const request = {
-                method: 'notifications/message',
-                params: { data: 'test' }
-            };
-
-            const resultSchema = z.object({});
-
             // Start the request (don't await completion, just let it send)
             void protocol
-                .request(request, resultSchema, {
+                .request({ method: 'tools/call', params: { name: 'test', arguments: {} } }, {
                     relatedTask: {
                         taskId: 'parent-task-123'
                     }
@@ -1202,7 +1191,7 @@ describe('Task-based execution', () => {
 
             // Start the request (don't await completion, just let it send)
             void protocol
-                .request(request, resultSchema, {
+                .request(request as any, {
                     task: {
                         ttl: 60000,
                         pollInterval: 1000
@@ -2403,7 +2392,7 @@ describe('Progress notification support for tasks', () => {
 
         // Start a task-augmented request with progress callback
         void protocol
-            .request(request, resultSchema, {
+            .request(request as any, {
                 task: { ttl: 60000 },
                 onprogress: progressCallback
             })
@@ -2432,7 +2421,8 @@ describe('Progress notification support for tasks', () => {
                         taskId,
                         status: 'working',
                         ttl: 60000,
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        lastUpdatedAt: new Date().toISOString()
                     }
                 }
             });
@@ -2513,7 +2503,7 @@ describe('Progress notification support for tasks', () => {
 
         // Start a task-augmented request with progress callback
         void protocol
-            .request(request, resultSchema, {
+            .request(request as any, {
                 task: { ttl: 60000 },
                 onprogress: progressCallback
             })
@@ -2629,7 +2619,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        void protocol.request(request, resultSchema, {
+        void protocol.request(request as any, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2649,7 +2639,8 @@ describe('Progress notification support for tasks', () => {
                         taskId,
                         status: 'working',
                         ttl: 60000,
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        lastUpdatedAt: new Date().toISOString()
                     }
                 }
             });
@@ -2727,7 +2718,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        void protocol.request(request, resultSchema, {
+        void protocol.request(request as any, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2747,7 +2738,8 @@ describe('Progress notification support for tasks', () => {
                         taskId,
                         status: 'working',
                         ttl: 60000,
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        lastUpdatedAt: new Date().toISOString()
                     }
                 }
             });
@@ -2822,7 +2814,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        void protocol.request(request, resultSchema, {
+        void protocol.request(request as any, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2842,7 +2834,8 @@ describe('Progress notification support for tasks', () => {
                         taskId,
                         status: 'working',
                         ttl: 60000,
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        lastUpdatedAt: new Date().toISOString()
                     }
                 }
             });
@@ -2893,7 +2886,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        void protocol.request(request, resultSchema, {
+        void protocol.request(request as any, {
             task: {
                 ttl: 60000
             },
@@ -2918,7 +2911,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        void protocol.request(request, resultSchema, {
+        void protocol.request(request as any, {
             task: {
                 ttl: 30000
             },
@@ -2968,7 +2961,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        void protocol.request(request, resultSchema, {
+        void protocol.request(request as any, {
             task: {
                 ttl: 30000
             },
@@ -2988,7 +2981,8 @@ describe('Progress notification support for tasks', () => {
                         taskId: 'task-123',
                         status: 'working',
                         ttl: 30000,
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        lastUpdatedAt: new Date().toISOString()
                     }
                 }
             });
@@ -3268,8 +3262,7 @@ describe('Message interception for task-related requests', () => {
             {
                 method: 'ping',
                 params: {}
-            },
-            z.object({}),
+            } as any,
             {
                 relatedTask: { taskId: task.taskId }
             }
@@ -3317,8 +3310,7 @@ describe('Message interception for task-related requests', () => {
             {
                 method: 'ping',
                 params: {}
-            },
-            z.object({})
+            } as any
         );
 
         // Verify queue exists (but we don't track size in the new API)
@@ -3360,7 +3352,6 @@ describe('Message interception for task-related requests', () => {
                 method: 'ping',
                 params: {}
             },
-            z.object({}),
             {
                 relatedTask: { taskId: task.taskId }
             }
@@ -3413,7 +3404,6 @@ describe('Message interception for task-related requests', () => {
                 method: 'ping',
                 params: {}
             },
-            z.object({ message: z.string() }),
             {
                 relatedTask: { taskId: task.taskId }
             }
@@ -3429,7 +3419,7 @@ describe('Message interception for task-related requests', () => {
             message: {
                 jsonrpc: '2.0',
                 id: requestId,
-                result: { message: 'pong' }
+                result: {}
             },
             timestamp: Date.now()
         });
@@ -3453,7 +3443,7 @@ describe('Message interception for task-related requests', () => {
 
         // Verify the response was routed correctly
         const result = await requestPromise;
-        expect(result).toEqual({ message: 'pong' });
+        expect(result).toEqual({});
     });
 
     it('should log error when resolver is missing for side-channeled request', async () => {
@@ -3483,7 +3473,6 @@ describe('Message interception for task-related requests', () => {
                 method: 'ping',
                 params: {}
             },
-            z.object({ message: z.string() }),
             {
                 relatedTask: { taskId: task.taskId }
             }
@@ -3503,7 +3492,7 @@ describe('Message interception for task-related requests', () => {
             message: {
                 jsonrpc: '2.0',
                 id: requestId,
-                result: { message: 'pong' }
+                result: {}
             },
             timestamp: Date.now()
         });
@@ -3557,7 +3546,6 @@ describe('Message interception for task-related requests', () => {
                         method: 'ping',
                         params: {}
                     },
-                    z.object({}),
                     {
                         relatedTask: { taskId: task.taskId }
                     }
@@ -3575,7 +3563,6 @@ describe('Message interception for task-related requests', () => {
                     method: 'ping',
                     params: {}
                 },
-                z.object({}),
                 {
                     relatedTask: { taskId: task.taskId }
                 }
@@ -3634,15 +3621,12 @@ describe('Message Interception', () => {
         it('should queue requests with relatedTask metadata', async () => {
             await protocol.connect(transport);
 
-            const mockSchema = z.object({ result: z.string() });
-
             // Send a request with relatedTask metadata
             const requestPromise = protocol.request(
                 {
-                    method: 'test/request',
-                    params: { data: 'test' }
+                    method: 'ping',
+                    params: {}
                 },
-                mockSchema,
                 {
                     relatedTask: {
                         taskId: 'task-456'
@@ -3656,7 +3640,7 @@ describe('Message Interception', () => {
 
             const queuedMessage = await queue!.dequeue('task-456');
             assertQueuedRequest(queuedMessage);
-            expect(queuedMessage.message.method).toBe('test/request');
+            expect(queuedMessage.message.method).toBe('ping');
 
             // Verify resolver is stored in _requestResolvers map (not in the message)
             const requestId = queuedMessage.message.id as RequestId;
@@ -3667,7 +3651,7 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                result: { result: 'success' }
+                result: {}
             });
             await requestPromise;
         });
@@ -3836,16 +3820,14 @@ describe('Message Interception', () => {
         it('should not queue requests without relatedTask metadata', async () => {
             await protocol.connect(transport);
 
-            const mockSchema = z.object({ result: z.string() });
             const sendSpy = vi.spyOn(transport, 'send');
 
             // Send a request without relatedTask metadata
             const requestPromise = protocol.request(
                 {
-                    method: 'test/request',
-                    params: { data: 'test' }
-                },
-                mockSchema
+                    method: 'ping',
+                    params: {}
+                }
             );
 
             // Access the private _taskMessageQueue to verify no messages were queued
@@ -3859,7 +3841,7 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                result: { result: 'success' }
+                result: {}
             });
             await requestPromise;
         });
@@ -3898,15 +3880,13 @@ describe('Message Interception', () => {
             await protocol.connect(transport);
 
             const taskId = 'extracted-task-999';
-            const mockSchema = z.object({ result: z.string() });
 
             // Send a request with relatedTask metadata
             const requestPromise = protocol.request(
                 {
-                    method: 'test/request',
-                    params: { data: 'test' }
+                    method: 'ping',
+                    params: {}
                 },
-                mockSchema,
                 {
                     relatedTask: {
                         taskId: taskId
@@ -3921,11 +3901,11 @@ describe('Message Interception', () => {
             // Clean up the pending request
             const queuedMessage = await queue!.dequeue(taskId);
             assertQueuedRequest(queuedMessage);
-            expect(queuedMessage.message.method).toBe('test/request');
+            expect(queuedMessage.message.method).toBe('ping');
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: queuedMessage.message.id,
-                result: { result: 'success' }
+                result: {}
             });
             await requestPromise;
         });
@@ -4043,14 +4023,12 @@ describe('Message Interception', () => {
             await protocol.connect(transport);
 
             const relatedTask = { taskId: 'task-meta-456' };
-            const mockSchema = z.object({ result: z.string() });
 
             const requestPromise = protocol.request(
                 {
-                    method: 'test/request',
-                    params: { data: 'test' }
+                    method: 'ping',
+                    params: {}
                 },
-                mockSchema,
                 { relatedTask }
             );
 
@@ -4067,7 +4045,7 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: (queuedMessage!.message as JSONRPCRequest).id,
-                result: { result: 'success' }
+                result: {}
             });
             await requestPromise;
         });
@@ -4235,7 +4213,7 @@ describe('Queue lifecycle management', () => {
 
             // Queue a request (catch rejection to avoid unhandled promise rejection)
             const requestPromise = protocol
-                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+                .request({ method: 'ping', params: {} }, {
                     relatedTask: { taskId }
                 })
                 .catch(err => err);
@@ -4308,7 +4286,7 @@ describe('Queue lifecycle management', () => {
 
             // Queue a request (catch the rejection to avoid unhandled promise rejection)
             const requestPromise = protocol
-                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+                .request({ method: 'ping', params: {} }, {
                     relatedTask: { taskId }
                 })
                 .catch(err => err);
@@ -4341,19 +4319,19 @@ describe('Queue lifecycle management', () => {
 
             // Queue multiple requests (catch rejections to avoid unhandled promise rejections)
             const request1Promise = protocol
-                .request({ method: 'test/request1', params: { data: 'test1' } }, z.object({ result: z.string() }), {
+                .request({ method: 'ping', params: {} }, {
                     relatedTask: { taskId }
                 })
                 .catch(err => err);
 
             const request2Promise = protocol
-                .request({ method: 'test/request2', params: { data: 'test2' } }, z.object({ result: z.string() }), {
+                .request({ method: 'ping', params: {} }, {
                     relatedTask: { taskId }
                 })
                 .catch(err => err);
 
             const request3Promise = protocol
-                .request({ method: 'test/request3', params: { data: 'test3' } }, z.object({ result: z.string() }), {
+                .request({ method: 'ping', params: {} }, {
                     relatedTask: { taskId }
                 })
                 .catch(err => err);
@@ -4391,7 +4369,7 @@ describe('Queue lifecycle management', () => {
 
             // Queue a request (catch rejection to avoid unhandled promise rejection)
             const requestPromise = protocol
-                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+                .request({ method: 'ping', params: {} }, {
                     relatedTask: { taskId }
                 })
                 .catch(err => err);
@@ -4441,8 +4419,7 @@ describe('requestStream() method', () => {
         const streamPromise = (async () => {
             const messages = [];
             const stream = (protocol as unknown as TestProtocol).requestStream(
-                { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                CallToolResultSchema
+                { method: 'tools/call', params: { name: 'test', arguments: {} } }
             );
             for await (const message of stream) {
                 messages.push(message);
@@ -4484,8 +4461,7 @@ describe('requestStream() method', () => {
         const streamPromise = (async () => {
             const messages = [];
             const stream = (protocol as unknown as TestProtocol).requestStream(
-                { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                CallToolResultSchema
+                { method: 'tools/call', params: { name: 'test', arguments: {} } }
             );
             for await (const message of stream) {
                 messages.push(message);
@@ -4535,7 +4511,6 @@ describe('requestStream() method', () => {
         const messages = [];
         const stream = (protocol as unknown as TestProtocol).requestStream(
             { method: 'tools/call', params: { name: 'test', arguments: {} } },
-            CallToolResultSchema,
             {
                 signal: abortController.signal
             }
@@ -4566,8 +4541,7 @@ describe('requestStream() method', () => {
 
             const messagesPromise = toArrayAsync(
                 (protocol as unknown as TestProtocol).requestStream(
-                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                    CallToolResultSchema
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } }
                 )
             );
 
@@ -4609,7 +4583,6 @@ describe('requestStream() method', () => {
                 const messagesPromise = toArrayAsync(
                     (protocol as unknown as TestProtocol).requestStream(
                         { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                        CallToolResultSchema,
                         {
                             timeout: 100
                         }
@@ -4651,7 +4624,6 @@ describe('requestStream() method', () => {
             const messages = await toArrayAsync(
                 (protocol as unknown as TestProtocol).requestStream(
                     { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                    CallToolResultSchema,
                     {
                         signal: abortController.signal
                     }
@@ -4679,8 +4651,7 @@ describe('requestStream() method', () => {
 
             const messagesPromise = toArrayAsync(
                 (protocol as unknown as TestProtocol).requestStream(
-                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                    CallToolResultSchema
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } }
                 )
             );
 
@@ -4719,57 +4690,72 @@ describe('requestStream() method', () => {
 
         test('should yield error as terminal message for task failure', async () => {
             const transport = new MockTransport();
-            const mockTaskStore = createMockTaskStore();
             const protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
                 protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            })({ defaultTaskPollInterval: 10 }); // Short poll interval for test
             await protocol.connect(transport);
 
-            const messagesPromise = toArrayAsync(
-                (protocol as unknown as TestProtocol).requestStream(
-                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                    CallToolResultSchema
-                )
-            );
-
-            // Simulate task creation response
-            await new Promise(resolve => setTimeout(resolve, 10));
             const taskId = 'test-task-123';
-            transport.onmessage?.({
-                jsonrpc: '2.0',
-                id: 0,
-                result: {
-                    _meta: {
-                        task: {
-                            taskId,
-                            status: 'working',
-                            createdAt: new Date().toISOString(),
-                            pollInterval: 100
-                        }
-                    }
+            const now = new Date().toISOString();
+            let getTaskCount = 0;
+
+            // Intercept outgoing requests and respond appropriately
+            const originalSend = transport.send.bind(transport);
+            transport.send = vi.fn(async (message: JSONRPCMessage) => {
+                await originalSend(message);
+                const msg = message as { id: number; method: string };
+
+                // Respond to the initial tools/call request with CreateTaskResult
+                if (msg.method === 'tools/call') {
+                    setTimeout(() => {
+                        transport.onmessage?.({
+                            jsonrpc: '2.0',
+                            id: msg.id,
+                            result: {
+                                task: {
+                                    taskId,
+                                    status: 'working',
+                                    ttl: 60000,
+                                    createdAt: now,
+                                    lastUpdatedAt: now
+                                }
+                            }
+                        });
+                    }, 5);
+                }
+
+                // Respond to tasks/get polling requests
+                // GetTaskResult is TaskSchema merged with ResultSchema - fields are at top level
+                if (msg.method === 'tasks/get') {
+                    getTaskCount++;
+                    setTimeout(() => {
+                        transport.onmessage?.({
+                            jsonrpc: '2.0',
+                            id: msg.id,
+                            result: {
+                                taskId,
+                                // Return failed status on first poll
+                                status: 'failed',
+                                ttl: 60000,
+                                createdAt: now,
+                                lastUpdatedAt: now,
+                                statusMessage: 'Task failed'
+                            }
+                        });
+                    }, 5);
                 }
             });
 
-            // Wait for task creation to be processed
-            await new Promise(resolve => setTimeout(resolve, 20));
-
-            // Update task to failed status
-            const failedTask = {
-                taskId,
-                status: 'failed' as const,
-                createdAt: new Date().toISOString(),
-                pollInterval: 100,
-                ttl: null,
-                statusMessage: 'Task failed'
-            };
-            mockTaskStore.getTask.mockResolvedValue(failedTask);
-
-            // Collect messages
-            const messages = await messagesPromise;
+            const messages = await toArrayAsync(
+                (protocol as unknown as TestProtocol).requestStream(
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                    { task: { ttl: 60000 } }
+                )
+            );
 
             // Verify error is terminal and last message
             expect(messages.length).toBeGreaterThan(0);
@@ -4794,8 +4780,7 @@ describe('requestStream() method', () => {
 
             const messages = await toArrayAsync(
                 (protocol as unknown as TestProtocol).requestStream(
-                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                    CallToolResultSchema
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } }
                 )
             );
 
@@ -4819,8 +4804,7 @@ describe('requestStream() method', () => {
 
             const messagesPromise = toArrayAsync(
                 (protocol as unknown as TestProtocol).requestStream(
-                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
-                    CallToolResultSchema
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } }
                 )
             );
 

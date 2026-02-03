@@ -252,7 +252,7 @@ class InteractiveOAuthClient {
                 params: {}
             };
 
-            const result = await this.client.request(request, ListToolsResultSchema);
+            const result = await this.client.request(request);
 
             if (result.tools && result.tools.length > 0) {
                 console.log('\n📋 Available tools:');
@@ -310,7 +310,7 @@ class InteractiveOAuthClient {
                 }
             };
 
-            const result = await this.client.request(request, CallToolResultSchema);
+            const result = await this.client.request(request);
 
             console.log(`\n🔧 Tool '${toolName}' result:`);
             if (result.content) {

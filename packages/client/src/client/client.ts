@@ -27,6 +27,7 @@ import type {
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
+    HandlerResultTypeMap,
     Result,
     ServerCapabilities,
     SubscribeRequest,
@@ -333,13 +334,13 @@ export class Client<
         handler: (
             request: RequestTypeMap[M],
             extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
-        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+        ) => HandlerResultTypeMap[M] | Promise<HandlerResultTypeMap[M]>
     ): void {
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
-            ): Promise<ClientResult | ResultT> => {
+            ): Promise<HandlerResultTypeMap[M]> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -372,7 +373,7 @@ export class Client<
                                 : String(taskValidationResult.error);
                         throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
                     }
-                    return taskValidationResult.data;
+                    return taskValidationResult.data as HandlerResultTypeMap[M];
                 }
 
                 // For non-task requests, validate against ElicitResultSchema
@@ -401,7 +402,7 @@ export class Client<
                     }
                 }
 
-                return validatedResult;
+                return validatedResult as HandlerResultTypeMap[M];
             };
 
             // Install the wrapped handler
@@ -412,7 +413,7 @@ export class Client<
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
-            ): Promise<ClientResult | ResultT> => {
+            ): Promise<HandlerResultTypeMap[M]> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
@@ -434,7 +435,7 @@ export class Client<
                                 : String(taskValidationResult.error);
                         throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
                     }
-                    return taskValidationResult.data;
+                    return taskValidationResult.data as HandlerResultTypeMap[M];
                 }
 
                 // For non-task requests, validate against appropriate schema based on tools presence
@@ -447,7 +448,7 @@ export class Client<
                     throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
                 }
 
-                return validationResult.data;
+                return validationResult.data as HandlerResultTypeMap[M];
             };
 
             // Install the wrapped handler
@@ -481,7 +482,6 @@ export class Client<
                         clientInfo: this._clientInfo
                     }
                 },
-                InitializeResultSchema,
                 options
             );
 
@@ -686,19 +686,19 @@ export class Client<
     }
 
     async ping(options?: RequestOptions) {
-        return this.request({ method: 'ping' }, EmptyResultSchema, options);
+        return this.request({ method: 'ping' }, options);
     }
 
     async complete(params: CompleteRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'completion/complete', params }, CompleteResultSchema, options);
+        return this.request({ method: 'completion/complete', params }, options);
     }
 
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
-        return this.request({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
+        return this.request({ method: 'logging/setLevel', params: { level } }, options);
     }
 
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this.request({ method: 'prompts/get', params }, options);
     }
 
     async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions) {
@@ -707,7 +707,7 @@ export class Client<
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this.request({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
+        return this.request({ method: 'prompts/list', params }, options);
     }
 
     async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions) {
@@ -716,7 +716,7 @@ export class Client<
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+        return this.request({ method: 'resources/list', params }, options);
     }
 
     async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions) {
@@ -727,19 +727,19 @@ export class Client<
             );
             return { resourceTemplates: [] };
         }
-        return this.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
+        return this.request({ method: 'resources/templates/list', params }, options);
     }
 
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this.request({ method: 'resources/read', params }, options);
     }
 
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
+        return this.request({ method: 'resources/subscribe', params }, options);
     }
 
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
+        return this.request({ method: 'resources/unsubscribe', params }, options);
     }
 
     /**
@@ -749,7 +749,6 @@ export class Client<
      */
     async callTool(
         params: CallToolRequest['params'],
-        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
         options?: RequestOptions
     ) {
         // Guard: required-task tools need experimental API
@@ -760,7 +759,7 @@ export class Client<
             );
         }
 
-        const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
+        const result = await this.request({ method: 'tools/call', params }, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
@@ -856,7 +855,7 @@ export class Client<
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
+        const result = await this.request({ method: 'tools/list', params }, options);
 
         // Cache the tools and their output schemas for future validation
         this.cacheToolMetadata(result.tools);

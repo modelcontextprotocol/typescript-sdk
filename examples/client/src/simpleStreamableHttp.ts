@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline';
 
 import type {
     CallToolRequest,
+    ElicitResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -268,7 +269,7 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.setRequestHandler('elicitation/create', async request => {
+        client.setRequestHandler('elicitation/create', async (request): Promise<ElicitResult> => {
             if (request.params.mode !== 'form') {
                 throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
@@ -293,7 +294,7 @@ async function connect(url?: string): Promise<void> {
                 attempts++;
                 console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
-                const content: Record<string, unknown> = {};
+                const content: Record<string, string | number | boolean | string[]> = {};
                 let inputCancelled = false;
 
                 // Collect input for each field
@@ -357,7 +358,7 @@ async function connect(url?: string): Promise<void> {
                     // Parse and validate the input
                     try {
                         if (answer === '' && field.default !== undefined) {
-                            content[fieldName] = field.default;
+                            content[fieldName] = field.default as string | number | boolean | string[];
                         } else if (answer === '' && !isRequired) {
                             // Skip optional empty fields
                             continue;
@@ -365,7 +366,7 @@ async function connect(url?: string): Promise<void> {
                             throw new Error(`${fieldName} is required`);
                         } else {
                             // Parse the value based on type
-                            let parsedValue: unknown;
+                            let parsedValue: string | number | boolean | string[];
 
                             switch (field.type) {
                                 case 'boolean': {
@@ -375,7 +376,7 @@ async function connect(url?: string): Promise<void> {
                                 }
                                 case 'number': {
                                     parsedValue = Number.parseFloat(answer);
-                                    if (Number.isNaN(parsedValue as number)) {
+                                    if (Number.isNaN(parsedValue)) {
                                         throw new TypeError(`${fieldName} must be a valid number`);
                                     }
 
@@ -383,7 +384,7 @@ async function connect(url?: string): Promise<void> {
                                 }
                                 case 'integer': {
                                     parsedValue = Number.parseInt(answer, 10);
-                                    if (Number.isNaN(parsedValue as number)) {
+                                    if (Number.isNaN(parsedValue)) {
                                         throw new TypeError(`${fieldName} must be a valid integer`);
                                     }
 
@@ -511,8 +512,7 @@ async function connect(url?: string): Promise<void> {
                     {
                         method: 'resources/list',
                         params: {}
-                    },
-                    ListResourcesResultSchema
+                    }
                 );
                 console.log('Available resources count:', resourcesResult.resources.length);
             } catch {
@@ -598,7 +598,7 @@ async function listTools(): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -629,7 +629,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         };
 
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = await client.request(request, CallToolResultSchema);
+        const result = await client.request(request);
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
@@ -727,7 +727,7 @@ async function runNotificationsToolWithResumability(interval: number, count: num
             console.log(`Updated resumption token: ${event}`);
         };
 
-        const result = await client.request(request, CallToolResultSchema, {
+        const result = await client.request(request, {
             resumptionToken: notificationsToolLastEventId,
             onresumptiontoken: onLastEventIdUpdate
         });
@@ -756,7 +756,7 @@ async function listPrompts(): Promise<void> {
             method: 'prompts/list',
             params: {}
         };
-        const promptsResult = await client.request(promptsRequest, ListPromptsResultSchema);
+        const promptsResult = await client.request(promptsRequest);
         console.log('Available prompts:');
         if (promptsResult.prompts.length === 0) {
             console.log('  No prompts available');
@@ -785,7 +785,7 @@ async function getPrompt(name: string, args: Record<string, unknown>): Promise<v
             }
         };
 
-        const promptResult = await client.request(promptRequest, GetPromptResultSchema);
+        const promptResult = await client.request(promptRequest);
         console.log('Prompt template:');
         for (const [index, msg] of promptResult.messages.entries()) {
             console.log(`  [${index + 1}] ${msg.role}: ${msg.content.type === 'text' ? msg.content.text : JSON.stringify(msg.content)}`);
@@ -806,7 +806,7 @@ async function listResources(): Promise<void> {
             method: 'resources/list',
             params: {}
         };
-        const resourcesResult = await client.request(resourcesRequest, ListResourcesResultSchema);
+        const resourcesResult = await client.request(resourcesRequest);
 
         console.log('Available resources:');
         if (resourcesResult.resources.length === 0) {
@@ -834,7 +834,7 @@ async function readResource(uri: string): Promise<void> {
         };
 
         console.log(`Reading resource: ${uri}`);
-        const result = await client.request(request, ReadResourceResultSchema);
+        const result = await client.request(request);
 
         console.log('Resource contents:');
         for (const content of result.contents) {

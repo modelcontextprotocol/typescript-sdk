@@ -24,6 +24,7 @@ import type {
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
+    HandlerResultTypeMap,
     ResourceUpdatedNotification,
     Result,
     ServerCapabilities,
@@ -220,13 +221,13 @@ export class Server<
         handler: (
             request: RequestTypeMap[M],
             extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
-        ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+        ) => HandlerResultTypeMap[M] | Promise<HandlerResultTypeMap[M]>
     ): void {
         if (method === 'tools/call') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
-            ): Promise<ServerResult | ResultT> => {
+            ): Promise<HandlerResultTypeMap[M]> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
@@ -248,7 +249,7 @@ export class Server<
                                 : String(taskValidationResult.error);
                         throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
                     }
-                    return taskValidationResult.data;
+                    return taskValidationResult.data as HandlerResultTypeMap[M];
                 }
 
                 // For non-task requests, validate against CallToolResultSchema
@@ -259,7 +260,7 @@ export class Server<
                     throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
                 }
 
-                return validationResult.data;
+                return validationResult.data as HandlerResultTypeMap[M];
             };
 
             // Install the wrapped handler
@@ -464,7 +465,7 @@ export class Server<
     }
 
     async ping() {
-        return this.request({ method: 'ping' }, EmptyResultSchema);
+        return this.request({ method: 'ping' });
     }
 
     /**
@@ -533,11 +534,9 @@ export class Server<
             }
         }
 
-        // Use different schemas based on whether tools are provided
-        if (params.tools) {
-            return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
-        }
-        return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        // The result type varies based on whether tools are provided, but the mapping
+        // uses a single schema. The overloads handle type narrowing.
+        return this.request({ method: 'sampling/createMessage', params }, options) as Promise<CreateMessageResult | CreateMessageResultWithTools>;
     }
 
     /**
@@ -557,7 +556,7 @@ export class Server<
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
-                return this.request({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                return this.request({ method: 'elicitation/create', params: urlParams }, options);
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
@@ -567,7 +566,7 @@ export class Server<
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+                const result = await this.request({ method: 'elicitation/create', params: formParams }, options);
 
                 if (result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
@@ -621,7 +620,7 @@ export class Server<
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'roots/list', params }, ListRootsResultSchema, options);
+        return this.request({ method: 'roots/list', params }, options);
     }
 
     /**

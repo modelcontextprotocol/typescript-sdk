@@ -3,8 +3,11 @@ import { isTerminal } from '../experimental/tasks/interfaces.js';
 import type {
     AuthInfo,
     CancelledNotification,
+    CancelTaskResult,
     ClientCapabilities,
+    CreateTaskResult,
     GetTaskPayloadRequest,
+    GetTaskPayloadResult,
     GetTaskRequest,
     GetTaskResult,
     JSONRPCErrorResponse,
@@ -12,6 +15,7 @@ import type {
     JSONRPCRequest,
     JSONRPCResponse,
     JSONRPCResultResponse,
+    ListTasksResult,
     MessageExtraInfo,
     Notification,
     NotificationMethod,
@@ -23,8 +27,6 @@ import type {
     RequestId,
     RequestInfo,
     RequestMeta,
-    RequestMethod,
-    RequestTypeMap,
     Result,
     ServerCapabilities,
     Task,
@@ -36,7 +38,6 @@ import {
     CreateTaskResultSchema,
     ErrorCode,
     getNotificationSchema,
-    getRequestSchema,
     GetTaskResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
@@ -48,6 +49,8 @@ import {
     RELATED_TASK_META_KEY,
     TaskStatusNotificationSchema
 } from '../types/types.js';
+import type { HandlerResultTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../types/mapping.js';
+import { getRequestSchema, getResultSchema } from '../types/mapping.js';
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import { safeParse } from '../util/zodCompat.js';
 import { parseWithCompat } from '../util/zodJsonSchemaCompat.js';
@@ -287,7 +290,7 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
+    sendRequest: <M extends RequestMethod>(request: SendRequestT & { method: M }, options?: TaskRequestOptions) => Promise<ResultTypeMap[M]>;
 
     /**
      * Closes the SSE stream for this request, triggering client reconnection.
@@ -325,7 +328,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _requestMessageId = 0;
     private _requestHandlers: Map<
         string,
-        (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<SendResultT>
+        (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<Result>
     > = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
@@ -378,7 +381,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this.setRequestHandler(
             'ping',
             // Automatic pong by default.
-            _request => ({}) as SendResultT
+            _request => ({})
         );
 
         // Install task handlers if TaskStore is provided
@@ -395,11 +398,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 // as the taskId parameter is the source of truth
                 return {
                     ...task
-                } as unknown as SendResultT;
+                } as GetTaskResult;
             });
 
             this.setRequestHandler('tasks/result', async (request, extra) => {
-                const handleTaskResult = async (): Promise<SendResultT> => {
+                const handleTaskResult = async (): Promise<GetTaskPayloadResult> => {
                     const taskId = request.params.taskId;
 
                     // Deliver queued messages
@@ -476,7 +479,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                     taskId: taskId
                                 }
                             }
-                        } as unknown as SendResultT;
+                        } as GetTaskPayloadResult;
                     }
 
                     return await handleTaskResult();
@@ -492,7 +495,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         tasks,
                         nextCursor,
                         _meta: {}
-                    } as unknown as SendResultT;
+                    } as ListTasksResult;
                 } catch (error) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
@@ -533,7 +536,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     return {
                         _meta: {},
                         ...cancelledTask
-                    } as unknown as SendResultT;
+                    } as CancelTaskResult;
                 } catch (error) {
                     // Re-throw McpError as-is
                     if (error instanceof McpError) {
@@ -727,7 +730,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
                 await this.notification(notification, notificationOptions);
             },
-            sendRequest: async (r, resultSchema, options?) => {
+            sendRequest: async (r, options?) => {
                 // Include related-task metadata if this request is part of a task
                 const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
                 if (relatedTaskId && !requestOptions.relatedTask) {
@@ -741,7 +744,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
                 }
 
-                return await this.request(r, resultSchema, requestOptions);
+                return await this.request(r, requestOptions);
             },
             authInfo: extra?.authInfo,
             requestId: request.id,
@@ -977,18 +980,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
      */
-    protected async *requestStream<T extends AnySchema>(
-        request: SendRequestT,
-        resultSchema: T,
+    protected async *requestStream<M extends RequestMethod>(
+        request: SendRequestT & { method: M },
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
+    ): AsyncGenerator<ResponseMessage<ResultTypeMap[M] & Result>, void, void> {
         const { task } = options ?? {};
 
         // For non-task requests, just yield the result
         if (!task) {
             try {
-                const result = await this.request(request, resultSchema, options);
-                yield { type: 'result', result: result as SchemaOutput<T> & Result };
+                const result = await this.request(request, options);
+                yield { type: 'result', result: result as ResultTypeMap[M] & Result };
             } catch (error) {
                 yield {
                     type: 'error',
@@ -1000,10 +1002,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         // For task-augmented requests, we need to poll for status
         // First, make the request to create the task
-        let taskId: string | undefined;
+        let taskId: string;
         try {
-            // Send the request and get the CreateTaskResult
-            const createResult = await this.request(request, CreateTaskResultSchema, options);
+            // Send the request and get the CreateTaskResult (task option causes this return type)
+            // Cast is safe because we know options.task is set (checked in the !task branch above)
+            const createResult = await this.request(request, options) as CreateTaskResult;
 
             // Extract taskId from the result
             if (createResult.task) {
@@ -1016,16 +1019,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             // Poll for task completion
             while (true) {
                 // Get current task status
-                const task = await this.getTask({ taskId }, options);
-                yield { type: 'taskStatus', task };
+                const currentTask = await this.getTask({ taskId }, options);
+                yield { type: 'taskStatus', task: currentTask };
 
                 // Check if task is terminal
-                if (isTerminal(task.status)) {
-                    switch (task.status) {
+                if (isTerminal(currentTask.status)) {
+                    switch (currentTask.status) {
                         case 'completed': {
                             // Get the final result
-                            const result = await this.getTaskResult({ taskId }, resultSchema, options);
-                            yield { type: 'result', result: result as SchemaOutput<T> & Result };
+                            const result = await this.getTaskResult({ taskId }, options);
+                            yield { type: 'result', result: result as ResultTypeMap[M] & Result };
 
                             break;
                         }
@@ -1052,14 +1055,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 // When input_required, call tasks/result to deliver queued messages
                 // (elicitation, sampling) via SSE and block until terminal
-                if (task.status === 'input_required') {
-                    const result = await this.getTaskResult({ taskId }, resultSchema, options);
-                    yield { type: 'result', result: result as SchemaOutput<T> & Result };
+                if (currentTask.status === 'input_required') {
+                    const result = await this.getTaskResult({ taskId }, options);
+                    yield { type: 'result', result: result as ResultTypeMap[M] & Result };
                     return;
                 }
 
                 // Wait before polling again
-                const pollInterval = task.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1000;
+                const pollInterval = currentTask.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1000;
                 await new Promise(resolve => setTimeout(resolve, pollInterval));
 
                 // Check if cancelled
@@ -1078,11 +1081,24 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    request<M extends RequestMethod>(
+        request: SendRequestT & { method: M },
+        options: RequestOptions & { task: TaskCreationParams }
+    ): Promise<CreateTaskResult>;
+    request<M extends RequestMethod>(
+        request: SendRequestT & { method: M },
+        options?: RequestOptions
+    ): Promise<ResultTypeMap[M]>;
+    request<M extends RequestMethod>(
+        request: SendRequestT & { method: M },
+        options?: RequestOptions
+    ): Promise<ResultTypeMap[M] | CreateTaskResult> {
+        // Use CreateTaskResultSchema when task creation is requested, otherwise use the method's result schema
+        const resultSchema = options?.task ? CreateTaskResultSchema : getResultSchema(request.method);
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
-        return new Promise<SchemaOutput<T>>((resolve, reject) => {
+        return new Promise<ResultTypeMap[M] | CreateTaskResult>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
                 reject(error);
             };
@@ -1181,7 +1197,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 try {
                     const parseResult = safeParse(resultSchema, response.result);
                     if (parseResult.success) {
-                        resolve(parseResult.data as SchemaOutput<T>);
+                        resolve(parseResult.data as ResultTypeMap[M] | CreateTaskResult);
                     } else {
                         // Type guard: if success is false, error is guaranteed to exist
                         reject(parseResult.error);
@@ -1241,9 +1257,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * @experimental Use `client.experimental.tasks.getTask()` to access this method.
      */
-    protected async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
+    protected async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<ResultTypeMap['tasks/get']> {
         // @ts-expect-error SendRequestT cannot directly contain GetTaskRequest, but we ensure all type instantiations contain it anyways
-        return this.request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
+        return this.request({ method: 'tasks/get', params }, options);
     }
 
     /**
@@ -1251,13 +1267,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * @experimental Use `client.experimental.tasks.getTaskResult()` to access this method.
      */
-    protected async getTaskResult<T extends AnySchema>(
+    protected async getTaskResult(
         params: GetTaskPayloadRequest['params'],
-        resultSchema: T,
         options?: RequestOptions
-    ): Promise<SchemaOutput<T>> {
+    ): Promise<ResultTypeMap['tasks/result']> {
         // @ts-expect-error SendRequestT cannot directly contain GetTaskPayloadRequest, but we ensure all type instantiations contain it anyways
-        return this.request({ method: 'tasks/result', params }, resultSchema, options);
+        return this.request({ method: 'tasks/result', params }, options);
     }
 
     /**
@@ -1265,9 +1280,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * @experimental Use `client.experimental.tasks.listTasks()` to access this method.
      */
-    protected async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
+    protected async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<ResultTypeMap['tasks/list']> {
         // @ts-expect-error SendRequestT cannot directly contain ListTasksRequest, but we ensure all type instantiations contain it anyways
-        return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
+        return this.request({ method: 'tasks/list', params }, options);
     }
 
     /**
@@ -1275,9 +1290,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * @experimental Use `client.experimental.tasks.cancelTask()` to access this method.
      */
-    protected async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
+    protected async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<ResultTypeMap['tasks/cancel']> {
         // @ts-expect-error SendRequestT cannot directly contain CancelTaskRequest, but we ensure all type instantiations contain it anyways
-        return this.request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
+        return this.request({ method: 'tasks/cancel', params }, options);
     }
 
     /**
@@ -1403,7 +1418,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         handler: (
             request: RequestTypeMap[M],
             extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
-        ) => SendResultT | Promise<SendResultT>
+        ) => HandlerResultTypeMap[M] | Promise<HandlerResultTypeMap[M]>
     ): void {
         this.assertRequestHandlerCapability(method);
         const schema = getRequestSchema(method);
