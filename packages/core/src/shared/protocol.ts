@@ -320,7 +320,12 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
+export abstract class Protocol<
+    SendRequestT extends Request,
+    SendNotificationT extends Notification,
+    SendResultT extends Result,
+    ReceiveRequestMethod extends RequestMethod = RequestMethod
+> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<
@@ -375,7 +380,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             this._onprogress(notification);
         });
 
-        this.setRequestHandler(
+        this._setRequestHandlerInternal(
             'ping',
             // Automatic pong by default.
             _request => ({}) as SendResultT
@@ -385,7 +390,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskStore = _options?.taskStore;
         this._taskMessageQueue = _options?.taskMessageQueue;
         if (this._taskStore) {
-            this.setRequestHandler('tasks/get', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/get', async (request, extra) => {
                 const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
@@ -398,7 +403,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 } as unknown as SendResultT;
             });
 
-            this.setRequestHandler('tasks/result', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/result', async (request, extra) => {
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
 
@@ -485,7 +490,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return await handleTaskResult();
             });
 
-            this.setRequestHandler('tasks/list', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/list', async (request, extra) => {
                 try {
                     const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, extra.sessionId);
                     return {
@@ -501,7 +506,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             });
 
-            this.setRequestHandler('tasks/cancel', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/cancel', async (request, extra) => {
                 try {
                     // Get the current task to check if it's in a terminal state, in case the implementation is not atomic
                     const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
@@ -1394,11 +1399,31 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
+     * Internal method for registering built-in request handlers without the ReceiveRequestMethod constraint.
+     * Used by Protocol constructor for handlers like ping, tasks/*, which apply to all protocol instances.
+     * These handlers don't require capability checks as they are core protocol functionality.
+     */
+    private _setRequestHandlerInternal<M extends RequestMethod>(
+        method: M,
+        handler: (
+            request: RequestTypeMap[M],
+            extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+        ) => SendResultT | Promise<SendResultT>
+    ): void {
+        const schema = getRequestSchema(method);
+
+        this._requestHandlers.set(method, (request, extra) => {
+            const parsed = parseWithCompat(schema, request) as RequestTypeMap[M];
+            return Promise.resolve(handler(parsed, extra));
+        });
+    }
+
+    /**
      * Registers a handler to invoke when this protocol object receives a request with the given method.
      *
      * Note that this will replace any previous request handler for the same method.
      */
-    setRequestHandler<M extends RequestMethod>(
+    setRequestHandler<M extends ReceiveRequestMethod>(
         method: M,
         handler: (
             request: RequestTypeMap[M],
@@ -1417,14 +1442,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Removes the request handler for the given method.
      */
-    removeRequestHandler(method: RequestMethod): void {
+    removeRequestHandler(method: ReceiveRequestMethod): void {
         this._requestHandlers.delete(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
-    assertCanSetRequestHandler(method: RequestMethod): void {
+    assertCanSetRequestHandler(method: ReceiveRequestMethod): void {
         if (this._requestHandlers.has(method)) {
             throw new Error(`A request handler for ${method} already exists, which would be overridden`);
         }
