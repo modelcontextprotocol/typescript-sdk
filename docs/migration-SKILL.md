@@ -229,7 +229,7 @@ server.registerTool(
     'greet',
     {
         description: 'Greet a user',
-        inputSchema: { name: z.string() }
+        inputSchema: z.object({ name: z.string() })
     },
     async ({ name }) => {
         return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
@@ -251,7 +251,7 @@ server.prompt('summarize', { text: z.string() }, async ({ text }) => {
 server.registerPrompt(
     'summarize',
     {
-        argsSchema: { text: z.string() }
+        argsSchema: z.object({ text: z.string() })
     },
     async ({ text }) => {
         return { messages: [{ role: 'user', content: { type: 'text', text } }] };
