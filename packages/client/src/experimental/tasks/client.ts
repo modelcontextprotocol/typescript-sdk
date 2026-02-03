@@ -6,11 +6,10 @@
  */
 
 import type {
-    AnySchema,
+    AnyObjectSchema,
     CallToolRequest,
     CancelTaskResult,
     ClientRequest,
-    CompatibilityCallToolResultSchema,
     GetTaskResult,
     ListTasksResult,
     Notification,
@@ -29,7 +28,7 @@ import type { Client } from '../../client/client.js';
  * @internal
  */
 interface ClientInternal<RequestT extends Request> {
-    requestStream<T extends AnySchema>(
+    requestStream<T extends AnyObjectSchema>(
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
@@ -92,11 +91,10 @@ export class ExperimentalClientTasks<
      *
      * @experimental
      */
-    async *callToolStream<T extends typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema>(
+    async *callToolStream(
         params: CallToolRequest['params'],
-        resultSchema: T = CallToolResultSchema as T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<typeof CallToolResultSchema>>, void, void> {
         // Access Client's internal methods
         const clientInternal = this._client as unknown as ClientInternal<RequestT>;
 
@@ -108,7 +106,7 @@ export class ExperimentalClientTasks<
             task: options?.task ?? (clientInternal.isToolTask(params.name) ? {} : undefined)
         };
 
-        const stream = clientInternal.requestStream({ method: 'tools/call', params }, resultSchema, optionsWithTask);
+        const stream = clientInternal.requestStream({ method: 'tools/call', params }, CallToolResultSchema, optionsWithTask);
 
         // Get the validator for this tool (if it has an output schema)
         const validator = clientInternal.getToolOutputValidator(params.name);
@@ -117,7 +115,7 @@ export class ExperimentalClientTasks<
         for await (const message of stream) {
             // If this is a result message and the tool has an output schema, validate it
             if (message.type === 'result' && validator) {
-                const result = message.result as Record<string, unknown>;
+                const result = message.result;
 
                 // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
                 if (!result.structuredContent && !result.isError) {
@@ -165,7 +163,7 @@ export class ExperimentalClientTasks<
             }
 
             // Yield the message (either validated result or any other message type)
-            yield message as ResponseMessage<SchemaOutput<T>>;
+            yield message;
         }
     }
 
@@ -194,11 +192,11 @@ export class ExperimentalClientTasks<
      *
      * @experimental
      */
-    async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         // Delegate to the client's underlying Protocol method
         return (
             this._client as unknown as {
-                getTaskResult: <U extends AnySchema>(
+                getTaskResult: <U extends AnyObjectSchema>(
                     params: { taskId: string },
                     resultSchema?: U,
                     options?: RequestOptions
@@ -256,14 +254,14 @@ export class ExperimentalClientTasks<
      *
      * @experimental
      */
-    requestStream<T extends AnySchema>(
+    requestStream<T extends AnyObjectSchema>(
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         // Delegate to the client's underlying Protocol method
         type ClientWithRequestStream = {
-            requestStream<U extends AnySchema>(
+            requestStream<U extends AnyObjectSchema>(
                 request: ClientRequest | RequestT,
                 resultSchema: U,
                 options?: RequestOptions

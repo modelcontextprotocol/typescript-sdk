@@ -50,7 +50,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
 } from '../types/types.js';
-import type { AnySchema, SchemaOutput } from '../util/schema.js';
+import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
@@ -996,7 +996,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
      */
-    protected async *requestStream<T extends AnySchema>(
+    protected async *requestStream<T extends AnyObjectSchema>(
         request: SendRequestT,
         resultSchema: T,
         options?: RequestOptions

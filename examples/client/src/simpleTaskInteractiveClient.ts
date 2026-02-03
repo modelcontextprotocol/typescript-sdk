@@ -127,7 +127,6 @@ async function run(url: string): Promise<void> {
 
     const confirmStream = client.experimental.tasks.callToolStream(
         { name: 'confirm_delete', arguments: { filename: 'important.txt' } },
-        CallToolResultSchema,
         { task: { ttl: 60_000 } }
     );
 
@@ -158,10 +157,7 @@ async function run(url: string): Promise<void> {
 
     const haikuStream = client.experimental.tasks.callToolStream(
         { name: 'write_haiku', arguments: { topic: 'autumn leaves' } },
-        CallToolResultSchema,
-        {
-            task: { ttl: 60_000 }
-        }
+        { task: { ttl: 60_000 } }
     );
 
     for await (const message of haikuStream) {

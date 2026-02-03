@@ -7,6 +7,12 @@ import * as z from 'zod/v4';
 export type AnySchema = z.core.$ZodType;
 
 /**
+ * A Zod schema for objects specifically (not unions).
+ * Use this when you need to constrain to ZodObject schemas.
+ */
+export type AnyObjectSchema = z.core.$ZodObject;
+
+/**
  * Extracts the input type from a Zod schema.
  */
 export type SchemaInput<T extends AnySchema> = z.input<T>;

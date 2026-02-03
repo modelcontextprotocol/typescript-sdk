@@ -882,7 +882,6 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
                 name,
                 arguments: args
             },
-            CallToolResultSchema,
             {
                 task: {
                     ttl: 60_000 // Keep results for 60 seconds
