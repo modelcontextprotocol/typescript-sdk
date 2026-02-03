@@ -29,8 +29,7 @@ When making breaking changes, document them in **both**:
 - `docs/migration.md` — human-readable guide with before/after code examples
 - `docs/migration-SKILL.md` — LLM-optimized mapping tables for mechanical migration
 
-Include what changed, why, and how to migrate. Search for related sections and group
-related changes together rather than adding new standalone sections.
+Include what changed, why, and how to migrate. Search for related sections and group related changes together rather than adding new standalone sections.
 
 ## Code Style Guidelines
 
@@ -146,7 +145,7 @@ When a request arrives from the remote side:
 2. **`Protocol.connect()`** routes to `_onrequest()`, `_onresponse()`, or `_onnotification()`
 3. **`Protocol._onrequest()`**:
     - Looks up handler in `_requestHandlers` map (keyed by method name)
-    - Creates `RequestHandlerExtra` with `signal`, `sessionId`, `sendNotification`, `sendRequest`
+    - Creates a context object (`ServerContext` or `ClientContext`) via `createRequestContext()`
     - Invokes handler, sends JSON-RPC response back via transport
 4. **Handler** was registered via `setRequestHandler('method', handler)`
 
@@ -154,29 +153,55 @@ When a request arrives from the remote side:
 
 ```typescript
 // In Client (for server→client requests like sampling, elicitation)
-client.setRequestHandler('sampling/createMessage', async (request, extra) => {
+client.setRequestHandler('sampling/createMessage', async (request, ctx) => {
   // Handle sampling request from server
   return { role: "assistant", content: {...}, model: "..." };
 });
 
 // In Server (for client→server requests like tools/call)
-server.setRequestHandler('tools/call', async (request, extra) => {
+server.setRequestHandler('tools/call', async (request, ctx) => {
   // Handle tool call from client
   return { content: [...] };
 });
 ```
 
-### Request Handler Extra
+### Request Handler Context
 
-The `extra` parameter in handlers (`RequestHandlerExtra`) provides:
+The `ctx` parameter in handlers provides a structured context with grouped fields:
 
-- `signal`: AbortSignal for cancellation
-- `sessionId`: Transport session identifier
-- `authInfo`: Validated auth token info (if authenticated)
-- `requestId`: JSON-RPC message ID
-- `sendNotification(notification)`: Send related notification back
-- `sendRequest(request, schema)`: Send related request (for bidirectional flows)
-- `taskStore`: Task storage interface (if tasks enabled)
+**Common structure (both Client and Server)**:
+
+- `ctx.sessionId`: Transport session identifier (top-level)
+- `ctx.mcpReq`: MCP protocol context
+    - `id`: JSON-RPC message ID
+    - `method`: The method being called
+    - `_meta`: Request metadata
+    - `signal`: AbortSignal for cancellation
+    - `send(request, schema, options?)`: Send request (for bidirectional flows)
+- `ctx.http`: HTTP request context (optional, present for HTTP transports)
+    - `authInfo`: Validated auth token info (if authenticated)
+- `ctx.task`: Task context (when tasks are enabled)
+    - `id`: Current task ID (updates after `store.createTask()`)
+    - `store`: Request-scoped task store (`RequestTaskStore`)
+    - `requestedTtl`: Requested TTL for the task
+- `ctx.notification`: Notification context
+    - `send(notification)`: Send notification back
+
+**Server-specific additions**:
+
+- `ctx.http`: Extended with additional fields
+    - `req`: Raw fetch Request object (access to URL, headers, etc.)
+    - `closeSSE?()`: Close SSE stream for polling
+    - `closeStandaloneSSE?()`: Close standalone SSE stream
+- `ctx.mcpReq`: Extended with server-to-client request methods
+    - `requestSampling(params, options?)`: Request sampling from client
+    - `elicitInput(params, options?)`: Request user input from client
+- `ctx.notification`: Extended with logging methods
+    - `log(params)`: Send logging notification
+    - `debug(message, extraLogData?)`: Send debug log
+    - `info(message, extraLogData?)`: Send info log
+    - `warning(message, extraLogData?)`: Send warning log
+    - `error(message, extraLogData?)`: Send error log
 
 ### Capability Checking
 
@@ -207,7 +232,7 @@ const result = await server.createMessage({
 });
 
 // Client must have registered handler:
-client.setRequestHandler('sampling/createMessage', async (request, extra) => {
+client.setRequestHandler('sampling/createMessage', async (request, ctx) => {
   // Client-side LLM call
   return { role: "assistant", content: {...} };
 });
@@ -218,8 +243,8 @@ client.setRequestHandler('sampling/createMessage', async (request, extra) => {
 ### Request Handler Registration (Low-Level Server)
 
 ```typescript
-server.setRequestHandler('tools/call', async (request, extra) => {
-    // extra contains sessionId, authInfo, sendNotification, etc.
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    // ctx provides mcpReq, http, task, notification
     return {
         /* result */
     };
@@ -229,7 +254,7 @@ server.setRequestHandler('tools/call', async (request, extra) => {
 ### Tool Registration (High-Level McpServer)
 
 ```typescript
-mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, extra) => {
+mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, ctx) => {
     return { content: [{ type: 'text', text: 'result' }] };
 });
 ```

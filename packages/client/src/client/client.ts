@@ -1,4 +1,6 @@
 import type {
+    AnySchema,
+    BaseContext,
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -8,6 +10,7 @@ import type {
     CompleteRequest,
     GetPromptRequest,
     Implementation,
+    JSONRPCRequest,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -18,18 +21,23 @@ import type {
     ListResourceTemplatesRequest,
     ListToolsRequest,
     LoggingLevel,
+    MessageExtraInfo,
     Notification,
     NotificationMethod,
+    NotificationOptions,
     ProtocolOptions,
     ReadResourceRequest,
     Request,
-    RequestHandlerExtra,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
     Result,
+    SchemaOutput,
     ServerCapabilities,
     SubscribeRequest,
+    TaskContext,
+    TaskCreationParams,
+    TaskStore,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -65,6 +73,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import type { ClientContext } from './context.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.
@@ -332,13 +341,13 @@ export class Client<
         method: M,
         handler: (
             request: RequestTypeMap[M],
-            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ctx: ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
         ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
     ): void {
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
-                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+                ctx: ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -360,7 +369,7 @@ export class Client<
                     throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -411,7 +420,7 @@ export class Client<
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
-                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+                ctx: ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -422,7 +431,7 @@ export class Client<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -456,6 +465,76 @@ export class Client<
 
         // Other handlers use default behavior
         return super.setRequestHandler(method, handler);
+    }
+
+    protected createRequestContext(args: {
+        request: JSONRPCRequest;
+        taskStore: TaskStore | undefined;
+        relatedTaskId: string | undefined;
+        taskCreationParams: TaskCreationParams | undefined;
+        abortController: AbortController;
+        capturedTransport: Transport | undefined;
+        extra?: MessageExtraInfo;
+    }): ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT> {
+        const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
+        const sessionId = capturedTransport?.sessionId;
+
+        // Build the task context using the helper from Protocol
+        const task: TaskContext | undefined = this.buildTaskContext({
+            taskStore,
+            request,
+            sessionId,
+            relatedTaskId,
+            taskCreationParams
+        });
+
+        // Closure helpers for sendRequest and sendNotification
+        const sendRequest = async <U extends AnySchema>(
+            req: ClientRequest | RequestT,
+            resultSchema: U,
+            options?: RequestOptions
+        ): Promise<SchemaOutput<U>> => {
+            const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
+            const taskId = task?.id;
+            if (taskId) {
+                requestOptions.relatedTask = { taskId };
+                if (task?.store) {
+                    await task.store.updateTaskStatus(taskId, 'input_required');
+                }
+            }
+            return await this.request(req, resultSchema, requestOptions);
+        };
+
+        const sendNotification = async (notification: ClientNotification | NotificationT): Promise<void> => {
+            const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
+            if (task && task.id) {
+                notificationOptions.relatedTask = { taskId: task.id };
+            }
+            return this.notification(notification, notificationOptions);
+        };
+
+        // Return a ClientContext POJO — use BaseContext here since ClientContext already unions with Client types
+        const ctx: BaseContext<ClientRequest | RequestT, ClientNotification | NotificationT> = {
+            sessionId,
+            mcpReq: {
+                id: request.id,
+                method: request.method,
+                _meta: request.params?._meta,
+                signal: abortController.signal,
+                send: sendRequest
+            },
+            http: extra?.authInfo
+                ? {
+                      authInfo: extra.authInfo
+                  }
+                : undefined,
+            task,
+            notification: {
+                send: sendNotification
+            }
+        };
+
+        return ctx;
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {

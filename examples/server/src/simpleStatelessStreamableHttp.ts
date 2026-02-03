@@ -49,7 +49,7 @@ const getServer = () => {
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(10)
             }
         },
-        async ({ interval, count }, extra): Promise<CallToolResult> => {
+        async ({ interval, count }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
             let counter = 0;
 
@@ -61,7 +61,7 @@ const getServer = () => {
                             level: 'info',
                             data: `Periodic notification #${counter} at ${new Date().toISOString()}`
                         },
-                        extra.sessionId
+                        ctx.sessionId
                     );
                 } catch (error) {
                     console.error('Error sending notification:', error);

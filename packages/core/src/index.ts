@@ -1,6 +1,7 @@
 export * from './auth/errors.js';
 export * from './shared/auth.js';
 export * from './shared/authUtils.js';
+export * from './shared/context.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
@@ -9,6 +10,7 @@ export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
 export * from './types/types.js';
+export * from './types/utility.js';
 export * from './util/inMemory.js';
 export * from './util/zodCompat.js';
 export * from './util/zodJsonSchemaCompat.js';

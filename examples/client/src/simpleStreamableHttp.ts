@@ -268,10 +268,12 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.setRequestHandler('elicitation/create', async request => {
+        client.setRequestHandler('elicitation/create', async (request, ctx) => {
             if (request.params.mode !== 'form') {
                 throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
+
+            console.log(`${ctx.mcpReq.method} elicitation request received`);
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
             console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);

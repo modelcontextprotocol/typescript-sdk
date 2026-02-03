@@ -1,37 +1,46 @@
 import type {
+    AnySchema,
+    BaseContext,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    ElicitRequest,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
     Implementation,
     InitializeRequest,
     InitializeResult,
+    JSONRPCRequest,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
+    MessageExtraInfo,
     Notification,
     NotificationOptions,
     ProtocolOptions,
     Request,
-    RequestHandlerExtra,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
+    SchemaOutput,
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
     ServerResult,
+    TaskContext,
+    TaskCreationParams,
+    TaskStore,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
@@ -56,6 +65,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
+import type { ServerContext } from './context.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -159,9 +169,9 @@ export class Server<
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler('logging/setLevel', async (request, extra) => {
+            this.setRequestHandler('logging/setLevel', async (request, ctx) => {
                 const transportSessionId: string | undefined =
-                    extra.sessionId || (extra.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
+                    ctx.sessionId || (ctx.http?.req.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
                 const parseResult = LoggingLevelSchema.safeParse(level);
                 if (parseResult.success) {
@@ -219,13 +229,13 @@ export class Server<
         method: M,
         handler: (
             request: RequestTypeMap[M],
-            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+            ctx: ServerContext<RequestT, NotificationT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
         if (method === 'tools/call') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
-                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+                ctx: BaseContext<ServerRequest | RequestT, ServerNotification | NotificationT>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -236,7 +246,7 @@ export class Server<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx as ServerContext<RequestT, NotificationT>));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -263,11 +273,17 @@ export class Server<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler);
         }
 
-        // Other handlers use default behavior
-        return super.setRequestHandler(method, handler);
+        // Other handlers use default behavior - cast is safe because Server.createRequestContext always builds a ServerContext
+        return super.setRequestHandler(
+            method,
+            handler as (
+                request: RequestTypeMap[M],
+                ctx: BaseContext<ServerRequest | RequestT, ServerNotification | NotificationT>
+            ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+        );
     }
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
@@ -461,6 +477,104 @@ export class Server<
 
     private getCapabilities(): ServerCapabilities {
         return this._capabilities;
+    }
+
+    protected createRequestContext(args: {
+        request: JSONRPCRequest;
+        taskStore: TaskStore | undefined;
+        relatedTaskId: string | undefined;
+        taskCreationParams: TaskCreationParams | undefined;
+        abortController: AbortController;
+        capturedTransport: Transport | undefined;
+        extra?: MessageExtraInfo;
+    }): BaseContext<ServerRequest | RequestT, ServerNotification | NotificationT> {
+        const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
+        const sessionId = capturedTransport?.sessionId;
+
+        // Build the task context using the helper from Protocol
+        const task: TaskContext | undefined = this.buildTaskContext({
+            taskStore,
+            request,
+            sessionId,
+            relatedTaskId,
+            taskCreationParams
+        });
+
+        // Closure helpers for sendRequest and sendNotification
+        const sendRequest = async <U extends AnySchema>(
+            req: ServerRequest | RequestT,
+            resultSchema: U,
+            options?: RequestOptions
+        ): Promise<SchemaOutput<U>> => {
+            const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
+            const taskId = task?.id;
+            if (taskId) {
+                requestOptions.relatedTask = { taskId };
+                if (task?.store) {
+                    await task.store.updateTaskStatus(taskId, 'input_required');
+                }
+            }
+            return await this.request(req, resultSchema, requestOptions);
+        };
+
+        const sendNotification = async (notification: ServerNotification | NotificationT): Promise<void> => {
+            const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
+            if (task && task.id) {
+                notificationOptions.relatedTask = { taskId: task.id };
+            }
+            return this.notification(notification, notificationOptions);
+        };
+
+        // Build the ServerContext POJO
+        const ctx: ServerContext<RequestT, NotificationT> = {
+            sessionId,
+            mcpReq: {
+                id: request.id,
+                method: request.method,
+                _meta: request.params?._meta,
+                signal: abortController.signal,
+                send: sendRequest,
+                elicitInput: async (params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult> => {
+                    const elicitRequest: ElicitRequest = {
+                        method: 'elicitation/create',
+                        params
+                    };
+                    return await this.request(elicitRequest, ElicitResultSchema, { ...options, relatedRequestId: request.id });
+                },
+                requestSampling: (params: CreateMessageRequest['params'], options?: RequestOptions) => {
+                    return this.createMessage(params, options);
+                }
+            },
+            http: extra?.request
+                ? {
+                      req: extra.request,
+                      authInfo: extra?.authInfo,
+                      closeSSE: extra?.closeSSEStream,
+                      closeStandaloneSSE: extra?.closeStandaloneSSEStream
+                  }
+                : undefined,
+            task,
+            notification: {
+                send: sendNotification,
+                log: async (params: LoggingMessageNotification['params']) => {
+                    await this.sendLoggingMessage(params);
+                },
+                debug: async (message: string, extraLogData?: Record<string, unknown>) => {
+                    await this.sendLoggingMessage({ level: 'debug', data: { ...extraLogData, message }, logger: 'server' });
+                },
+                info: async (message: string, extraLogData?: Record<string, unknown>) => {
+                    await this.sendLoggingMessage({ level: 'info', data: { ...extraLogData, message }, logger: 'server' });
+                },
+                warning: async (message: string, extraLogData?: Record<string, unknown>) => {
+                    await this.sendLoggingMessage({ level: 'warning', data: { ...extraLogData, message }, logger: 'server' });
+                },
+                error: async (message: string, extraLogData?: Record<string, unknown>) => {
+                    await this.sendLoggingMessage({ level: 'error', data: { ...extraLogData, message }, logger: 'server' });
+                }
+            }
+        };
+
+        return ctx;
     }
 
     async ping() {

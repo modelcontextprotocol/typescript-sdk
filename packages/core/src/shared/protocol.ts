@@ -1,7 +1,6 @@
-import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../experimental/tasks/interfaces.js';
+import type { QueuedMessage, TaskMessageQueue, TaskStore } from '../experimental/tasks/interfaces.js';
 import { isTerminal } from '../experimental/tasks/interfaces.js';
 import type {
-    AuthInfo,
     CancelledNotification,
     ClientCapabilities,
     GetTaskPayloadRequest,
@@ -12,7 +11,6 @@ import type {
     JSONRPCRequest,
     JSONRPCResponse,
     JSONRPCResultResponse,
-    MessageExtraInfo,
     Notification,
     NotificationMethod,
     NotificationTypeMap,
@@ -21,15 +19,11 @@ import type {
     RelatedTaskMetadata,
     Request,
     RequestId,
-    RequestInfo,
-    RequestMeta,
     RequestMethod,
     RequestTypeMap,
     Result,
     ServerCapabilities,
-    Task,
-    TaskCreationParams,
-    TaskStatusNotification
+    TaskCreationParams
 } from '../types/types.js';
 import {
     CancelTaskResultSchema,
@@ -45,12 +39,13 @@ import {
     isTaskAugmentedRequestParams,
     ListTasksResultSchema,
     McpError,
-    RELATED_TASK_META_KEY,
-    TaskStatusNotificationSchema
+    RELATED_TASK_META_KEY
 } from '../types/types.js';
+import type { MessageExtraInfo } from '../types/utility.js';
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import { safeParse } from '../util/zodCompat.js';
 import { parseWithCompat } from '../util/zodJsonSchemaCompat.js';
+import type { BaseContext, RequestTaskStore, TaskContext } from './context.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -176,134 +171,6 @@ export type NotificationOptions = {
  */
 // relatedTask is excluded as the SDK controls if this is sent according to if the source is a task.
 export type TaskRequestOptions = Omit<RequestOptions, 'relatedTask'>;
-
-/**
- * Request-scoped TaskStore interface.
- */
-export interface RequestTaskStore {
-    /**
-     * Creates a new task with the given creation parameters.
-     * The implementation generates a unique taskId and createdAt timestamp.
-     *
-     * @param taskParams - The task creation parameters from the request
-     * @returns The created task object
-     */
-    createTask(taskParams: CreateTaskOptions): Promise<Task>;
-
-    /**
-     * Gets the current status of a task.
-     *
-     * @param taskId - The task identifier
-     * @returns The task object
-     * @throws If the task does not exist
-     */
-    getTask(taskId: string): Promise<Task>;
-
-    /**
-     * Stores the result of a task and sets its final status.
-     *
-     * @param taskId - The task identifier
-     * @param status - The final status: 'completed' for success, 'failed' for errors
-     * @param result - The result to store
-     */
-    storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result): Promise<void>;
-
-    /**
-     * Retrieves the stored result of a task.
-     *
-     * @param taskId - The task identifier
-     * @returns The stored result
-     */
-    getTaskResult(taskId: string): Promise<Result>;
-
-    /**
-     * Updates a task's status (e.g., to 'cancelled', 'failed', 'completed').
-     *
-     * @param taskId - The task identifier
-     * @param status - The new status
-     * @param statusMessage - Optional diagnostic message for failed tasks or other status information
-     */
-    updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string): Promise<void>;
-
-    /**
-     * Lists tasks, optionally starting from a pagination cursor.
-     *
-     * @param cursor - Optional cursor for pagination
-     * @returns An object containing the tasks array and an optional nextCursor
-     */
-    listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
-}
-
-/**
- * Extra data given to request handlers.
- */
-export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
-    /**
-     * An abort signal used to communicate if the request was cancelled from the sender's side.
-     */
-    signal: AbortSignal;
-
-    /**
-     * Information about a validated access token, provided to request handlers.
-     */
-    authInfo?: AuthInfo;
-
-    /**
-     * The session ID from the transport, if available.
-     */
-    sessionId?: string;
-
-    /**
-     * Metadata from the original request.
-     */
-    _meta?: RequestMeta;
-
-    /**
-     * The JSON-RPC ID of the request being handled.
-     * This can be useful for tracking or logging purposes.
-     */
-    requestId: RequestId;
-
-    taskId?: string;
-
-    taskStore?: RequestTaskStore;
-
-    taskRequestedTtl?: number | null;
-
-    /**
-     * The original HTTP request.
-     */
-    requestInfo?: RequestInfo;
-
-    /**
-     * Sends a notification that relates to the current request being handled.
-     *
-     * This is used by certain transports to correctly associate related messages.
-     */
-    sendNotification: (notification: SendNotificationT) => Promise<void>;
-
-    /**
-     * Sends a request that relates to the current request being handled.
-     *
-     * This is used by certain transports to correctly associate related messages.
-     */
-    sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
-
-    /**
-     * Closes the SSE stream for this request, triggering client reconnection.
-     * Only available when using a StreamableHTTPServerTransport with eventStore configured.
-     * Use this to implement polling behavior during long-running operations.
-     */
-    closeSSEStream?: () => void;
-
-    /**
-     * Closes the standalone GET SSE stream, triggering client reconnection.
-     * Only available when using a StreamableHTTPServerTransport with eventStore configured.
-     * Use this to implement polling behavior for server-initiated notifications.
-     */
-    closeStandaloneSSEStream?: () => void;
-};
-
 /**
  * Information about a request's timeout state
  */
@@ -325,7 +192,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _requestMessageId = 0;
     private _requestHandlers: Map<
         string,
-        (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<SendResultT>
+        (request: JSONRPCRequest, extra: BaseContext<SendRequestT, SendNotificationT>) => Promise<SendResultT>
     > = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
@@ -359,7 +226,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<SendResultT>;
+    fallbackRequestHandler?: (request: JSONRPCRequest, extra: BaseContext<SendRequestT, SendNotificationT>) => Promise<SendResultT>;
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
@@ -385,8 +252,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskStore = _options?.taskStore;
         this._taskMessageQueue = _options?.taskMessageQueue;
         if (this._taskStore) {
-            this.setRequestHandler('tasks/get', async (request, extra) => {
-                const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
+            this.setRequestHandler('tasks/get', async (request, ctx) => {
+                const task = await this._taskStore!.getTask(request.params.taskId, ctx.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
                 }
@@ -398,14 +265,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 } as unknown as SendResultT;
             });
 
-            this.setRequestHandler('tasks/result', async (request, extra) => {
+            this.setRequestHandler('tasks/result', async (request, ctx) => {
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
 
                     // Deliver queued messages
                     if (this._taskMessageQueue) {
                         let queuedMessage: QueuedMessage | undefined;
-                        while ((queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId))) {
+                        while ((queuedMessage = await this._taskMessageQueue.dequeue(taskId, ctx.sessionId))) {
                             // Handle response and error messages by routing them to the appropriate resolver
                             if (queuedMessage.type === 'response' || queuedMessage.type === 'error') {
                                 const message = queuedMessage.message;
@@ -443,12 +310,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                             // Send the message on the response stream by passing the relatedRequestId
                             // This tells the transport to write the message to the tasks/result response stream
-                            await this._transport?.send(queuedMessage.message, { relatedRequestId: extra.requestId });
+                            await this._transport?.send(queuedMessage.message, { relatedRequestId: ctx.mcpReq.id });
                         }
                     }
 
                     // Now check task status
-                    const task = await this._taskStore!.getTask(taskId, extra.sessionId);
+                    const task = await this._taskStore!.getTask(taskId, ctx.sessionId);
                     if (!task) {
                         throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
                     }
@@ -456,7 +323,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // Block if task is not terminal (we've already delivered all queued messages above)
                     if (!isTerminal(task.status)) {
                         // Wait for status change or new messages
-                        await this._waitForTaskUpdate(taskId, extra.signal);
+                        await this._waitForTaskUpdate(taskId, ctx.mcpReq.signal);
 
                         // After waking up, recursively call to deliver any new messages or result
                         return await handleTaskResult();
@@ -464,7 +331,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                     // If task is terminal, return the result
                     if (isTerminal(task.status)) {
-                        const result = await this._taskStore!.getTaskResult(taskId, extra.sessionId);
+                        const result = await this._taskStore!.getTaskResult(taskId, ctx.sessionId);
 
                         this._clearTaskQueue(taskId);
 
@@ -485,9 +352,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return await handleTaskResult();
             });
 
-            this.setRequestHandler('tasks/list', async (request, extra) => {
+            this.setRequestHandler('tasks/list', async (request, ctx) => {
                 try {
-                    const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, extra.sessionId);
+                    const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, ctx.sessionId);
                     return {
                         tasks,
                         nextCursor,
@@ -501,10 +368,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             });
 
-            this.setRequestHandler('tasks/cancel', async (request, extra) => {
+            this.setRequestHandler('tasks/cancel', async (request, ctx) => {
                 try {
                     // Get the current task to check if it's in a terminal state, in case the implementation is not atomic
-                    const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
+                    const task = await this._taskStore!.getTask(request.params.taskId, ctx.sessionId);
 
                     if (!task) {
                         throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
@@ -519,12 +386,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         request.params.taskId,
                         'cancelled',
                         'Client cancelled task execution.',
-                        extra.sessionId
+                        ctx.sessionId
                     );
 
                     this._clearTaskQueue(request.params.taskId);
 
-                    const cancelledTask = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
+                    const cancelledTask = await this._taskStore!.getTask(request.params.taskId, ctx.sessionId);
                     if (!cancelledTask) {
                         // Task was deleted during cancellation (e.g., cleanup happened)
                         throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${request.params.taskId}`);
@@ -713,45 +580,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._requestHandlerAbortControllers.set(request.id, abortController);
 
         const taskCreationParams = isTaskAugmentedRequestParams(request.params) ? request.params.task : undefined;
-        const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : undefined;
 
-        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
-            signal: abortController.signal,
-            sessionId: capturedTransport?.sessionId,
-            _meta: request.params?._meta,
-            sendNotification: async notification => {
-                // Include related-task metadata if this request is part of a task
-                const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
-                if (relatedTaskId) {
-                    notificationOptions.relatedTask = { taskId: relatedTaskId };
-                }
-                await this.notification(notification, notificationOptions);
-            },
-            sendRequest: async (r, resultSchema, options?) => {
-                // Include related-task metadata if this request is part of a task
-                const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
-                if (relatedTaskId && !requestOptions.relatedTask) {
-                    requestOptions.relatedTask = { taskId: relatedTaskId };
-                }
-
-                // Set task status to input_required when sending a request within a task context
-                // Use the taskId from options (explicit) or fall back to relatedTaskId (inherited)
-                const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
-                if (effectiveTaskId && taskStore) {
-                    await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
-                }
-
-                return await this.request(r, resultSchema, requestOptions);
-            },
-            authInfo: extra?.authInfo,
-            requestId: request.id,
-            requestInfo: extra?.requestInfo,
-            taskId: relatedTaskId,
-            taskStore: taskStore,
-            taskRequestedTtl: taskCreationParams?.ttl,
-            closeSSEStream: extra?.closeSSEStream,
-            closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
-        };
+        const ctx: BaseContext<SendRequestT, SendNotificationT> = this.createRequestContext({
+            request,
+            taskStore: this._taskStore,
+            relatedTaskId,
+            taskCreationParams,
+            abortController,
+            capturedTransport,
+            extra
+        });
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
@@ -762,7 +600,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     this.assertTaskHandlerCapability(request.method);
                 }
             })
-            .then(() => handler(request, fullExtra))
+            .then(() => handler(request, ctx))
             .then(
                 async result => {
                     if (abortController.signal.aborted) {
@@ -824,6 +662,77 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 this._requestHandlerAbortControllers.delete(request.id);
             });
     }
+
+    /**
+     * Builds the task context from a task store, if applicable.
+     * Returns undefined if no taskStore is provided.
+     * This is used by subclass implementations of createRequestContext.
+     */
+    protected buildTaskContext(args: {
+        taskStore: TaskStore | undefined;
+        request: JSONRPCRequest;
+        sessionId: string | undefined;
+        relatedTaskId: string | undefined;
+        taskCreationParams: TaskCreationParams | undefined;
+    }): TaskContext | undefined {
+        const { taskStore, request, sessionId, relatedTaskId, taskCreationParams } = args;
+
+        if (!taskStore) {
+            return undefined;
+        }
+
+        // Mutable task ID that updates after createTask is called
+        let currentTaskId = relatedTaskId ?? '';
+
+        // Build a request-scoped task store POJO that binds sessionId and requestId
+        const store: RequestTaskStore = {
+            createTask: async taskParams => {
+                const task = await taskStore.createTask(taskParams, request.id, request, sessionId);
+                currentTaskId = task.taskId;
+                return task;
+            },
+            getTask: async taskId => {
+                const task = await taskStore.getTask(taskId, sessionId);
+                if (!task) throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+                return task;
+            },
+            storeTaskResult: (taskId, status, result) => {
+                return taskStore.storeTaskResult(taskId, status, result, sessionId);
+            },
+            getTaskResult: taskId => {
+                return taskStore.getTaskResult(taskId, sessionId);
+            },
+            updateTaskStatus: (taskId, status, statusMessage) => {
+                return taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
+            },
+            listTasks: cursor => {
+                return taskStore.listTasks(sessionId, cursor);
+            }
+        };
+
+        return {
+            get id() {
+                return currentTaskId;
+            },
+            store,
+            requestedTtl: taskCreationParams?.ttl ?? null
+        };
+    }
+
+    /**
+     * Creates the context object passed to request handlers.
+     * Subclasses must implement this to provide the appropriate context type
+     * (ClientContext for Client, ServerContext for Server).
+     */
+    protected abstract createRequestContext(args: {
+        request: JSONRPCRequest;
+        taskStore: TaskStore | undefined;
+        relatedTaskId: string | undefined;
+        taskCreationParams: TaskCreationParams | undefined;
+        abortController: AbortController;
+        capturedTransport: Transport | undefined;
+        extra?: MessageExtraInfo;
+    }): BaseContext<SendRequestT, SendNotificationT>;
 
     private _onprogress(notification: ProgressNotification): void {
         const { progressToken, ...params } = notification.params;
@@ -1200,9 +1109,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            // Queue request if related to a task
+            // Queue request if related to a task AND task message queue is configured
             const relatedTaskId = relatedTask?.taskId;
-            if (relatedTaskId) {
+            if (relatedTaskId && this._taskStore && this._taskMessageQueue) {
                 // Store the response resolver for this request so responses can be routed back
                 const responseResolver = (response: JSONRPCResultResponse | Error) => {
                     const handler = this._responseHandlers.get(messageId);
@@ -1227,7 +1136,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 // Don't send through transport - queued messages are delivered via tasks/result only
                 // This prevents duplicate delivery for bidirectional transports
             } else {
-                // No related task - send through transport normally
+                // No related task OR no task message queue configured - send through transport normally
+                // Note: relatedTask metadata is still included in jsonrpcRequest.params._meta for receivers to see
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
                     this._cleanupTimeout(messageId);
                     reject(error);
@@ -1290,9 +1200,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         this.assertNotificationCapability(notification.method);
 
-        // Queue notification if related to a task
+        // Queue notification if related to a task AND task message queue is configured
         const relatedTaskId = options?.relatedTask?.taskId;
-        if (relatedTaskId) {
+        if (relatedTaskId && this._taskStore && this._taskMessageQueue) {
             // Build the JSONRPC notification with metadata
             const jsonrpcNotification: JSONRPCNotification = {
                 ...notification,
@@ -1400,17 +1310,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (
-            request: RequestTypeMap[M],
-            extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
-        ) => SendResultT | Promise<SendResultT>
+        handler: (request: RequestTypeMap[M], ctx: BaseContext<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
     ): void {
         this.assertRequestHandlerCapability(method);
         const schema = getRequestSchema(method);
 
-        this._requestHandlers.set(method, (request, extra) => {
+        this._requestHandlers.set(method, (request, ctx) => {
             const parsed = parseWithCompat(schema, request) as RequestTypeMap[M];
-            return Promise.resolve(handler(parsed, extra));
+            return Promise.resolve(handler(parsed, ctx));
         });
     }
 
@@ -1551,95 +1458,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 { once: true }
             );
         });
-    }
-
-    private requestTaskStore(request?: JSONRPCRequest, sessionId?: string): RequestTaskStore {
-        const taskStore = this._taskStore;
-        if (!taskStore) {
-            throw new Error('No task store configured');
-        }
-
-        return {
-            createTask: async taskParams => {
-                if (!request) {
-                    throw new Error('No request provided');
-                }
-
-                return await taskStore.createTask(
-                    taskParams,
-                    request.id,
-                    {
-                        method: request.method,
-                        params: request.params
-                    },
-                    sessionId
-                );
-            },
-            getTask: async taskId => {
-                const task = await taskStore.getTask(taskId, sessionId);
-                if (!task) {
-                    throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
-                }
-
-                return task;
-            },
-            storeTaskResult: async (taskId, status, result) => {
-                await taskStore.storeTaskResult(taskId, status, result, sessionId);
-
-                // Get updated task state and send notification
-                const task = await taskStore.getTask(taskId, sessionId);
-                if (task) {
-                    const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
-                        method: 'notifications/tasks/status',
-                        params: task
-                    });
-                    await this.notification(notification as SendNotificationT);
-
-                    if (isTerminal(task.status)) {
-                        this._cleanupTaskProgressHandler(taskId);
-                        // Don't clear queue here - it will be cleared after delivery via tasks/result
-                    }
-                }
-            },
-            getTaskResult: taskId => {
-                return taskStore.getTaskResult(taskId, sessionId);
-            },
-            updateTaskStatus: async (taskId, status, statusMessage) => {
-                // Check if task exists
-                const task = await taskStore.getTask(taskId, sessionId);
-                if (!task) {
-                    throw new McpError(ErrorCode.InvalidParams, `Task "${taskId}" not found - it may have been cleaned up`);
-                }
-
-                // Don't allow transitions from terminal states
-                if (isTerminal(task.status)) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`
-                    );
-                }
-
-                await taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
-
-                // Get updated task state and send notification
-                const updatedTask = await taskStore.getTask(taskId, sessionId);
-                if (updatedTask) {
-                    const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
-                        method: 'notifications/tasks/status',
-                        params: updatedTask
-                    });
-                    await this.notification(notification as SendNotificationT);
-
-                    if (isTerminal(updatedTask.status)) {
-                        this._cleanupTaskProgressHandler(taskId);
-                        // Don't clear queue here - it will be cleared after delivery via tasks/result
-                    }
-                }
-            },
-            listTasks: cursor => {
-                return taskStore.listTasks(cursor, sessionId);
-            }
-        };
     }
 }
 

@@ -10,12 +10,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, GetPromptResult, ReadResourceResult, EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
-import {
-    ElicitResultSchema,
-    isInitializeRequest,
-    McpServer,
-    ResourceTemplate
-} from '@modelcontextprotocol/server';
+import { ElicitResultSchema, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { Request, Response } from 'express';
 import cors from 'cors';
@@ -207,8 +202,8 @@ function createMcpServer(sessionId?: string) {
             description: 'Tests tool that emits log messages during execution',
             inputSchema: {}
         },
-        async (_args, extra): Promise<CallToolResult> => {
-            await extra.sendNotification({
+        async (_args, ctx): Promise<CallToolResult> => {
+            await ctx.notification.send({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -217,7 +212,7 @@ function createMcpServer(sessionId?: string) {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.notification.send({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -226,7 +221,7 @@ function createMcpServer(sessionId?: string) {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.notification.send({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -246,10 +241,10 @@ function createMcpServer(sessionId?: string) {
             description: 'Tests tool that reports progress notifications',
             inputSchema: {}
         },
-        async (_args, extra): Promise<CallToolResult> => {
-            const progressToken = extra._meta?.progressToken ?? 0;
+        async (_args, ctx): Promise<CallToolResult> => {
+            const progressToken = ctx.mcpReq._meta?.progressToken ?? 0;
             console.log('Progress token:', progressToken);
-            await extra.sendNotification({
+            await ctx.notification.send({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -260,7 +255,7 @@ function createMcpServer(sessionId?: string) {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.notification.send({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -271,7 +266,7 @@ function createMcpServer(sessionId?: string) {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.notification.send({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -306,23 +301,23 @@ function createMcpServer(sessionId?: string) {
                 'Tests SSE stream disconnection and client reconnection (SEP-1699). Server will close the stream mid-call and send the result after client reconnects.',
             inputSchema: {}
         },
-        async (_args, extra): Promise<CallToolResult> => {
+        async (_args, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            console.log(`[${extra.sessionId}] Starting test_reconnection tool...`);
+            console.log(`[${ctx.sessionId}] Starting test_reconnection tool...`);
 
             // Get the transport for this session
-            const transport = extra.sessionId ? transports[extra.sessionId] : undefined;
-            if (transport && extra.requestId) {
+            const transport = ctx.sessionId ? transports[ctx.sessionId] : undefined;
+            if (transport && ctx.mcpReq.id) {
                 // Close the SSE stream to trigger client reconnection
-                console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-                transport.closeSSEStream(extra.requestId);
+                console.log(`[${ctx.sessionId}] Closing SSE stream to trigger client polling...`);
+                transport.closeSSEStream(ctx.mcpReq.id);
             }
 
             // Wait for client to reconnect (should respect retry field)
             await sleep(100);
 
-            console.log(`[${extra.sessionId}] test_reconnection tool complete`);
+            console.log(`[${ctx.sessionId}] test_reconnection tool complete`);
 
             return {
                 content: [
@@ -344,10 +339,10 @@ function createMcpServer(sessionId?: string) {
                 prompt: z.string().describe('The prompt to send to the LLM')
             }
         },
-        async (args: { prompt: string }, extra): Promise<CallToolResult> => {
+        async (args: { prompt: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request sampling from client
-                const result = (await extra.sendRequest(
+                const result = (await ctx.mcpReq.send(
                     {
                         method: 'sampling/createMessage',
                         params: {
@@ -398,10 +393,10 @@ function createMcpServer(sessionId?: string) {
                 message: z.string().describe('The message to show the user')
             }
         },
-        async (args: { message: string }, extra): Promise<CallToolResult> => {
+        async (args: { message: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input from client
-                const result = await extra.sendRequest(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -450,10 +445,10 @@ function createMcpServer(sessionId?: string) {
             description: 'Tests elicitation with default values per SEP-1034',
             inputSchema: {}
         },
-        async (_args, extra): Promise<CallToolResult> => {
+        async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with default values for all primitive types
-                const result = await extra.sendRequest(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -524,10 +519,10 @@ function createMcpServer(sessionId?: string) {
             description: 'Tests elicitation with enum schema improvements per SEP-1330',
             inputSchema: {}
         },
-        async (_args, extra): Promise<CallToolResult> => {
+        async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with all 5 enum schema variants
-                const result = await extra.sendRequest(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {

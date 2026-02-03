@@ -1,8 +1,19 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 
+import type { TaskStore } from '../../src/experimental/tasks/interfaces.js';
+import type { BaseContext } from '../../src/shared/context.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
-import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
+import type {
+    EmptyResult,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    Notification,
+    Request,
+    Result,
+    TaskCreationParams
+} from '../../src/types/types.js';
+import type { MessageExtraInfo } from '../../src/types/utility.js';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -27,19 +38,68 @@ class MockTransport implements Transport {
     }
 }
 
+/**
+ * Creates a mock BaseContext for testing.
+ */
+function createMockContext(args: {
+    request: JSONRPCRequest;
+    abortController: AbortController;
+    sessionId?: string;
+}): BaseContext<Request, Notification> {
+    return {
+        sessionId: args.sessionId,
+        mcpReq: {
+            id: args.request.id,
+            method: args.request.method,
+            _meta: args.request.params?._meta,
+            signal: args.abortController.signal,
+            send: async () => ({}) as never
+        },
+        http: {
+            authInfo: undefined
+        },
+        task: undefined,
+        notification: {
+            send: async () => {}
+        }
+    };
+}
+
+/**
+ * Creates a test Protocol class with all abstract methods implemented.
+ */
+function createTestProtocolClass() {
+    return class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+        protected assertTaskCapability(): void {}
+        protected assertTaskHandlerCapability(): void {}
+        protected createRequestContext(args: {
+            request: JSONRPCRequest;
+            taskStore: TaskStore | undefined;
+            relatedTaskId: string | undefined;
+            taskCreationParams: TaskCreationParams | undefined;
+            abortController: AbortController;
+            capturedTransport: Transport | undefined;
+            extra?: MessageExtraInfo;
+        }): BaseContext<Request, Notification> {
+            return createMockContext({
+                request: args.request,
+                abortController: args.abortController,
+                sessionId: args.capturedTransport?.sessionId
+            });
+        }
+    };
+}
+
 describe('Protocol transport handling bug', () => {
     let protocol: Protocol<Request, Notification, Result>;
     let transportA: MockTransport;
     let transportB: MockTransport;
 
     beforeEach(() => {
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
+        protocol = new (createTestProtocolClass())();
 
         transportA = new MockTransport('A');
         transportB = new MockTransport('B');
@@ -86,8 +146,8 @@ describe('Protocol transport handling bug', () => {
         const results: { transport: string; response: JSONRPCMessage[] }[] = [];
 
         // Set up handler with variable delay based on request id
-        protocol.setRequestHandler('ping', async (_request, extra) => {
-            const delay = extra.requestId === 1 ? 50 : 10;
+        protocol.setRequestHandler('ping', async (_request, ctx) => {
+            const delay = ctx.mcpReq.id === 1 ? 50 : 10;
             await new Promise(resolve => setTimeout(resolve, delay));
             return {};
         });
