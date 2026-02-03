@@ -849,6 +849,22 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
+     * Returns the progress manager instance.
+     * Primarily exposed for testing purposes.
+     */
+    getProgressManager(): ProgressManager {
+        return this.#progressManager;
+    }
+
+    /**
+     * Returns the timeout manager instance.
+     * Primarily exposed for testing purposes.
+     */
+    getTimeoutManager(): TimeoutManager {
+        return this.#timeoutManager;
+    }
+
+    /**
      * Closes the connection.
      */
     async close(): Promise<void> {
