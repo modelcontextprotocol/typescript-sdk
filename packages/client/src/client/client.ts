@@ -4,9 +4,13 @@ import type {
     ClientNotification,
     ClientRequest,
     ClientResult,
+    CompatibilityCallToolResult,
     CompatibilityCallToolResultSchema,
     CompleteRequest,
+    CompleteResult,
+    EmptyResult,
     GetPromptRequest,
+    GetPromptResult,
     Implementation,
     JsonSchemaType,
     JsonSchemaValidator,
@@ -14,14 +18,19 @@ import type {
     ListChangedHandlers,
     ListChangedOptions,
     ListPromptsRequest,
+    ListPromptsResult,
     ListResourcesRequest,
+    ListResourcesResult,
     ListResourceTemplatesRequest,
+    ListResourceTemplatesResult,
     ListToolsRequest,
+    ListToolsResult,
     LoggingLevel,
     Notification,
     NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
+    ReadResourceResult,
     Request,
     RequestHandlerExtra,
     RequestMethod,
@@ -685,23 +694,23 @@ export class Client<
         assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
     }
 
-    async ping(options?: RequestOptions) {
+    async ping(options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'ping' }, EmptyResultSchema, options);
     }
 
-    async complete(params: CompleteRequest['params'], options?: RequestOptions) {
+    async complete(params: CompleteRequest['params'], options?: RequestOptions): Promise<CompleteResult> {
         return this.request({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
-    async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
+    async setLoggingLevel(level: LoggingLevel, options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
-    async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
+    async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions): Promise<GetPromptResult> {
         return this.request({ method: 'prompts/get', params }, GetPromptResultSchema, options);
     }
 
-    async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions) {
+    async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions): Promise<ListPromptsResult> {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
@@ -710,7 +719,7 @@ export class Client<
         return this.request({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
     }
 
-    async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions) {
+    async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions): Promise<ListResourcesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
@@ -719,7 +728,7 @@ export class Client<
         return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
     }
 
-    async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions) {
+    async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions): Promise<ListResourceTemplatesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             console.debug(
@@ -730,15 +739,15 @@ export class Client<
         return this.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
     }
 
-    async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
+    async readResource(params: ReadResourceRequest['params'], options?: RequestOptions): Promise<ReadResourceResult> {
         return this.request({ method: 'resources/read', params }, ReadResourceResultSchema, options);
     }
 
-    async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
+    async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
-    async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
+    async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
@@ -751,7 +760,7 @@ export class Client<
         params: CallToolRequest['params'],
         resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
         options?: RequestOptions
-    ) {
+    ): Promise<CompatibilityCallToolResult> {
         // Guard: required-task tools need experimental API
         if (this.isToolTaskRequired(params.name)) {
             throw new McpError(
@@ -850,7 +859,7 @@ export class Client<
         return this._cachedToolOutputValidators.get(toolName);
     }
 
-    async listTools(params?: ListToolsRequest['params'], options?: RequestOptions) {
+    async listTools(params?: ListToolsRequest['params'], options?: RequestOptions): Promise<ListToolsResult> {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');

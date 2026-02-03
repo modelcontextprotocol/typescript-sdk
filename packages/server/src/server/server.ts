@@ -8,12 +8,14 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    EmptyResult,
     Implementation,
     InitializeRequest,
     InitializeResult,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
+    ListRootsResult,
     LoggingLevel,
     LoggingMessageNotification,
     Notification,
@@ -463,7 +465,7 @@ export class Server<
         return this._capabilities;
     }
 
-    async ping() {
+    async ping(): Promise<EmptyResult> {
         return this.request({ method: 'ping' }, EmptyResultSchema);
     }
 
@@ -620,7 +622,7 @@ export class Server<
             );
     }
 
-    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
+    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
         return this.request({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 
@@ -631,30 +633,30 @@ export class Server<
      * @param params
      * @param sessionId optional for stateless and backward compatibility
      */
-    async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
+    async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void> {
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
-            return this.notification({ method: 'notifications/message', params });
+            await this.notification({ method: 'notifications/message', params });
         }
     }
 
-    async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
+    async sendResourceUpdated(params: ResourceUpdatedNotification['params']): Promise<void> {
         return this.notification({
             method: 'notifications/resources/updated',
             params
         });
     }
 
-    async sendResourceListChanged() {
+    async sendResourceListChanged(): Promise<void> {
         return this.notification({
             method: 'notifications/resources/list_changed'
         });
     }
 
-    async sendToolListChanged() {
+    async sendToolListChanged(): Promise<void> {
         return this.notification({ method: 'notifications/tools/list_changed' });
     }
 
-    async sendPromptListChanged() {
+    async sendPromptListChanged(): Promise<void> {
         return this.notification({ method: 'notifications/prompts/list_changed' });
     }
 }
