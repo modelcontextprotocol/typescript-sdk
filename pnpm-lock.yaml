@@ -36,6 +36,12 @@ catalogs:
     '@typescript/native-preview':
       specifier: ^7.0.0-dev.20251217.1
       version: 7.0.0-dev.20260105.1
+    '@valibot/to-json-schema':
+      specifier: ^1.5.0
+      version: 1.5.0
+    arktype:
+      specifier: ^2.1.29
+      version: 2.1.29
     eslint:
       specifier: ^9.39.2
       version: 9.39.2
@@ -66,6 +72,9 @@ catalogs:
     typescript-eslint:
       specifier: ^8.48.1
       version: 8.51.0
+    valibot:
+      specifier: ^1.2.0
+      version: 1.2.0
     vite-tsconfig-paths:
       specifier: ^5.1.4
       version: 5.1.4
@@ -333,10 +342,10 @@ importers:
         specifier: workspace:^
         version: link:../../packages/server
       '@valibot/to-json-schema':
-        specifier: ^1.5.0
+        specifier: catalog:devTools
         version: 1.5.0(valibot@1.2.0(typescript@5.9.3))
       arktype:
-        specifier: ^2.1.29
+        specifier: catalog:devTools
         version: 2.1.29
       better-auth:
         specifier: ^1.4.17
@@ -351,7 +360,7 @@ importers:
         specifier: catalog:runtimeServerOnly
         version: 4.11.4
       valibot:
-        specifier: ^1.2.0
+        specifier: catalog:devTools
         version: 1.2.0(typescript@5.9.3)
       zod:
         specifier: catalog:runtimeShared
@@ -935,16 +944,16 @@ importers:
         specifier: workspace:^
         version: link:../../common/vitest-config
       '@valibot/to-json-schema':
-        specifier: ^1.5.0
+        specifier: catalog:devTools
         version: 1.5.0(valibot@1.2.0(typescript@5.9.3))
       arktype:
-        specifier: ^2.1.29
+        specifier: catalog:devTools
         version: 2.1.29
       supertest:
         specifier: catalog:devTools
         version: 7.1.4
       valibot:
-        specifier: ^1.2.0
+        specifier: catalog:devTools
         version: 1.2.0(typescript@5.9.3)
       vitest:
         specifier: catalog:devTools

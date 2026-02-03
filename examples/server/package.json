@@ -40,13 +40,13 @@
         "@modelcontextprotocol/hono": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
-        "@valibot/to-json-schema": "^1.5.0",
-        "arktype": "^2.1.29",
+        "@valibot/to-json-schema": "catalog:devTools",
+        "arktype": "catalog:devTools",
         "better-auth": "^1.4.17",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly",
-        "valibot": "^1.2.0",
+        "valibot": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {

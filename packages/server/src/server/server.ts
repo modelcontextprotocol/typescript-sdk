@@ -54,7 +54,6 @@ import {
     SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
-import * as z from 'zod/v4';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
@@ -120,7 +119,7 @@ export class Server extends Protocol<ServerContext> {
                 const transportSessionId: string | undefined =
                     ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
-                const parseResult = z.safeParse(LoggingLevelSchema, level);
+                const parseResult = parseSchema(LoggingLevelSchema, level);
                 if (parseResult.success) {
                     this._loggingLevels.set(transportSessionId, parseResult.data);
                 }
@@ -214,7 +213,7 @@ export class Server extends Protocol<ServerContext> {
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = z.safeParse(CreateTaskResultSchema, result);
+                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -226,7 +225,7 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 // For non-task requests, validate against CallToolResultSchema
-                const validationResult = z.safeParse(CallToolResultSchema, result);
+                const validationResult = parseSchema(CallToolResultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
