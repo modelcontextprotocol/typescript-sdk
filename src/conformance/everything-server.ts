@@ -342,7 +342,7 @@ function createMcpServer(sessionId?: string) {
         async (args: { prompt: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request sampling from client
-                const result = (await ctx.req.send(
+                const result = (await ctx.mcpReq.send(
                     {
                         method: 'sampling/createMessage',
                         params: {
@@ -396,7 +396,7 @@ function createMcpServer(sessionId?: string) {
         async (args: { message: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input from client
-                const result = await ctx.req.send(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -448,7 +448,7 @@ function createMcpServer(sessionId?: string) {
         async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with default values for all primitive types
-                const result = await ctx.req.send(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -522,7 +522,7 @@ function createMcpServer(sessionId?: string) {
         async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with all 5 enum schema variants
-                const result = await ctx.req.send(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
