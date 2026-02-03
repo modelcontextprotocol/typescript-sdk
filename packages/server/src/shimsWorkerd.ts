@@ -17,7 +17,7 @@ export function randomBytes(size: number): { toString(encoding: 'hex'): string }
             if (encoding !== 'hex') {
                 throw new Error(`Unsupported encoding: ${encoding}`);
             }
-            return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
         }
     };
 }
@@ -31,6 +31,10 @@ function notSupported(): never {
 }
 
 export const process = {
-    get stdin(): never { return notSupported(); },
-    get stdout(): never { return notSupported(); },
+    get stdin(): never {
+        return notSupported();
+    },
+    get stdout(): never {
+        return notSupported();
+    }
 };

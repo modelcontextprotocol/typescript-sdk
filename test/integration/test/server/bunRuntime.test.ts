@@ -5,14 +5,16 @@
  * by creating an MCP server and registering tools.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, ChildProcess, execSync } from 'node:child_process';
-import * as path from 'node:path';
+import type { ChildProcess } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import path from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const SERVER_PORT = 8790;
-const TEST_TIMEOUT = 120000;
+const TEST_TIMEOUT = 120_000;
 
 describe('Bun runtime compatibility', () => {
     let bunProcess: ChildProcess | null = null;
@@ -36,7 +38,7 @@ describe('Bun runtime compatibility', () => {
         // Pack the server package to get a proper tarball (pnpm pack resolves catalog: deps)
         const packOutput = execSync('pnpm pack --pack-destination ' + tempDir, {
             cwd: serverPkgPath,
-            encoding: 'utf-8',
+            encoding: 'utf8'
         });
 
         // Find the tarball path (last line of output)
@@ -51,9 +53,9 @@ describe('Bun runtime compatibility', () => {
             dependencies: {
                 '@modelcontextprotocol/server': `file:./${tarballName}`,
                 '@cfworker/json-schema': '^4.1.1',
-                'ajv': '^8.17.1',
-                'ajv-formats': '^3.0.1',
-            },
+                ajv: '^8.17.1',
+                'ajv-formats': '^3.0.1'
+            }
         };
         fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
 
@@ -119,7 +121,7 @@ console.log('Bun server listening on port ' + server.port);
 
         // Install dependencies using bun
         try {
-            execSync('bun install', { cwd: tempDir, stdio: 'pipe', timeout: 60000 });
+            execSync('bun install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
         } catch (error) {
             console.error('bun install failed:', error);
             throw error;
@@ -128,17 +130,17 @@ console.log('Bun server listening on port ' + server.port);
         // Start bun server
         bunProcess = spawn('bun', ['run', 'server.ts'], {
             cwd: tempDir,
-            stdio: 'pipe',
+            stdio: 'pipe'
         });
 
         // Wait for server to be ready
         await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Bun server startup timeout')), 30000);
+            const timeout = setTimeout(() => reject(new Error('Bun server startup timeout')), 30_000);
 
             let stdoutData = '';
             let stderrData = '';
 
-            bunProcess!.stdout?.on('data', (data) => {
+            bunProcess!.stdout?.on('data', data => {
                 stdoutData += data.toString();
                 if (stdoutData.includes('listening on port')) {
                     clearTimeout(timeout);
@@ -146,16 +148,16 @@ console.log('Bun server listening on port ' + server.port);
                 }
             });
 
-            bunProcess!.stderr?.on('data', (data) => {
+            bunProcess!.stderr?.on('data', data => {
                 stderrData += data.toString();
             });
 
-            bunProcess!.on('error', (err) => {
+            bunProcess!.on('error', err => {
                 clearTimeout(timeout);
                 reject(err);
             });
 
-            bunProcess!.on('close', (code) => {
+            bunProcess!.on('close', code => {
                 if (code !== 0 && code !== null) {
                     clearTimeout(timeout);
                     reject(new Error(`Bun server exited with code ${code}. stderr: ${stderrData}`));
@@ -167,7 +169,7 @@ console.log('Bun server listening on port ' + server.port);
     afterAll(async () => {
         if (bunProcess) {
             bunProcess.kill('SIGTERM');
-            await new Promise<void>((resolve) => {
+            await new Promise<void>(resolve => {
                 bunProcess!.on('close', () => resolve());
                 setTimeout(resolve, 5000);
             });
@@ -195,7 +197,7 @@ console.log('Bun server listening on port ' + server.port);
         // Check health endpoint
         const healthResponse = await fetch(`http://127.0.0.1:${SERVER_PORT}/health`);
         expect(healthResponse.ok).toBe(true);
-        const health = await healthResponse.json() as { status: string; runtime: string };
+        const health = (await healthResponse.json()) as { status: string; runtime: string };
         expect(health.status).toBe('ok');
         expect(health.runtime).toBe('bun');
 
@@ -203,7 +205,7 @@ console.log('Bun server listening on port ' + server.port);
         const testResponse = await fetch(`http://127.0.0.1:${SERVER_PORT}/test`);
         expect(testResponse.ok).toBe(true);
 
-        const result = await testResponse.json() as {
+        const result = (await testResponse.json()) as {
             success: boolean;
             serverName: string;
             toolRegistered: boolean;

@@ -7,14 +7,16 @@
  * See also: deno-runtime.test.ts, bun-runtime.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, ChildProcess, execSync } from 'node:child_process';
-import * as path from 'node:path';
+import type { ChildProcess } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import path from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const WORKER_PORT = 8787;
-const TEST_TIMEOUT = 120000;
+const TEST_TIMEOUT = 120_000;
 
 describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
     let wranglerProcess: ChildProcess | null = null;
@@ -30,7 +32,7 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
         // Pack the server package to get a proper tarball (pnpm pack resolves catalog: deps)
         const packOutput = execSync('pnpm pack --pack-destination ' + tempDir, {
             cwd: serverPkgPath,
-            encoding: 'utf-8',
+            encoding: 'utf8'
         });
 
         // Find the tarball path (last line of output)
@@ -44,11 +46,11 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             type: 'module',
             dependencies: {
                 '@modelcontextprotocol/server': `file:./${tarballName}`,
-                '@cfworker/json-schema': '^4.1.1',
+                '@cfworker/json-schema': '^4.1.1'
             },
             devDependencies: {
-                wrangler: '^4.0.0',
-            },
+                wrangler: '^4.0.0'
+            }
         };
         fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
 
@@ -57,14 +59,13 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             $schema: 'node_modules/wrangler/config-schema.json',
             name: 'cf-worker-test',
             main: 'src/index.js',
-            compatibility_date: '2026-02-03',
+            compatibility_date: '2026-02-03'
             // NOTE: nodejs_compat is intentionally NOT included
             // The MCP server should work with runtime shims that use Web APIs
         };
         fs.writeFileSync(
             path.join(tempDir, 'wrangler.jsonc'),
-            JSON.stringify(wranglerConfig, null, 2) +
-                '\n// nodejs_compat is intentionally NOT included to verify Web API shims work\n'
+            JSON.stringify(wranglerConfig, null, 2) + '\n// nodejs_compat is intentionally NOT included to verify Web API shims work\n'
         );
 
         // Create src directory
@@ -129,7 +130,7 @@ export default {
 
         // Install dependencies using npm
         try {
-            execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60000 });
+            execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
         } catch (error) {
             console.error('npm install failed:', error);
             throw error;
@@ -139,17 +140,17 @@ export default {
         wranglerProcess = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(WORKER_PORT)], {
             cwd: tempDir,
             shell: true,
-            stdio: 'pipe',
+            stdio: 'pipe'
         });
 
         // Wait for server to be ready
         await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Wrangler startup timeout')), 30000);
+            const timeout = setTimeout(() => reject(new Error('Wrangler startup timeout')), 30_000);
 
             let stdoutData = '';
             let stderrData = '';
 
-            wranglerProcess!.stdout?.on('data', (data) => {
+            wranglerProcess!.stdout?.on('data', data => {
                 stdoutData += data.toString();
                 if (stdoutData.includes('Ready on') || stdoutData.includes('Listening on')) {
                     clearTimeout(timeout);
@@ -157,7 +158,7 @@ export default {
                 }
             });
 
-            wranglerProcess!.stderr?.on('data', (data) => {
+            wranglerProcess!.stderr?.on('data', data => {
                 stderrData += data.toString();
                 // Check for fatal errors that indicate the worker won't start
                 if (stderrData.includes('No such module "node:')) {
@@ -166,12 +167,12 @@ export default {
                 }
             });
 
-            wranglerProcess!.on('error', (err) => {
+            wranglerProcess!.on('error', err => {
                 clearTimeout(timeout);
                 reject(err);
             });
 
-            wranglerProcess!.on('close', (code) => {
+            wranglerProcess!.on('close', code => {
                 if (code !== 0 && code !== null) {
                     clearTimeout(timeout);
                     reject(new Error(`Wrangler exited with code ${code}. stderr: ${stderrData}`));
@@ -183,7 +184,7 @@ export default {
     afterAll(async () => {
         if (wranglerProcess) {
             wranglerProcess.kill('SIGTERM');
-            await new Promise<void>((resolve) => {
+            await new Promise<void>(resolve => {
                 wranglerProcess!.on('close', () => resolve());
                 setTimeout(resolve, 5000);
             });
@@ -203,7 +204,7 @@ export default {
         // Check health endpoint
         const healthResponse = await fetch(`http://127.0.0.1:${WORKER_PORT}/health`);
         expect(healthResponse.ok).toBe(true);
-        const health = await healthResponse.json() as { status: string; runtime: string };
+        const health = (await healthResponse.json()) as { status: string; runtime: string };
         expect(health.status).toBe('ok');
         expect(health.runtime).toBe('cloudflare-workers');
 
@@ -211,7 +212,7 @@ export default {
         const testResponse = await fetch(`http://127.0.0.1:${WORKER_PORT}/test`);
         expect(testResponse.ok).toBe(true);
 
-        const result = await testResponse.json() as {
+        const result = (await testResponse.json()) as {
             success: boolean;
             serverName: string;
             toolRegistered: boolean;

@@ -5,14 +5,16 @@
  * by creating an MCP server and registering tools.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, ChildProcess, execSync } from 'node:child_process';
-import * as path from 'node:path';
+import type { ChildProcess } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import path from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const DENO_PORT = 8789;
-const TEST_TIMEOUT = 120000;
+const TEST_TIMEOUT = 120_000;
 
 describe('Deno runtime compatibility', () => {
     let denoProcess: ChildProcess | null = null;
@@ -36,7 +38,7 @@ describe('Deno runtime compatibility', () => {
         // Pack the server package to get a proper tarball (pnpm pack resolves catalog: deps)
         const packOutput = execSync('pnpm pack --pack-destination ' + tempDir, {
             cwd: serverPkgPath,
-            encoding: 'utf-8',
+            encoding: 'utf8'
         });
 
         // Find the tarball path (last line of output)
@@ -52,8 +54,8 @@ describe('Deno runtime compatibility', () => {
                 '@modelcontextprotocol/server': `file:./${tarballName}`,
                 '@cfworker/json-schema': '^4.1.1',
                 ajv: '^8.17.1',
-                'ajv-formats': '^3.0.1',
-            },
+                'ajv-formats': '^3.0.1'
+            }
         };
         fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
 
@@ -119,37 +121,33 @@ Deno.serve({ port: PORT }, async (request) => {
         // Create deno.json configuration to use node_modules with "byonm" (bring your own node_modules)
         const denoConfig = {
             nodeModulesDir: 'manual',
-            unstable: ['byonm'],
+            unstable: ['byonm']
         };
         fs.writeFileSync(path.join(tempDir, 'deno.json'), JSON.stringify(denoConfig, null, 2));
 
         // Install dependencies using npm (Deno will read from node_modules)
         try {
-            execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60000 });
+            execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
         } catch (error) {
             console.error('npm install failed:', error);
             throw error;
         }
 
         // Start Deno server with necessary permissions
-        denoProcess = spawn(
-            'deno',
-            ['run', '--allow-net', '--allow-read', '--allow-env', 'server.ts'],
-            {
-                cwd: tempDir,
-                shell: true,
-                stdio: 'pipe',
-            }
-        );
+        denoProcess = spawn('deno', ['run', '--allow-net', '--allow-read', '--allow-env', 'server.ts'], {
+            cwd: tempDir,
+            shell: true,
+            stdio: 'pipe'
+        });
 
         // Wait for server to be ready
         await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Deno startup timeout')), 60000);
+            const timeout = setTimeout(() => reject(new Error('Deno startup timeout')), 60_000);
 
             let stdoutData = '';
             let stderrData = '';
 
-            denoProcess!.stdout?.on('data', (data) => {
+            denoProcess!.stdout?.on('data', data => {
                 stdoutData += data.toString();
                 if (stdoutData.includes('Server starting on port') || stdoutData.includes('Listening on')) {
                     clearTimeout(timeout);
@@ -157,16 +155,16 @@ Deno.serve({ port: PORT }, async (request) => {
                 }
             });
 
-            denoProcess!.stderr?.on('data', (data) => {
+            denoProcess!.stderr?.on('data', data => {
                 stderrData += data.toString();
             });
 
-            denoProcess!.on('error', (err) => {
+            denoProcess!.on('error', err => {
                 clearTimeout(timeout);
                 reject(err);
             });
 
-            denoProcess!.on('close', (code) => {
+            denoProcess!.on('close', code => {
                 if (code !== 0 && code !== null) {
                     clearTimeout(timeout);
                     reject(new Error(`Deno exited with code ${code}. stderr: ${stderrData}`));
@@ -178,7 +176,7 @@ Deno.serve({ port: PORT }, async (request) => {
     afterAll(async () => {
         if (denoProcess) {
             denoProcess.kill('SIGTERM');
-            await new Promise<void>((resolve) => {
+            await new Promise<void>(resolve => {
                 denoProcess!.on('close', () => resolve());
                 setTimeout(resolve, 5000);
             });
@@ -206,7 +204,7 @@ Deno.serve({ port: PORT }, async (request) => {
         // Check health endpoint
         const healthResponse = await fetch(`http://127.0.0.1:${DENO_PORT}/health`);
         expect(healthResponse.ok).toBe(true);
-        const health = await healthResponse.json() as { status: string; runtime: string };
+        const health = (await healthResponse.json()) as { status: string; runtime: string };
         expect(health.status).toBe('ok');
         expect(health.runtime).toBe('deno');
 
@@ -214,7 +212,7 @@ Deno.serve({ port: PORT }, async (request) => {
         const testResponse = await fetch(`http://127.0.0.1:${DENO_PORT}/test`);
         expect(testResponse.ok).toBe(true);
 
-        const result = await testResponse.json() as {
+        const result = (await testResponse.json()) as {
             success: boolean;
             serverName: string;
             toolRegistered: boolean;
