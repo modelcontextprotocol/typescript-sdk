@@ -22,15 +22,12 @@ import type {
     ListToolsRequest,
     LoggingLevel,
     MessageExtraInfo,
-    Notification,
     NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
-    Request,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
-    Result,
     ServerCapabilities,
     SubscribeRequest,
     Tool,
@@ -193,36 +190,8 @@ export type ClientOptions = ProtocolOptions & {
  *
  * The client will automatically begin the initialization flow with the server when connect() is called.
  *
- * To use with custom types, extend the base Request/Notification/Result types and pass them as type parameters:
- *
- * ```typescript
- * // Custom schemas
- * const CustomRequestSchema = RequestSchema.extend({...})
- * const CustomNotificationSchema = NotificationSchema.extend({...})
- * const CustomResultSchema = ResultSchema.extend({...})
- *
- * // Type aliases
- * type CustomRequest = z.infer<typeof CustomRequestSchema>
- * type CustomNotification = z.infer<typeof CustomNotificationSchema>
- * type CustomResult = z.infer<typeof CustomResultSchema>
- *
- * // Create typed client
- * const client = new Client<CustomRequest, CustomNotification, CustomResult>({
- *   name: "CustomClient",
- *   version: "1.0.0"
- * })
- * ```
  */
-export class Client<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> extends Protocol<
-    ClientRequest | RequestT,
-    ClientNotification | NotificationT,
-    ClientResult | ResultT,
-    ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
-> {
+export class Client extends Protocol<ClientContext> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
@@ -231,7 +200,7 @@ export class Client<
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
-    private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
+    private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -255,9 +224,9 @@ export class Client<
     }
 
     protected override buildContext(
-        ctx: BaseContext<ClientRequest | RequestT, ClientNotification | NotificationT>,
+        ctx: BaseContext,
         _transportInfo?: MessageExtraInfo
-    ): ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT> {
+    ): ClientContext {
         return ctx;
     }
 
@@ -297,7 +266,7 @@ export class Client<
      *
      * @experimental
      */
-    get experimental(): { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> } {
+    get experimental(): { tasks: ExperimentalClientTasks } {
         if (!this._experimental) {
             this._experimental = {
                 tasks: new ExperimentalClientTasks(this)
@@ -324,16 +293,10 @@ export class Client<
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (
-            request: RequestTypeMap[M],
-            ctx: ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
-        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+        handler: (request: RequestTypeMap[M], ctx: ClientContext) => ClientResult | Promise<ClientResult>
     ): void {
         if (method === 'elicitation/create') {
-            const wrappedHandler = async (
-                request: RequestTypeMap[M],
-                ctx: ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
-            ): Promise<ClientResult | ResultT> => {
+            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
                 const validatedRequest = parseSchema(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -403,10 +366,7 @@ export class Client<
         }
 
         if (method === 'sampling/createMessage') {
-            const wrappedHandler = async (
-                request: RequestTypeMap[M],
-                ctx: ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
-            ): Promise<ClientResult | ResultT> => {
+            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
                 const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
@@ -533,7 +493,7 @@ export class Client<
         return this._instructions;
     }
 
-    protected assertCapabilityForMethod(method: RequestT['method']): void {
+    protected assertCapabilityForMethod(method: string): void {
         switch (method as ClientRequest['method']) {
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
@@ -596,7 +556,7 @@ export class Client<
         }
     }
 
-    protected assertNotificationCapability(method: NotificationT['method']): void {
+    protected assertNotificationCapability(method: string): void {
         switch (method as ClientNotification['method']) {
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {

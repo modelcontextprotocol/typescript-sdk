@@ -29,17 +29,17 @@ class MockTransport implements Transport {
 }
 
 describe('Protocol transport handling bug', () => {
-    let protocol: Protocol<Request, Notification, Result, BaseContext<Request, Notification>>;
+    let protocol: Protocol<BaseContext>;
     let transportA: MockTransport;
     let transportB: MockTransport;
 
     beforeEach(() => {
-        protocol = new (class extends Protocol<Request, Notification, Result, BaseContext<Request, Notification>> {
+        protocol = new (class extends Protocol<BaseContext> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
-            protected buildContext(ctx: any) {
+            protected buildContext(ctx: BaseContext): BaseContext {
                 return ctx;
             }
             protected assertTaskHandlerCapability(): void {}

@@ -5,8 +5,6 @@ import type {
     AuthInfo,
     CancelledNotification,
     ClientCapabilities,
-    ClientNotification,
-    ClientRequest,
     CreateMessageRequest,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -37,8 +35,6 @@ import type {
     RequestTypeMap,
     Result,
     ServerCapabilities,
-    ServerNotification,
-    ServerRequest,
     Task,
     TaskCreationParams,
     TaskStatusNotification
@@ -266,7 +262,7 @@ export type TaskContext = {
 /**
  * Base context provided to all request handlers.
  */
-export type BaseContext<SendRequestT extends Request, SendNotificationT extends Notification> = {
+export type BaseContext = {
     /**
      * The session ID from the transport, if available.
      */
@@ -301,14 +297,14 @@ export type BaseContext<SendRequestT extends Request, SendNotificationT extends 
          *
          * This is used by certain transports to correctly associate related messages.
          */
-        send: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
+        send: <U extends AnySchema>(request: Request, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
 
         /**
          * Sends a notification that relates to the current request being handled.
          *
          * This is used by certain transports to correctly associate related messages.
          */
-        notify: (notification: SendNotificationT) => Promise<void>;
+        notify: (notification: Notification) => Promise<void>;
     };
 
     /**
@@ -330,10 +326,7 @@ export type BaseContext<SendRequestT extends Request, SendNotificationT extends 
 /**
  * Context provided to server-side request handlers, extending BaseContext with server-specific fields.
  */
-export type ServerContext<
-    SendRequestT extends Request = ServerRequest,
-    SendNotificationT extends Notification = ServerNotification
-> = BaseContext<SendRequestT, SendNotificationT> & {
+export type ServerContext = BaseContext & {
     mcpReq: {
         /**
          * Send a log message notification to the client.
@@ -378,10 +371,7 @@ export type ServerContext<
 /**
  * Context provided to client-side request handlers.
  */
-export type ClientContext<
-    SendRequestT extends Request = ClientRequest,
-    SendNotificationT extends Notification = ClientNotification
-> = BaseContext<SendRequestT, SendNotificationT>;
+export type ClientContext = BaseContext;
 
 /**
  * Information about a request's timeout state
@@ -399,15 +389,10 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<
-    SendRequestT extends Request,
-    SendNotificationT extends Notification,
-    SendResultT extends Result,
-    ContextT extends BaseContext<SendRequestT, SendNotificationT>
-> {
+export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
-    private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<SendResultT>> = new Map();
+    private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
@@ -442,7 +427,7 @@ export abstract class Protocol<
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: ContextT) => Promise<SendResultT>;
+    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
@@ -463,7 +448,7 @@ export abstract class Protocol<
         this.setRequestHandler(
             'ping',
             // Automatic pong by default.
-            _request => ({}) as SendResultT
+            _request => ({}) as Result
         );
 
         // Install task handlers if TaskStore is provided
@@ -480,11 +465,11 @@ export abstract class Protocol<
                 // as the taskId parameter is the source of truth
                 return {
                     ...task
-                } as unknown as SendResultT;
+                } as Result;
             });
 
             this.setRequestHandler('tasks/result', async (request, ctx) => {
-                const handleTaskResult = async (): Promise<SendResultT> => {
+                const handleTaskResult = async (): Promise<Result> => {
                     const taskId = request.params.taskId;
 
                     // Deliver queued messages
@@ -561,7 +546,7 @@ export abstract class Protocol<
                                     taskId: taskId
                                 }
                             }
-                        } as unknown as SendResultT;
+                        } as Result;
                     }
 
                     return await handleTaskResult();
@@ -577,7 +562,7 @@ export abstract class Protocol<
                         tasks,
                         nextCursor,
                         _meta: {}
-                    } as unknown as SendResultT;
+                    } as Result;
                 } catch (error) {
                     throw new ProtocolError(
                         ProtocolErrorCode.InvalidParams,
@@ -621,7 +606,7 @@ export abstract class Protocol<
                     return {
                         _meta: {},
                         ...cancelledTask
-                    } as unknown as SendResultT;
+                    } as Result;
                 } catch (error) {
                     // Re-throw ProtocolError as-is
                     if (error instanceof ProtocolError) {
@@ -640,7 +625,7 @@ export abstract class Protocol<
      * Builds the context object for request handlers. Subclasses must override
      * to return the appropriate context type (e.g., ServerContext adds requestInfo).
      */
-    protected abstract buildContext(ctx: BaseContext<SendRequestT, SendNotificationT>, transportInfo?: MessageExtraInfo): ContextT;
+    protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {
@@ -816,7 +801,7 @@ export abstract class Protocol<
             ? { id: relatedTaskId, store: taskStore, requestedTtl: taskCreationParams?.ttl }
             : undefined;
 
-        const baseCtx: BaseContext<SendRequestT, SendNotificationT> = {
+        const baseCtx: BaseContext = {
             sessionId: capturedTransport?.sessionId,
             mcpReq: {
                 id: request.id,
@@ -1014,14 +999,14 @@ export abstract class Protocol<
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertCapabilityForMethod(method: SendRequestT['method']): void;
+    protected abstract assertCapabilityForMethod(method: string): void;
 
     /**
      * A method to check if a notification is supported by the local side, for the given method to be sent.
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertNotificationCapability(method: SendNotificationT['method']): void;
+    protected abstract assertNotificationCapability(method: string): void;
 
     /**
      * A method to check if a request handler is supported by the local side, for the given method to be handled.
@@ -1072,7 +1057,7 @@ export abstract class Protocol<
      * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
      */
     protected async *requestStream<T extends AnyObjectSchema>(
-        request: SendRequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
@@ -1172,7 +1157,7 @@ export abstract class Protocol<
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
@@ -1335,7 +1320,7 @@ export abstract class Protocol<
      * @experimental Use `client.experimental.tasks.getTask()` to access this method.
      */
     protected async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
-        // @ts-expect-error SendRequestT cannot directly contain GetTaskRequest, but we ensure all type instantiations contain it anyways
+
         return this.request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
     }
 
@@ -1349,7 +1334,7 @@ export abstract class Protocol<
         resultSchema: T,
         options?: RequestOptions
     ): Promise<SchemaOutput<T>> {
-        // @ts-expect-error SendRequestT cannot directly contain GetTaskPayloadRequest, but we ensure all type instantiations contain it anyways
+
         return this.request({ method: 'tasks/result', params }, resultSchema, options);
     }
 
@@ -1359,7 +1344,7 @@ export abstract class Protocol<
      * @experimental Use `client.experimental.tasks.listTasks()` to access this method.
      */
     protected async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
-        // @ts-expect-error SendRequestT cannot directly contain ListTasksRequest, but we ensure all type instantiations contain it anyways
+
         return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
     }
 
@@ -1369,14 +1354,14 @@ export abstract class Protocol<
      * @experimental Use `client.experimental.tasks.cancelTask()` to access this method.
      */
     protected async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
-        // @ts-expect-error SendRequestT cannot directly contain CancelTaskRequest, but we ensure all type instantiations contain it anyways
+
         return this.request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
     }
 
     /**
      * Emits a notification, which is a one-way message that does not expect a response.
      */
-    async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
+    async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
         if (!this._transport) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
@@ -1493,7 +1478,7 @@ export abstract class Protocol<
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (request: RequestTypeMap[M], ctx: ContextT) => SendResultT | Promise<SendResultT>
+        handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
     ): void {
         this.assertRequestHandlerCapability(method);
         const schema = getRequestSchema(method);
@@ -1683,7 +1668,7 @@ export abstract class Protocol<
                         method: 'notifications/tasks/status',
                         params: task
                     });
-                    await this.notification(notification as SendNotificationT);
+                    await this.notification(notification as Notification);
 
                     if (isTerminal(task.status)) {
                         this._cleanupTaskProgressHandler(taskId);
@@ -1718,7 +1703,7 @@ export abstract class Protocol<
                         method: 'notifications/tasks/status',
                         params: updatedTask
                     });
-                    await this.notification(notification as SendNotificationT);
+                    await this.notification(notification as Notification);
 
                     if (isTerminal(updatedTask.status)) {
                         this._cleanupTaskProgressHandler(taskId);

@@ -9,14 +9,11 @@ import type {
     AnyObjectSchema,
     CallToolRequest,
     CancelTaskResult,
-    ClientRequest,
     GetTaskResult,
     ListTasksResult,
-    Notification,
     Request,
     RequestOptions,
     ResponseMessage,
-    Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
 import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
@@ -27,9 +24,9 @@ import type { Client } from '../../client/client.js';
  * Internal interface for accessing Client's private methods.
  * @internal
  */
-interface ClientInternal<RequestT extends Request> {
+interface ClientInternal {
     requestStream<T extends AnyObjectSchema>(
-        request: ClientRequest | RequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void>;
@@ -48,12 +45,8 @@ interface ClientInternal<RequestT extends Request> {
  *
  * @experimental
  */
-export class ExperimentalClientTasks<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> {
-    constructor(private readonly _client: Client<RequestT, NotificationT, ResultT>) {}
+export class ExperimentalClientTasks {
+    constructor(private readonly _client: Client) {}
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
@@ -96,7 +89,7 @@ export class ExperimentalClientTasks<
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<typeof CallToolResultSchema>>, void, void> {
         // Access Client's internal methods
-        const clientInternal = this._client as unknown as ClientInternal<RequestT>;
+        const clientInternal = this._client as unknown as ClientInternal;
 
         // Add task creation parameters if server supports it and not explicitly provided
         const optionsWithTask = {
@@ -255,14 +248,14 @@ export class ExperimentalClientTasks<
      * @experimental
      */
     requestStream<T extends AnyObjectSchema>(
-        request: ClientRequest | RequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         // Delegate to the client's underlying Protocol method
         type ClientWithRequestStream = {
             requestStream<U extends AnyObjectSchema>(
-                request: ClientRequest | RequestT,
+                request: Request,
                 resultSchema: U,
                 options?: RequestOptions
             ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;
