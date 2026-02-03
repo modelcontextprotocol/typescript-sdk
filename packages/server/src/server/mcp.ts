@@ -1206,8 +1206,8 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
 
 // ============================================================================
 // Zod-specific helpers for Completable feature
-// These are internal helpers for the completable prompt argument feature
-// which requires Zod-specific schema introspection.
+// These are internal helpers for the completable prompt argument feature.
+// NOTE: completable() only works with Zod schemas due to Zod-specific introspection.
 // ============================================================================
 
 /** @internal Zod schema shape type for completable introspection */
@@ -1238,8 +1238,8 @@ function unwrapZodOptionalSchema(schema: unknown): unknown {
 }
 
 /**
- * @internal Extracts completable callbacks from a schema at registration time.
- * This allows completion to work without runtime Zod introspection.
+ * @internal Extracts completable callbacks from a Zod schema at registration time.
+ * NOTE: This only works with Zod schemas. ArkType and Valibot are not supported.
  */
 function extractCompleters(schema: StandardJSONSchemaV1 | undefined): Map<string, CompleteCallback<StandardJSONSchemaV1>> | undefined {
     if (!schema) return undefined;
