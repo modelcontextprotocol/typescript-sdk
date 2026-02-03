@@ -112,7 +112,12 @@ export class Server<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
     ResultT extends Result = Result
-> extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
+> extends Protocol<
+    ServerRequest | RequestT,
+    ServerNotification | NotificationT,
+    ServerResult | ResultT,
+    ServerContext<ServerRequest | RequestT, ServerNotification | NotificationT>
+> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
@@ -162,7 +167,10 @@ export class Server<
             ...ctx,
             requestInfo: transportInfo?.requestInfo,
             closeSSEStream: transportInfo?.closeSSEStream,
-            closeStandaloneSSEStream: transportInfo?.closeStandaloneSSEStream
+            closeStandaloneSSEStream: transportInfo?.closeStandaloneSSEStream,
+            log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
+            elicitInput: (params, options) => this.elicitInput(params, options),
+            requestSampling: (params, options) => this.createMessage(params, options)
         };
     }
 
@@ -257,7 +265,7 @@ export class Server<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler);
         }
 
         // Other handlers use default behavior

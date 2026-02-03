@@ -417,6 +417,31 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 `BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. Server-specific fields like `requestInfo` and `closeSSEStream` are only available on `ServerContext`.
 
+`ServerContext` also provides convenience methods for common server→client operations:
+
+```typescript
+server.setRequestHandler('tools/call', async (request, ctx) => {
+  // Send a log message (respects client's log level filter)
+  await ctx.log('info', 'Processing tool call', 'my-logger');
+
+  // Request client to sample an LLM
+  const samplingResult = await ctx.requestSampling({
+    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+    maxTokens: 100,
+  });
+
+  // Elicit user input via a form
+  const elicitResult = await ctx.elicitInput({
+    message: 'Please provide details',
+    requestedSchema: { type: 'object', properties: { name: { type: 'string' } } },
+  });
+
+  return { content: [{ type: 'text', text: 'done' }] };
+});
+```
+
+These replace the pattern of calling `server.sendLoggingMessage()`, `server.createMessage()`, and `server.elicitInput()` from within handlers.
+
 ### Error hierarchy refactoring
 
 The SDK now distinguishes between two types of errors:

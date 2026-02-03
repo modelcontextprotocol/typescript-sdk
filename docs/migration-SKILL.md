@@ -380,6 +380,14 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.taskId` | `ctx.task?.id` |
 | `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
 
+`ServerContext` convenience methods (new in v2, no v1 equivalent):
+
+| Method | Description | Replaces |
+|--------|-------------|----------|
+| `ctx.log(level, data, logger?)` | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
+| `ctx.elicitInput(params, options?)` | Elicit user input (form or URL) | `server.elicitInput(...)` from within handler |
+| `ctx.requestSampling(params, options?)` | Request LLM sampling from client | `server.createMessage(...)` from within handler |
+
 ## 11. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.

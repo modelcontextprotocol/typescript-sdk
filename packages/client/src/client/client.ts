@@ -217,7 +217,12 @@ export class Client<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
     ResultT extends Result = Result
-> extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
+> extends Protocol<
+    ClientRequest | RequestT,
+    ClientNotification | NotificationT,
+    ClientResult | ResultT,
+    ClientContext<ClientRequest | RequestT, ClientNotification | NotificationT>
+> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
@@ -394,7 +399,7 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler);
         }
 
         if (method === 'sampling/createMessage') {
@@ -440,7 +445,7 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler);
         }
 
         // Other handlers use default behavior

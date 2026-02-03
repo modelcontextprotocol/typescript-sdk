@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 
+import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
 import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
@@ -28,12 +29,12 @@ class MockTransport implements Transport {
 }
 
 describe('Protocol transport handling bug', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<Request, Notification, Result, BaseContext<Request, Notification>>;
     let transportA: MockTransport;
     let transportB: MockTransport;
 
     beforeEach(() => {
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<Request, Notification, Result, BaseContext<Request, Notification>> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}

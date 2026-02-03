@@ -7,6 +7,12 @@ import type {
     ClientCapabilities,
     ClientNotification,
     ClientRequest,
+    CreateMessageRequest,
+    CreateMessageResult,
+    CreateMessageResultWithTools,
+    ElicitRequestFormParams,
+    ElicitRequestURLParams,
+    ElicitResult,
     GetTaskPayloadRequest,
     GetTaskRequest,
     GetTaskResult,
@@ -15,6 +21,7 @@ import type {
     JSONRPCRequest,
     JSONRPCResponse,
     JSONRPCResultResponse,
+    LoggingLevel,
     MessageExtraInfo,
     Notification,
     NotificationMethod,
@@ -331,6 +338,27 @@ export type ServerContext<
      * Use this to implement polling behavior for server-initiated notifications.
      */
     closeStandaloneSSEStream?: () => void;
+
+    /**
+     * Send a log message notification to the client.
+     * Respects the client's log level filter set via logging/setLevel.
+     */
+    log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
+
+    /**
+     * Send an elicitation request to the client, requesting user input.
+     * Includes capability checks for form/url modes.
+     */
+    elicitInput: (params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions) => Promise<ElicitResult>;
+
+    /**
+     * Request LLM sampling from the client.
+     * Includes capability checks and message validation.
+     */
+    requestSampling: (
+        params: CreateMessageRequest['params'],
+        options?: RequestOptions
+    ) => Promise<CreateMessageResult | CreateMessageResultWithTools>;
 };
 
 /**
@@ -357,13 +385,15 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
+export abstract class Protocol<
+    SendRequestT extends Request,
+    SendNotificationT extends Notification,
+    SendResultT extends Result,
+    ContextT extends BaseContext<SendRequestT, SendNotificationT>
+> {
     private _transport?: Transport;
     private _requestMessageId = 0;
-    private _requestHandlers: Map<
-        string,
-        (request: JSONRPCRequest, ctx: BaseContext<SendRequestT, SendNotificationT>) => Promise<SendResultT>
-    > = new Map();
+    private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<SendResultT>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
@@ -398,7 +428,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: BaseContext<SendRequestT, SendNotificationT>) => Promise<SendResultT>;
+    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: ContextT) => Promise<SendResultT>;
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
@@ -596,10 +626,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Builds the context object for request handlers. Subclasses must override
      * to return the appropriate context type (e.g., ServerContext adds requestInfo).
      */
-    protected abstract buildContext(
-        ctx: BaseContext<SendRequestT, SendNotificationT>,
-        transportInfo?: MessageExtraInfo
-    ): BaseContext<SendRequestT, SendNotificationT>;
+    protected abstract buildContext(ctx: BaseContext<SendRequestT, SendNotificationT>, transportInfo?: MessageExtraInfo): ContextT;
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {
@@ -1449,7 +1476,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (request: RequestTypeMap[M], ctx: BaseContext<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
+        handler: (request: RequestTypeMap[M], ctx: ContextT) => SendResultT | Promise<SendResultT>
     ): void {
         this.assertRequestHandlerCapability(method);
         const schema = getRequestSchema(method);

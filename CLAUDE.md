@@ -184,6 +184,9 @@ The `ctx` parameter in handlers provides a structured context:
 - `requestInfo?`: Original HTTP request info (headers, etc.)
 - `closeSSEStream?`: Close SSE stream for polling behavior
 - `closeStandaloneSSEStream?`: Close standalone GET SSE stream
+- `log(level, data, logger?)`: Send log notification (respects client's level filter)
+- `elicitInput(params, options?)`: Elicit user input (form or URL mode)
+- `requestSampling(params, options?)`: Request LLM sampling from client
 
 **`ClientContext`** is currently identical to `BaseContext`.
 
