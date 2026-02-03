@@ -356,11 +356,42 @@ Schema to method string mapping:
 
 Request/notification params remain fully typed. Remove unused schema imports after migration.
 
-## 10. Client Behavioral Changes
+## 10. Registered Primitives API Changes
+
+`RegisteredTool`, `RegisteredPrompt`, `RegisteredResource`, `RegisteredResourceTemplate` are now proper classes. The `update()` method signature changed:
+
+| v1 (update field) | v2 (update field) | Applies to                                                                   |
+| ----------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `paramsSchema`    | `inputSchema`     | RegisteredTool                                                               |
+| `callback`        | `handler`         | RegisteredTool                                                               |
+| `callback`        | `callback`        | RegisteredPrompt, RegisteredResource, RegisteredResourceTemplate (unchanged) |
+
+```typescript
+// v1
+tool.update({ paramsSchema: { name: z.string() }, callback: handler });
+
+// v2
+tool.update({ inputSchema: { name: z.string() }, handler: handler });
+```
+
+**Note:** In v1, `paramsSchema` inconsistently differed from `inputSchema` used in `registerTool()`. Fixed in v2.
+
+**New:** `RegisteredTool` now supports `icons` field (parity with protocol `Tool` type).
+
+New getter methods on `McpServer`:
+
+| Getter | Returns |
+|--------|---------|
+| `mcpServer.tools` | `ReadonlyMap<string, RegisteredTool>` |
+| `mcpServer.prompts` | `ReadonlyMap<string, RegisteredPrompt>` |
+| `mcpServer.resources` | `ReadonlyMap<string, RegisteredResource>` |
+| `mcpServer.resourceTemplates` | `ReadonlyMap<string, RegisteredResourceTemplate>` |
+
+## 11. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 11. Migration Steps (apply in this order)
+## 12. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`

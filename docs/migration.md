@@ -300,6 +300,56 @@ Common method string replacements:
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
 
+### Registered primitives are now classes
+
+`RegisteredTool`, `RegisteredPrompt`, `RegisteredResource`, and `RegisteredResourceTemplate` are now proper classes instead of plain object types. They are exported from `@modelcontextprotocol/server`.
+
+The `update()` method now uses `inputSchema` and `handler` instead of `paramsSchema` and `callback`:
+
+**Before (v1):**
+
+```typescript
+const tool = server.registerTool('my-tool', { inputSchema: { name: z.string() } }, handler);
+
+tool.update({
+    paramsSchema: { name: z.string(), value: z.number() },
+    callback: newHandler
+});
+```
+
+**After (v2):**
+
+```typescript
+const tool = server.registerTool('my-tool', { inputSchema: { name: z.string() } }, handler);
+
+tool.update({
+    inputSchema: { name: z.string(), value: z.number() },
+    handler: newHandler
+});
+```
+
+**Note:** In v1, `RegisteredTool.update()` used `paramsSchema` which inconsistently differed from the `inputSchema` field used in `registerTool()`. This has been fixed in v2.
+
+**New:** `RegisteredTool` now supports the `icons` field for parity with the protocol `Tool` type:
+
+```typescript
+tool.update({ icons: [{ type: 'base64', mediaType: 'image/png', data: '...' }] });
+```
+
+New getter methods are available on `McpServer` to access all registered items:
+
+```typescript
+// Get all registered tools
+for (const [name, tool] of mcpServer.tools) {
+    console.log(name, tool.description, tool.enabled);
+}
+
+// Similarly for prompts, resources, resourceTemplates
+mcpServer.prompts;
+mcpServer.resources;
+mcpServer.resourceTemplates;
+```
+
 ### Client list methods return empty results for missing capabilities
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.
