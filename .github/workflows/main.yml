@@ -54,6 +54,14 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
+            - name: Install Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Install Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.x
+
             - run: pnpm install
 
             - run: pnpm test:all
