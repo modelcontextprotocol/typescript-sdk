@@ -40,14 +40,9 @@ import {
     assertToolsCallTaskCapability,
     CallToolRequestSchema,
     CallToolResultSchema,
-    CreateMessageResultSchema,
-    CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
-    ElicitResultSchema,
-    EmptyResultSchema,
     ErrorCode,
     LATEST_PROTOCOL_VERSION,
-    ListRootsResultSchema,
     LoggingLevelSchema,
     McpError,
     mergeCapabilities,
@@ -534,9 +529,7 @@ export class Server<
             }
         }
 
-        // The result type varies based on whether tools are provided, but the mapping
-        // uses a single schema. The overloads handle type narrowing.
-        return this.request({ method: 'sampling/createMessage', params }, options) as Promise<CreateMessageResult | CreateMessageResultWithTools>;
+        return this.request({ method: 'sampling/createMessage', params }, options);
     }
 
     /**
