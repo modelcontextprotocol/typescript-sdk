@@ -9,11 +9,11 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { CallToolResult, GetPromptResult, ReadResourceResult, EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
-import { ElicitResultSchema, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import type { Request, Response } from 'express';
+import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
+import { ElicitResultSchema, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import cors from 'cors';
+import type { Request, Response } from 'express';
 import express from 'express';
 import * as z from 'zod/v4';
 
@@ -64,7 +64,7 @@ const TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQ
 const TEST_AUDIO_BASE64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA=';
 
 // Function to create a new MCP server instance (one per session)
-function createMcpServer(sessionId?: string) {
+function createMcpServer() {
     const mcpServer = new McpServer(
         {
             name: 'mcp-conformance-test-server',
@@ -941,7 +941,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32000,
+                    code: -32_000,
                     message: 'Invalid or missing session ID'
                 },
                 id: null
@@ -956,7 +956,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null

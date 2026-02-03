@@ -146,9 +146,6 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:packages/client
-      '@modelcontextprotocol/conformance':
-        specifier: 0.1.10
-        version: 0.1.10(@cfworker/json-schema@4.1.1)(hono@4.11.4)
       '@modelcontextprotocol/node':
         specifier: workspace:^
         version: link:packages/middleware/node
@@ -185,9 +182,6 @@ importers:
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260105.1
-      cors:
-        specifier: catalog:runtimeServerOnly
-        version: 2.8.5
       eslint:
         specifier: catalog:devTools
         version: 9.39.2
@@ -197,9 +191,6 @@ importers:
       eslint-plugin-n:
         specifier: catalog:devTools
         version: 17.23.1(eslint@9.39.2)(typescript@5.9.3)
-      express:
-        specifier: catalog:runtimeServerOnly
-        version: 5.2.1
       fast-glob:
         specifier: ^3.3.3
         version: 3.3.3
@@ -844,6 +835,48 @@ importers:
       vitest:
         specifier: catalog:devTools
         version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
+
+  test/conformance:
+    devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../../packages/client
+      '@modelcontextprotocol/conformance':
+        specifier: 0.1.10
+        version: 0.1.10(@cfworker/json-schema@4.1.1)(hono@4.11.4)
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../../packages/core
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/express':
+        specifier: workspace:^
+        version: link:../../packages/middleware/express
+      '@modelcontextprotocol/node':
+        specifier: workspace:^
+        version: link:../../packages/middleware/node
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../../packages/server
+      '@modelcontextprotocol/test-helpers':
+        specifier: workspace:^
+        version: link:../helpers
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      cors:
+        specifier: catalog:runtimeServerOnly
+        version: 2.8.5
+      express:
+        specifier: catalog:runtimeServerOnly
+        version: 5.2.1
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.5
 
   test/helpers:
     devDependencies:
