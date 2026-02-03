@@ -4,9 +4,7 @@
  * This test verifies that the MCP server package works in Cloudflare Workers
  * WITHOUT the nodejs_compat flag, using runtime shims for cross-platform compatibility.
  *
- * TODO: Add similar integration tests for:
- * - Deno (https://deno.land/)
- * - Bun (https://bun.sh/)
+ * See also: deno-runtime.test.ts, bun-runtime.test.ts
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
