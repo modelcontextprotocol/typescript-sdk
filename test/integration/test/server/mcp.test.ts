@@ -10,7 +10,6 @@ import type {
 import {
     CallToolResultSchema,
     CompleteResultSchema,
-    ElicitRequestSchema,
     ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
@@ -20,7 +19,6 @@ import {
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
     ReadResourceResultSchema,
     UriTemplate,
     UrlElicitationRequiredError
@@ -1448,7 +1446,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let receivedLogMessage: string | undefined;
             const loggingMessage = 'hello here is log message 1';
 
-            client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client.setNotificationHandler('notifications/message', notification => {
                 receivedLogMessage = notification.params.data as string;
             });
 
@@ -4552,7 +4550,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             findAlternatives.mockResolvedValue(['2024-12-26', '2024-12-27', '2024-12-28']);
 
             // Set up client to accept alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 expect(request.params.message).toContain('No tables available at ABC Restaurant on 2024-12-25');
                 return {
                     action: 'accept',
@@ -4592,7 +4590,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to reject alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'accept',
                     content: {
@@ -4630,7 +4628,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to cancel the elicitation
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'cancel'
                 };
@@ -5843,7 +5841,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             findAlternatives.mockResolvedValue(['2024-12-26', '2024-12-27', '2024-12-28']);
 
             // Set up client to accept alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 expect(request.params.message).toContain('No tables available at ABC Restaurant on 2024-12-25');
                 return {
                     action: 'accept',
@@ -5883,7 +5881,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to reject alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'accept',
                     content: {
@@ -5921,7 +5919,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to cancel the elicitation
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'cancel'
                 };

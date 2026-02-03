@@ -1,11 +1,5 @@
 import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { CallToolResultSchema, Client, ListToolsResultSchema, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Parallel Tool Calls MCP Client
@@ -44,7 +38,7 @@ async function main(): Promise<void> {
         console.log('Successfully connected to MCP server');
 
         // Set up notification handler with caller identification
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             console.log(`Notification: ${notification.params.data}`);
         });
 

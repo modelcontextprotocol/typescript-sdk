@@ -4,7 +4,8 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 
 ## Overview
 
-Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`, `@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
+Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
+`@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
 
 ## Breaking Changes
 
@@ -12,11 +13,11 @@ Version 2 of the MCP TypeScript SDK introduces several breaking changes to impro
 
 The single `@modelcontextprotocol/sdk` package has been split into three packages:
 
-| v1 | v2 |
-|----|-----|
+| v1                          | v2                                                         |
+| --------------------------- | ---------------------------------------------------------- |
 | `@modelcontextprotocol/sdk` | `@modelcontextprotocol/core` (types, protocol, transports) |
-| | `@modelcontextprotocol/client` (client implementation) |
-| | `@modelcontextprotocol/server` (server implementation) |
+|                             | `@modelcontextprotocol/client` (client implementation)     |
+|                             | `@modelcontextprotocol/server` (server implementation)     |
 
 Remove the old package and install only the packages you need:
 
@@ -64,6 +65,7 @@ Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-
 v2 requires **Node.js 20+** and ships **ESM only** (no more CommonJS builds).
 
 If your project uses CommonJS (`require()`), you will need to either:
+
 - Migrate to ESM (`import`/`export`)
 - Use dynamic `import()` to load the SDK
 
@@ -71,11 +73,11 @@ If your project uses CommonJS (`require()`), you will need to either:
 
 The server package no longer depends on Express or Hono. HTTP framework integrations are now separate middleware packages:
 
-| v1 | v2 |
-|----|-----|
+| v1                                     | v2                                          |
+| -------------------------------------- | ------------------------------------------- |
 | Built into `@modelcontextprotocol/sdk` | `@modelcontextprotocol/node` (Node.js HTTP) |
-| | `@modelcontextprotocol/express` (Express) |
-| | `@modelcontextprotocol/hono` (Hono) |
+|                                        | `@modelcontextprotocol/express` (Express)   |
+|                                        | `@modelcontextprotocol/hono` (Hono)         |
 
 Install the middleware package for your framework:
 
@@ -128,12 +130,12 @@ This affects both transport constructors and request handler code that reads hea
 ```typescript
 // Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
-  requestInit: {
-    headers: {
-      'Authorization': 'Bearer token',
-      'X-Custom': 'value',
-    },
-  },
+    requestInit: {
+        headers: {
+            Authorization: 'Bearer token',
+            'X-Custom': 'value'
+        }
+    }
 });
 
 // Reading headers in a request handler
@@ -145,12 +147,12 @@ const sessionId = extra.requestInfo?.headers['mcp-session-id'];
 ```typescript
 // Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
-  requestInit: {
-    headers: new Headers({
-      'Authorization': 'Bearer token',
-      'X-Custom': 'value',
-    }),
-  },
+    requestInit: {
+        headers: new Headers({
+            Authorization: 'Bearer token',
+            'X-Custom': 'value'
+        })
+    }
 });
 
 // Reading headers in a request handler
@@ -170,22 +172,22 @@ const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
 server.tool('greet', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
 server.tool('greet', 'Greet a user', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
 server.prompt('summarize', { text: z.string() }, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
 // Resource
-server.resource('config', 'config://app', async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.resource('config', 'config://app', async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
 
@@ -198,28 +200,29 @@ const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
 server.registerTool('greet', { inputSchema: { name: z.string() } }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
 server.registerTool('greet', { description: 'Greet a user', inputSchema: { name: z.string() } }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
 server.registerPrompt('summarize', { argsSchema: { text: z.string() } }, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
 // Resource
-server.registerResource('config', 'config://app', {}, async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.registerResource('config', 'config://app', {}, async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
 
 ### Host header validation moved
 
-Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
+Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`,
+`hostHeaderValidationResponse()`.
 
 **Before (v1):**
 
@@ -237,102 +240,157 @@ app.use(hostHeaderValidation(['example.com']));
 
 Note: the v2 signature takes a plain `string[]` instead of an options object.
 
+<<<<<<< HEAD
+
 ### Context API replaces `RequestHandlerExtra`
 
-The `extra` parameter in tool, prompt, and resource callbacks has been replaced with a structured context object (`ctx`). The old flat `RequestHandlerExtra` interface is replaced by `ServerContextInterface` (for server callbacks) and `ClientContextInterface` (for client callbacks).
+# The `extra` parameter in tool, prompt, and resource callbacks has been replaced with a structured context object (`ctx`). The old flat `RequestHandlerExtra` interface is replaced by `ServerContextInterface` (for server callbacks) and `ClientContextInterface` (for client callbacks).
+
+### `setRequestHandler` and `setNotificationHandler` use method strings
+
+The low-level `setRequestHandler` and `setNotificationHandler` methods on `Client`, `Server`, and `Protocol` now take a method string instead of a Zod schema.
+
+> > > > > > > f6e8204b8621f55ee08c4f8cb8b2b85eff104842
 
 **Before (v1):**
 
 ```typescript
+<<<<<<< HEAD
 server.registerTool('my-tool', { inputSchema: { query: z.string() } }, async ({ query }, extra) => {
   // Flat properties
   console.log(extra.requestId);
   console.log(extra.sessionId);
   console.log(extra.authInfo?.token);
-  
+
   // Check cancellation
   if (extra.signal.aborted) throw new Error('Cancelled');
-  
+
   // Send notification
   await extra.sendNotification({ method: 'notifications/progress', params: { progress: 50 } });
-  
+
   // Task access
   if (extra.taskStore) {
     await extra.taskStore.updateTaskStatus(extra.taskId!, 'running');
   }
-  
+
   // SSE stream control
   extra.closeSSEStream?.();
-  
+
   return { content: [{ type: 'text', text: 'Done' }] };
+=======
+import { Server, InitializeRequestSchema, LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/server/index.js';
+
+const server = new Server({ name: 'my-server', version: '1.0.0' });
+
+// Request handler with schema
+server.setRequestHandler(InitializeRequestSchema, async (request) => {
+  return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } };
+});
+
+// Notification handler with schema
+server.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+  console.log(notification.params.data);
+>>>>>>> f6e8204b8621f55ee08c4f8cb8b2b85eff104842
 });
 ```
 
 **After (v2):**
 
 ```typescript
+<<<<<<< HEAD
 server.registerTool('my-tool', { inputSchema: { query: z.string() } }, async ({ query }, ctx) => {
   // Grouped into nested objects
   console.log(ctx.mcpReq.id);          // was extra.requestId
   console.log(ctx.sessionId);           // still at top level
   console.log(ctx.http?.authInfo?.token); // was extra.authInfo
-  
+
   // Check cancellation (signal moved to mcpReq)
   if (ctx.mcpReq.signal.aborted) throw new Error('Cancelled');
-  
+
   // Send notification (via notification.send)
   await ctx.notification.send({ method: 'notifications/progress', params: { progress: 50 } });
-  
+
   // Task access (grouped in task object)
   if (ctx.task) {
     await ctx.task.store.updateTaskStatus(ctx.task.id, 'running');
   }
-  
+
   // SSE stream control (moved to http)
   ctx.http?.closeSSE?.();
-  
+
   // Server-specific: logging methods on notification
   await ctx.notification.info('Processing query');
   await ctx.notification.debug('Debug details', { query });
-  
+
   // Server-specific: elicitation and sampling on mcpReq
   const userInput = await ctx.mcpReq.elicitInput({ message: 'Confirm?', mode: 'form', form: {} });
   const message = await ctx.mcpReq.requestSampling({ messages: [...], maxTokens: 100 });
-  
+
   return { content: [{ type: 'text', text: 'Done' }] };
 });
 ```
 
 #### Property mapping
 
-| v1 (`extra.`) | v2 (`ctx.`) |
-|---------------|-------------|
-| `extra.requestId` | `ctx.mcpReq.id` |
-| `extra.sessionId` | `ctx.sessionId` |
-| `extra._meta` | `ctx.mcpReq._meta` |
-| `extra.signal` | `ctx.mcpReq.signal` |
-| `extra.authInfo` | `ctx.http?.authInfo` |
-| `extra.requestInfo?.headers` | `ctx.http?.req.headers` |
-| `extra.sendNotification(n)` | `ctx.notification.send(n)` |
-| `extra.sendRequest(r, s, o)` | `ctx.mcpReq.send(r, s, o)` |
-| `extra.taskId` | `ctx.task?.id` |
-| `extra.taskStore` | `ctx.task?.store` |
-| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
-| `extra.closeSSEStream?.()` | `ctx.http?.closeSSE?.()` |
+| v1 (`extra.`)                        | v2 (`ctx.`)                        |
+| ------------------------------------ | ---------------------------------- |
+| `extra.requestId`                    | `ctx.mcpReq.id`                    |
+| `extra.sessionId`                    | `ctx.sessionId`                    |
+| `extra._meta`                        | `ctx.mcpReq._meta`                 |
+| `extra.signal`                       | `ctx.mcpReq.signal`                |
+| `extra.authInfo`                     | `ctx.http?.authInfo`               |
+| `extra.requestInfo?.headers`         | `ctx.http?.req.headers`            |
+| `extra.sendNotification(n)`          | `ctx.notification.send(n)`         |
+| `extra.sendRequest(r, s, o)`         | `ctx.mcpReq.send(r, s, o)`         |
+| `extra.taskId`                       | `ctx.task?.id`                     |
+| `extra.taskStore`                    | `ctx.task?.store`                  |
+| `extra.taskRequestedTtl`             | `ctx.task?.requestedTtl`           |
+| `extra.closeSSEStream?.()`           | `ctx.http?.closeSSE?.()`           |
 | `extra.closeStandaloneSSEStream?.()` | `ctx.http?.closeStandaloneSSE?.()` |
 
 #### Server-specific additions on context
 
-| Method | Description |
-|--------|-------------|
-| `ctx.notification.log(params)` | Send logging message |
-| `ctx.notification.debug(msg, data?)` | Send debug log |
-| `ctx.notification.info(msg, data?)` | Send info log |
-| `ctx.notification.warning(msg, data?)` | Send warning log |
-| `ctx.notification.error(msg, data?)` | Send error log |
-| `ctx.mcpReq.elicitInput(params, opts?)` | Request user input via elicitation |
-| `ctx.mcpReq.requestSampling(params, opts?)` | Request LLM sampling from client |
-| `ctx.http?.req` | Raw fetch `Request` object (access URL, headers, etc.) |
+| Method                                      | Description                                            |
+| ------------------------------------------- | ------------------------------------------------------ |
+| `ctx.notification.log(params)`              | Send logging message                                   |
+| `ctx.notification.debug(msg, data?)`        | Send debug log                                         |
+| `ctx.notification.info(msg, data?)`         | Send info log                                          |
+| `ctx.notification.warning(msg, data?)`      | Send warning log                                       |
+| `ctx.notification.error(msg, data?)`        | Send error log                                         |
+| `ctx.mcpReq.elicitInput(params, opts?)`     | Request user input via elicitation                     |
+| `ctx.mcpReq.requestSampling(params, opts?)` | Request LLM sampling from client                       |
+| `ctx.http?.req`                             | Raw fetch `Request` object (access URL, headers, etc.) |
+
+======= import { Server } from '@modelcontextprotocol/server';
+
+const server = new Server({ name: 'my-server', version: '1.0.0' });
+
+// Request handler with method string server.setRequestHandler('initialize', async (request) => { return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } }; });
+
+// Notification handler with method string server.setNotificationHandler('notifications/message', (notification) => { console.log(notification.params.data); });
+
+````
+
+The request and notification parameters remain fully typed via `RequestTypeMap` and `NotificationTypeMap`. You no longer need to import the individual `*RequestSchema` or `*NotificationSchema` constants for handler registration.
+
+Common method string replacements:
+
+| Schema (v1) | Method string (v2) |
+|-------------|-------------------|
+| `InitializeRequestSchema` | `'initialize'` |
+| `CallToolRequestSchema` | `'tools/call'` |
+| `ListToolsRequestSchema` | `'tools/list'` |
+| `ListPromptsRequestSchema` | `'prompts/list'` |
+| `GetPromptRequestSchema` | `'prompts/get'` |
+| `ListResourcesRequestSchema` | `'resources/list'` |
+| `ReadResourceRequestSchema` | `'resources/read'` |
+| `CreateMessageRequestSchema` | `'sampling/createMessage'` |
+| `ElicitRequestSchema` | `'elicitation/create'` |
+| `LoggingMessageNotificationSchema` | `'notifications/message'` |
+| `ToolListChangedNotificationSchema` | `'notifications/tools/list_changed'` |
+| `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
+| `PromptListChangedNotificationSchema` | `'notifications/prompts/list_changed'` |
+>>>>>>> f6e8204b8621f55ee08c4f8cb8b2b85eff104842
 
 ### Client list methods return empty results for missing capabilities
 
@@ -344,21 +402,21 @@ To restore v1 behavior (throw an error when capabilities are missing), set `enfo
 const client = new Client({ name: 'my-client', version: '1.0.0' }, {
   enforceStrictCapabilities: true,
 });
-```
+````
 
 ### Removed type aliases and deprecated exports
 
 The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
 
-| Removed | Replacement |
-|---------|-------------|
-| `JSONRPCError` | `JSONRPCErrorResponse` |
-| `JSONRPCErrorSchema` | `JSONRPCErrorResponseSchema` |
-| `isJSONRPCError` | `isJSONRPCErrorResponse` |
-| `isJSONRPCResponse` | `isJSONRPCResultResponse` |
-| `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
-| `ResourceReference` | `ResourceTemplateReference` |
-| `IsomorphicHeaders` | Use Web Standard `Headers` |
+| Removed                                  | Replacement                                      |
+| ---------------------------------------- | ------------------------------------------------ |
+| `JSONRPCError`                           | `JSONRPCErrorResponse`                           |
+| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                     |
+| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                         |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                        |
+| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
+| `ResourceReference`                      | `ResourceTemplateReference`                      |
+| `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
 
 All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names in `@modelcontextprotocol/core`.
@@ -389,7 +447,8 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 
 ## Using an LLM to migrate your code
 
-An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as a skill.
+An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as
+a skill.
 
 ## Need Help?
 

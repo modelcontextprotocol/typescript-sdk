@@ -13,40 +13,39 @@ import type {
     JSONRPCResponse,
     JSONRPCResultResponse,
     Notification,
+    NotificationMethod,
+    NotificationTypeMap,
     Progress,
     ProgressNotification,
     RelatedTaskMetadata,
     Request,
     RequestId,
+    RequestMethod,
+    RequestTypeMap,
     Result,
     ServerCapabilities,
     TaskCreationParams
 } from '../types/types.js';
 import {
-    CancelledNotificationSchema,
-    CancelTaskRequestSchema,
     CancelTaskResultSchema,
     CreateTaskResultSchema,
     ErrorCode,
-    GetTaskPayloadRequestSchema,
-    GetTaskRequestSchema,
+    getNotificationSchema,
+    getRequestSchema,
     GetTaskResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
-    ListTasksRequestSchema,
     ListTasksResultSchema,
     McpError,
-    PingRequestSchema,
-    ProgressNotificationSchema,
     RELATED_TASK_META_KEY
 } from '../types/types.js';
 import type { MessageExtraInfo } from '../types/utility.js';
-import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/zodCompat.js';
+import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import { safeParse } from '../util/zodCompat.js';
-import { getMethodLiteral, parseWithCompat } from '../util/zodJsonSchemaCompat.js';
+import { parseWithCompat } from '../util/zodJsonSchemaCompat.js';
 import type { ContextInterface } from './context.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
@@ -236,16 +235,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
-        this.setNotificationHandler(CancelledNotificationSchema, notification => {
+        this.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);
         });
 
-        this.setNotificationHandler(ProgressNotificationSchema, notification => {
-            this._onprogress(notification as unknown as ProgressNotification);
+        this.setNotificationHandler('notifications/progress', notification => {
+            this._onprogress(notification);
         });
 
         this.setRequestHandler(
-            PingRequestSchema,
+            'ping',
             // Automatic pong by default.
             _request => ({}) as SendResultT
         );
@@ -254,7 +253,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskStore = _options?.taskStore;
         this._taskMessageQueue = _options?.taskMessageQueue;
         if (this._taskStore) {
-            this.setRequestHandler(GetTaskRequestSchema, async (request, ctx) => {
+            this.setRequestHandler('tasks/get', async (request, ctx) => {
                 const task = await this._taskStore!.getTask(request.params.taskId, ctx.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
@@ -262,13 +261,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 // Per spec: tasks/get responses SHALL NOT include related-task metadata
                 // as the taskId parameter is the source of truth
-                // @ts-expect-error SendResultT cannot contain GetTaskResult, but we include it in our derived types everywhere else
                 return {
                     ...task
-                } as SendResultT;
+                } as unknown as SendResultT;
             });
 
-            this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, ctx) => {
+            this.setRequestHandler('tasks/result', async (request, ctx) => {
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
 
@@ -346,7 +344,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                     taskId: taskId
                                 }
                             }
-                        } as SendResultT;
+                        } as unknown as SendResultT;
                     }
 
                     return await handleTaskResult();
@@ -355,15 +353,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return await handleTaskResult();
             });
 
-            this.setRequestHandler(ListTasksRequestSchema, async (request, ctx) => {
+            this.setRequestHandler('tasks/list', async (request, ctx) => {
                 try {
                     const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, ctx.sessionId);
-                    // @ts-expect-error SendResultT cannot contain ListTasksResult, but we include it in our derived types everywhere else
                     return {
                         tasks,
                         nextCursor,
                         _meta: {}
-                    } as SendResultT;
+                    } as unknown as SendResultT;
                 } catch (error) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
@@ -372,7 +369,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             });
 
-            this.setRequestHandler(CancelTaskRequestSchema, async (request, ctx) => {
+            this.setRequestHandler('tasks/cancel', async (request, ctx) => {
                 try {
                     // Get the current task to check if it's in a terminal state, in case the implementation is not atomic
                     const task = await this._taskStore!.getTask(request.params.taskId, ctx.sessionId);
@@ -1304,15 +1301,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous request handler for the same method.
      */
-    setRequestHandler<T extends AnyObjectSchema>(
-        requestSchema: T,
-        handler: (request: SchemaOutput<T>, ctx: ContextInterface<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
+    setRequestHandler<M extends RequestMethod>(
+        method: M,
+        handler: (request: RequestTypeMap[M], ctx: ContextInterface<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
     ): void {
-        const method = getMethodLiteral(requestSchema);
         this.assertRequestHandlerCapability(method);
+        const schema = getRequestSchema(method);
 
         this._requestHandlers.set(method, (request, ctx) => {
-            const parsed = parseWithCompat(requestSchema, request) as SchemaOutput<T>;
+            const parsed = parseWithCompat(schema, request) as RequestTypeMap[M];
             return Promise.resolve(handler(parsed, ctx));
         });
     }
@@ -1320,14 +1317,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Removes the request handler for the given method.
      */
-    removeRequestHandler(method: string): void {
+    removeRequestHandler(method: RequestMethod): void {
         this._requestHandlers.delete(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
-    assertCanSetRequestHandler(method: string): void {
+    assertCanSetRequestHandler(method: RequestMethod): void {
         if (this._requestHandlers.has(method)) {
             throw new Error(`A request handler for ${method} already exists, which would be overridden`);
         }
@@ -1338,13 +1335,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous notification handler for the same method.
      */
-    setNotificationHandler<T extends AnyObjectSchema>(
-        notificationSchema: T,
-        handler: (notification: SchemaOutput<T>) => void | Promise<void>
+    setNotificationHandler<M extends NotificationMethod>(
+        method: M,
+        handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
     ): void {
-        const method = getMethodLiteral(notificationSchema);
+        const schema = getNotificationSchema(method);
+
         this._notificationHandlers.set(method, notification => {
-            const parsed = parseWithCompat(notificationSchema, notification) as SchemaOutput<T>;
+            const parsed = parseWithCompat(schema, notification) as NotificationTypeMap[M];
             return Promise.resolve(handler(parsed));
         });
     }
@@ -1352,7 +1350,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Removes the notification handler for the given method.
      */
-    removeNotificationHandler(method: string): void {
+    removeNotificationHandler(method: NotificationMethod): void {
         this._notificationHandlers.delete(method);
     }
 

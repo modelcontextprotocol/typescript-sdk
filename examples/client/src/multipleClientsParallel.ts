@@ -1,10 +1,5 @@
 import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    LoggingMessageNotificationSchema,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { CallToolResultSchema, Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Multiple Clients MCP Example
@@ -42,7 +37,7 @@ async function createAndRunClient(config: ClientConfig): Promise<{ id: string; r
     };
 
     // Set up client-specific notification handler
-    client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+    client.setNotificationHandler('notifications/message', notification => {
         console.log(`[${config.id}] Notification: ${notification.params.data}`);
     });
 

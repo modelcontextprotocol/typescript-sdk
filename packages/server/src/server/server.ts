@@ -1,5 +1,4 @@
 import type {
-    AnyObjectSchema,
     ClientCapabilities,
     ContextInterface,
     CreateMessageRequest,
@@ -24,10 +23,11 @@ import type {
     NotificationOptions,
     ProtocolOptions,
     Request,
+    RequestMethod,
     RequestOptions,
+    RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
-    SchemaOutput,
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
@@ -37,9 +37,7 @@ import type {
     TaskStore,
     ToolResultContent,
     ToolUseContent,
-    Transport,
-    ZodV3Internal,
-    ZodV4Internal
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
@@ -53,10 +51,6 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     ErrorCode,
-    getObjectShape,
-    InitializedNotificationSchema,
-    InitializeRequestSchema,
-    isZ4Schema,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -64,11 +58,11 @@ import {
     mergeCapabilities,
     Protocol,
     safeParse,
-    SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
+import type { ServerContextInterface } from './context.js';
 import { ServerContext } from './context.js';
 
 export type ServerOptions = ProtocolOptions & {
@@ -169,13 +163,13 @@ export class Server<
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
 
-        this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
-        this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
+        this.setRequestHandler('initialize', request => this._oninitialize(request));
+        this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler(SetLevelRequestSchema, async (request, ctx) => {
-                const serverCtx = ctx as ServerContext<RequestT, NotificationT, ResultT>;
-                const transportSessionId: string | undefined = serverCtx.sessionId;
+            this.setRequestHandler('logging/setLevel', async (request, ctx) => {
+                const transportSessionId: string | undefined =
+                    ctx.sessionId || (ctx.http?.req.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
                 const parseResult = LoggingLevelSchema.safeParse(level);
                 if (parseResult.success) {
@@ -229,11 +223,11 @@ export class Server<
     /**
      * Override request handler registration to enforce server-side validation for tools/call.
      */
-    public override setRequestHandler<T extends AnyObjectSchema>(
-        requestSchema: T,
+    public override setRequestHandler<M extends RequestMethod>(
+        method: M,
         handler: (
-            request: SchemaOutput<T>,
-            extra: ServerContext<RequestT, NotificationT, ResultT>
+            request: RequestTypeMap[M],
+            ctx: ServerContextInterface<RequestT, NotificationT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
         // Wrap the handler to ensure the context is a ServerContext and return a decorated handler that can be passed to the base implementation
@@ -241,12 +235,12 @@ export class Server<
         // Factory function to create a handler decorator that ensures the context is a ServerContext and returns a decorated handler that can be passed to the base implementation
         const handlerDecoratorFactory = (
             innerHandler: (
-                request: SchemaOutput<T>,
+                request: RequestTypeMap[M],
                 ctx: ServerContext<RequestT, NotificationT, ResultT>
             ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
         ) => {
             const decoratedHandler = (
-                request: SchemaOutput<T>,
+                request: RequestTypeMap[M],
                 ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT>
             ) => {
                 if (!this.isServerContext(ctx)) {
@@ -257,34 +251,10 @@ export class Server<
 
             return decoratedHandler;
         };
-
-        const shape = getObjectShape(requestSchema);
-        const methodSchema = shape?.method;
-        if (!methodSchema) {
-            throw new Error('Schema is missing a method literal');
-        }
-
-        // Extract literal value using type-safe property access
-        let methodValue: unknown;
-        if (isZ4Schema(methodSchema)) {
-            const v4Schema = methodSchema as unknown as ZodV4Internal;
-            const v4Def = v4Schema._zod?.def;
-            methodValue = v4Def?.value ?? v4Schema.value;
-        } else {
-            const v3Schema = methodSchema as unknown as ZodV3Internal;
-            const legacyDef = v3Schema._def;
-            methodValue = legacyDef?.value ?? v3Schema.value;
-        }
-
-        if (typeof methodValue !== 'string') {
-            throw new TypeError('Schema method literal must be a string');
-        }
-        const method = methodValue;
-
         if (method === 'tools/call') {
             const wrappedHandler = async (
-                request: SchemaOutput<T>,
-                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT>
+                request: RequestTypeMap[M],
+                ctx: ServerContext<RequestT, NotificationT, ResultT>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -322,11 +292,11 @@ export class Server<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(requestSchema, handlerDecoratorFactory(wrappedHandler));
+            return super.setRequestHandler(method, handlerDecoratorFactory(wrappedHandler));
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(requestSchema, handlerDecoratorFactory(handler));
+        return super.setRequestHandler(method, handlerDecoratorFactory(handler));
     }
 
     // Runtime type guard: ensure ctx is our ServerContext

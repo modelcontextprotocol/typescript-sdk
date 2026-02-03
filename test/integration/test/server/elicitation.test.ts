@@ -9,7 +9,7 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { ElicitRequestFormParams } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator, ElicitRequestSchema, InMemoryTransport } from '@modelcontextprotocol/core';
+import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator, InMemoryTransport } from '@modelcontextprotocol/core';
 import { Server } from '@modelcontextprotocol/server';
 
 const ajvProvider = new AjvJsonSchemaValidator();
@@ -62,7 +62,7 @@ describe('Elicitation Flow', () => {
 
 function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWorkerProvider, validatorName: string) {
     test(`${validatorName}: should elicit simple object with string field`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { name: 'John Doe' }
         }));
@@ -86,7 +86,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should elicit object with integer field`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { age: 42 }
         }));
@@ -110,7 +110,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should elicit object with boolean field`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { agree: true }
         }));
@@ -145,7 +145,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             notifications: false
         };
 
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: userData
         }));
@@ -178,7 +178,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid object (missing required field)`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 email: 'user@example.com'
@@ -203,7 +203,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid field type`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 name: 'John Doe',
@@ -228,7 +228,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid string (too short)`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { name: '' } // Too short
         }));
@@ -248,7 +248,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid integer (out of range)`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { age: 200 } // Too high
         }));
@@ -269,7 +269,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid pattern`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { zipCode: 'ABC123' } // Doesn't match pattern
         }));
@@ -291,7 +291,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should allow decline action without validation`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'decline'
         }));
 
@@ -313,7 +313,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should allow cancel action without validation`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'cancel'
         }));
 
@@ -336,7 +336,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should handle multiple sequential elicitation requests`, async () => {
         let requestCount = 0;
-        client.setRequestHandler(ElicitRequestSchema, request => {
+        client.setRequestHandler('elicitation/create', request => {
             requestCount++;
             if (request.params.message.includes('name')) {
                 return { action: 'accept', content: { name: 'Alice' } };
@@ -389,7 +389,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should validate with optional fields present`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { name: 'John', nickname: 'Johnny' }
         }));
@@ -414,7 +414,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should validate with optional fields absent`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { name: 'John' }
         }));
@@ -439,7 +439,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should validate email format`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { email: 'user@example.com' }
         }));
@@ -556,7 +556,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         };
 
         // Client returns no values; SDK should apply defaults automatically (and validate)
-        client.setRequestHandler(ElicitRequestSchema, request => {
+        client.setRequestHandler('elicitation/create', request => {
             expect(request.params.mode).toEqual('form');
             expect((request.params as ElicitRequestFormParams).requestedSchema).toEqual(testSchemaProperties);
             return {
@@ -592,7 +592,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid email format`, async () => {
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: { email: 'not-an-email' }
         }));
@@ -616,7 +616,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should succeed with valid selection in single-select untitled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 color: 'Red'
@@ -652,7 +652,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should succeed with valid selection in single-select titled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 color: '#FF0000'
@@ -692,7 +692,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should succeed with valid selection in single-select titled legacy enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 color: '#FF0000'
@@ -730,7 +730,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should succeed with valid selection in multi-select untitled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 colors: ['Red', 'Blue']
@@ -770,7 +770,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should succeed with valid selection in multi-select titled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 colors: ['#FF0000', '#0000FF']
@@ -815,7 +815,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should reject invalid selection in single-select untitled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 color: 'Black' // Color not in enum list
@@ -846,7 +846,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should reject invalid selection in single-select titled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 color: 'Red' // Should be "#FF0000" (const not title)
@@ -880,7 +880,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should reject invalid selection in single-select titled legacy enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 color: 'Red' // Should be "#FF0000" (enum not enumNames)
@@ -913,7 +913,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should reject invalid selection in multi-select untitled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 color: 'Red' // Should be array, not string
@@ -948,7 +948,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should reject invalid selection in multi-select titled enum`, async () => {
         // Set up client to return valid response
-        client.setRequestHandler(ElicitRequestSchema, _request => ({
+        client.setRequestHandler('elicitation/create', _request => ({
             action: 'accept',
             content: {
                 colors: ['Red', 'Blue'] // Should be  ["#FF0000", "#0000FF"] (const not title)

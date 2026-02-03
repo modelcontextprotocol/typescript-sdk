@@ -1,11 +1,10 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { BaseRequestContext, ContextInterface, ServerNotification, ServerRequest } from '@modelcontextprotocol/core';
+import type { ContextInterface, ServerNotification, ServerRequest } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
     GetPromptResultSchema,
     InMemoryTransport,
     ListResourcesResultSchema,
-    LoggingMessageNotificationSchema,
     ReadResourceResultSchema
 } from '@modelcontextprotocol/core';
 import { McpServer, ResourceTemplate, ServerContext } from '@modelcontextprotocol/server';
@@ -125,7 +124,7 @@ describe('ServerContext', () => {
 
         let seen = 0;
 
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             seen++;
             expect(notification.params.level).toBe(level);
             return;
@@ -176,7 +175,7 @@ describe('ServerContext', () => {
                             inputSchema: z.object({ name: z.string() })
                         },
                         // The test is to ensure that the ctx is compatible with the ContextInterface type
-                        (_args: { name: string }, ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                        (_args: { name: string }, ctx: ContextInterface<ServerRequest, ServerNotification>) => {
                             seen.isContext = ctx instanceof ServerContext;
                             seen.hasRequestId = !!ctx.mcpReq.id;
                             return { content: [{ type: 'text', text: 'ok' }] };
@@ -205,7 +204,7 @@ describe('ServerContext', () => {
                         'ctx-resource',
                         'test://res/1',
                         { title: 'ctx-resource' },
-                        async (_uri, ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                        async (_uri, ctx: ContextInterface<ServerRequest, ServerNotification>) => {
                             seen.isContext = ctx instanceof ServerContext;
                             seen.hasRequestId = !!ctx.mcpReq.id;
                             return { contents: [{ uri: 'test://res/1', mimeType: 'text/plain', text: 'hello' }] };
@@ -219,7 +218,7 @@ describe('ServerContext', () => {
                 (mcpServer, seen) => {
                     // The test is to ensure that the ctx is compatible with the ContextInterface type
                     const template = new ResourceTemplate('test://items/{id}', {
-                        list: async (ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                        list: async (ctx: ContextInterface<ServerRequest, ServerNotification>) => {
                             seen.isContext = ctx instanceof ServerContext;
                             seen.hasRequestId = !!ctx.mcpReq.id;
                             return { resources: [] };
@@ -238,7 +237,7 @@ describe('ServerContext', () => {
                     mcpServer.registerPrompt(
                         'ctx-prompt',
                         {},
-                        async (ctx: ContextInterface<ServerRequest, ServerNotification, BaseRequestContext>) => {
+                        async (ctx: ContextInterface<ServerRequest, ServerNotification>) => {
                             seen.isContext = ctx instanceof ServerContext;
                             seen.hasRequestId = !!ctx.mcpReq.id;
                             return { messages: [] };

@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
-import { CallToolResultSchema, LoggingMessageNotificationSchema, McpServer } from '@modelcontextprotocol/server';
+import { CallToolResultSchema, McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
@@ -192,7 +192,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Set up notification handler for first client
-            client1.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client1.setNotificationHandler('notifications/message', notification => {
                 if (notification.method === 'notifications/message') {
                     notifications.push(notification.params);
                 }
@@ -271,7 +271,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Track replayed notifications separately
             const replayedNotifications: unknown[] = [];
-            client2.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client2.setNotificationHandler('notifications/message', notification => {
                 if (notification.method === 'notifications/message') {
                     replayedNotifications.push(notification.params);
                 }
