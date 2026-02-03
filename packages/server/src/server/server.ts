@@ -1,6 +1,6 @@
 import type {
+    BaseContext,
     ClientCapabilities,
-    ContextInterface,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
@@ -32,7 +32,6 @@ import type {
     ServerNotification,
     ServerRequest,
     ServerResult,
-    TaskContext,
     TaskCreationParams,
     TaskStore,
     ToolResultContent,
@@ -62,7 +61,6 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-import type { ServerContextInterface } from './context.js';
 import { ServerContext } from './context.js';
 
 export type ServerOptions = ProtocolOptions & {
@@ -227,7 +225,7 @@ export class Server<
         method: M,
         handler: (
             request: RequestTypeMap[M],
-            ctx: ServerContextInterface<RequestT, NotificationT>
+            ctx: ServerContext<RequestT, NotificationT, ResultT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
         // Wrap the handler to ensure the context is a ServerContext and return a decorated handler that can be passed to the base implementation
@@ -241,7 +239,7 @@ export class Server<
         ) => {
             const decoratedHandler = (
                 request: RequestTypeMap[M],
-                ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT>
+                ctx: BaseContext<ServerRequest | RequestT, ServerNotification | NotificationT>
             ) => {
                 if (!this.isServerContext(ctx)) {
                     throw new Error('Internal error: Expected ServerContext for request handler context');
@@ -301,7 +299,7 @@ export class Server<
 
     // Runtime type guard: ensure ctx is our ServerContext
     private isServerContext(
-        ctx: ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ctx: BaseContext<ServerRequest | RequestT, ServerNotification | NotificationT>
     ): ctx is ServerContext<RequestT, NotificationT, ResultT> {
         return ctx instanceof ServerContext;
     }
@@ -507,12 +505,12 @@ export class Server<
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
-    }): ContextInterface<ServerRequest | RequestT, ServerNotification | NotificationT> {
+    }): ServerContext<RequestT, NotificationT, ResultT> {
         const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
         const sessionId = capturedTransport?.sessionId;
 
         // Build the task context using the helper from Protocol
-        const task: TaskContext | undefined = this.buildTaskContext({
+        const task: ServerContext<RequestT, NotificationT, ResultT>['task'] | undefined = this.buildTaskContext({
             taskStore,
             request,
             sessionId,

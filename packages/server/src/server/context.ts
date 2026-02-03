@@ -1,55 +1,22 @@
 import type {
-    ContextInterface,
     CreateMessageRequest,
     CreateMessageResult,
     ElicitRequest,
     ElicitResult,
-    HttpReqContext,
     JSONRPCRequest,
     LoggingMessageNotification,
-    McpReqContext,
-    McpReqContextInput,
     Notification,
-    NotificationContext,
     Request as SdkRequest,
     RequestOptions,
     Result,
     ServerNotification,
     ServerRequest,
-    ServerResult,
-    TaskContext
+    ServerResult
 } from '@modelcontextprotocol/core';
 import { BaseContext, ElicitResultSchema } from '@modelcontextprotocol/core';
 
 import type { Server } from './server.js';
 
-/**
- * Server-specific notification context with logging methods.
- */
-export type ServerNotificationContext<NotificationT extends Notification = Notification> = NotificationContext<
-    NotificationT | ServerNotification
-> & {
-    /**
-     * Sends a logging message to the client.
-     */
-    log(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void>;
-    /**
-     * Sends a debug log message to the client.
-     */
-    debug(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
-    /**
-     * Sends an info log message to the client.
-     */
-    info(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
-    /**
-     * Sends a warning log message to the client.
-     */
-    warning(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
-    /**
-     * Sends an error log message to the client.
-     */
-    error(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
-};
 class NotificationLogHelper {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(private readonly server: Server<any, any, any>) {}
@@ -131,12 +98,24 @@ class NotificationLogHelper {
 }
 
 /**
- * Server-specific context interface extending the base ContextInterface.
- * Includes server-specific methods for logging, elicitation, and sampling.
+ * A context object that is passed to server-side request handlers.
+ * Provides access to MCP context, request context, task context, and server-specific methods.
  */
-export interface ServerContextInterface<RequestT extends SdkRequest = SdkRequest, NotificationT extends Notification = Notification>
-    extends ContextInterface<RequestT | ServerRequest, NotificationT | ServerNotification> {
-    mcpReq: McpReqContext & {
+export class ServerContext<
+    RequestT extends SdkRequest = SdkRequest,
+    NotificationT extends Notification = Notification,
+    ResultT extends Result = Result
+> extends BaseContext<RequestT | ServerRequest, NotificationT | ServerNotification, ServerResult | ResultT> {
+    private readonly server: Server<RequestT, NotificationT, ResultT>;
+
+    /**
+     * MCP request context containing protocol-level information.
+     */
+    declare public readonly mcpReq: BaseContext<
+        RequestT | ServerRequest,
+        NotificationT | ServerNotification,
+        ServerResult | ResultT
+    >['mcpReq'] & {
         /**
          * Sends an elicitation request to the client.
          */
@@ -146,11 +125,10 @@ export interface ServerContextInterface<RequestT extends SdkRequest = SdkRequest
          */
         requestSampling: (params: CreateMessageRequest['params'], options?: RequestOptions) => Promise<CreateMessageResult>;
     };
-
     /**
-     * Request context with authentication, send method, and raw Request object.
+     * HTTP request context with authentication, send method, and raw Request object.
      */
-    http?: HttpReqContext & {
+    declare public readonly http?: BaseContext<RequestT, NotificationT, ResultT>['http'] & {
         /**
          * The raw Request object (fetch API Request).
          * Provides access to url, headers, and other request properties.
@@ -168,48 +146,45 @@ export interface ServerContextInterface<RequestT extends SdkRequest = SdkRequest
          */
         closeStandaloneSSE?: () => void;
     };
-    /**
-     * Notification context with logging methods.
-     */
-    notification: ServerNotificationContext<NotificationT>;
-}
-
-/**
- * A context object that is passed to server-side request handlers.
- * Provides access to MCP context, request context, task context, and server-specific methods.
- */
-export class ServerContext<
-        RequestT extends SdkRequest = SdkRequest,
-        NotificationT extends Notification = Notification,
-        ResultT extends Result = Result
-    >
-    extends BaseContext<RequestT | ServerRequest, NotificationT | ServerNotification, ServerResult | ResultT>
-    implements ServerContextInterface<RequestT, NotificationT>
-{
-    private readonly server: Server<RequestT, NotificationT, ResultT>;
-
-    /**
-     * MCP request context containing protocol-level information.
-     */
-    declare public readonly mcpReq: ServerContextInterface<RequestT, NotificationT>['mcpReq'];
-    /**
-     * HTTP request context with authentication, send method, and raw Request object.
-     */
-    declare public readonly http?: ServerContextInterface<RequestT, NotificationT>['http'];
 
     /**
      * Notification context with logging methods.
      */
-    declare public readonly notification: ServerNotificationContext<NotificationT>;
+    declare public readonly notification: BaseContext<
+        RequestT | ServerRequest,
+        NotificationT | ServerNotification,
+        ServerResult | ResultT
+    >['notification'] & {
+        /**
+         * Sends a logging message to the client.
+         */
+        log(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void>;
+        /**
+         * Sends a debug log message to the client.
+         */
+        debug(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
+        /**
+         * Sends an info log message to the client.
+         */
+        info(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
+        /**
+         * Sends a warning log message to the client.
+         */
+        warning(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
+        /**
+         * Sends an error log message to the client.
+         */
+        error(message: string, extraLogData?: Record<string, unknown>): Promise<void>;
+    };
 
     private readonly _notificationLogHelper: NotificationLogHelper;
 
     constructor(args: {
         sessionId?: string;
         request: JSONRPCRequest;
-        mcpReq: McpReqContextInput;
-        http?: ServerContextInterface['http'];
-        task: TaskContext | undefined;
+        mcpReq: Omit<BaseContext<RequestT, NotificationT, ResultT>['mcpReq'], 'send'>;
+        http?: ServerContext<RequestT, NotificationT, ResultT>['http'];
+        task: ServerContext<RequestT, NotificationT, ResultT>['task'];
         server: Server<RequestT, NotificationT, ResultT>;
     }) {
         super({

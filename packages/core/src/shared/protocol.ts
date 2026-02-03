@@ -46,7 +46,7 @@ import type { MessageExtraInfo } from '../types/utility.js';
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import { safeParse } from '../util/zodCompat.js';
 import { parseWithCompat } from '../util/zodJsonSchemaCompat.js';
-import type { ContextInterface } from './context.js';
+import type { BaseContext } from './context.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -193,7 +193,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _requestMessageId = 0;
     private _requestHandlers: Map<
         string,
-        (request: JSONRPCRequest, extra: ContextInterface<SendRequestT, SendNotificationT>) => Promise<SendResultT>
+        (request: JSONRPCRequest, extra: BaseContext<SendRequestT, SendNotificationT, SendResultT>) => Promise<SendResultT>
     > = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
@@ -227,7 +227,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (request: JSONRPCRequest, extra: ContextInterface<SendRequestT, SendNotificationT>) => Promise<SendResultT>;
+    fallbackRequestHandler?: (
+        request: JSONRPCRequest,
+        extra: BaseContext<SendRequestT, SendNotificationT, SendResultT>
+    ) => Promise<SendResultT>;
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
@@ -582,7 +585,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         const taskCreationParams = isTaskAugmentedRequestParams(request.params) ? request.params.task : undefined;
 
-        const fullExtra: ContextInterface<SendRequestT, SendNotificationT> = this.createRequestContext({
+        const fullExtra: BaseContext<SendRequestT, SendNotificationT, SendResultT> = this.createRequestContext({
             request,
             taskStore: this._taskStore,
             relatedTaskId,
@@ -725,7 +728,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
-    }): ContextInterface<SendRequestT, SendNotificationT>;
+    }): BaseContext<SendRequestT, SendNotificationT, SendResultT>;
 
     private _onprogress(notification: ProgressNotification): void {
         const { progressToken, ...params } = notification.params;
@@ -1303,7 +1306,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (request: RequestTypeMap[M], ctx: ContextInterface<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
+        handler: (
+            request: RequestTypeMap[M],
+            ctx: BaseContext<SendRequestT, SendNotificationT, SendResultT>
+        ) => SendResultT | Promise<SendResultT>
     ): void {
         this.assertRequestHandlerCapability(method);
         const schema = getRequestSchema(method);

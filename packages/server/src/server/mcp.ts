@@ -53,7 +53,7 @@ import { ZodOptional } from 'zod';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
-import type { ServerContextInterface } from './context.js';
+import type { ServerContext } from './context.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
@@ -315,7 +315,7 @@ export class McpServer {
     private async executeToolHandler(
         tool: RegisteredTool,
         args: unknown,
-        ctx: ServerContextInterface<ServerRequest, ServerNotification>
+        ctx: ServerContext<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
         const isTaskHandler = 'createTask' in handler;
@@ -354,7 +354,7 @@ export class McpServer {
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
         request: RequestT,
-        ctx: ServerContextInterface<ServerRequest, ServerNotification>
+        ctx: ServerContext<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
         if (!ctx.task?.store) {
             throw new Error('No task store provided for task-capable tool.');
@@ -1012,7 +1012,7 @@ export class ResourceTemplate {
 
 export type BaseToolCallback<
     SendResultT extends Result,
-    Extra extends ServerContextInterface<ServerRequest, ServerNotification>,
+    Extra extends ServerContext<ServerRequest, ServerNotification>,
     Args extends undefined | ZodRawShapeCompat | AnySchema
 > = Args extends ZodRawShapeCompat
     ? (args: ShapeOutput<Args>, ctx: Extra) => SendResultT | Promise<SendResultT>
@@ -1032,7 +1032,7 @@ export type BaseToolCallback<
  */
 export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = BaseToolCallback<
     CallToolResult,
-    ServerContextInterface<ServerRequest, ServerNotification>,
+    ServerContext<ServerRequest, ServerNotification>,
     Args
 >;
 
@@ -1151,7 +1151,7 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-    ctx: ServerContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContext<ServerRequest, ServerNotification>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -1159,7 +1159,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
     uri: URL,
-    ctx: ServerContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContext<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResource = {
@@ -1187,7 +1187,7 @@ export type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
-    ctx: ServerContextInterface<ServerRequest, ServerNotification>
+    ctx: ServerContext<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResourceTemplate = {
@@ -1212,11 +1212,8 @@ export type RegisteredResourceTemplate = {
 type PromptArgsRawShape = ZodRawShapeCompat;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (
-          args: ShapeOutput<Args>,
-          ctx: ServerContextInterface<ServerRequest, ServerNotification>
-      ) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+    ? (args: ShapeOutput<Args>, ctx: ServerContext<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
+    : (ctx: ServerContext<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {
     title?: string;

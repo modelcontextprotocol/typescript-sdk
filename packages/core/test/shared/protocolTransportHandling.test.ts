@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 
 import type { TaskStore } from '../../src/experimental/tasks/interfaces.js';
-import type { ContextInterface } from '../../src/shared/context.js';
+import type { BaseContext } from '../../src/shared/context.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
 import type {
@@ -45,7 +45,7 @@ function createMockContext(args: {
     request: JSONRPCRequest;
     abortController: AbortController;
     sessionId?: string;
-}): ContextInterface<Request, Notification> {
+}): BaseContext<Request, Notification, Result> {
     return {
         sessionId: args.sessionId,
         mcpReq: {
@@ -62,7 +62,7 @@ function createMockContext(args: {
         notification: {
             send: async () => {}
         }
-    };
+    } as unknown as BaseContext<Request, Notification, Result>;
 }
 
 /**
@@ -83,7 +83,7 @@ function createTestProtocolClass() {
             abortController: AbortController;
             capturedTransport: Transport | undefined;
             extra?: MessageExtraInfo;
-        }): ContextInterface<Request, Notification> {
+        }): BaseContext<Request, Notification, Result> {
             return createMockContext({
                 request: args.request,
                 abortController: args.abortController,

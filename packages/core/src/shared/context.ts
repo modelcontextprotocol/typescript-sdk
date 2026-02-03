@@ -4,119 +4,6 @@ import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import type { NotificationOptions, Protocol, RequestOptions } from './protocol.js';
 
 /**
- * MCP request context containing protocol-level information.
- * Includes request ID, method, metadata, and abort signal.
- */
-export type McpReqContext<RequestT extends Request = Request> = {
-    /**
-     * The JSON-RPC ID of the request being handled.
-     * This can be useful for tracking or logging purposes.
-     */
-    id: RequestId;
-    /**
-     * The method of the request.
-     */
-    method: string;
-    /**
-     * The metadata of the request.
-     */
-    _meta?: RequestMeta;
-    /**
-     * An abort signal used to communicate if the request was cancelled.
-     */
-    signal: AbortSignal;
-    /**
-     * Sends a request that relates to the current request being handled.
-     * This is used by certain transports to correctly associate related messages.
-     */
-    send: <U extends AnySchema>(request: RequestT, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
-};
-
-export type McpReqContextInput = Omit<McpReqContext, 'send'>;
-
-/**
- * Request context with authentication information and send method.
- */
-export type HttpReqContext = {
-    /**
-     * The authentication information, if available.
-     */
-    authInfo?: AuthInfo;
-};
-
-/**
- * Notification context with send method.
- */
-export type NotificationContext<NotificationT extends Notification = Notification> = {
-    /**
-     * Sends a notification that relates to the current request being handled.
-     * This is used by certain transports to correctly associate related messages.
-     */
-    send: (notification: NotificationT) => Promise<void>;
-};
-
-/**
- * Base request context for internal construction args.
- * @internal
- */
-export type BaseRequestContext = {
-    signal: AbortSignal;
-    authInfo?: AuthInfo;
-};
-
-/**
- * Task-related context for task-augmented requests.
- */
-export type TaskContext = {
-    /**
-     * The ID of the task.
-     */
-    id: string;
-    /**
-     * The task store for managing task state.
-     */
-    store: RequestTaskStoreInterface;
-    /**
-     * The requested TTL for the task, or null if not specified.
-     */
-    requestedTtl: number | null;
-};
-
-/**
- * Base context interface for request handlers.
- * Defines the common structure shared by both client and server contexts.
- *
- * @typeParam RequestT - The type of requests that can be sent from this context
- * @typeParam NotificationT - The type of notifications that can be sent from this context
- */
-export interface ContextInterface<RequestT extends Request = Request, NotificationT extends Notification = Notification> {
-    /**
-     * The session ID of the request.
-     */
-    sessionId?: string;
-
-    /**
-     * MCP request context containing protocol-level information.
-     */
-    mcpReq: McpReqContext<RequestT>;
-
-    /**
-     * HTTP request context with authentication and send method.
-     */
-    http?: HttpReqContext;
-
-    /**
-     * Task context if this is a task-augmented request, undefined otherwise.
-     */
-    task: TaskContext | undefined;
-
-    /**
-     * Notification context with send method.
-     */
-    notification: NotificationContext<NotificationT>;
-}
-
-/**
  * Abstract base class for context objects passed to request handlers.
  * Provides shared implementation with structured nested objects.
  *
@@ -128,8 +15,7 @@ export abstract class BaseContext<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
     ResultT extends Result = Result
-> implements ContextInterface<RequestT, NotificationT>
-{
+> {
     /**
      * The session ID of the request.
      */
@@ -137,23 +23,72 @@ export abstract class BaseContext<
 
     /**
      * MCP request context containing protocol-level information.
+     * Includes request ID, method, metadata, and abort signal.
      */
-    public readonly mcpReq: McpReqContext<RequestT>;
+    public readonly mcpReq: {
+        /**
+         * The JSON-RPC ID of the request being handled.
+         * This can be useful for tracking or logging purposes.
+         */
+        id: RequestId;
+        /**
+         * The method of the request.
+         */
+        method: string;
+        /**
+         * The metadata of the request.
+         */
+        _meta?: RequestMeta;
+        /**
+         * An abort signal used to communicate if the request was cancelled.
+         */
+        signal: AbortSignal;
+        /**
+         * Sends a request that relates to the current request being handled.
+         * This is used by certain transports to correctly associate related messages.
+         */
+        send: <U extends AnySchema>(request: RequestT, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
+    };
 
     /**
      * HTTP request context with authentication and send method.
      */
-    public readonly http?: HttpReqContext;
+    public readonly http?: {
+        /**
+         * The authentication information, if available.
+         */
+        authInfo?: AuthInfo;
+    };
 
     /**
      * Task context if this is a task-augmented request, undefined otherwise.
      */
-    public readonly task: TaskContext | undefined;
+    public readonly task:
+        | {
+              /**
+               * The ID of the task.
+               */
+              id: string;
+              /**
+               * The task store for managing task state.
+               */
+              store: RequestTaskStoreInterface;
+              /**
+               * The requested TTL for the task, or null if not specified.
+               */
+              requestedTtl: number | null;
+          }
+        | undefined;
 
     /**
      * Notification context with send method.
      */
-    public readonly notification: NotificationContext<NotificationT>;
+    public readonly notification: {
+        /**
+         * Notification context with send method.
+         */
+        send: (notification: NotificationT) => Promise<void>;
+    };
 
     /**
      * Returns the protocol instance for sending notifications and requests.
@@ -204,9 +139,9 @@ export abstract class BaseContext<
     constructor(args: {
         request: JSONRPCRequest;
         sessionId?: string;
-        http?: HttpReqContext;
-        task: TaskContext | undefined;
-        mcpReq: McpReqContextInput;
+        http?: BaseContext<RequestT, NotificationT, ResultT>['http'];
+        task: BaseContext<RequestT, NotificationT, ResultT>['task'];
+        mcpReq: Omit<BaseContext<RequestT, NotificationT, ResultT>['mcpReq'], 'send'>;
     }) {
         this.sessionId = args.sessionId;
 

@@ -11,7 +11,7 @@ import type {
     TaskStore
 } from '../../src/experimental/tasks/interfaces.js';
 import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/inMemory.js';
-import type { ContextInterface } from '../../src/shared/context.js';
+import type { BaseContext } from '../../src/shared/context.js';
 import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
 import type { ErrorMessage, ResponseMessage } from '../../src/shared/responseMessage.js';
 import { toArrayAsync } from '../../src/shared/responseMessage.js';
@@ -173,7 +173,7 @@ function createTestProtocolClass(options?: {
             abortController: AbortController;
             capturedTransport: Transport | undefined;
             extra?: MessageExtraInfo;
-        }): ContextInterface<Request, Notification> {
+        }): BaseContext<Request, Notification, Result> {
             // Create a context that properly delegates to the protocol
             const sessionId = args.capturedTransport?.sessionId;
             const requestId = args.request.id;
@@ -204,7 +204,7 @@ function createTestProtocolClass(options?: {
                         await this.notification(notification, notificationOptions);
                     }
                 }
-            };
+            } as unknown as BaseContext<Request, Notification, Result>;
         }
 
         constructor() {

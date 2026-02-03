@@ -1,4 +1,5 @@
 import type {
+    BaseContext,
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -31,7 +32,6 @@ import type {
     Result,
     ServerCapabilities,
     SubscribeRequest,
-    TaskContext,
     TaskCreationParams,
     TaskStore,
     Tool,
@@ -69,7 +69,6 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
-import type { ClientContextInterface } from './context.js';
 import { ClientContext } from './context.js';
 
 /**
@@ -338,13 +337,34 @@ export class Client<
         method: M,
         handler: (
             request: RequestTypeMap[M],
-            ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ctx: ClientContext<RequestT, NotificationT, ResultT>
         ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
     ): void {
+        // Factory function to create a handler decorator that ensures the context is a ClientContext
+        // and returns a decorated handler that can be passed to the base implementation
+        const handlerDecoratorFactory = (
+            innerHandler: (
+                request: RequestTypeMap[M],
+                ctx: ClientContext<RequestT, NotificationT, ResultT>
+            ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+        ) => {
+            const decoratedHandler = (
+                request: RequestTypeMap[M],
+                ctx: BaseContext<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT>
+            ) => {
+                if (!this.isClientContext(ctx)) {
+                    throw new Error('Internal error: Expected ClientContext for request handler context');
+                }
+                return innerHandler(request, ctx);
+            };
+
+            return decoratedHandler;
+        };
+
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
-                ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
+                ctx: ClientContext<RequestT, NotificationT, ResultT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -411,13 +431,13 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, handlerDecoratorFactory(wrappedHandler));
         }
 
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
-                ctx: ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT>
+                ctx: ClientContext<RequestT, NotificationT, ResultT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -457,11 +477,18 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, handlerDecoratorFactory(wrappedHandler));
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(method, handler);
+        return super.setRequestHandler(method, handlerDecoratorFactory(handler));
+    }
+
+    // Runtime type guard: ensure ctx is our ClientContext
+    private isClientContext(
+        ctx: BaseContext<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT>
+    ): ctx is ClientContext<RequestT, NotificationT, ResultT> {
+        return ctx instanceof ClientContext;
     }
 
     protected createRequestContext(args: {
@@ -472,12 +499,12 @@ export class Client<
         abortController: AbortController;
         capturedTransport: Transport | undefined;
         extra?: MessageExtraInfo;
-    }): ClientContextInterface<ClientRequest | RequestT, ClientNotification | NotificationT> {
+    }): ClientContext<RequestT, NotificationT, ResultT> {
         const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
         const sessionId = capturedTransport?.sessionId;
 
         // Build the task context using the helper from Protocol
-        const task: TaskContext | undefined = this.buildTaskContext({
+        const task: ClientContext<RequestT, NotificationT, ResultT>['task'] | undefined = this.buildTaskContext({
             taskStore,
             request,
             sessionId,

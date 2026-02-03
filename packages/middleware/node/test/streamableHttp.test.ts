@@ -10,16 +10,10 @@ import type {
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCResultResponse,
-    RequestId
+    RequestId,
+    Result
 } from '@modelcontextprotocol/core';
-import type {
-    EventId,
-    EventStore,
-    ServerContextInterface,
-    ServerNotification,
-    ServerRequest,
-    StreamId
-} from '@modelcontextprotocol/server';
+import type { EventId, EventStore, ServerContext, ServerNotification, ServerRequest, StreamId } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
@@ -416,7 +410,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 async ({ name }, ctx): Promise<CallToolResult> => {
                     // Convert Headers object to plain object for JSON serialization
                     // Headers is a Web API class that doesn't serialize with JSON.stringify
-                    const serverCtx = ctx as ServerContextInterface<ServerRequest, ServerNotification>;
+                    const serverCtx = ctx as ServerContext<ServerRequest, ServerNotification, Result>;
                     const serializedRequestInfo = {
                         headers: Object.fromEntries(serverCtx.http?.req.headers ?? new Headers())
                     };
