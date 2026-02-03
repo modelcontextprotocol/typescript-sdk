@@ -127,28 +127,29 @@ export interface StandardSchemaWithJSON<Input = unknown, Output = Input> {
 /**
  * Type guard to check if a value implements StandardJSONSchemaV1 (has jsonSchema conversion).
  * This is the primary interface for schemas that can be converted to JSON Schema for the wire protocol.
+ * Note: Some libraries (e.g., ArkType) use function-based schemas, so we check for both objects and functions.
  */
 export function isStandardJSONSchema(schema: unknown): schema is StandardJSONSchemaV1 {
-    return (
-        schema != null &&
-        typeof schema === 'object' &&
-        '~standard' in schema &&
-        typeof (schema as StandardJSONSchemaV1)['~standard']?.jsonSchema?.input === 'function' &&
-        typeof (schema as StandardJSONSchemaV1)['~standard']?.jsonSchema?.output === 'function'
-    );
+    if (schema == null) return false;
+    const schemaType = typeof schema;
+    if (schemaType !== 'object' && schemaType !== 'function') return false;
+    if (!('~standard' in (schema as object))) return false;
+    const std = (schema as StandardJSONSchemaV1)['~standard'];
+    return typeof std?.jsonSchema?.input === 'function' && typeof std?.jsonSchema?.output === 'function';
 }
 
 /**
  * Type guard to check if a value implements StandardSchemaV1 (has validate method).
  * Schemas that implement this interface can perform native validation.
+ * Note: Some libraries (e.g., ArkType) use function-based schemas, so we check for both objects and functions.
  */
 export function isStandardSchema(schema: unknown): schema is StandardSchemaV1 {
-    return (
-        schema != null &&
-        typeof schema === 'object' &&
-        '~standard' in schema &&
-        typeof (schema as StandardSchemaV1)['~standard']?.validate === 'function'
-    );
+    if (schema == null) return false;
+    const schemaType = typeof schema;
+    if (schemaType !== 'object' && schemaType !== 'function') return false;
+    if (!('~standard' in (schema as object))) return false;
+    const std = (schema as StandardSchemaV1)['~standard'];
+    return typeof std?.validate === 'function';
 }
 
 /**
@@ -205,11 +206,14 @@ export async function validateStandardSchema<T extends StandardJSONSchemaV1>(
     // If schema also implements StandardSchemaV1, use native validation
     if (isStandardSchema(schema)) {
         const result = await schema['~standard'].validate(data);
-        if ('value' in result) {
-            return { success: true, data: result.value as StandardJSONSchemaV1.InferOutput<T> };
+        // Per Standard Schema spec: FailureResult has issues array, SuccessResult has value without issues
+        // Some libraries (e.g., Valibot) always include value, so we check issues first
+        if (result.issues && result.issues.length > 0) {
+            const errorMessage = result.issues.map((i: StandardSchemaV1.Issue) => i.message).join(', ');
+            return { success: false, error: errorMessage };
         }
-        const errorMessage = result.issues.map((i: StandardSchemaV1.Issue) => i.message).join(', ');
-        return { success: false, error: errorMessage };
+        // At this point we have a SuccessResult which has value
+        return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardJSONSchemaV1.InferOutput<T> };
     }
 
     // Fall back to JSON Schema validation if validator provided

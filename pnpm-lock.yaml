@@ -332,6 +332,12 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
+      '@valibot/to-json-schema':
+        specifier: ^1.5.0
+        version: 1.5.0(valibot@1.2.0(typescript@5.9.3))
+      arktype:
+        specifier: ^2.1.29
+        version: 2.1.29
       better-auth:
         specifier: ^1.4.17
         version: 1.4.17(better-sqlite3@12.6.2)(vitest@4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2))
@@ -344,6 +350,9 @@ importers:
       hono:
         specifier: catalog:runtimeServerOnly
         version: 4.11.4
+      valibot:
+        specifier: ^1.2.0
+        version: 1.2.0(typescript@5.9.3)
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.5
@@ -939,6 +948,12 @@ importers:
         version: 4.3.5
 
 packages:
+
+  '@ark/schema@0.56.0':
+    resolution: {integrity: sha512-ECg3hox/6Z/nLajxXqNhgPtNdHWC9zNsDyskwO28WinoFEnWow4IsERNz9AnXRhTZJnYIlAJ4uGn3nlLk65vZA==}
+
+  '@ark/util@0.56.0':
+    resolution: {integrity: sha512-BghfRC8b9pNs3vBoDJhcta0/c1J1rsoS1+HgVUreMFPdhz/CRAKReAu57YEllNaSy98rWAdY1gE+gFup7OXpgA==}
 
   '@babel/generator@7.28.5':
     resolution: {integrity: sha512-3EwLFhZ38J4VyIP6WNtt2kUdW9dokXA9Cr4IVIFHuCpZ3H8/YFOl5JjZHisrn1fATPBmKKqXzDFvh9fUwHz6CQ==}
@@ -2352,6 +2367,11 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@valibot/to-json-schema@1.5.0':
+    resolution: {integrity: sha512-GE7DmSr1C2UCWPiV0upRH6mv0cCPsqYGs819fb6srCS1tWhyXrkGGe+zxUiwzn/L1BOfADH4sNjY/YHCuP8phQ==}
+    peerDependencies:
+      valibot: ^1.2.0
+
   '@vitest/expect@4.0.16':
     resolution: {integrity: sha512-eshqULT2It7McaJkQGLkPjPjNph+uevROGuIMJdG3V+0BSR2w9u6J9Lwu+E8cK5TETlfou8GRijhafIMhXsimA==}
 
@@ -2430,6 +2450,12 @@ packages:
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+
+  arkregex@0.0.5:
+    resolution: {integrity: sha512-ncYjBdLlh5/QnVsAA8De16Tc9EqmYM7y/WU9j+236KcyYNUXogpz3sC4ATIZYzzLxwI+0sEOaQLEmLmRleaEXw==}
+
+  arktype@2.1.29:
+    resolution: {integrity: sha512-jyfKk4xIOzvYNayqnD8ZJQqOwcrTOUbIU4293yrzAjA3O1dWh61j71ArMQ6tS/u4pD7vabSPe7nG3RCyoXW6RQ==}
 
   array-buffer-byte-length@1.0.2:
     resolution: {integrity: sha512-LHE+8BuR7RYGDKvnrmcuSq3tDcKv9OFEXQt/HpbZhY7V6h0zlUXutnAD82GiFx9rdieCMjkvtcsPqBwgUl1Iiw==}
@@ -4340,6 +4366,14 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
+  valibot@1.2.0:
+    resolution: {integrity: sha512-mm1rxUsmOxzrwnX5arGS+U4T25RdvpPjPN4yR0u9pUBov9+zGVtO84tif1eY4r6zWxVxu3KzIyknJy3rxfRZZg==}
+    peerDependencies:
+      typescript: '>=5'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
@@ -4531,6 +4565,12 @@ packages:
     resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
 
 snapshots:
+
+  '@ark/schema@0.56.0':
+    dependencies:
+      '@ark/util': 0.56.0
+
+  '@ark/util@0.56.0': {}
 
   '@babel/generator@7.28.5':
     dependencies:
@@ -5709,6 +5749,10 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.11.1':
     optional: true
 
+  '@valibot/to-json-schema@1.5.0(valibot@1.2.0(typescript@5.9.3))':
+    dependencies:
+      valibot: 1.2.0(typescript@5.9.3)
+
   '@vitest/expect@4.0.16':
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -5792,6 +5836,16 @@ snapshots:
       sprintf-js: 1.0.3
 
   argparse@2.0.1: {}
+
+  arkregex@0.0.5:
+    dependencies:
+      '@ark/util': 0.56.0
+
+  arktype@2.1.29:
+    dependencies:
+      '@ark/schema': 0.56.0
+      '@ark/util': 0.56.0
+      arkregex: 0.0.5
 
   array-buffer-byte-length@1.0.2:
     dependencies:
@@ -7933,6 +7987,10 @@ snapshots:
       punycode: 2.3.1
 
   util-deprecate@1.0.2: {}
+
+  valibot@1.2.0(typescript@5.9.3):
+    optionalDependencies:
+      typescript: 5.9.3
 
   vary@1.1.2: {}
 
