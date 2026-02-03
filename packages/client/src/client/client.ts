@@ -60,8 +60,7 @@ import {
     mergeCapabilities,
     Protocol,
     ReadResourceResultSchema,
-    safeParse,
-    SUPPORTED_PROTOCOL_VERSIONS
+    safeParse
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -204,16 +203,6 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     listChanged?: ListChangedHandlers;
-
-    /**
-     * The protocol version to request during initialization.
-    /**
-     * Protocol versions this client supports. First version is sent to server
-     * during initialization. Connection fails if server responds with unsupported version.
-     *
-     * @default SUPPORTED_PROTOCOL_VERSIONS
-     */
-    supportedProtocolVersions?: string[];
 };
 
 /**
@@ -258,7 +247,6 @@ export class Client<
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
-    private _supportedProtocolVersions: string[];
 
     /**
      * Initializes this client with the given name and version information.
@@ -271,7 +259,6 @@ export class Client<
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
-        this._supportedProtocolVersions = options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {

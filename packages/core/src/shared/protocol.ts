@@ -46,6 +46,7 @@ import {
     ListTasksResultSchema,
     McpError,
     RELATED_TASK_META_KEY,
+    SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
 } from '../types/types.js';
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
@@ -63,6 +64,14 @@ export type ProgressCallback = (progress: Progress) => void;
  * Additional initialization options.
  */
 export type ProtocolOptions = {
+    /**
+     * Protocol versions supported. First version is preferred (sent by client,
+     * used as fallback by server). Passed to transport during connect().
+     *
+     * @default SUPPORTED_PROTOCOL_VERSIONS
+     */
+    supportedProtocolVersions?: string[];
+
     /**
      * Whether to restrict emitted requests to only those that the remote side has indicated that they can handle, through their advertised capabilities.
      *
@@ -342,6 +351,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
     private _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
 
+    protected _supportedProtocolVersions: string[];
+
     /**
      * Callback for when the connection is closed for any reason.
      *
@@ -367,6 +378,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
+        this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+
         this.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);
         });
@@ -632,6 +645,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
             }
         };
+
+        // Pass supported protocol versions to transport for header validation
+        transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
 
         await this._transport.start();
     }

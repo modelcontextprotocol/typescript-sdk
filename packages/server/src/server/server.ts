@@ -31,8 +31,7 @@ import type {
     ServerRequest,
     ServerResult,
     ToolResultContent,
-    ToolUseContent,
-    Transport
+    ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
@@ -52,8 +51,7 @@ import {
     McpError,
     mergeCapabilities,
     Protocol,
-    safeParse,
-    SUPPORTED_PROTOCOL_VERSIONS
+    safeParse
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
@@ -99,14 +97,6 @@ export type ServerOptions = ProtocolOptions & {
      * ```
      */
     jsonSchemaValidator?: jsonSchemaValidator;
-
-    /**
-     * Protocol versions this server supports. First version is used as fallback
-     * when client requests an unsupported version.
-     *
-     * @default SUPPORTED_PROTOCOL_VERSIONS
-     */
-    supportedProtocolVersions?: string[];
 };
 
 /**
@@ -146,7 +136,6 @@ export class Server<
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _experimental?: { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> };
-    private _supportedProtocolVersions: string[];
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -164,7 +153,6 @@ export class Server<
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
-        this._supportedProtocolVersions = options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
@@ -474,15 +462,6 @@ export class Server<
 
     private getCapabilities(): ServerCapabilities {
         return this._capabilities;
-    }
-
-    /**
-     * Connects to the given transport and passes supported protocol versions.
-     */
-    override async connect(transport: Transport): Promise<void> {
-        // Pass supported versions to transport for header validation
-        transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
-        await super.connect(transport);
     }
 
     async ping() {
