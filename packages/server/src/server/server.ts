@@ -18,6 +18,7 @@ import type {
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
+    NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
     RequestMethod,
@@ -26,8 +27,6 @@ import type {
     ResourceUpdatedNotification,
     ServerCapabilities,
     ServerContext,
-    ServerNotification,
-    ServerRequest,
     ServerResult,
     ToolResultContent,
     ToolUseContent
@@ -246,8 +245,8 @@ export class Server extends Protocol<ServerContext> {
         return super.setRequestHandler(method, handler);
     }
 
-    protected assertCapabilityForMethod(method: string): void {
-        switch (method as ServerRequest['method']) {
+    protected assertCapabilityForMethod(method: RequestMethod): void {
+        switch (method) {
             case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support sampling (required for ${method})`);
@@ -279,8 +278,8 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    protected assertNotificationCapability(method: string): void {
-        switch (method as ServerNotification['method']) {
+    protected assertNotificationCapability(method: NotificationMethod): void {
+        switch (method) {
             case 'notifications/message': {
                 if (!this._capabilities.logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);

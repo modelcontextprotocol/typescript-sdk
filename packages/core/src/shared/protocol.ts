@@ -999,14 +999,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertCapabilityForMethod(method: string): void;
+    protected abstract assertCapabilityForMethod(method: RequestMethod): void;
 
     /**
      * A method to check if a notification is supported by the local side, for the given method to be sent.
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertNotificationCapability(method: string): void;
+    protected abstract assertNotificationCapability(method: NotificationMethod): void;
 
     /**
      * A method to check if a request handler is supported by the local side, for the given method to be handled.
@@ -1173,7 +1173,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             if (this._options?.enforceStrictCapabilities === true) {
                 try {
-                    this.assertCapabilityForMethod(request.method);
+                    this.assertCapabilityForMethod(request.method as RequestMethod);
 
                     // If task creation is requested, also check task capabilities
                     if (task) {
@@ -1366,7 +1366,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
-        this.assertNotificationCapability(notification.method);
+        this.assertNotificationCapability(notification.method as NotificationMethod);
 
         // Queue notification if related to a task
         const relatedTaskId = options?.relatedTask?.taskId;
