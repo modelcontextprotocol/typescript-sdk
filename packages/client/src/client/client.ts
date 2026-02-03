@@ -24,11 +24,11 @@ import type {
     ReadResourceRequest,
     Request,
     RequestHandlerExtra,
-    RequestMethod,
     RequestOptions,
     RequestTypeMap,
     Result,
     ServerCapabilities,
+    ServerToClientRequestMethod,
     SubscribeRequest,
     Tool,
     Transport,
@@ -235,7 +235,7 @@ export class Client<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
     ResultT extends Result = Result
-> extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
+> extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT, ServerToClientRequestMethod> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
@@ -328,7 +328,7 @@ export class Client<
     /**
      * Override request handler registration to enforce client-side validation for elicitation.
      */
-    public override setRequestHandler<M extends RequestMethod>(
+    public override setRequestHandler<M extends ServerToClientRequestMethod>(
         method: M,
         handler: (
             request: RequestTypeMap[M],

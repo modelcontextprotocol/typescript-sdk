@@ -1,5 +1,6 @@
 import type {
     ClientCapabilities,
+    ClientToServerRequestMethod,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
@@ -21,7 +22,6 @@ import type {
     ProtocolOptions,
     Request,
     RequestHandlerExtra,
-    RequestMethod,
     RequestOptions,
     RequestTypeMap,
     ResourceUpdatedNotification,
@@ -130,7 +130,7 @@ export class Server<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
     ResultT extends Result = Result
-> extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
+> extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT, ClientToServerRequestMethod> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
@@ -215,7 +215,7 @@ export class Server<
     /**
      * Override request handler registration to enforce server-side validation for tools/call.
      */
-    public override setRequestHandler<M extends RequestMethod>(
+    public override setRequestHandler<M extends ClientToServerRequestMethod>(
         method: M,
         handler: (
             request: RequestTypeMap[M],
