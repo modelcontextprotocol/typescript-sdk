@@ -320,7 +320,15 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
+export abstract class Protocol<
+    SendRequestT extends Request,
+    SendNotificationT extends Notification,
+    SendResultT extends Result,
+    ReceiveRequestMethod extends RequestMethod = RequestMethod,
+    ReceiveNotificationMethod extends NotificationMethod = NotificationMethod,
+    ReceiveRequestTypeMap extends Record<ReceiveRequestMethod, Request> = RequestTypeMap,
+    ReceiveNotificationTypeMap extends Record<ReceiveNotificationMethod, Notification> = NotificationTypeMap
+> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<
@@ -367,15 +375,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
-        this.setNotificationHandler('notifications/cancelled', notification => {
+        this._setNotificationHandlerInternal('notifications/cancelled', notification => {
             this._oncancel(notification);
         });
 
-        this.setNotificationHandler('notifications/progress', notification => {
+        this._setNotificationHandlerInternal('notifications/progress', notification => {
             this._onprogress(notification);
         });
 
-        this.setRequestHandler(
+        this._setRequestHandlerInternal(
             'ping',
             // Automatic pong by default.
             _request => ({}) as SendResultT
@@ -385,7 +393,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskStore = _options?.taskStore;
         this._taskMessageQueue = _options?.taskMessageQueue;
         if (this._taskStore) {
-            this.setRequestHandler('tasks/get', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/get', async (request: GetTaskRequest, extra) => {
                 const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
@@ -398,7 +406,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 } as unknown as SendResultT;
             });
 
-            this.setRequestHandler('tasks/result', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/result', async (request: GetTaskPayloadRequest, extra) => {
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
 
@@ -485,7 +493,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return await handleTaskResult();
             });
 
-            this.setRequestHandler('tasks/list', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/list', async (request: { params?: { cursor?: string } }, extra) => {
                 try {
                     const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, extra.sessionId);
                     return {
@@ -501,7 +509,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             });
 
-            this.setRequestHandler('tasks/cancel', async (request, extra) => {
+            this._setRequestHandlerInternal('tasks/cancel', async (request: { params: { taskId: string } }, extra) => {
                 try {
                     // Get the current task to check if it's in a terminal state, in case the implementation is not atomic
                     const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
@@ -1394,11 +1402,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
-     * Registers a handler to invoke when this protocol object receives a request with the given method.
-     *
-     * Note that this will replace any previous request handler for the same method.
+     * Internal method for registering request handlers without type constraints.
+     * Used by Protocol constructor for built-in handlers (ping, tasks/*).
      */
-    setRequestHandler<M extends RequestMethod>(
+    private _setRequestHandlerInternal<M extends RequestMethod>(
         method: M,
         handler: (
             request: RequestTypeMap[M],
@@ -1415,27 +1422,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
-     * Removes the request handler for the given method.
+     * Internal method for registering notification handlers without type constraints.
+     * Used by Protocol constructor for built-in handlers (cancelled, progress).
      */
-    removeRequestHandler(method: RequestMethod): void {
-        this._requestHandlers.delete(method);
-    }
-
-    /**
-     * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
-     */
-    assertCanSetRequestHandler(method: RequestMethod): void {
-        if (this._requestHandlers.has(method)) {
-            throw new Error(`A request handler for ${method} already exists, which would be overridden`);
-        }
-    }
-
-    /**
-     * Registers a handler to invoke when this protocol object receives a notification with the given method.
-     *
-     * Note that this will replace any previous notification handler for the same method.
-     */
-    setNotificationHandler<M extends NotificationMethod>(
+    private _setNotificationHandlerInternal<M extends NotificationMethod>(
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
     ): void {
@@ -1448,9 +1438,63 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
+     * Registers a handler to invoke when this protocol object receives a request with the given method.
+     *
+     * Note that this will replace any previous request handler for the same method.
+     */
+    setRequestHandler<M extends ReceiveRequestMethod>(
+        method: M,
+        handler: (
+            request: ReceiveRequestTypeMap[M],
+            extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+        ) => SendResultT | Promise<SendResultT>
+    ): void {
+        this.assertRequestHandlerCapability(method);
+        const schema = getRequestSchema(method);
+
+        this._requestHandlers.set(method, (request, extra) => {
+            const parsed = parseWithCompat(schema, request) as ReceiveRequestTypeMap[M];
+            return Promise.resolve(handler(parsed, extra));
+        });
+    }
+
+    /**
+     * Removes the request handler for the given method.
+     */
+    removeRequestHandler(method: ReceiveRequestMethod): void {
+        this._requestHandlers.delete(method);
+    }
+
+    /**
+     * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
+     */
+    assertCanSetRequestHandler(method: ReceiveRequestMethod): void {
+        if (this._requestHandlers.has(method)) {
+            throw new Error(`A request handler for ${method} already exists, which would be overridden`);
+        }
+    }
+
+    /**
+     * Registers a handler to invoke when this protocol object receives a notification with the given method.
+     *
+     * Note that this will replace any previous notification handler for the same method.
+     */
+    setNotificationHandler<M extends ReceiveNotificationMethod>(
+        method: M,
+        handler: (notification: ReceiveNotificationTypeMap[M]) => void | Promise<void>
+    ): void {
+        const schema = getNotificationSchema(method);
+
+        this._notificationHandlers.set(method, notification => {
+            const parsed = parseWithCompat(schema, notification) as ReceiveNotificationTypeMap[M];
+            return Promise.resolve(handler(parsed));
+        });
+    }
+
+    /**
      * Removes the notification handler for the given method.
      */
-    removeNotificationHandler(method: NotificationMethod): void {
+    removeNotificationHandler(method: ReceiveNotificationMethod): void {
         this._notificationHandlers.delete(method);
     }
 

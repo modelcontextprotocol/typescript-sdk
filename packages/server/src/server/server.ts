@@ -21,13 +21,15 @@ import type {
     ProtocolOptions,
     Request,
     RequestHandlerExtra,
-    RequestMethod,
     RequestOptions,
-    RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
     ServerCapabilities,
     ServerNotification,
+    ServerReceivableNotificationMethod,
+    ServerReceivableNotificationTypeMap,
+    ServerReceivableRequestMethod,
+    ServerReceivableRequestTypeMap,
     ServerRequest,
     ServerResult,
     ToolResultContent,
@@ -130,7 +132,15 @@ export class Server<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
     ResultT extends Result = Result
-> extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
+> extends Protocol<
+    ServerRequest | RequestT,
+    ServerNotification | NotificationT,
+    ServerResult | ResultT,
+    ServerReceivableRequestMethod,
+    ServerReceivableNotificationMethod,
+    ServerReceivableRequestTypeMap,
+    ServerReceivableNotificationTypeMap
+> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
@@ -213,18 +223,19 @@ export class Server<
     }
 
     /**
-     * Override request handler registration to enforce server-side validation for tools/call.
+     * Registers a handler for requests that the server receives from clients.
+     * Only accepts client-to-server request methods (tools/call, prompts/get, resources/read, etc.).
      */
-    public override setRequestHandler<M extends RequestMethod>(
+    public override setRequestHandler<M extends ServerReceivableRequestMethod>(
         method: M,
         handler: (
-            request: RequestTypeMap[M],
+            request: ServerReceivableRequestTypeMap[M],
             extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
         if (method === 'tools/call') {
             const wrappedHandler = async (
-                request: RequestTypeMap[M],
+                request: ServerReceivableRequestTypeMap[M],
                 extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);

@@ -2,6 +2,10 @@ import type {
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
+    ClientReceivableNotificationMethod,
+    ClientReceivableNotificationTypeMap,
+    ClientReceivableRequestMethod,
+    ClientReceivableRequestTypeMap,
     ClientRequest,
     ClientResult,
     CompatibilityCallToolResultSchema,
@@ -19,14 +23,11 @@ import type {
     ListToolsRequest,
     LoggingLevel,
     Notification,
-    NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
     Request,
     RequestHandlerExtra,
-    RequestMethod,
     RequestOptions,
-    RequestTypeMap,
     Result,
     ServerCapabilities,
     SubscribeRequest,
@@ -235,7 +236,15 @@ export class Client<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
     ResultT extends Result = Result
-> extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
+> extends Protocol<
+    ClientRequest | RequestT,
+    ClientNotification | NotificationT,
+    ClientResult | ResultT,
+    ClientReceivableRequestMethod,
+    ClientReceivableNotificationMethod,
+    ClientReceivableRequestTypeMap,
+    ClientReceivableNotificationTypeMap
+> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
@@ -326,18 +335,19 @@ export class Client<
     }
 
     /**
-     * Override request handler registration to enforce client-side validation for elicitation.
+     * Registers a handler for requests that the client receives from the server.
+     * Only accepts server-to-client request methods (sampling/createMessage, elicitation/create, roots/list, etc.).
      */
-    public override setRequestHandler<M extends RequestMethod>(
+    public override setRequestHandler<M extends ClientReceivableRequestMethod>(
         method: M,
         handler: (
-            request: RequestTypeMap[M],
+            request: ClientReceivableRequestTypeMap[M],
             extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
         ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
     ): void {
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
-                request: RequestTypeMap[M],
+                request: ClientReceivableRequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
@@ -410,7 +420,7 @@ export class Client<
 
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (
-                request: RequestTypeMap[M],
+                request: ClientReceivableRequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
@@ -870,7 +880,7 @@ export class Client<
      */
     private _setupListChangedHandler<T>(
         listType: string,
-        notificationMethod: NotificationMethod,
+        notificationMethod: ClientReceivableNotificationMethod,
         options: ListChangedOptions<T>,
         fetcher: () => Promise<T[]>
     ): void {

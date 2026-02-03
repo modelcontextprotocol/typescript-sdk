@@ -2610,10 +2610,24 @@ export type ServerResult = Infer<typeof ServerResultSchema>;
 type MethodToTypeMap<U> = {
     [T in U as T extends { method: infer M extends string } ? M : never]: T;
 };
+
+// Combined types (for Protocol base class)
 export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
 export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
 export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
 export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+
+// Separate types for Client (receives ServerRequest/ServerNotification)
+export type ClientReceivableRequestMethod = ServerRequest['method'];
+export type ClientReceivableNotificationMethod = ServerNotification['method'];
+export type ClientReceivableRequestTypeMap = MethodToTypeMap<ServerRequest>;
+export type ClientReceivableNotificationTypeMap = MethodToTypeMap<ServerNotification>;
+
+// Separate types for Server (receives ClientRequest/ClientNotification)
+export type ServerReceivableRequestMethod = ClientRequest['method'];
+export type ServerReceivableNotificationMethod = ClientNotification['method'];
+export type ServerReceivableRequestTypeMap = MethodToTypeMap<ClientRequest>;
+export type ServerReceivableNotificationTypeMap = MethodToTypeMap<ClientNotification>;
 
 /* Runtime schema lookup */
 type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
