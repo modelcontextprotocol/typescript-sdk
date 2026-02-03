@@ -2,7 +2,6 @@ import { createInterface } from 'node:readline';
 
 import type {
     CallToolRequest,
-    ElicitResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -269,7 +268,7 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.setRequestHandler('elicitation/create', async (request): Promise<ElicitResult> => {
+        client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }

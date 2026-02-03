@@ -2615,6 +2615,28 @@ export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
 export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
 export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
 export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+export type ResultTypeMap = {
+    'ping': EmptyResult;
+    'initialize': InitializeResult;
+    'completion/complete': CompleteResult;
+    'logging/setLevel': EmptyResult;
+    'prompts/get': GetPromptResult;
+    'prompts/list': ListPromptsResult;
+    'resources/list': ListResourcesResult;
+    'resources/templates/list': ListResourceTemplatesResult;
+    'resources/read': ReadResourceResult;
+    'resources/subscribe': EmptyResult;
+    'resources/unsubscribe': EmptyResult;
+    'tools/call': CallToolResult | CreateTaskResult;
+    'tools/list': ListToolsResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
+    'elicitation/create': ElicitResult;
+    'roots/list': ListRootsResult;
+    'tasks/get': GetTaskResult;
+    'tasks/result': Result;
+    'tasks/list': ListTasksResult;
+    'tasks/cancel': CancelTaskResult;
+};
 
 /* Runtime schema lookup */
 type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];

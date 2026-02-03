@@ -28,6 +28,7 @@ import type {
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
+    ResultTypeMap,
     ServerCapabilities,
     SubscribeRequest,
     Tool,
@@ -293,7 +294,7 @@ export class Client extends Protocol<ClientContext> {
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (request: RequestTypeMap[M], ctx: ClientContext) => ClientResult | Promise<ClientResult>
+        handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void {
         if (method === 'elicitation/create') {
             const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {

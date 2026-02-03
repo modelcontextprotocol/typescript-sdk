@@ -25,6 +25,7 @@ import type {
     RequestOptions,
     RequestTypeMap,
     ResourceUpdatedNotification,
+    ResultTypeMap,
     ServerCapabilities,
     ServerContext,
     ServerResult,
@@ -198,7 +199,7 @@ export class Server extends Protocol<ServerContext> {
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (request: RequestTypeMap[M], ctx: ServerContext) => ServerResult | Promise<ServerResult>
+        handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void {
         if (method === 'tools/call') {
             const wrappedHandler = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
