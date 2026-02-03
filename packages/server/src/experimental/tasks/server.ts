@@ -6,14 +6,14 @@
  */
 
 import type {
+    AnySchema,
     CancelTaskResult,
     GetTaskResult,
     ListTasksResult,
     Request,
     RequestOptions,
     ResponseMessage,
-    Result,
-    SchemaOutput
+    Result
 } from '@modelcontextprotocol/core';
 import type * as z from 'zod/v4';
 

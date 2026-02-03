@@ -46,6 +46,7 @@ import {
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
+    parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
