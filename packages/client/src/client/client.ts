@@ -207,36 +207,11 @@ export type ClientOptions = ProtocolOptions & {
 
     /**
      * The protocol version to request during initialization.
-     *
-     * @default LATEST_PROTOCOL_VERSION
-     *
-     * @example
-     * ```typescript
-     * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     protocolVersion: '2025-06-18'
-     *   }
-     * );
-     * ```
-     */
-    protocolVersion?: string;
-
     /**
-     * List of protocol versions that this client will accept from servers.
-     * If the server responds with a version not in this list, connection will fail.
+     * Protocol versions this client supports. First version is sent to server
+     * during initialization. Connection fails if server responds with unsupported version.
      *
      * @default SUPPORTED_PROTOCOL_VERSIONS
-     *
-     * @example
-     * ```typescript
-     * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     supportedProtocolVersions: ['2025-11-25', '2025-06-18', '2025-03-26']
-     *   }
-     * );
-     * ```
      */
     supportedProtocolVersions?: string[];
 };
@@ -283,7 +258,6 @@ export class Client<
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
-    private _protocolVersion: string;
     private _supportedProtocolVersions: string[];
 
     /**
@@ -297,7 +271,6 @@ export class Client<
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
-        this._protocolVersion = options?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
         this._supportedProtocolVersions = options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
         // Store list changed config for setup after connection (when we know server capabilities)
@@ -515,7 +488,7 @@ export class Client<
                 {
                     method: 'initialize',
                     params: {
-                        protocolVersion: this._protocolVersion,
+                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
                         capabilities: this._capabilities,
                         clientInfo: this._clientInfo
                     }

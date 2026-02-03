@@ -101,38 +101,10 @@ export type ServerOptions = ProtocolOptions & {
     jsonSchemaValidator?: jsonSchemaValidator;
 
     /**
-     * The fallback protocol version to use when the client requests an unsupported version.
-     *
-     * @default LATEST_PROTOCOL_VERSION
-     *
-     * @example
-     * ```typescript
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   {
-     *     protocolVersion: '2025-06-18'
-     *   }
-     * );
-     * ```
-     */
-    protocolVersion?: string;
-
-    /**
-     * List of protocol versions that this server supports.
-     * When a client requests a version in this list, it will be used.
-     * Otherwise, the server falls back to `protocolVersion`.
+     * Protocol versions this server supports. First version is used as fallback
+     * when client requests an unsupported version.
      *
      * @default SUPPORTED_PROTOCOL_VERSIONS
-     *
-     * @example
-     * ```typescript
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   {
-     *     supportedProtocolVersions: ['2025-11-25', '2025-06-18', '2025-03-26']
-     *   }
-     * );
-     * ```
      */
     supportedProtocolVersions?: string[];
 };
@@ -174,7 +146,6 @@ export class Server<
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _experimental?: { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> };
-    private _protocolVersion: string;
     private _supportedProtocolVersions: string[];
 
     /**
@@ -193,7 +164,6 @@ export class Server<
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
-        this._protocolVersion = options?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
         this._supportedProtocolVersions = options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
@@ -476,7 +446,9 @@ export class Server<
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion) ? requestedVersion : this._protocolVersion;
+        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+            ? requestedVersion
+            : this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION;
 
         return {
             protocolVersion,
