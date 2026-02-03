@@ -642,6 +642,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
 
+        for (const info of this._timeoutInfo.values()) {
+            clearTimeout(info.timeoutId);
+        }
+        this._timeoutInfo.clear();
+
         const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
 
         this._transport = undefined;
@@ -824,7 +829,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             )
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
             .finally(() => {
-                this._requestHandlerAbortControllers.delete(request.id);
+                // Only delete if the stored controller is still ours; after close()+connect(),
+                // a new connection may have reused the same request ID with a different controller.
+                if (this._requestHandlerAbortControllers.get(request.id) === abortController) {
+                    this._requestHandlerAbortControllers.delete(request.id);
+                }
             });
     }
 
