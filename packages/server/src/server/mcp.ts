@@ -516,7 +516,7 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
+                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined
                         };
                     })
             })
@@ -1189,10 +1189,6 @@ function createPromptHandler(
             return typedCallback(ctx);
         };
     }
-}
-
-function promptArgumentsFromSchema(schema: StandardJSONSchemaV1): PromptArgument[] {
-    return promptArgumentsFromStandardSchema(schema);
 }
 
 function createCompletionResult(suggestions: readonly unknown[]): CompleteResult {
