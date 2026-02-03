@@ -145,6 +145,22 @@ import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) { ... }
 ```
 
+Update HTTP transport error handling:
+
+```typescript
+// v1
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+if (error instanceof StreamableHTTPError) {
+    console.log('HTTP status:', error.code);
+}
+
+// v2
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpFailedToOpenStream) {
+    const status = (error.data as { status?: number })?.status;
+}
+```
+
 ### OAuth error consolidation
 
 Individual OAuth error classes replaced with single `OAuthError` class and `OAuthErrorCode` enum:
