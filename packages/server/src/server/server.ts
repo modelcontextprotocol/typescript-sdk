@@ -1,5 +1,4 @@
 import type {
-    AnyObjectSchema,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
@@ -22,18 +21,17 @@ import type {
     ProtocolOptions,
     Request,
     RequestHandlerExtra,
+    RequestMethod,
     RequestOptions,
+    RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
-    SchemaOutput,
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
     ServerResult,
     ToolResultContent,
-    ToolUseContent,
-    ZodV3Internal,
-    ZodV4Internal
+    ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
@@ -47,10 +45,6 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     ErrorCode,
-    getObjectShape,
-    InitializedNotificationSchema,
-    InitializeRequestSchema,
-    isZ4Schema,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -58,7 +52,6 @@ import {
     mergeCapabilities,
     Protocol,
     safeParse,
-    SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
@@ -162,11 +155,11 @@ export class Server<
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
 
-        this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
-        this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
+        this.setRequestHandler('initialize', request => this._oninitialize(request));
+        this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
+            this.setRequestHandler('logging/setLevel', async (request, extra) => {
                 const transportSessionId: string | undefined =
                     extra.sessionId || (extra.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
@@ -222,39 +215,16 @@ export class Server<
     /**
      * Override request handler registration to enforce server-side validation for tools/call.
      */
-    public override setRequestHandler<T extends AnyObjectSchema>(
-        requestSchema: T,
+    public override setRequestHandler<M extends RequestMethod>(
+        method: M,
         handler: (
-            request: SchemaOutput<T>,
+            request: RequestTypeMap[M],
             extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
-        const shape = getObjectShape(requestSchema);
-        const methodSchema = shape?.method;
-        if (!methodSchema) {
-            throw new Error('Schema is missing a method literal');
-        }
-
-        // Extract literal value using type-safe property access
-        let methodValue: unknown;
-        if (isZ4Schema(methodSchema)) {
-            const v4Schema = methodSchema as unknown as ZodV4Internal;
-            const v4Def = v4Schema._zod?.def;
-            methodValue = v4Def?.value ?? v4Schema.value;
-        } else {
-            const v3Schema = methodSchema as unknown as ZodV3Internal;
-            const legacyDef = v3Schema._def;
-            methodValue = legacyDef?.value ?? v3Schema.value;
-        }
-
-        if (typeof methodValue !== 'string') {
-            throw new TypeError('Schema method literal must be a string');
-        }
-        const method = methodValue;
-
         if (method === 'tools/call') {
             const wrappedHandler = async (
-                request: SchemaOutput<T>,
+                request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = safeParse(CallToolRequestSchema, request);
@@ -293,11 +263,11 @@ export class Server<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(requestSchema, handler);
+        return super.setRequestHandler(method, handler);
     }
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {

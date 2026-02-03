@@ -35,16 +35,7 @@ import type {
     TextContent,
     Tool
 } from '@modelcontextprotocol/server';
-import {
-    CallToolRequestSchema,
-    GetTaskPayloadRequestSchema,
-    GetTaskRequestSchema,
-    InMemoryTaskStore,
-    isTerminal,
-    ListToolsRequestSchema,
-    RELATED_TASK_META_KEY,
-    Server
-} from '@modelcontextprotocol/server';
+import { InMemoryTaskStore, isTerminal, RELATED_TASK_META_KEY, Server } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
 // ============================================================================
@@ -486,7 +477,7 @@ const createServer = (): Server => {
     );
 
     // Register tools
-    server.setRequestHandler(ListToolsRequestSchema, async (): Promise<{ tools: Tool[] }> => {
+    server.setRequestHandler('tools/list', async (): Promise<{ tools: Tool[] }> => {
         return {
             tools: [
                 {
@@ -516,7 +507,7 @@ const createServer = (): Server => {
     });
 
     // Handle tool calls
-    server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
+    server.setRequestHandler('tools/call', async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
         const { name, arguments: args } = request.params;
         const taskParams = (request.params._meta?.task || request.params.task) as { ttl?: number; pollInterval?: number } | undefined;
 
@@ -616,7 +607,7 @@ const createServer = (): Server => {
     });
 
     // Handle tasks/get
-    server.setRequestHandler(GetTaskRequestSchema, async (request): Promise<GetTaskResult> => {
+    server.setRequestHandler('tasks/get', async (request): Promise<GetTaskResult> => {
         const { taskId } = request.params;
         const task = await taskStore.getTask(taskId);
         if (!task) {
@@ -626,7 +617,7 @@ const createServer = (): Server => {
     });
 
     // Handle tasks/result
-    server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra): Promise<GetTaskPayloadResult> => {
+    server.setRequestHandler('tasks/result', async (request, extra): Promise<GetTaskPayloadResult> => {
         const { taskId } = request.params;
         console.log(`[Server] tasks/result called for task ${taskId}`);
         return taskResultHandler.handle(taskId, server, extra.sessionId ?? '');

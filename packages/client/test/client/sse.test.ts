@@ -111,7 +111,7 @@ describe('SSEClientTransport', () => {
             // Create a server that returns 403
             await resourceServer.close();
 
-            resourceServer = createServer((req, res) => {
+            resourceServer = createServer((_req, res) => {
                 res.writeHead(403);
                 res.end();
             });

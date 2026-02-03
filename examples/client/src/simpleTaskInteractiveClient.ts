@@ -10,15 +10,7 @@
 import { createInterface } from 'node:readline';
 
 import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    ErrorCode,
-    McpError,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { CallToolResultSchema, Client, ErrorCode, McpError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -43,7 +35,7 @@ async function elicitationCallback(params: {
     mode?: string;
     message: string;
     requestedSchema?: object;
-}): Promise<{ action: string; content?: Record<string, unknown> }> {
+}): Promise<{ action: 'accept' | 'cancel' | 'decline'; content?: Record<string, string | number | boolean | string[]> }> {
     console.log(`\n[Elicitation] Server asks: ${params.message}`);
 
     // Simple terminal prompt for y/n
@@ -102,7 +94,7 @@ async function run(url: string): Promise<void> {
     );
 
     // Set up elicitation request handler
-    client.setRequestHandler(ElicitRequestSchema, async request => {
+    client.setRequestHandler('elicitation/create', async request => {
         if (request.params.mode && request.params.mode !== 'form') {
             throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
         }
@@ -110,7 +102,7 @@ async function run(url: string): Promise<void> {
     });
 
     // Set up sampling request handler
-    client.setRequestHandler(CreateMessageRequestSchema, async request => {
+    client.setRequestHandler('sampling/createMessage', async request => {
         return samplingCallback(request.params) as unknown as ReturnType<typeof samplingCallback>;
     });
 

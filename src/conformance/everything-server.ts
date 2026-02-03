@@ -11,14 +11,10 @@ import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, GetPromptResult, ReadResourceResult, EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
 import {
-    CompleteRequestSchema,
     ElicitResultSchema,
     isInitializeRequest,
-    SetLevelRequestSchema,
     McpServer,
-    ResourceTemplate,
-    SubscribeRequestSchema,
-    UnsubscribeRequestSchema
+    ResourceTemplate
 } from '@modelcontextprotocol/server';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { Request, Response } from 'express';
@@ -740,14 +736,14 @@ function createMcpServer(sessionId?: string) {
     );
 
     // Subscribe/Unsubscribe handlers
-    mcpServer.server.setRequestHandler(SubscribeRequestSchema, async request => {
+    mcpServer.server.setRequestHandler('resources/subscribe', async request => {
         const uri = request.params.uri;
         resourceSubscriptions.add(uri);
         sendLog('info', `Subscribed to resource: ${uri}`);
         return {};
     });
 
-    mcpServer.server.setRequestHandler(UnsubscribeRequestSchema, async request => {
+    mcpServer.server.setRequestHandler('resources/unsubscribe', async request => {
         const uri = request.params.uri;
         resourceSubscriptions.delete(uri);
         sendLog('info', `Unsubscribed from resource: ${uri}`);
@@ -869,7 +865,7 @@ function createMcpServer(sessionId?: string) {
 
     // ===== LOGGING =====
 
-    mcpServer.server.setRequestHandler(SetLevelRequestSchema, async request => {
+    mcpServer.server.setRequestHandler('logging/setLevel', async request => {
         const level = request.params.level;
         sendLog('info', `Log level set to: ${level}`);
         return {};
@@ -877,7 +873,7 @@ function createMcpServer(sessionId?: string) {
 
     // ===== COMPLETION =====
 
-    mcpServer.server.setRequestHandler(CompleteRequestSchema, async () => {
+    mcpServer.server.setRequestHandler('completion/complete', async () => {
         // Basic completion support - returns empty array for conformance
         // Real implementations would provide contextual suggestions
         return {

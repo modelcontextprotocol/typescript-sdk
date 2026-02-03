@@ -9,8 +9,8 @@ import type * as z4c from 'zod/v4/core';
 import * as z4mini from 'zod/v4-mini';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-import type { AnyObjectSchema, AnySchema } from './zodCompat.js';
-import { getLiteralValue, getObjectShape, isZ4Schema, safeParse } from './zodCompat.js';
+import type { AnyObjectSchema, AnySchema, SchemaOutput } from './zodCompat.js';
+import { isZ4Schema, safeParse } from './zodCompat.js';
 
 type JsonSchema = Record<string, unknown>;
 
@@ -44,25 +44,10 @@ export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): 
     }) as JsonSchema;
 }
 
-export function getMethodLiteral(schema: AnyObjectSchema): string {
-    const shape = getObjectShape(schema);
-    const methodSchema = shape?.method as AnySchema | undefined;
-    if (!methodSchema) {
-        throw new Error('Schema is missing a method literal');
-    }
-
-    const value = getLiteralValue(methodSchema);
-    if (typeof value !== 'string') {
-        throw new TypeError('Schema method literal must be a string');
-    }
-
-    return value;
-}
-
-export function parseWithCompat(schema: AnySchema, data: unknown): unknown {
+export function parseWithCompat<T extends AnySchema>(schema: T, data: unknown): SchemaOutput<T> {
     const result = safeParse(schema, data);
     if (!result.success) {
         throw result.error;
     }
-    return result.data;
+    return result.data as SchemaOutput<T>;
 }

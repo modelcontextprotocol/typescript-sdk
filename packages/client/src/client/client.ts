@@ -1,5 +1,4 @@
 import type {
-    AnyObjectSchema,
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -20,20 +19,20 @@ import type {
     ListToolsRequest,
     LoggingLevel,
     Notification,
+    NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
     Request,
     RequestHandlerExtra,
+    RequestMethod,
     RequestOptions,
+    RequestTypeMap,
     Result,
-    SchemaOutput,
     ServerCapabilities,
     SubscribeRequest,
     Tool,
     Transport,
-    UnsubscribeRequest,
-    ZodV3Internal,
-    ZodV4Internal
+    UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
@@ -49,10 +48,8 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     ErrorCode,
-    getObjectShape,
     GetPromptResultSchema,
     InitializeResultSchema,
-    isZ4Schema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
@@ -61,13 +58,10 @@ import {
     ListToolsResultSchema,
     McpError,
     mergeCapabilities,
-    PromptListChangedNotificationSchema,
     Protocol,
     ReadResourceResultSchema,
-    ResourceListChangedNotificationSchema,
     safeParse,
-    SUPPORTED_PROTOCOL_VERSIONS,
-    ToolListChangedNotificationSchema
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -281,21 +275,21 @@ export class Client<
      */
     private _setupListChangedHandlers(config: ListChangedHandlers): void {
         if (config.tools && this._serverCapabilities?.tools?.listChanged) {
-            this._setupListChangedHandler('tools', ToolListChangedNotificationSchema, config.tools, async () => {
+            this._setupListChangedHandler('tools', 'notifications/tools/list_changed', config.tools, async () => {
                 const result = await this.listTools();
                 return result.tools;
             });
         }
 
         if (config.prompts && this._serverCapabilities?.prompts?.listChanged) {
-            this._setupListChangedHandler('prompts', PromptListChangedNotificationSchema, config.prompts, async () => {
+            this._setupListChangedHandler('prompts', 'notifications/prompts/list_changed', config.prompts, async () => {
                 const result = await this.listPrompts();
                 return result.prompts;
             });
         }
 
         if (config.resources && this._serverCapabilities?.resources?.listChanged) {
-            this._setupListChangedHandler('resources', ResourceListChangedNotificationSchema, config.resources, async () => {
+            this._setupListChangedHandler('resources', 'notifications/resources/list_changed', config.resources, async () => {
                 const result = await this.listResources();
                 return result.resources;
             });
@@ -334,38 +328,16 @@ export class Client<
     /**
      * Override request handler registration to enforce client-side validation for elicitation.
      */
-    public override setRequestHandler<T extends AnyObjectSchema>(
-        requestSchema: T,
+    public override setRequestHandler<M extends RequestMethod>(
+        method: M,
         handler: (
-            request: SchemaOutput<T>,
+            request: RequestTypeMap[M],
             extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
         ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
     ): void {
-        const shape = getObjectShape(requestSchema);
-        const methodSchema = shape?.method;
-        if (!methodSchema) {
-            throw new Error('Schema is missing a method literal');
-        }
-
-        // Extract literal value using type-safe property access
-        let methodValue: unknown;
-        if (isZ4Schema(methodSchema)) {
-            const v4Schema = methodSchema as unknown as ZodV4Internal;
-            const v4Def = v4Schema._zod?.def;
-            methodValue = v4Def?.value ?? v4Schema.value;
-        } else {
-            const v3Schema = methodSchema as unknown as ZodV3Internal;
-            const legacyDef = v3Schema._def;
-            methodValue = legacyDef?.value ?? v3Schema.value;
-        }
-
-        if (typeof methodValue !== 'string') {
-            throw new TypeError('Schema method literal must be a string');
-        }
-        const method = methodValue;
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
-                request: SchemaOutput<T>,
+                request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(ElicitRequestSchema, request);
@@ -433,12 +405,12 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
         }
 
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (
-                request: SchemaOutput<T>,
+                request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
                 const validatedRequest = safeParse(CreateMessageRequestSchema, request);
@@ -479,11 +451,11 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(requestSchema, handler);
+        return super.setRequestHandler(method, handler);
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
@@ -898,7 +870,7 @@ export class Client<
      */
     private _setupListChangedHandler<T>(
         listType: string,
-        notificationSchema: { shape: { method: { value: string } } },
+        notificationMethod: NotificationMethod,
         options: ListChangedOptions<T>,
         fetcher: () => Promise<T[]>
     ): void {
@@ -949,7 +921,7 @@ export class Client<
         };
 
         // Register notification handler
-        this.setNotificationHandler(notificationSchema as AnyObjectSchema, handler);
+        this.setNotificationHandler(notificationMethod, handler);
     }
 
     async sendRootsListChanged() {
