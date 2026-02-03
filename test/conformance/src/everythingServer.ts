@@ -199,8 +199,7 @@ function createMcpServer() {
     mcpServer.registerTool(
         'test_tool_with_logging',
         {
-            description: 'Tests tool that emits log messages during execution',
-            inputSchema: z.object({})
+            description: 'Tests tool that emits log messages during execution'
         },
         async (_args, extra): Promise<CallToolResult> => {
             await extra.sendNotification({
@@ -238,8 +237,7 @@ function createMcpServer() {
     mcpServer.registerTool(
         'test_tool_with_progress',
         {
-            description: 'Tests tool that reports progress notifications',
-            inputSchema: z.object({})
+            description: 'Tests tool that reports progress notifications'
         },
         async (_args, extra): Promise<CallToolResult> => {
             const progressToken = extra._meta?.progressToken ?? 0;
@@ -298,8 +296,7 @@ function createMcpServer() {
         'test_reconnection',
         {
             description:
-                'Tests SSE stream disconnection and client reconnection (SEP-1699). Server will close the stream mid-call and send the result after client reconnects.',
-            inputSchema: z.object({})
+                'Tests SSE stream disconnection and client reconnection (SEP-1699). Server will close the stream mid-call and send the result after client reconnects.'
         },
         async (_args, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -442,8 +439,7 @@ function createMcpServer() {
     mcpServer.registerTool(
         'test_elicitation_sep1034_defaults',
         {
-            description: 'Tests elicitation with default values per SEP-1034',
-            inputSchema: z.object({})
+            description: 'Tests elicitation with default values per SEP-1034'
         },
         async (_args, extra): Promise<CallToolResult> => {
             try {
@@ -516,8 +512,7 @@ function createMcpServer() {
     mcpServer.registerTool(
         'test_elicitation_sep1330_enums',
         {
-            description: 'Tests elicitation with enum schema improvements per SEP-1330',
-            inputSchema: z.object({})
+            description: 'Tests elicitation with enum schema improvements per SEP-1330'
         },
         async (_args, extra): Promise<CallToolResult> => {
             try {

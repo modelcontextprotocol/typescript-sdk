@@ -13,7 +13,6 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
-import * as z from 'zod/v4';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed
@@ -34,8 +33,7 @@ const mcpServer = new McpServer(
 mcpServer.registerTool(
     'register_user',
     {
-        description: 'Register a new user account by collecting their information',
-        inputSchema: z.object({})
+        description: 'Register a new user account by collecting their information'
     },
     async () => {
         try {
@@ -133,8 +131,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
     'create_event',
     {
-        description: 'Create a calendar event by collecting event details',
-        inputSchema: z.object({})
+        description: 'Create a calendar event by collecting event details'
     },
     async () => {
         try {
@@ -238,8 +235,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
     'update_shipping_address',
     {
-        description: 'Update shipping address with validation',
-        inputSchema: z.object({})
+        description: 'Update shipping address with validation'
     },
     async () => {
         try {

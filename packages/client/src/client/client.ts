@@ -56,14 +56,13 @@ import {
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
+    parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
-    parseSchema,
     SdkError,
-    SdkErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';

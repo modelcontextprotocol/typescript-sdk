@@ -1215,7 +1215,7 @@ function createPromptHandler(
             const parseResult = await parseSchemaAsync(argsSchema, args);
             if (!parseResult.success) {
                 const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
-                throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${errorMessage}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${errorMessage}`);
             }
             return typedCallback(parseResult.data as SchemaOutput<AnySchema>, extra);
         };

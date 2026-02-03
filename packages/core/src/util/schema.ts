@@ -66,24 +66,23 @@ export function getSchemaDescription(schema: AnySchema): string | undefined {
 }
 
 /**
- * Checks if a schema is optional (wrapped in z.optional()).
+ * Checks if a schema is optional (accepts undefined).
+ * Uses the public .type property which works in both zod/v4 and zod/v4/mini.
  */
 export function isOptionalSchema(schema: AnySchema): boolean {
-    const candidate = schema as { _zod?: { def?: { type?: string } } };
-    return candidate._zod?.def?.type === 'optional';
+    const candidate = schema as { type?: string };
+    return candidate.type === 'optional';
 }
 
 /**
  * Unwraps an optional schema to get the inner schema.
  * If the schema is not optional, returns it unchanged.
+ * Uses the public .def.innerType property which works in both zod/v4 and zod/v4/mini.
  */
 export function unwrapOptionalSchema(schema: AnySchema): AnySchema {
     if (!isOptionalSchema(schema)) {
         return schema;
     }
-    const candidate = schema as { unwrap?: () => AnySchema };
-    if (typeof candidate.unwrap === 'function') {
-        return candidate.unwrap();
-    }
-    return schema;
+    const candidate = schema as { def?: { innerType?: AnySchema } };
+    return candidate.def?.innerType ?? schema;
 }

@@ -2142,8 +2142,7 @@ describe('Task-based execution', () => {
         server.experimental.tasks.registerToolTask(
             'test-tool',
             {
-                description: 'A test tool',
-                inputSchema: z.object({})
+                description: 'A test tool'
             },
             {
                 async createTask(_args, extra) {
@@ -2364,8 +2363,7 @@ describe('Task-based execution', () => {
         server.experimental.tasks.registerToolTask(
             'collect-info',
             {
-                description: 'Collects user info via elicitation',
-                inputSchema: z.object({})
+                description: 'Collects user info via elicitation'
             },
             {
                 async createTask(_args, extra) {
