@@ -29,7 +29,8 @@ import type {
     Task,
     TaskCreationParams
 } from '../../src/types/types.js';
-import { ErrorCode, McpError, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 
 // Type helper for accessing private/protected Protocol properties in tests
 interface TestProtocol {
@@ -175,9 +176,9 @@ describe('protocol tests', () => {
                 timeout: 0
             });
         } catch (error) {
-            expect(error).toBeInstanceOf(McpError);
-            if (error instanceof McpError) {
-                expect(error.code).toBe(ErrorCode.RequestTimeout);
+            expect(error).toBeInstanceOf(SdkError);
+            if (error instanceof SdkError) {
+                expect(error.code).toBe(SdkErrorCode.RequestTimeout);
             }
         }
     });
@@ -2230,7 +2231,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: expect.objectContaining({
-                        code: ErrorCode.InvalidParams,
+                        code: ProtocolErrorCode.InvalidParams,
                         message: expect.stringContaining('Cannot cancel task in terminal status')
                     })
                 })
@@ -2262,7 +2263,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: expect.objectContaining({
-                        code: ErrorCode.InvalidParams,
+                        code: ProtocolErrorCode.InvalidParams,
                         message: expect.stringContaining('Task not found')
                     })
                 })
@@ -3717,7 +3718,7 @@ describe('Message Interception', () => {
 
             // Set up a request handler that throws an error
             protocol.setRequestHandler('ping', async () => {
-                throw new McpError(ErrorCode.InternalError, 'Test error message');
+                throw new ProtocolError(ProtocolErrorCode.InternalError, 'Test error message');
             });
 
             // Simulate an incoming request with relatedTask metadata
@@ -3746,7 +3747,7 @@ describe('Message Interception', () => {
             expect(queuedMessage!.type).toBe('error');
             if (queuedMessage!.type === 'error') {
                 expect(queuedMessage!.message.id).toBe(requestId);
-                expect(queuedMessage!.message.error.code).toBe(ErrorCode.InternalError);
+                expect(queuedMessage!.message.error.code).toBe(ProtocolErrorCode.InternalError);
                 expect(queuedMessage!.message.error.message).toContain('Test error message');
             }
         });
@@ -3780,7 +3781,7 @@ describe('Message Interception', () => {
             expect(queuedMessage!.type).toBe('error');
             if (queuedMessage!.type === 'error') {
                 expect(queuedMessage!.message.id).toBe(requestId);
-                expect(queuedMessage!.message.error.code).toBe(ErrorCode.MethodNotFound);
+                expect(queuedMessage!.message.error.code).toBe(ProtocolErrorCode.MethodNotFound);
             }
         });
 
@@ -4260,7 +4261,7 @@ describe('Queue lifecycle management', () => {
 
             // Verify the request promise is rejected
             const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4322,7 +4323,7 @@ describe('Queue lifecycle management', () => {
 
             // Verify the request promise is rejected
             const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4370,11 +4371,11 @@ describe('Queue lifecycle management', () => {
             const result2 = await request2Promise;
             const result3 = await request3Promise;
 
-            expect(result1).toBeInstanceOf(McpError);
+            expect(result1).toBeInstanceOf(ProtocolError);
             expect(result1.message).toContain('Task cancelled or completed');
-            expect(result2).toBeInstanceOf(McpError);
+            expect(result2).toBeInstanceOf(ProtocolError);
             expect(result2.message).toContain('Task cancelled or completed');
-            expect(result3).toBeInstanceOf(McpError);
+            expect(result3).toBeInstanceOf(ProtocolError);
             expect(result3.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4410,7 +4411,7 @@ describe('Queue lifecycle management', () => {
 
             // Verify request promise is rejected
             const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify resolver mapping is cleaned up
@@ -4499,7 +4500,7 @@ describe('requestStream() method', () => {
             jsonrpc: '2.0',
             id: 0,
             error: {
-                code: ErrorCode.InternalError,
+                code: ProtocolErrorCode.InternalError,
                 message: 'Test error'
             }
         });
@@ -4577,7 +4578,7 @@ describe('requestStream() method', () => {
                 jsonrpc: '2.0',
                 id: 0,
                 error: {
-                    code: ErrorCode.InternalError,
+                    code: ProtocolErrorCode.InternalError,
                     message: 'Server error'
                 }
             });
@@ -4627,7 +4628,8 @@ describe('requestStream() method', () => {
                 const lastMessage = messages[messages.length - 1];
                 assertErrorResponse(lastMessage!);
                 expect(lastMessage.error).toBeDefined();
-                expect(lastMessage.error.code).toBe(ErrorCode.RequestTimeout);
+                expect(lastMessage.error).toBeInstanceOf(SdkError);
+                expect((lastMessage.error as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
             } finally {
                 vi.useRealTimers();
             }
@@ -4690,7 +4692,7 @@ describe('requestStream() method', () => {
                 jsonrpc: '2.0',
                 id: 0,
                 error: {
-                    code: ErrorCode.InternalError,
+                    code: ProtocolErrorCode.InternalError,
                     message: 'Test error'
                 }
             });
@@ -4830,7 +4832,7 @@ describe('requestStream() method', () => {
                 jsonrpc: '2.0',
                 id: 0,
                 error: {
-                    code: ErrorCode.InternalError,
+                    code: ProtocolErrorCode.InternalError,
                     message: 'Test error'
                 }
             });
@@ -5027,11 +5029,11 @@ describe('Error handling for missing resolvers', () => {
             await testProtocol._clearTaskQueue(task.taskId);
 
             // Verify resolver was called with cancellation error
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
 
             // Verify the error has the correct properties
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InternalError);
+            expect(calledError.code).toBe(ProtocolErrorCode.InternalError);
             expect(calledError.message).toContain('Task cancelled or completed');
 
             // Verify resolver was removed
@@ -5087,11 +5089,11 @@ describe('Error handling for missing resolvers', () => {
             await testProtocol._clearTaskQueue(task.taskId);
 
             // Verify resolver was called for first request
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
 
             // Verify the error has the correct properties
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InternalError);
+            expect(calledError.code).toBe(ProtocolErrorCode.InternalError);
             expect(calledError.message).toContain('Task cancelled or completed');
 
             // Verify error was logged for second request
@@ -5217,7 +5219,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: requestId,
                     error: {
-                        code: ErrorCode.InvalidRequest,
+                        code: ProtocolErrorCode.InvalidRequest,
                         message: 'Invalid request parameters'
                     }
                 },
@@ -5237,15 +5239,15 @@ describe('Error handling for missing resolvers', () => {
 
                 if (resolver) {
                     testProtocol._requestResolvers.delete(reqId);
-                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error);
                 }
             }
 
-            // Verify resolver was called with McpError
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            // Verify resolver was called with ProtocolError
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InvalidRequest);
+            expect(calledError.code).toBe(ProtocolErrorCode.InvalidRequest);
             expect(calledError.message).toContain('Invalid request parameters');
 
             // Verify resolver was removed from map
@@ -5264,7 +5266,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: {
-                        code: ErrorCode.InternalError,
+                        code: ProtocolErrorCode.InternalError,
                         message: 'Something went wrong'
                     }
                 },
@@ -5314,7 +5316,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: requestId,
                     error: {
-                        code: ErrorCode.InvalidParams,
+                        code: ProtocolErrorCode.InvalidParams,
                         message: 'Validation failed',
                         data: { field: 'userName', reason: 'required' }
                     }
@@ -5332,15 +5334,15 @@ describe('Error handling for missing resolvers', () => {
 
                 if (resolver) {
                     testProtocol._requestResolvers.delete(reqId);
-                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error);
                 }
             }
 
-            // Verify resolver was called with McpError including data
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            // Verify resolver was called with ProtocolError including data
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InvalidParams);
+            expect(calledError.code).toBe(ProtocolErrorCode.InvalidParams);
             expect(calledError.message).toContain('Validation failed');
             expect(calledError.data).toEqual({ field: 'userName', reason: 'required' });
         });
@@ -5356,7 +5358,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: {
-                        code: ErrorCode.InternalError,
+                        code: ProtocolErrorCode.InternalError,
                         message: 'Error occurred'
                     }
                 },
@@ -5414,7 +5416,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: 2,
                     error: {
-                        code: ErrorCode.InvalidRequest,
+                        code: ProtocolErrorCode.InvalidRequest,
                         message: 'Request failed'
                     }
                 },
@@ -5448,7 +5450,7 @@ describe('Error handling for missing resolvers', () => {
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {
                         testProtocol._requestResolvers.delete(requestId);
-                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                         resolver(error);
                     }
                 }
@@ -5456,12 +5458,12 @@ describe('Error handling for missing resolvers', () => {
 
             // Verify all resolvers were called correctly
             expect(resolver1).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
-            expect(resolver2).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolver2).toHaveBeenCalledWith(expect.any(ProtocolError));
             expect(resolver3).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
 
             // Verify error has correct properties
             const error = resolver2.mock.calls[0]![0];
-            expect(error.code).toBe(ErrorCode.InvalidRequest);
+            expect(error.code).toBe(ProtocolErrorCode.InvalidRequest);
             expect(error.message).toContain('Request failed');
 
             // Verify all resolvers were removed
@@ -5523,7 +5525,7 @@ describe('Error handling for missing resolvers', () => {
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {
                         testProtocol._requestResolvers.delete(requestId);
-                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                         resolver(error);
                     }
                 }

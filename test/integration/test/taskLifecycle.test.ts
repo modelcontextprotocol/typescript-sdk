@@ -9,11 +9,11 @@ import {
     CallToolResultSchema,
     CreateTaskResultSchema,
     ElicitResultSchema,
-    ErrorCode,
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
-    McpError,
     McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
     RELATED_TASK_META_KEY,
     TaskSchema
 } from '@modelcontextprotocol/server';
@@ -394,9 +394,9 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(task.status).toBe('completed');
 
             // Try to cancel via tasks/cancel request (should fail with -32602)
-            await expect(client.experimental.tasks.cancelTask(taskId)).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            await expect(client.experimental.tasks.cancelTask(taskId)).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Cannot cancel task in terminal status');
                 return true;
             });
@@ -788,9 +788,9 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Try to get non-existent task via tasks/get request
-            await expect(client.experimental.tasks.getTask('non-existent-task-id')).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            await expect(client.experimental.tasks.getTask('non-existent-task-id')).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Task not found');
                 return true;
             });
@@ -808,9 +808,9 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Try to cancel non-existent task via tasks/cancel request
-            await expect(client.experimental.tasks.cancelTask('non-existent-task-id')).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            await expect(client.experimental.tasks.cancelTask('non-existent-task-id')).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Task not found');
                 return true;
             });
@@ -836,9 +836,9 @@ describe('Task Lifecycle Integration Tests', () => {
                     },
                     CallToolResultSchema
                 )
-            ).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            ).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Task not found');
                 return true;
             });

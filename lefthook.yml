@@ -24,8 +24,8 @@ pre-push:
             💡 To catch typechecking issues earlier, enable the pre-commit hook:
             cp lefthook-local.example.yml lefthook-local.yml
           
-        - name: 'Lint Fix & Format'
-          run: pnpm run lint:fix:all
+        - name: 'Lint'
+          run: pnpm run lint:all
           fail_text: |
             💡 To catch linting issues earlier, enable the pre-commit hook:
             cp lefthook-local.example.yml lefthook-local.yml

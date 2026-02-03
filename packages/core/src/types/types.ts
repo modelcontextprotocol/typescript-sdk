@@ -216,13 +216,10 @@ export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultR
     JSONRPCResultResponseSchema.safeParse(value).success;
 
 /**
- * Error codes defined by the JSON-RPC specification.
+ * Error codes for protocol errors that cross the wire as JSON-RPC error responses.
+ * These follow the JSON-RPC specification and MCP-specific extensions.
  */
-export enum ErrorCode {
-    // SDK error codes
-    ConnectionClosed = -32_000,
-    RequestTimeout = -32_001,
-
+export enum ProtocolErrorCode {
     // Standard JSON-RPC error codes
     ParseError = -32_700,
     InvalidRequest = -32_600,
@@ -2302,30 +2299,34 @@ export const ServerResultSchema = z.union([
     CreateTaskResultSchema
 ]);
 
-export class McpError extends Error {
+/**
+ * Protocol errors are JSON-RPC errors that cross the wire as error responses.
+ * They use numeric error codes from the ProtocolErrorCode enum.
+ */
+export class ProtocolError extends Error {
     constructor(
         public readonly code: number,
         message: string,
         public readonly data?: unknown
     ) {
         super(`MCP error ${code}: ${message}`);
-        this.name = 'McpError';
+        this.name = 'ProtocolError';
     }
 
     /**
      * Factory method to create the appropriate error type based on the error code and data
      */
-    static fromError(code: number, message: string, data?: unknown): McpError {
+    static fromError(code: number, message: string, data?: unknown): ProtocolError {
         // Check for specific error types
-        if (code === ErrorCode.UrlElicitationRequired && data) {
+        if (code === ProtocolErrorCode.UrlElicitationRequired && data) {
             const errorData = data as { elicitations?: unknown[] };
             if (errorData.elicitations) {
                 return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], message);
             }
         }
 
-        // Default to generic McpError
-        return new McpError(code, message, data);
+        // Default to generic ProtocolError
+        return new ProtocolError(code, message, data);
     }
 }
 
@@ -2333,9 +2334,9 @@ export class McpError extends Error {
  * Specialized error type when a tool requires a URL mode elicitation.
  * This makes it nicer for the client to handle since there is specific data to work with instead of just a code to check against.
  */
-export class UrlElicitationRequiredError extends McpError {
+export class UrlElicitationRequiredError extends ProtocolError {
     constructor(elicitations: ElicitRequestURLParams[], message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`) {
-        super(ErrorCode.UrlElicitationRequired, message, {
+        super(ProtocolErrorCode.UrlElicitationRequired, message, {
             elicitations: elicitations
         });
     }

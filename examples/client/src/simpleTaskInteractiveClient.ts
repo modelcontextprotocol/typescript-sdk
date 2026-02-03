@@ -10,7 +10,13 @@
 import { createInterface } from 'node:readline';
 
 import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
-import { CallToolResultSchema, Client, ErrorCode, McpError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import {
+    CallToolResultSchema,
+    Client,
+    ProtocolError,
+    ProtocolErrorCode,
+    StreamableHTTPClientTransport
+} from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -96,7 +102,7 @@ async function run(url: string): Promise<void> {
     // Set up elicitation request handler
     client.setRequestHandler('elicitation/create', async request => {
         if (request.params.mode && request.params.mode !== 'form') {
-            throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
         }
         return elicitationCallback(request.params);
     });

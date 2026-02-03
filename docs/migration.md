@@ -344,6 +344,208 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
 ```
 
+### Error hierarchy refactoring
+
+The SDK now distinguishes between two types of errors:
+
+1. **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC error responses
+2. **`SdkError`**: Local SDK errors that never cross the wire (timeouts, connection issues, capability checks)
+
+#### Renamed exports
+
+| v1                           | v2                              |
+| ---------------------------- | ------------------------------- |
+| `McpError`                   | `ProtocolError`                 |
+| `ErrorCode`                  | `ProtocolErrorCode`             |
+| `ErrorCode.RequestTimeout`   | `SdkErrorCode.RequestTimeout`   |
+| `ErrorCode.ConnectionClosed` | `SdkErrorCode.ConnectionClosed` |
+
+**Before (v1):**
+
+```typescript
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+
+try {
+    await client.callTool({ name: 'test', arguments: {} });
+} catch (error) {
+    if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
+        console.log('Request timed out');
+    }
+    if (error instanceof McpError && error.code === ErrorCode.InvalidParams) {
+        console.log('Invalid parameters');
+    }
+}
+```
+
+**After (v2):**
+
+```typescript
+import { ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+
+try {
+    await client.callTool({ name: 'test', arguments: {} });
+} catch (error) {
+    // Local timeout/connection errors are now SdkError
+    if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
+        console.log('Request timed out');
+    }
+    // Protocol errors from the server are still ProtocolError
+    if (error instanceof ProtocolError && error.code === ProtocolErrorCode.InvalidParams) {
+        console.log('Invalid parameters');
+    }
+}
+```
+
+#### New `SdkErrorCode` enum
+
+The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
+
+| Code                                              | Description                                |
+| ------------------------------------------------- | ------------------------------------------ |
+| `SdkErrorCode.NotConnected`                       | Transport is not connected                 |
+| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected             |
+| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                |
+| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported       |
+| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response     |
+| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                      |
+| `SdkErrorCode.SendFailed`                         | Failed to send message                     |
+| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                   |
+| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after successful auth  |
+| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping |
+| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response   |
+| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                  |
+| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                |
+
+#### `StreamableHTTPError` removed
+
+The `StreamableHTTPError` class has been removed. HTTP transport errors are now thrown as `SdkError` with specific `SdkErrorCode` values that provide more granular error information:
+
+**Before (v1):**
+
+```typescript
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+try {
+    await transport.send(message);
+} catch (error) {
+    if (error instanceof StreamableHTTPError) {
+        console.log('HTTP error:', error.code); // HTTP status code
+    }
+}
+```
+
+**After (v2):**
+
+```typescript
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+
+try {
+    await transport.send(message);
+} catch (error) {
+    if (error instanceof SdkError) {
+        switch (error.code) {
+            case SdkErrorCode.ClientHttpAuthentication:
+                console.log('Auth failed after completing auth flow');
+                break;
+            case SdkErrorCode.ClientHttpForbidden:
+                console.log('Forbidden after upscoping attempt');
+                break;
+            case SdkErrorCode.ClientHttpFailedToOpenStream:
+                console.log('Failed to open SSE stream');
+                break;
+            case SdkErrorCode.ClientHttpNotImplemented:
+                console.log('HTTP request failed');
+                break;
+        }
+        // Access HTTP status code from error.data if needed
+        const httpStatus = (error.data as { status?: number })?.status;
+    }
+}
+```
+
+#### Why this change?
+
+Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was
+semantically inconsistent.
+
+The new design:
+
+- `ProtocolError` with `ProtocolErrorCode`: For errors that are serialized and sent as JSON-RPC error responses
+- `SdkError` with `SdkErrorCode`: For local errors that are thrown/rejected locally and never leave the SDK
+
+### OAuth error refactoring
+
+The OAuth error classes have been consolidated into a single `OAuthError` class with an `OAuthErrorCode` enum.
+
+#### Removed classes
+
+The following individual error classes have been removed in favor of `OAuthError` with the appropriate code:
+
+| v1 Class                       | v2 Equivalent                                                     |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `InvalidRequestError`          | `new OAuthError(OAuthErrorCode.InvalidRequest, message)`          |
+| `InvalidClientError`           | `new OAuthError(OAuthErrorCode.InvalidClient, message)`           |
+| `InvalidGrantError`            | `new OAuthError(OAuthErrorCode.InvalidGrant, message)`            |
+| `UnauthorizedClientError`      | `new OAuthError(OAuthErrorCode.UnauthorizedClient, message)`      |
+| `UnsupportedGrantTypeError`    | `new OAuthError(OAuthErrorCode.UnsupportedGrantType, message)`    |
+| `InvalidScopeError`            | `new OAuthError(OAuthErrorCode.InvalidScope, message)`            |
+| `AccessDeniedError`            | `new OAuthError(OAuthErrorCode.AccessDenied, message)`            |
+| `ServerError`                  | `new OAuthError(OAuthErrorCode.ServerError, message)`             |
+| `TemporarilyUnavailableError`  | `new OAuthError(OAuthErrorCode.TemporarilyUnavailable, message)`  |
+| `UnsupportedResponseTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedResponseType, message)` |
+| `UnsupportedTokenTypeError`    | `new OAuthError(OAuthErrorCode.UnsupportedTokenType, message)`    |
+| `InvalidTokenError`            | `new OAuthError(OAuthErrorCode.InvalidToken, message)`            |
+| `MethodNotAllowedError`        | `new OAuthError(OAuthErrorCode.MethodNotAllowed, message)`        |
+| `TooManyRequestsError`         | `new OAuthError(OAuthErrorCode.TooManyRequests, message)`         |
+| `InvalidClientMetadataError`   | `new OAuthError(OAuthErrorCode.InvalidClientMetadata, message)`   |
+| `InsufficientScopeError`       | `new OAuthError(OAuthErrorCode.InsufficientScope, message)`       |
+| `InvalidTargetError`           | `new OAuthError(OAuthErrorCode.InvalidTarget, message)`           |
+| `CustomOAuthError`             | `new OAuthError(customCode, message)`                             |
+
+The `OAUTH_ERRORS` constant has also been removed.
+
+**Before (v1):**
+
+```typescript
+import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/core';
+
+try {
+    await refreshToken();
+} catch (error) {
+    if (error instanceof InvalidClientError) {
+        // Handle invalid client
+    } else if (error instanceof InvalidGrantError) {
+        // Handle invalid grant
+    } else if (error instanceof ServerError) {
+        // Handle server error
+    }
+}
+```
+
+**After (v2):**
+
+```typescript
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+
+try {
+    await refreshToken();
+} catch (error) {
+    if (error instanceof OAuthError) {
+        switch (error.code) {
+            case OAuthErrorCode.InvalidClient:
+                // Handle invalid client
+                break;
+            case OAuthErrorCode.InvalidGrant:
+                // Handle invalid grant
+                break;
+            case OAuthErrorCode.ServerError:
+                // Handle server error
+                break;
+        }
+    }
+}
+```
+
 ## Unchanged APIs
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):

@@ -1,3 +1,4 @@
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../experimental/tasks/interfaces.js';
 import { isTerminal } from '../experimental/tasks/interfaces.js';
 import type {
@@ -34,7 +35,6 @@ import type {
 import {
     CancelTaskResultSchema,
     CreateTaskResultSchema,
-    ErrorCode,
     getNotificationSchema,
     getRequestSchema,
     GetTaskResultSchema,
@@ -44,7 +44,8 @@ import {
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
     ListTasksResultSchema,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
     RELATED_TASK_META_KEY,
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
@@ -134,7 +135,7 @@ export type RequestOptions = {
     signal?: AbortSignal;
 
     /**
-     * A timeout (in milliseconds) for this request. If exceeded, an McpError with code `RequestTimeout` will be raised from request().
+     * A timeout (in milliseconds) for this request. If exceeded, an SdkError with code `SdkErrorCode.RequestTimeout` will be raised from request().
      *
      * If not specified, `DEFAULT_REQUEST_TIMEOUT_MSEC` will be used as the timeout.
      */
@@ -149,7 +150,7 @@ export type RequestOptions = {
 
     /**
      * Maximum total time (in milliseconds) to wait for a response.
-     * If exceeded, an McpError with code `RequestTimeout` will be raised, regardless of progress notifications.
+     * If exceeded, an SdkError with code `SdkErrorCode.RequestTimeout` will be raised, regardless of progress notifications.
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
@@ -401,7 +402,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             this.setRequestHandler('tasks/get', async (request, extra) => {
                 const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                 if (!task) {
-                    throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
                 }
 
                 // Per spec: tasks/get responses SHALL NOT include related-task metadata
@@ -435,9 +436,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                     if (queuedMessage.type === 'response') {
                                         resolver(message as JSONRPCResultResponse);
                                     } else {
-                                        // Convert JSONRPCError to McpError
+                                        // Convert JSONRPCError to ProtocolError
                                         const errorMessage = message as JSONRPCErrorResponse;
-                                        const error = new McpError(
+                                        const error = new ProtocolError(
                                             errorMessage.error.code,
                                             errorMessage.error.message,
                                             errorMessage.error.data
@@ -463,7 +464,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // Now check task status
                     const task = await this._taskStore!.getTask(taskId, extra.sessionId);
                     if (!task) {
-                        throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Task not found: ${taskId}`);
                     }
 
                     // Block if task is not terminal (we've already delivered all queued messages above)
@@ -507,8 +508,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         _meta: {}
                     } as unknown as SendResultT;
                 } catch (error) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
                         `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`
                     );
                 }
@@ -520,12 +521,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
 
                     if (!task) {
-                        throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
                     }
 
                     // Reject cancellation of terminal tasks
                     if (isTerminal(task.status)) {
-                        throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
                     }
 
                     await this._taskStore!.updateTaskStatus(
@@ -540,7 +541,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     const cancelledTask = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                     if (!cancelledTask) {
                         // Task was deleted during cancellation (e.g., cleanup happened)
-                        throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${request.params.taskId}`);
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InvalidParams,
+                            `Task not found after cancellation: ${request.params.taskId}`
+                        );
                     }
 
                     return {
@@ -548,12 +552,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         ...cancelledTask
                     } as unknown as SendResultT;
                 } catch (error) {
-                    // Re-throw McpError as-is
-                    if (error instanceof McpError) {
+                    // Re-throw ProtocolError as-is
+                    if (error instanceof ProtocolError) {
                         throw error;
                     }
-                    throw new McpError(
-                        ErrorCode.InvalidRequest,
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidRequest,
                         `Failed to cancel task: ${error instanceof Error ? error.message : String(error)}`
                     );
                 }
@@ -594,7 +598,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const totalElapsed = Date.now() - info.startTime;
         if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
             this._timeoutInfo.delete(messageId);
-            throw McpError.fromError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+            throw new SdkError(SdkErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
                 maxTotalTimeout: info.maxTotalTimeout,
                 totalElapsed
             });
@@ -659,7 +663,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
 
-        const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
+        const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
 
         this._transport = undefined;
         this.onclose?.();
@@ -701,7 +705,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 jsonrpc: '2.0',
                 id: request.id,
                 error: {
-                    code: ErrorCode.MethodNotFound,
+                    code: ProtocolErrorCode.MethodNotFound,
                     message: 'Method not found'
                 }
             };
@@ -815,7 +819,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         jsonrpc: '2.0',
                         id: request.id,
                         error: {
-                            code: Number.isSafeInteger(error['code']) ? error['code'] : ErrorCode.InternalError,
+                            code: Number.isSafeInteger(error['code']) ? error['code'] : ProtocolErrorCode.InternalError,
                             message: error.message ?? 'Internal error',
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
@@ -880,7 +884,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             if (isJSONRPCResultResponse(response)) {
                 resolver(response);
             } else {
-                const error = new McpError(response.error.code, response.error.message, response.error.data);
+                const error = new ProtocolError(response.error.code, response.error.message, response.error.data);
                 resolver(error);
             }
             return;
@@ -915,7 +919,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         if (isJSONRPCResultResponse(response)) {
             handler(response);
         } else {
-            const error = McpError.fromError(response.error.code, response.error.message, response.error.data);
+            const error = ProtocolError.fromError(response.error.code, response.error.message, response.error.data);
             handler(error);
         }
     }
@@ -1008,7 +1012,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             } catch (error) {
                 yield {
                     type: 'error',
-                    error: error instanceof McpError ? error : new McpError(ErrorCode.InternalError, String(error))
+                    error: error instanceof Error ? error : new Error(String(error))
                 };
             }
             return;
@@ -1026,7 +1030,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 taskId = createResult.task.taskId;
                 yield { type: 'taskCreated', task: createResult.task };
             } else {
-                throw new McpError(ErrorCode.InternalError, 'Task creation did not return a task');
+                throw new ProtocolError(ProtocolErrorCode.InternalError, 'Task creation did not return a task');
             }
 
             // Poll for task completion
@@ -1048,7 +1052,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         case 'failed': {
                             yield {
                                 type: 'error',
-                                error: new McpError(ErrorCode.InternalError, `Task ${taskId} failed`)
+                                error: new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} failed`)
                             };
 
                             break;
@@ -1056,7 +1060,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         case 'cancelled': {
                             yield {
                                 type: 'error',
-                                error: new McpError(ErrorCode.InternalError, `Task ${taskId} was cancelled`)
+                                error: new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} was cancelled`)
                             };
 
                             break;
@@ -1084,7 +1088,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         } catch (error) {
             yield {
                 type: 'error',
-                error: error instanceof McpError ? error : new McpError(ErrorCode.InternalError, String(error))
+                error: error instanceof Error ? error : new Error(String(error))
             };
         }
     }
@@ -1180,8 +1184,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     )
                     .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
 
-                // Wrap the reason in an McpError if it isn't already
-                const error = reason instanceof McpError ? reason : new McpError(ErrorCode.RequestTimeout, String(reason));
+                // Wrap the reason in an SdkError if it isn't already
+                const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
                 reject(error);
             };
 
@@ -1212,7 +1216,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(McpError.fromError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
@@ -1301,7 +1305,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      */
     async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
         if (!this._transport) {
-            throw new Error('Not connected');
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
         this.assertNotificationCapability(notification.method);
@@ -1518,7 +1522,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     const requestId = message.message.id as RequestId;
                     const resolver = this._requestResolvers.get(requestId);
                     if (resolver) {
-                        resolver(new McpError(ErrorCode.InternalError, 'Task cancelled or completed'));
+                        resolver(new ProtocolError(ProtocolErrorCode.InternalError, 'Task cancelled or completed'));
                         this._requestResolvers.delete(requestId);
                     } else {
                         // Log error when resolver is missing during cleanup for better observability
@@ -1550,7 +1554,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         return new Promise((resolve, reject) => {
             if (signal.aborted) {
-                reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled'));
+                reject(new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Request cancelled'));
                 return;
             }
 
@@ -1562,7 +1566,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 'abort',
                 () => {
                     clearTimeout(timeoutId);
-                    reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled'));
+                    reject(new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Request cancelled'));
                 },
                 { once: true }
             );
@@ -1594,7 +1598,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             getTask: async taskId => {
                 const task = await taskStore.getTask(taskId, sessionId);
                 if (!task) {
-                    throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
                 }
 
                 return task;
@@ -1624,13 +1628,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 // Check if task exists
                 const task = await taskStore.getTask(taskId, sessionId);
                 if (!task) {
-                    throw new McpError(ErrorCode.InvalidParams, `Task "${taskId}" not found - it may have been cleaned up`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Task "${taskId}" not found - it may have been cleaned up`);
                 }
 
                 // Don't allow transitions from terminal states
                 if (isTerminal(task.status)) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
                         `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`
                     );
                 }
