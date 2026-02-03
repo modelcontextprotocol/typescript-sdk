@@ -76,35 +76,6 @@ export type ServerOptions = ProtocolOptions & {
      * requests against the requested schema.
      *
      * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
-     *
-     * @example
-     * ```typescript
-     * // Use runtime-detected default (recommended)
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   { capabilities: {} }
-     * );
-     *
-     * // Explicit AjvJsonSchemaValidator
-     * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
-     *   }
-     * );
-     *
-     * // Explicit CfWorkerJsonSchemaValidator (Cloudflare Workers)
-     * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
-     *   }
-     * );
-     * ```
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };

@@ -154,35 +154,6 @@ export type ClientOptions = ProtocolOptions & {
      * against their declared output schemas.
      *
      * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
-     *
-     * @example
-     * ```typescript
-     * // Use runtime-detected default (recommended)
-     * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   { capabilities: {} }
-     * );
-     *
-     * // Explicit AjvJsonSchemaValidator
-     * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/client';
-     * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
-     *   }
-     * );
-     *
-     * // Explicit CfWorkerJsonSchemaValidator (Cloudflare Workers)
-     * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/client';
-     * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
-     *   }
-     * );
-     * ```
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 
