@@ -921,26 +921,28 @@ describe('Task Lifecycle Integration Tests', () => {
                                 // Queue multiple elicitation requests
                                 for (let i = 0; i < messageCount; i++) {
                                     // Send request but don't await - let it queue
-                                    ctx.mcpReq.send(
-                                        {
-                                            method: 'elicitation/create',
-                                            params: {
-                                                mode: 'form',
-                                                message: `Message ${i + 1} of ${messageCount}`,
-                                                requestedSchema: {
-                                                    type: 'object',
-                                                    properties: {
-                                                        response: { type: 'string' }
-                                                    },
-                                                    required: ['response']
+                                    ctx.mcpReq
+                                        .send(
+                                            {
+                                                method: 'elicitation/create',
+                                                params: {
+                                                    mode: 'form',
+                                                    message: `Message ${i + 1} of ${messageCount}`,
+                                                    requestedSchema: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            response: { type: 'string' }
+                                                        },
+                                                        required: ['response']
+                                                    }
                                                 }
-                                            }
-                                        },
-                                        ElicitResultSchema,
-                                        { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
-                                    ).catch(() => {
-                                        // Ignore errors from cancelled requests
-                                    });
+                                            },
+                                            ElicitResultSchema,
+                                            { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                        )
+                                        .catch(() => {
+                                            // Ignore errors from cancelled requests
+                                        });
                                 }
 
                                 // Don't complete - let the task be cancelled
@@ -1333,24 +1335,26 @@ describe('Task Lifecycle Integration Tests', () => {
                                 for (let i = 0; i < messageCount; i++) {
                                     // Start the request but don't wait for response
                                     // The request gets queued when sendRequest is called
-                                    ctx.mcpReq.send(
-                                        {
-                                            method: 'elicitation/create',
-                                            params: {
-                                                mode: 'form',
-                                                message: `Quick message ${i + 1} of ${messageCount}`,
-                                                requestedSchema: {
-                                                    type: 'object',
-                                                    properties: {
-                                                        response: { type: 'string' }
-                                                    },
-                                                    required: ['response']
+                                    ctx.mcpReq
+                                        .send(
+                                            {
+                                                method: 'elicitation/create',
+                                                params: {
+                                                    mode: 'form',
+                                                    message: `Quick message ${i + 1} of ${messageCount}`,
+                                                    requestedSchema: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            response: { type: 'string' }
+                                                        },
+                                                        required: ['response']
+                                                    }
                                                 }
-                                            }
-                                        },
-                                        ElicitResultSchema,
-                                        { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
-                                    ).catch(() => {});
+                                            },
+                                            ElicitResultSchema,
+                                            { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                        )
+                                        .catch(() => {});
                                     // Small delay to ensure message is queued before next iteration
                                     await new Promise(resolve => setTimeout(resolve, 10));
                                 }
