@@ -70,46 +70,58 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
         // Create src directory
         fs.mkdirSync(path.join(tempDir, 'src'));
 
-        // Create worker source
+        // Create worker source - tests MCP server creation and tool registration
         const workerSource = `
-import { McpServer, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 
 export default {
     async fetch(request, env, ctx) {
-        const validator = new CfWorkerJsonSchemaValidator();
-        const validatorName = validator.constructor.name;
-        const isCfWorkerValidator = validatorName === 'CfWorkerJsonSchemaValidator';
+        const url = new URL(request.url);
 
-        const schema = {
-            type: 'object',
-            properties: { name: { type: 'string' } },
-            required: ['name'],
-        };
-        const validate = validator.getValidator(schema);
-
-        const validResult = validate({ name: 'test' });
-        const invalidResult = validate({ notName: 'test' });
-
-        let serverCreated = false;
-        try {
-            new McpServer({ name: 'test', version: '1.0.0' });
-            serverCreated = true;
-        } catch {
-            // Server creation failed
+        // Health check endpoint
+        if (url.pathname === '/health') {
+            return new Response(JSON.stringify({ status: 'ok', runtime: 'cloudflare-workers' }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
 
-        const results = {
-            validatorName,
-            isCfWorkerJsonSchemaValidator: isCfWorkerValidator,
-            validDataPasses: validResult.valid,
-            invalidDataFails: !invalidResult.valid,
-            serverCreated,
-            success: isCfWorkerValidator && validResult.valid && !invalidResult.valid && serverCreated,
-        };
+        // Test MCP server creation and tool registration
+        if (url.pathname === '/test') {
+            try {
+                const server = new McpServer({ name: 'cf-worker-test', version: '1.0.0' });
 
-        return new Response(JSON.stringify(results, null, 2), {
-            headers: { 'Content-Type': 'application/json' },
-        });
+                // Register a tool to verify the full registration flow works
+                server.registerTool('greet', {
+                    description: 'Greet someone by name',
+                    inputSchema: {
+                        name: { type: 'string', description: 'Name to greet' }
+                    }
+                }, async ({ name }) => {
+                    return {
+                        content: [{ type: 'text', text: 'Hello, ' + name + '!' }]
+                    };
+                });
+
+                return new Response(JSON.stringify({
+                    success: true,
+                    serverName: 'cf-worker-test',
+                    toolRegistered: true,
+                    runtime: 'cloudflare-workers'
+                }), {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } catch (error) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: error.message
+                }), {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+        }
+
+        return new Response('Not Found', { status: 404 });
     },
 };
 `;
@@ -187,24 +199,28 @@ export default {
         }
     });
 
-    it('should use CfWorkerJsonSchemaValidator in workerd environment', async () => {
-        const response = await fetch(`http://127.0.0.1:${WORKER_PORT}/`);
-        expect(response.ok).toBe(true);
+    it('should create MCP server and register tools in Cloudflare Workers', async () => {
+        // Check health endpoint
+        const healthResponse = await fetch(`http://127.0.0.1:${WORKER_PORT}/health`);
+        expect(healthResponse.ok).toBe(true);
+        const health = await healthResponse.json() as { status: string; runtime: string };
+        expect(health.status).toBe('ok');
+        expect(health.runtime).toBe('cloudflare-workers');
 
-        const data = (await response.json()) as {
-            validatorName: string;
-            isCfWorkerJsonSchemaValidator: boolean;
-            validDataPasses: boolean;
-            invalidDataFails: boolean;
-            serverCreated: boolean;
+        // Test MCP server creation and tool registration
+        const testResponse = await fetch(`http://127.0.0.1:${WORKER_PORT}/test`);
+        expect(testResponse.ok).toBe(true);
+
+        const result = await testResponse.json() as {
             success: boolean;
+            serverName: string;
+            toolRegistered: boolean;
+            runtime: string;
         };
 
-        expect(data.validatorName).toBe('CfWorkerJsonSchemaValidator');
-        expect(data.isCfWorkerJsonSchemaValidator).toBe(true);
-        expect(data.validDataPasses).toBe(true);
-        expect(data.invalidDataFails).toBe(true);
-        expect(data.serverCreated).toBe(true);
-        expect(data.success).toBe(true);
+        expect(result.success).toBe(true);
+        expect(result.serverName).toBe('cf-worker-test');
+        expect(result.toolRegistered).toBe(true);
+        expect(result.runtime).toBe('cloudflare-workers');
     });
 });

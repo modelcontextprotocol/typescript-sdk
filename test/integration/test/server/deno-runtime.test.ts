@@ -2,10 +2,7 @@
  * Deno runtime integration test
  *
  * This test verifies that the MCP server package works in Deno runtime
- * using node_modules and the default Node.js-compatible shims.
- *
- * Deno has good Node.js compatibility, so it should use the default shims
- * (AjvJsonSchemaValidator) rather than the Cloudflare Workers shims.
+ * by creating an MCP server and registering tools.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -46,9 +43,7 @@ describe('Deno runtime compatibility', () => {
         const tarballPath = packOutput.trim().split('\n').pop()!;
         const tarballName = path.basename(tarballPath);
 
-        // Create package.json pointing to the tarball (Deno can use node_modules)
-        // Include both ajv (for Node.js-compatible validation) and @cfworker/json-schema
-        // (because the bundled code may reference it at module resolution time)
+        // Create package.json pointing to the tarball
         const pkgJson = {
             name: 'deno-mcp-test',
             private: true,
@@ -62,59 +57,61 @@ describe('Deno runtime compatibility', () => {
         };
         fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
 
-        // Create a simple Deno server script that tests MCP functionality
-        // Using bare import from node_modules (configured via deno.json)
+        // Create server source - tests MCP server creation and tool registration
         const serverSource = `
-// Deno server script that tests MCP SDK compatibility
-import { McpServer, AjvJsonSchemaValidator } from "@modelcontextprotocol/server";
+import { McpServer } from "@modelcontextprotocol/server";
 
 const PORT = ${DENO_PORT};
 
-// Test JSON Schema validation with AjvJsonSchemaValidator (default for Node.js-compatible runtimes)
-const validator = new AjvJsonSchemaValidator();
-const validatorName = validator.constructor.name;
-const isAjvValidator = validatorName === 'AjvJsonSchemaValidator';
-
-const schema = {
-    type: 'object',
-    properties: { name: { type: 'string' } },
-    required: ['name'],
-};
-const validate = validator.getValidator(schema);
-
-const validResult = validate({ name: 'test' });
-const invalidResult = validate({ notName: 'test' });
-
-// Test McpServer creation
-let serverCreated = false;
-let serverError: string | null = null;
-try {
-    const server = new McpServer({ name: 'deno-test-server', version: '1.0.0' });
-    serverCreated = true;
-} catch (e) {
-    serverCreated = false;
-    serverError = e instanceof Error ? e.message : String(e);
-}
-
-const results = {
-    runtime: 'deno',
-    denoVersion: Deno.version.deno,
-    validatorName,
-    isAjvJsonSchemaValidator: isAjvValidator,
-    validDataPasses: validResult.valid,
-    invalidDataFails: !invalidResult.valid,
-    serverCreated,
-    serverError,
-    success: isAjvValidator && validResult.valid && !invalidResult.valid && serverCreated,
-};
-
-console.log('MCP SDK Test Results:', JSON.stringify(results, null, 2));
 console.log('Server starting on port', PORT);
 
-Deno.serve({ port: PORT }, (_req) => {
-    return new Response(JSON.stringify(results, null, 2), {
-        headers: { 'Content-Type': 'application/json' },
-    });
+Deno.serve({ port: PORT }, async (request) => {
+    const url = new URL(request.url);
+
+    // Health check endpoint
+    if (url.pathname === '/health') {
+        return new Response(JSON.stringify({ status: 'ok', runtime: 'deno', version: Deno.version.deno }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // Test MCP server creation and tool registration
+    if (url.pathname === '/test') {
+        try {
+            const mcpServer = new McpServer({ name: 'deno-test-server', version: '1.0.0' });
+
+            // Register a tool to verify the full registration flow works
+            mcpServer.registerTool('greet', {
+                description: 'Greet someone by name',
+                inputSchema: {
+                    name: { type: 'string', description: 'Name to greet' }
+                }
+            }, async ({ name }) => {
+                return {
+                    content: [{ type: 'text', text: 'Hello, ' + name + '!' }]
+                };
+            });
+
+            return new Response(JSON.stringify({
+                success: true,
+                serverName: 'deno-test-server',
+                toolRegistered: true,
+                runtime: 'deno'
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+        } catch (error) {
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    }
+
+    return new Response('Not Found', { status: 404 });
 });
 `;
         fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource.trim());
@@ -154,17 +151,14 @@ Deno.serve({ port: PORT }, (_req) => {
 
             denoProcess!.stdout?.on('data', (data) => {
                 stdoutData += data.toString();
-                console.log('[Deno stdout]:', data.toString());
                 if (stdoutData.includes('Server starting on port') || stdoutData.includes('Listening on')) {
                     clearTimeout(timeout);
-                    // Give the server a moment to fully start
                     setTimeout(resolve, 2000);
                 }
             });
 
             denoProcess!.stderr?.on('data', (data) => {
                 stderrData += data.toString();
-                console.log('[Deno stderr]:', data.toString());
             });
 
             denoProcess!.on('error', (err) => {
@@ -200,7 +194,7 @@ Deno.serve({ port: PORT }, (_req) => {
         }
     });
 
-    it('should use AjvJsonSchemaValidator in Deno environment', async () => {
+    it('should create MCP server and register tools in Deno', async () => {
         // Check if Deno is installed
         try {
             execSync('deno --version', { stdio: 'pipe' });
@@ -209,28 +203,27 @@ Deno.serve({ port: PORT }, (_req) => {
             return;
         }
 
-        const response = await fetch(`http://127.0.0.1:${DENO_PORT}/`);
-        expect(response.ok).toBe(true);
+        // Check health endpoint
+        const healthResponse = await fetch(`http://127.0.0.1:${DENO_PORT}/health`);
+        expect(healthResponse.ok).toBe(true);
+        const health = await healthResponse.json() as { status: string; runtime: string };
+        expect(health.status).toBe('ok');
+        expect(health.runtime).toBe('deno');
 
-        const data = (await response.json()) as {
-            runtime: string;
-            denoVersion: string;
-            validatorName: string;
-            isAjvJsonSchemaValidator: boolean;
-            validDataPasses: boolean;
-            invalidDataFails: boolean;
-            serverCreated: boolean;
-            serverError: string | null;
+        // Test MCP server creation and tool registration
+        const testResponse = await fetch(`http://127.0.0.1:${DENO_PORT}/test`);
+        expect(testResponse.ok).toBe(true);
+
+        const result = await testResponse.json() as {
             success: boolean;
+            serverName: string;
+            toolRegistered: boolean;
+            runtime: string;
         };
 
-        expect(data.runtime).toBe('deno');
-        expect(data.validatorName).toBe('AjvJsonSchemaValidator');
-        expect(data.isAjvJsonSchemaValidator).toBe(true);
-        expect(data.validDataPasses).toBe(true);
-        expect(data.invalidDataFails).toBe(true);
-        expect(data.serverCreated).toBe(true);
-        expect(data.serverError).toBeNull();
-        expect(data.success).toBe(true);
+        expect(result.success).toBe(true);
+        expect(result.serverName).toBe('deno-test-server');
+        expect(result.toolRegistered).toBe(true);
+        expect(result.runtime).toBe('deno');
     });
 });

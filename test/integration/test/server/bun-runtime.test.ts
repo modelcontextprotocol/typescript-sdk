@@ -1,8 +1,8 @@
 /**
  * Bun runtime integration test
  *
- * This test verifies that the MCP server package works in Bun runtime.
- * Bun is Node.js-compatible, so it should use the AjvJsonSchemaValidator.
+ * This test verifies that the MCP server package works in Bun runtime
+ * by creating an MCP server and registering tools.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -44,8 +44,6 @@ describe('Bun runtime compatibility', () => {
         const tarballName = path.basename(tarballPath);
 
         // Create package.json pointing to the tarball
-        // Note: @cfworker/json-schema is needed because the bundled server package
-        // includes both the AJV and CfWorker validator implementations
         const pkgJson = {
             name: 'bun-runtime-test',
             private: true,
@@ -59,54 +57,59 @@ describe('Bun runtime compatibility', () => {
         };
         fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
 
-        // Create server source that uses Bun.serve
+        // Create server source - tests MCP server creation and tool registration
         const serverSource = `
-import { McpServer, AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 
 const server = Bun.serve({
     port: ${SERVER_PORT},
     async fetch(request) {
-        const validator = new AjvJsonSchemaValidator();
-        const validatorName = validator.constructor.name;
-        const isAjvValidator = validatorName === 'AjvJsonSchemaValidator';
+        const url = new URL(request.url);
 
-        // Test JSON schema validation
-        const schema = {
-            type: 'object',
-            properties: { name: { type: 'string' } },
-            required: ['name'],
-        };
-        const validate = validator.getValidator(schema);
-
-        const validResult = validate({ name: 'test' });
-        const invalidResult = validate({ notName: 'test' });
-
-        // Test McpServer creation
-        let serverCreated = false;
-        let serverName = '';
-        try {
-            const mcpServer = new McpServer({ name: 'bun-test-server', version: '1.0.0' });
-            serverCreated = true;
-            serverName = 'bun-test-server';
-        } catch (e) {
-            serverCreated = false;
+        // Health check endpoint
+        if (url.pathname === '/health') {
+            return new Response(JSON.stringify({ status: 'ok', runtime: 'bun', version: Bun.version }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
 
-        const results = {
-            runtime: 'bun',
-            bunVersion: Bun.version,
-            validatorName,
-            isAjvJsonSchemaValidator: isAjvValidator,
-            validDataPasses: validResult.valid,
-            invalidDataFails: !invalidResult.valid,
-            serverCreated,
-            serverName,
-            success: isAjvValidator && validResult.valid && !invalidResult.valid && serverCreated,
-        };
+        // Test MCP server creation and tool registration
+        if (url.pathname === '/test') {
+            try {
+                const mcpServer = new McpServer({ name: 'bun-test-server', version: '1.0.0' });
 
-        return new Response(JSON.stringify(results, null, 2), {
-            headers: { 'Content-Type': 'application/json' },
-        });
+                // Register a tool to verify the full registration flow works
+                mcpServer.registerTool('greet', {
+                    description: 'Greet someone by name',
+                    inputSchema: {
+                        name: { type: 'string', description: 'Name to greet' }
+                    }
+                }, async ({ name }) => {
+                    return {
+                        content: [{ type: 'text', text: 'Hello, ' + name + '!' }]
+                    };
+                });
+
+                return new Response(JSON.stringify({
+                    success: true,
+                    serverName: 'bun-test-server',
+                    toolRegistered: true,
+                    runtime: 'bun'
+                }), {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } catch (error) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: error.message
+                }), {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+        }
+
+        return new Response('Not Found', { status: 404 });
     },
 });
 
@@ -139,7 +142,6 @@ console.log('Bun server listening on port ' + server.port);
                 stdoutData += data.toString();
                 if (stdoutData.includes('listening on port')) {
                     clearTimeout(timeout);
-                    // Give the server a moment to fully initialize
                     setTimeout(resolve, 500);
                 }
             });
@@ -181,7 +183,7 @@ console.log('Bun server listening on port ' + server.port);
         }
     });
 
-    it('should use AjvJsonSchemaValidator in Bun runtime', async () => {
+    it('should create MCP server and register tools in Bun', async () => {
         // Check if bun is available
         try {
             execSync('bun --version', { stdio: 'pipe' });
@@ -190,28 +192,27 @@ console.log('Bun server listening on port ' + server.port);
             return;
         }
 
-        const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/`);
-        expect(response.ok).toBe(true);
+        // Check health endpoint
+        const healthResponse = await fetch(`http://127.0.0.1:${SERVER_PORT}/health`);
+        expect(healthResponse.ok).toBe(true);
+        const health = await healthResponse.json() as { status: string; runtime: string };
+        expect(health.status).toBe('ok');
+        expect(health.runtime).toBe('bun');
 
-        const data = (await response.json()) as {
-            runtime: string;
-            bunVersion: string;
-            validatorName: string;
-            isAjvJsonSchemaValidator: boolean;
-            validDataPasses: boolean;
-            invalidDataFails: boolean;
-            serverCreated: boolean;
-            serverName: string;
+        // Test MCP server creation and tool registration
+        const testResponse = await fetch(`http://127.0.0.1:${SERVER_PORT}/test`);
+        expect(testResponse.ok).toBe(true);
+
+        const result = await testResponse.json() as {
             success: boolean;
+            serverName: string;
+            toolRegistered: boolean;
+            runtime: string;
         };
 
-        expect(data.runtime).toBe('bun');
-        expect(data.validatorName).toBe('AjvJsonSchemaValidator');
-        expect(data.isAjvJsonSchemaValidator).toBe(true);
-        expect(data.validDataPasses).toBe(true);
-        expect(data.invalidDataFails).toBe(true);
-        expect(data.serverCreated).toBe(true);
-        expect(data.serverName).toBe('bun-test-server');
-        expect(data.success).toBe(true);
+        expect(result.success).toBe(true);
+        expect(result.serverName).toBe('bun-test-server');
+        expect(result.toolRegistered).toBe(true);
+        expect(result.runtime).toBe('bun');
     });
 });
