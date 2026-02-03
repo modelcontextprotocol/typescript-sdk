@@ -235,7 +235,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                     this._resourceMetadataUrl = resourceMetadataUrl;
                     this._scope = scope;
-                    
+
                     // Need to authenticate
                     return await this._authThenStart();
                 }
