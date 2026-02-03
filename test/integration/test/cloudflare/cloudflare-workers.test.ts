@@ -80,7 +80,7 @@ export default {
     async fetch(request, env, ctx) {
         const validator = new CfWorkerJsonSchemaValidator();
         const validatorName = validator.constructor.name;
-        const isCfWorker = validatorName === 'CfWorkerJsonSchemaValidator';
+        const isCfWorkerValidator = validatorName === 'CfWorkerJsonSchemaValidator';
 
         const schema = {
             type: 'object',
@@ -94,19 +94,19 @@ export default {
 
         let serverCreated = false;
         try {
-            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            new McpServer({ name: 'test', version: '1.0.0' });
             serverCreated = true;
-        } catch (e) {
-            serverCreated = false;
+        } catch {
+            // Server creation failed
         }
 
         const results = {
             validatorName,
-            isCfWorkerJsonSchemaValidator: isCfWorker,
+            isCfWorkerJsonSchemaValidator: isCfWorkerValidator,
             validDataPasses: validResult.valid,
             invalidDataFails: !invalidResult.valid,
             serverCreated,
-            success: isCfWorker && validResult.valid && !invalidResult.valid && serverCreated,
+            success: isCfWorkerValidator && validResult.valid && !invalidResult.valid && serverCreated,
         };
 
         return new Response(JSON.stringify(results, null, 2), {

@@ -47,15 +47,15 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Server imports
 
-| v1 import path                                       | v2 package                                                                          |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                      |
-| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                      |
-| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                      |
-| `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) |
-| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                |
-| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                 |
-| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                  |
+| v1 import path                                       | v2 package                                                                                                                                                                                                            |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                        |
+| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                        |
+| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                                  |
+| `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server/streamableHttp` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
+| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                                  |
+| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                   |
+| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                    |
 
 ### Types / shared imports
 
@@ -100,111 +100,7 @@ Notes:
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
-### Error class changes
-
-Two error classes now exist:
-
-- **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC responses
-- **`SdkError`** (new): Local SDK errors that never cross the wire
-
-| Error scenario                   | v1 type                                      | v2 type                                                           |
-| -------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
-| Request timeout                  | `McpError` with `ErrorCode.RequestTimeout`   | `SdkError` with `SdkErrorCode.RequestTimeout`                     |
-| Connection closed                | `McpError` with `ErrorCode.ConnectionClosed` | `SdkError` with `SdkErrorCode.ConnectionClosed`                   |
-| Capability not supported         | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`             |
-| Not connected                    | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                       |
-| Invalid params (server response) | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`            |
-| HTTP transport error             | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttp*`                        |
-| Failed to open SSE stream        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
-| 401 after auth flow              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpAuthentication`           |
-| 403 after upscoping              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
-| Unexpected content type          | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
-| Session termination failed       | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
-
-New `SdkErrorCode` enum values:
-
-- `SdkErrorCode.NotConnected` = `'NOT_CONNECTED'`
-- `SdkErrorCode.AlreadyConnected` = `'ALREADY_CONNECTED'`
-- `SdkErrorCode.NotInitialized` = `'NOT_INITIALIZED'`
-- `SdkErrorCode.CapabilityNotSupported` = `'CAPABILITY_NOT_SUPPORTED'`
-- `SdkErrorCode.RequestTimeout` = `'REQUEST_TIMEOUT'`
-- `SdkErrorCode.ConnectionClosed` = `'CONNECTION_CLOSED'`
-- `SdkErrorCode.SendFailed` = `'SEND_FAILED'`
-- `SdkErrorCode.ClientHttpNotImplemented` = `'CLIENT_HTTP_NOT_IMPLEMENTED'`
-- `SdkErrorCode.ClientHttpAuthentication` = `'CLIENT_HTTP_AUTHENTICATION'`
-- `SdkErrorCode.ClientHttpForbidden` = `'CLIENT_HTTP_FORBIDDEN'`
-- `SdkErrorCode.ClientHttpUnexpectedContent` = `'CLIENT_HTTP_UNEXPECTED_CONTENT'`
-- `SdkErrorCode.ClientHttpFailedToOpenStream` = `'CLIENT_HTTP_FAILED_TO_OPEN_STREAM'`
-- `SdkErrorCode.ClientHttpFailedToTerminateSession` = `'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'`
-
-Update error handling:
-
-```typescript
-// v1
-if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) { ... }
-
-// v2
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
-if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) { ... }
-```
-
-Update HTTP transport error handling:
-
-```typescript
-// v1
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-if (error instanceof StreamableHTTPError) {
-    console.log('HTTP status:', error.code);
-}
-
-// v2
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
-if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpFailedToOpenStream) {
-    const status = (error.data as { status?: number })?.status;
-}
-```
-
-### OAuth error consolidation
-
-Individual OAuth error classes replaced with single `OAuthError` class and `OAuthErrorCode` enum:
-
-| v1 Class                       | v2 Equivalent                                              |
-| ------------------------------ | ---------------------------------------------------------- |
-| `InvalidRequestError`          | `OAuthError` with `OAuthErrorCode.InvalidRequest`          |
-| `InvalidClientError`           | `OAuthError` with `OAuthErrorCode.InvalidClient`           |
-| `InvalidGrantError`            | `OAuthError` with `OAuthErrorCode.InvalidGrant`            |
-| `UnauthorizedClientError`      | `OAuthError` with `OAuthErrorCode.UnauthorizedClient`      |
-| `UnsupportedGrantTypeError`    | `OAuthError` with `OAuthErrorCode.UnsupportedGrantType`    |
-| `InvalidScopeError`            | `OAuthError` with `OAuthErrorCode.InvalidScope`            |
-| `AccessDeniedError`            | `OAuthError` with `OAuthErrorCode.AccessDenied`            |
-| `ServerError`                  | `OAuthError` with `OAuthErrorCode.ServerError`             |
-| `TemporarilyUnavailableError`  | `OAuthError` with `OAuthErrorCode.TemporarilyUnavailable`  |
-| `UnsupportedResponseTypeError` | `OAuthError` with `OAuthErrorCode.UnsupportedResponseType` |
-| `UnsupportedTokenTypeError`    | `OAuthError` with `OAuthErrorCode.UnsupportedTokenType`    |
-| `InvalidTokenError`            | `OAuthError` with `OAuthErrorCode.InvalidToken`            |
-| `MethodNotAllowedError`        | `OAuthError` with `OAuthErrorCode.MethodNotAllowed`        |
-| `TooManyRequestsError`         | `OAuthError` with `OAuthErrorCode.TooManyRequests`         |
-| `InvalidClientMetadataError`   | `OAuthError` with `OAuthErrorCode.InvalidClientMetadata`   |
-| `InsufficientScopeError`       | `OAuthError` with `OAuthErrorCode.InsufficientScope`       |
-| `InvalidTargetError`           | `OAuthError` with `OAuthErrorCode.InvalidTarget`           |
-| `CustomOAuthError`             | `new OAuthError(customCode, message)`                      |
-
-Removed: `OAUTH_ERRORS` constant.
-
-Update OAuth error handling:
-
-```typescript
-// v1
-import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/core';
-if (error instanceof InvalidClientError) { ... }
-
-// v2
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
-if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
-```
-
-**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod
-schemas, all callback return types.
+**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport` (now at `@modelcontextprotocol/server/stdio`), all Zod schemas, all callback return types.
 
 ## 6. McpServer API Changes
 
