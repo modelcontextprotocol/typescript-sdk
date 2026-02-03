@@ -47,7 +47,6 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    ErrorCode,
     GetPromptResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -56,11 +55,14 @@ import {
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
-    McpError,
     mergeCapabilities,
     Protocol,
+    ProtocolError,
+    ProtocolErrorCode,
     ReadResourceResultSchema,
     safeParse,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
@@ -345,7 +347,7 @@ export class Client<
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
                 }
 
                 const { params } = validatedRequest.data;
@@ -353,11 +355,11 @@ export class Client<
                 const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
 
                 if (params.mode === 'form' && !supportsFormMode) {
-                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
                 }
 
                 if (params.mode === 'url' && !supportsUrlMode) {
-                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
                 const result = await Promise.resolve(handler(request, extra));
@@ -370,7 +372,7 @@ export class Client<
                             taskValidationResult.error instanceof Error
                                 ? taskValidationResult.error.message
                                 : String(taskValidationResult.error);
-                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
                     }
                     return taskValidationResult.data;
                 }
@@ -381,7 +383,7 @@ export class Client<
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
                 }
 
                 const validatedResult = validationResult.data;
@@ -417,7 +419,7 @@ export class Client<
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
                 }
 
                 const { params } = validatedRequest.data;
@@ -432,7 +434,7 @@ export class Client<
                             taskValidationResult.error instanceof Error
                                 ? taskValidationResult.error.message
                                 : String(taskValidationResult.error);
-                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
                     }
                     return taskValidationResult.data;
                 }
@@ -444,7 +446,7 @@ export class Client<
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
                 }
 
                 return validationResult.data;
@@ -543,7 +545,7 @@ export class Client<
         switch (method as ClientRequest['method']) {
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
-                    throw new Error(`Server does not support logging (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
                 }
                 break;
             }
@@ -551,7 +553,7 @@ export class Client<
             case 'prompts/get':
             case 'prompts/list': {
                 if (!this._serverCapabilities?.prompts) {
-                    throw new Error(`Server does not support prompts (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support prompts (required for ${method})`);
                 }
                 break;
             }
@@ -562,11 +564,14 @@ export class Client<
             case 'resources/subscribe':
             case 'resources/unsubscribe': {
                 if (!this._serverCapabilities?.resources) {
-                    throw new Error(`Server does not support resources (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
                 }
 
                 if (method === 'resources/subscribe' && !this._serverCapabilities.resources.subscribe) {
-                    throw new Error(`Server does not support resource subscriptions (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support resource subscriptions (required for ${method})`
+                    );
                 }
 
                 break;
@@ -575,14 +580,14 @@ export class Client<
             case 'tools/call':
             case 'tools/list': {
                 if (!this._serverCapabilities?.tools) {
-                    throw new Error(`Server does not support tools (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
                 }
                 break;
             }
 
             case 'completion/complete': {
                 if (!this._serverCapabilities?.completions) {
-                    throw new Error(`Server does not support completions (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support completions (required for ${method})`);
                 }
                 break;
             }
@@ -603,7 +608,10 @@ export class Client<
         switch (method as ClientNotification['method']) {
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {
-                    throw new Error(`Client does not support roots list changed notifications (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support roots list changed notifications (required for ${method})`
+                    );
                 }
                 break;
             }
@@ -635,21 +643,30 @@ export class Client<
         switch (method) {
             case 'sampling/createMessage': {
                 if (!this._capabilities.sampling) {
-                    throw new Error(`Client does not support sampling capability (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support sampling capability (required for ${method})`
+                    );
                 }
                 break;
             }
 
             case 'elicitation/create': {
                 if (!this._capabilities.elicitation) {
-                    throw new Error(`Client does not support elicitation capability (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support elicitation capability (required for ${method})`
+                    );
                 }
                 break;
             }
 
             case 'roots/list': {
                 if (!this._capabilities.roots) {
-                    throw new Error(`Client does not support roots capability (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support roots capability (required for ${method})`
+                    );
                 }
                 break;
             }
@@ -659,7 +676,10 @@ export class Client<
             case 'tasks/result':
             case 'tasks/cancel': {
                 if (!this._capabilities.tasks) {
-                    throw new Error(`Client does not support tasks capability (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support tasks capability (required for ${method})`
+                    );
                 }
                 break;
             }
@@ -754,8 +774,8 @@ export class Client<
     ) {
         // Guard: required-task tools need experimental API
         if (this.isToolTaskRequired(params.name)) {
-            throw new McpError(
-                ErrorCode.InvalidRequest,
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidRequest,
                 `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`
             );
         }
@@ -767,8 +787,8 @@ export class Client<
         if (validator) {
             // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
             if (!result.structuredContent && !result.isError) {
-                throw new McpError(
-                    ErrorCode.InvalidRequest,
+                throw new ProtocolError(
+                    ProtocolErrorCode.InvalidRequest,
                     `Tool ${params.name} has an output schema but did not return structured content`
                 );
             }
@@ -780,17 +800,17 @@ export class Client<
                     const validationResult = validator(result.structuredContent);
 
                     if (!validationResult.valid) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InvalidParams,
                             `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
                         );
                     }
                 } catch (error) {
-                    if (error instanceof McpError) {
+                    if (error instanceof ProtocolError) {
                         throw error;
                     }
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
                         `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
                     );
                 }

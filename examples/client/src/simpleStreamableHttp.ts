@@ -12,13 +12,13 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
     StreamableHTTPClientTransport
@@ -270,7 +270,7 @@ async function connect(url?: string): Promise<void> {
         // Set up elicitation request handler with proper validation
         client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);

@@ -91,8 +91,46 @@ Notes:
 | `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
 | `IsomorphicHeaders` | REMOVED (use Web Standard `Headers`) |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
+| `McpError` | `ProtocolError` |
+| `ErrorCode` | `ProtocolErrorCode` |
+| `ErrorCode.RequestTimeout` | `SdkErrorCode.RequestTimeout` |
+| `ErrorCode.ConnectionClosed` | `SdkErrorCode.ConnectionClosed` |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
+
+### Error class changes
+
+Two error classes now exist:
+- **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC responses
+- **`SdkError`** (new): Local SDK errors that never cross the wire
+
+| Error scenario | v1 type | v2 type |
+|----------------|---------|---------|
+| Request timeout | `McpError` with `ErrorCode.RequestTimeout` | `SdkError` with `SdkErrorCode.RequestTimeout` |
+| Connection closed | `McpError` with `ErrorCode.ConnectionClosed` | `SdkError` with `SdkErrorCode.ConnectionClosed` |
+| Capability not supported | `new Error(...)` | `SdkError` with `SdkErrorCode.CapabilityNotSupported` |
+| Not connected | `new Error('Not connected')` | `SdkError` with `SdkErrorCode.NotConnected` |
+| Invalid params (server response) | `McpError` with `ErrorCode.InvalidParams` | `ProtocolError` with `ProtocolErrorCode.InvalidParams` |
+
+New `SdkErrorCode` enum values:
+- `SdkErrorCode.NotConnected` = `'NOT_CONNECTED'`
+- `SdkErrorCode.AlreadyConnected` = `'ALREADY_CONNECTED'`
+- `SdkErrorCode.NotInitialized` = `'NOT_INITIALIZED'`
+- `SdkErrorCode.CapabilityNotSupported` = `'CAPABILITY_NOT_SUPPORTED'`
+- `SdkErrorCode.RequestTimeout` = `'REQUEST_TIMEOUT'`
+- `SdkErrorCode.ConnectionClosed` = `'CONNECTION_CLOSED'`
+- `SdkErrorCode.SendFailed` = `'SEND_FAILED'`
+
+Update error handling:
+
+```typescript
+// v1
+if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) { ... }
+
+// v2
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) { ... }
+```
 
 **Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types.
 

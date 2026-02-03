@@ -44,14 +44,16 @@ import {
     CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    ErrorCode,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
-    McpError,
     mergeCapabilities,
     Protocol,
+    ProtocolError,
+    ProtocolErrorCode,
     safeParse,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
@@ -207,7 +209,7 @@ export class Server<
      */
     public registerCapabilities(capabilities: ServerCapabilities): void {
         if (this.transport) {
-            throw new Error('Cannot register capabilities after connecting to transport');
+            throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
     }
@@ -231,7 +233,7 @@ export class Server<
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
                 }
 
                 const { params } = validatedRequest.data;
@@ -246,7 +248,7 @@ export class Server<
                             taskValidationResult.error instanceof Error
                                 ? taskValidationResult.error.message
                                 : String(taskValidationResult.error);
-                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
                     }
                     return taskValidationResult.data;
                 }
@@ -256,7 +258,7 @@ export class Server<
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
                 }
 
                 return validationResult.data;
@@ -274,21 +276,24 @@ export class Server<
         switch (method as ServerRequest['method']) {
             case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
-                    throw new Error(`Client does not support sampling (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support sampling (required for ${method})`);
                 }
                 break;
             }
 
             case 'elicitation/create': {
                 if (!this._clientCapabilities?.elicitation) {
-                    throw new Error(`Client does not support elicitation (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support elicitation (required for ${method})`);
                 }
                 break;
             }
 
             case 'roots/list': {
                 if (!this._clientCapabilities?.roots) {
-                    throw new Error(`Client does not support listing roots (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support listing roots (required for ${method})`
+                    );
                 }
                 break;
             }
@@ -304,7 +309,7 @@ export class Server<
         switch (method as ServerNotification['method']) {
             case 'notifications/message': {
                 if (!this._capabilities.logging) {
-                    throw new Error(`Server does not support logging (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
                 }
                 break;
             }
@@ -312,28 +317,40 @@ export class Server<
             case 'notifications/resources/updated':
             case 'notifications/resources/list_changed': {
                 if (!this._capabilities.resources) {
-                    throw new Error(`Server does not support notifying about resources (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support notifying about resources (required for ${method})`
+                    );
                 }
                 break;
             }
 
             case 'notifications/tools/list_changed': {
                 if (!this._capabilities.tools) {
-                    throw new Error(`Server does not support notifying of tool list changes (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support notifying of tool list changes (required for ${method})`
+                    );
                 }
                 break;
             }
 
             case 'notifications/prompts/list_changed': {
                 if (!this._capabilities.prompts) {
-                    throw new Error(`Server does not support notifying of prompt list changes (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support notifying of prompt list changes (required for ${method})`
+                    );
                 }
                 break;
             }
 
             case 'notifications/elicitation/complete': {
                 if (!this._clientCapabilities?.elicitation?.url) {
-                    throw new Error(`Client does not support URL elicitation (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support URL elicitation (required for ${method})`
+                    );
                 }
                 break;
             }
@@ -360,14 +377,14 @@ export class Server<
         switch (method) {
             case 'completion/complete': {
                 if (!this._capabilities.completions) {
-                    throw new Error(`Server does not support completions (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support completions (required for ${method})`);
                 }
                 break;
             }
 
             case 'logging/setLevel': {
                 if (!this._capabilities.logging) {
-                    throw new Error(`Server does not support logging (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
                 }
                 break;
             }
@@ -375,7 +392,7 @@ export class Server<
             case 'prompts/get':
             case 'prompts/list': {
                 if (!this._capabilities.prompts) {
-                    throw new Error(`Server does not support prompts (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support prompts (required for ${method})`);
                 }
                 break;
             }
@@ -384,7 +401,7 @@ export class Server<
             case 'resources/templates/list':
             case 'resources/read': {
                 if (!this._capabilities.resources) {
-                    throw new Error(`Server does not support resources (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
                 }
                 break;
             }
@@ -392,7 +409,7 @@ export class Server<
             case 'tools/call':
             case 'tools/list': {
                 if (!this._capabilities.tools) {
-                    throw new Error(`Server does not support tools (required for ${method})`);
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
                 }
                 break;
             }
@@ -402,7 +419,10 @@ export class Server<
             case 'tasks/result':
             case 'tasks/cancel': {
                 if (!this._capabilities.tasks) {
-                    throw new Error(`Server does not support tasks capability (required for ${method})`);
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support tasks capability (required for ${method})`
+                    );
                 }
                 break;
             }
@@ -495,7 +515,7 @@ export class Server<
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
-            throw new Error('Client does not support sampling tools capability.');
+            throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
@@ -516,10 +536,16 @@ export class Server<
 
             if (hasToolResults) {
                 if (lastContent.some(c => c.type !== 'tool_result')) {
-                    throw new Error('The last message must contain only tool_result content if any is present');
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
+                        'The last message must contain only tool_result content if any is present'
+                    );
                 }
                 if (!hasPreviousToolUse) {
-                    throw new Error('tool_result blocks are not matching any tool_use from the previous message');
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
+                        'tool_result blocks are not matching any tool_use from the previous message'
+                    );
                 }
             }
             if (hasPreviousToolUse) {
@@ -528,7 +554,10 @@ export class Server<
                     lastContent.filter(c => c.type === 'tool_result').map(c => (c as ToolResultContent).toolUseId)
                 );
                 if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every(id => toolResultIds.has(id))) {
-                    throw new Error('ids of tool_result blocks and tool_use blocks from previous message do not match');
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
+                        'ids of tool_result blocks and tool_use blocks from previous message do not match'
+                    );
                 }
             }
         }
@@ -553,7 +582,7 @@ export class Server<
         switch (mode) {
             case 'url': {
                 if (!this._clientCapabilities?.elicitation?.url) {
-                    throw new Error('Client does not support url elicitation.');
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
@@ -561,7 +590,7 @@ export class Server<
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
-                    throw new Error('Client does not support form elicitation.');
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
                 }
 
                 const formParams: ElicitRequestFormParams =
@@ -575,17 +604,17 @@ export class Server<
                         const validationResult = validator(result.content);
 
                         if (!validationResult.valid) {
-                            throw new McpError(
-                                ErrorCode.InvalidParams,
+                            throw new ProtocolError(
+                                ProtocolErrorCode.InvalidParams,
                                 `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
                             );
                         }
                     } catch (error) {
-                        if (error instanceof McpError) {
+                        if (error instanceof ProtocolError) {
                             throw error;
                         }
-                        throw new McpError(
-                            ErrorCode.InternalError,
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InternalError,
                             `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
                         );
                     }
@@ -605,7 +634,10 @@ export class Server<
      */
     createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
         if (!this._clientCapabilities?.elicitation?.url) {
-            throw new Error('Client does not support URL elicitation (required for notifications/elicitation/complete)');
+            throw new SdkError(
+                SdkErrorCode.CapabilityNotSupported,
+                'Client does not support URL elicitation (required for notifications/elicitation/complete)'
+            );
         }
 
         return () =>

@@ -338,6 +338,80 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
 ```
 
+### Error hierarchy refactoring
+
+The SDK now distinguishes between two types of errors:
+
+1. **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC error responses
+2. **`SdkError`**: Local SDK errors that never cross the wire (timeouts, connection issues, capability checks)
+
+#### Renamed exports
+
+| v1 | v2 |
+|----|-----|
+| `McpError` | `ProtocolError` |
+| `ErrorCode` | `ProtocolErrorCode` |
+| `ErrorCode.RequestTimeout` | `SdkErrorCode.RequestTimeout` |
+| `ErrorCode.ConnectionClosed` | `SdkErrorCode.ConnectionClosed` |
+
+**Before (v1):**
+
+```typescript
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+
+try {
+    await client.callTool({ name: 'test', arguments: {} });
+} catch (error) {
+    if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
+        console.log('Request timed out');
+    }
+    if (error instanceof McpError && error.code === ErrorCode.InvalidParams) {
+        console.log('Invalid parameters');
+    }
+}
+```
+
+**After (v2):**
+
+```typescript
+import { ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+
+try {
+    await client.callTool({ name: 'test', arguments: {} });
+} catch (error) {
+    // Local timeout/connection errors are now SdkError
+    if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
+        console.log('Request timed out');
+    }
+    // Protocol errors from the server are still ProtocolError
+    if (error instanceof ProtocolError && error.code === ProtocolErrorCode.InvalidParams) {
+        console.log('Invalid parameters');
+    }
+}
+```
+
+#### New `SdkErrorCode` enum
+
+The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
+
+| Code | Description |
+|------|-------------|
+| `SdkErrorCode.NotConnected` | Transport is not connected |
+| `SdkErrorCode.AlreadyConnected` | Transport is already connected |
+| `SdkErrorCode.NotInitialized` | Protocol is not initialized |
+| `SdkErrorCode.CapabilityNotSupported` | Required capability is not supported |
+| `SdkErrorCode.RequestTimeout` | Request timed out waiting for response |
+| `SdkErrorCode.ConnectionClosed` | Connection was closed |
+| `SdkErrorCode.SendFailed` | Failed to send message |
+
+#### Why this change?
+
+Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was semantically inconsistent.
+
+The new design:
+- `ProtocolError` with `ProtocolErrorCode`: For errors that are serialized and sent as JSON-RPC error responses
+- `SdkError` with `SdkErrorCode`: For local errors that are thrown/rejected locally and never leave the SDK
+
 ## Unchanged APIs
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):
