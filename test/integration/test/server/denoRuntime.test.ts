@@ -1,8 +1,7 @@
 /**
  * Deno runtime integration test
  *
- * This test verifies that the MCP server package works in Deno runtime
- * by creating an MCP server and registering tools.
+ * Verifies the MCP server package works in Deno runtime.
  */
 
 import type { ChildProcess } from 'node:child_process';
@@ -11,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import path from 'node:path';
 
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const DENO_PORT = 8789;
@@ -21,7 +21,6 @@ describe('Deno runtime compatibility', () => {
     let tempDir: string;
 
     beforeAll(async () => {
-        // Check if Deno is installed
         try {
             execSync('deno --version', { stdio: 'pipe' });
         } catch {
@@ -29,23 +28,15 @@ describe('Deno runtime compatibility', () => {
             return;
         }
 
-        // Create temp directory for the test project
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deno-mcp-test-'));
 
-        // Get the path to the server package
         const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
-
-        // Pack the server package to get a proper tarball (pnpm pack resolves catalog: deps)
         const packOutput = execSync('pnpm pack --pack-destination ' + tempDir, {
             cwd: serverPkgPath,
             encoding: 'utf8'
         });
+        const tarballName = path.basename(packOutput.trim().split('\n').pop()!);
 
-        // Find the tarball path (last line of output)
-        const tarballPath = packOutput.trim().split('\n').pop()!;
-        const tarballName = path.basename(tarballPath);
-
-        // Create package.json pointing to the tarball
         const pkgJson = {
             name: 'deno-mcp-test',
             private: true,
@@ -59,97 +50,47 @@ describe('Deno runtime compatibility', () => {
         };
         fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
 
-        // Create server source - tests MCP server creation and tool registration
         const serverSource = `
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
 
-const PORT = ${DENO_PORT};
+const server = new McpServer({ name: "deno-test-server", version: "1.0.0" });
 
-console.log('Server starting on port', PORT);
+server.registerTool("greet", {
+    description: "Greet someone",
+    inputSchema: { name: { type: "string" } }
+}, async ({ name }) => ({
+    content: [{ type: "text", text: "Hello, " + name + "!" }]
+}));
 
-Deno.serve({ port: PORT }, async (request) => {
-    const url = new URL(request.url);
+const transport = new WebStandardStreamableHTTPServerTransport();
+await server.connect(transport);
 
-    // Health check endpoint
-    if (url.pathname === '/health') {
-        return new Response(JSON.stringify({ status: 'ok', runtime: 'deno', version: Deno.version.deno }), {
-            headers: { 'Content-Type': 'application/json' }
-        });
-    }
+console.log("Deno server listening on port ${DENO_PORT}");
 
-    // Test MCP server creation and tool registration
-    if (url.pathname === '/test') {
-        try {
-            const mcpServer = new McpServer({ name: 'deno-test-server', version: '1.0.0' });
-
-            // Register a tool to verify the full registration flow works
-            mcpServer.registerTool('greet', {
-                description: 'Greet someone by name',
-                inputSchema: {
-                    name: { type: 'string', description: 'Name to greet' }
-                }
-            }, async ({ name }) => {
-                return {
-                    content: [{ type: 'text', text: 'Hello, ' + name + '!' }]
-                };
-            });
-
-            return new Response(JSON.stringify({
-                success: true,
-                serverName: 'deno-test-server',
-                toolRegistered: true,
-                runtime: 'deno'
-            }), {
-                headers: { 'Content-Type': 'application/json' }
-            });
-        } catch (error) {
-            return new Response(JSON.stringify({
-                success: false,
-                error: error.message
-            }), {
-                status: 500,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
-    }
-
-    return new Response('Not Found', { status: 404 });
-});
+Deno.serve({ port: ${DENO_PORT} }, (request) => transport.handleRequest(request));
 `;
         fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource.trim());
 
-        // Create deno.json configuration to use node_modules with "byonm" (bring your own node_modules)
         const denoConfig = {
             nodeModulesDir: 'manual',
             unstable: ['byonm']
         };
         fs.writeFileSync(path.join(tempDir, 'deno.json'), JSON.stringify(denoConfig, null, 2));
 
-        // Install dependencies using npm (Deno will read from node_modules)
-        try {
-            execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
-        } catch (error) {
-            console.error('npm install failed:', error);
-            throw error;
-        }
+        execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
 
-        // Start Deno server with necessary permissions
         denoProcess = spawn('deno', ['run', '--allow-net', '--allow-read', '--allow-env', 'server.ts'], {
             cwd: tempDir,
             shell: true,
             stdio: 'pipe'
         });
 
-        // Wait for server to be ready
         await new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error('Deno startup timeout')), 60_000);
-
-            let stdoutData = '';
             let stderrData = '';
 
             denoProcess!.stdout?.on('data', data => {
-                stdoutData += data.toString();
-                if (stdoutData.includes('Server starting on port') || stdoutData.includes('Listening on')) {
+                if (data.toString().includes('listening on port') || data.toString().includes('Listening on')) {
                     clearTimeout(timeout);
                     setTimeout(resolve, 2000);
                 }
@@ -181,8 +122,6 @@ Deno.serve({ port: PORT }, async (request) => {
                 setTimeout(resolve, 5000);
             });
         }
-
-        // Cleanup temp directory
         if (tempDir) {
             try {
                 fs.rmSync(tempDir, { recursive: true, force: true });
@@ -192,8 +131,7 @@ Deno.serve({ port: PORT }, async (request) => {
         }
     });
 
-    it('should create MCP server and register tools in Deno', async () => {
-        // Check if Deno is installed
+    it('should handle MCP requests', async () => {
         try {
             execSync('deno --version', { stdio: 'pipe' });
         } catch {
@@ -201,27 +139,14 @@ Deno.serve({ port: PORT }, async (request) => {
             return;
         }
 
-        // Check health endpoint
-        const healthResponse = await fetch(`http://127.0.0.1:${DENO_PORT}/health`);
-        expect(healthResponse.ok).toBe(true);
-        const health = (await healthResponse.json()) as { status: string; runtime: string };
-        expect(health.status).toBe('ok');
-        expect(health.runtime).toBe('deno');
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${DENO_PORT}/`));
 
-        // Test MCP server creation and tool registration
-        const testResponse = await fetch(`http://127.0.0.1:${DENO_PORT}/test`);
-        expect(testResponse.ok).toBe(true);
+        await client.connect(transport);
 
-        const result = (await testResponse.json()) as {
-            success: boolean;
-            serverName: string;
-            toolRegistered: boolean;
-            runtime: string;
-        };
+        const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
 
-        expect(result.success).toBe(true);
-        expect(result.serverName).toBe('deno-test-server');
-        expect(result.toolRegistered).toBe(true);
-        expect(result.runtime).toBe('deno');
+        await client.close();
     });
 });
