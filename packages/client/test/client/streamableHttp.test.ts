@@ -1577,6 +1577,119 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('410 Gone session expired handling', () => {
+        it('should clear session ID and retry on 410 during POST request', async () => {
+            // First, simulate getting a session ID
+            const initMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'initialize',
+                params: {
+                    clientInfo: { name: 'test-client', version: '1.0' },
+                    protocolVersion: '2025-03-26'
+                },
+                id: 'init-id'
+            };
+
+            (global.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'old-session-id' })
+            });
+
+            await transport.send(initMessage);
+            expect(transport.sessionId).toBe('old-session-id');
+
+            // Now send a request that gets 410 - server restarted and old session is gone
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-id'
+            };
+
+            (global.fetch as Mock)
+                // First attempt returns 410
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 410,
+                    statusText: 'Gone',
+                    text: () => Promise.resolve('Session expired or server restarted'),
+                    headers: new Headers()
+                })
+                // Retry succeeds with a new session ID
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'application/json', 'mcp-session-id': 'new-session-id' }),
+                    json: () => Promise.resolve({ jsonrpc: '2.0', result: { success: true }, id: 'test-id' })
+                });
+
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            await transport.send(message);
+
+            // Verify fetch was called twice (initial 410, then retry)
+            const calls = (global.fetch as Mock).mock.calls;
+            expect(calls.length).toBeGreaterThanOrEqual(3); // init + 410 + retry
+
+            // Verify the retry worked and we got a new session ID
+            expect(transport.sessionId).toBe('new-session-id');
+            expect(messageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    result: { success: true },
+                    id: 'test-id'
+                })
+            );
+        });
+
+        it('should clear session ID and retry on 410 during SSE GET request', async () => {
+            // Set up transport with a stale session ID
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'stale-session-id'
+            });
+
+            expect(transport.sessionId).toBe('stale-session-id');
+
+            const fetchMock = global.fetch as Mock;
+
+            // First GET attempt returns 410
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 410,
+                statusText: 'Gone'
+            });
+
+            // Retry GET succeeds
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Verify fetch was called twice
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+            expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
+
+            // Verify session ID was cleared (it's undefined now, server can assign a new one)
+            expect(transport.sessionId).toBeUndefined();
+
+            // Verify first request had the stale session ID
+            const firstCallHeaders = fetchMock.mock.calls[0]![1]?.headers;
+            expect(firstCallHeaders?.get('mcp-session-id')).toBe('stale-session-id');
+
+            // Verify second request did NOT have a session ID
+            const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers;
+            expect(secondCallHeaders?.get('mcp-session-id')).toBeNull();
+        });
+    });
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {
