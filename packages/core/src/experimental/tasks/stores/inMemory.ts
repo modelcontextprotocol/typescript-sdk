@@ -5,11 +5,10 @@
  * @experimental
  */
 
-import { randomBytes } from 'node:crypto';
-
 import type { Request, RequestId, Result, Task } from '../../../types/types.js';
 import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../interfaces.js';
 import { isTerminal } from '../interfaces.js';
+import { randomBytes } from '@modelcontextprotocol/server/_shims';
 
 interface StoredTask {
     task: Task;

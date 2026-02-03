@@ -7,8 +7,6 @@
  * For Node.js Express/HTTP compatibility, use `NodeStreamableHTTPServerTransport` which wraps this transport.
  */
 
-import { TextEncoder } from 'node:util';
-
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,

@@ -26,8 +26,20 @@
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
         },
+        "./stdio": {
+            "types": "./dist/stdio.d.mts",
+            "import": "./dist/stdio.mjs"
+        },
+        "./streamableHttp": {
+            "types": "./dist/streamableHttp.d.mts",
+            "import": "./dist/streamableHttp.mjs"
+        },
         "./_shims": {
             "workerd": {
+                "types": "./dist/shimsWorkerd.d.mts",
+                "import": "./dist/shimsWorkerd.mjs"
+            },
+            "browser": {
                 "types": "./dist/shimsWorkerd.d.mts",
                 "import": "./dist/shimsWorkerd.mjs"
             },
