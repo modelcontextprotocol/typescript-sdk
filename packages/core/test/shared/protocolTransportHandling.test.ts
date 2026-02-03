@@ -86,8 +86,8 @@ describe('Protocol transport handling bug', () => {
         const results: { transport: string; response: JSONRPCMessage[] }[] = [];
 
         // Set up handler with variable delay based on request id
-        protocol.setRequestHandler('ping', async (_request, extra) => {
-            const delay = extra.requestId === 1 ? 50 : 10;
+        protocol.setRequestHandler('ping', async (_request, ctx) => {
+            const delay = ctx.requestId === 1 ? 50 : 10;
             await new Promise(resolve => setTimeout(resolve, delay));
             return {};
         });

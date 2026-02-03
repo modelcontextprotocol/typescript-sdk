@@ -67,9 +67,9 @@ describe('Zod v4', () => {
                         message: z.string().describe('Message to send').default('Test notification')
                     })
                 },
-                async ({ message }, { sendNotification }) => {
+                async ({ message }, ctx) => {
                     // Send notification immediately
-                    await sendNotification({
+                    await ctx.sendNotification({
                         method: 'notifications/message',
                         params: {
                             level: 'info',
@@ -93,10 +93,10 @@ describe('Zod v4', () => {
                         interval: z.number().describe('Interval between notifications in ms').default(50)
                     })
                 },
-                async ({ count, interval }, { sendNotification }) => {
+                async ({ count, interval }, ctx) => {
                     // Send notifications at specified intervals
                     for (let i = 0; i < count; i++) {
-                        await sendNotification({
+                        await ctx.sendNotification({
                             method: 'notifications/message',
                             params: {
                                 level: 'info',

@@ -3,7 +3,7 @@
  * WARNING: These APIs are experimental and may change without notice.
  */
 
-import type { RequestHandlerExtra, RequestTaskStore } from '../../shared/protocol.js';
+import type { RequestTaskStore, ServerContext } from '../../shared/protocol.js';
 import type {
     JSONRPCErrorResponse,
     JSONRPCNotification,
@@ -12,8 +12,6 @@ import type {
     Request,
     RequestId,
     Result,
-    ServerNotification,
-    ServerRequest,
     Task,
     ToolExecution
 } from '../../types/types.js';
@@ -23,21 +21,20 @@ import type {
 // ============================================================================
 
 /**
- * Extended handler extra with task store for task creation.
+ * Server context with guaranteed task store for task creation.
  * @experimental
  */
-export interface CreateTaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskStore: RequestTaskStore;
-}
+export type CreateTaskServerContext = ServerContext & {
+    task: { store: RequestTaskStore; requestedTtl?: number | null };
+};
 
 /**
- * Extended handler extra with task ID and store for task operations.
+ * Server context with guaranteed task ID and store for task operations.
  * @experimental
  */
-export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskId: string;
-    taskStore: RequestTaskStore;
-}
+export type TaskServerContext = ServerContext & {
+    task: { id: string; store: RequestTaskStore; requestedTtl?: number | null };
+};
 
 /**
  * Task-specific execution configuration.

@@ -6,11 +6,11 @@
 import type {
     AnySchema,
     CallToolResult,
-    CreateTaskRequestHandlerExtra,
     CreateTaskResult,
+    CreateTaskServerContext,
     GetTaskResult,
     Result,
-    TaskRequestHandlerExtra
+    TaskServerContext
 } from '@modelcontextprotocol/core';
 
 import type { BaseToolCallback } from '../../server/mcp.js';
@@ -23,21 +23,19 @@ import type { BaseToolCallback } from '../../server/mcp.js';
  * Handler for creating a task.
  * @experimental
  */
-export type CreateTaskRequestHandler<SendResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
-    SendResultT,
-    CreateTaskRequestHandlerExtra,
-    Args
->;
+export type CreateTaskRequestHandler<
+    SendResultT extends Result,
+    Args extends AnySchema | undefined = undefined
+> = BaseToolCallback<SendResultT, CreateTaskServerContext, Args>;
 
 /**
  * Handler for task operations (get, getResult).
  * @experimental
  */
-export type TaskRequestHandler<SendResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
-    SendResultT,
-    TaskRequestHandlerExtra,
-    Args
->;
+export type TaskRequestHandler<
+    SendResultT extends Result,
+    Args extends AnySchema | undefined = undefined
+> = BaseToolCallback<SendResultT, TaskServerContext, Args>;
 
 /**
  * Interface for task-based tool handlers.

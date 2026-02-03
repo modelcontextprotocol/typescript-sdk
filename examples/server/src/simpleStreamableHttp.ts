@@ -88,7 +88,7 @@ const getServer = () => {
                 openWorldHint: false
             }
         },
-        async ({ name }, extra): Promise<CallToolResult> => {
+        async ({ name }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
             await server.sendLoggingMessage(
@@ -96,7 +96,7 @@ const getServer = () => {
                     level: 'debug',
                     data: `Starting multi-greet for ${name}`
                 },
-                extra.sessionId
+                ctx.sessionId
             );
 
             await sleep(1000); // Wait 1 second before first greeting
@@ -106,7 +106,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending first greeting to ${name}`
                 },
-                extra.sessionId
+                ctx.sessionId
             );
 
             await sleep(1000); // Wait another second before second greeting
@@ -116,7 +116,7 @@ const getServer = () => {
                     level: 'info',
                     data: `Sending second greeting to ${name}`
                 },
-                extra.sessionId
+                ctx.sessionId
             );
 
             return {
@@ -139,7 +139,7 @@ const getServer = () => {
                 infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
             })
         },
-        async ({ infoType }, extra): Promise<CallToolResult> => {
+        async ({ infoType }, ctx): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -238,8 +238,8 @@ const getServer = () => {
             }
 
             try {
-                // Use sendRequest through the extra parameter to elicit input
-                const result = await extra.sendRequest(
+                // Use sendRequest through the ctx parameter to elicit input
+                const result = await ctx.sendRequest(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -327,7 +327,7 @@ const getServer = () => {
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
             })
         },
-        async ({ interval, count }, extra): Promise<CallToolResult> => {
+        async ({ interval, count }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
             let counter = 0;
 
@@ -339,7 +339,7 @@ const getServer = () => {
                             level: 'info',
                             data: `Periodic notification #${counter} at ${new Date().toISOString()}`
                         },
-                        extra.sessionId
+                        ctx.sessionId
                     );
                 } catch (error) {
                     console.error('Error sending notification:', error);
@@ -484,16 +484,16 @@ const getServer = () => {
             })
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+            async createTask({ duration }, ctx) {
                 // Create the task
-                const task = await taskStore.createTask({
-                    ttl: taskRequestedTtl
+                const task = await ctx.task!.store.createTask({
+                    ttl: ctx.task!.requestedTtl
                 });
 
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    await taskStore.storeTaskResult(task.taskId, 'completed', {
+                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
                         content: [
                             {
                                 type: 'text',
@@ -508,11 +508,11 @@ const getServer = () => {
                     task
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
-                return await taskStore.getTask(taskId);
+            async getTask(_args, ctx) {
+                return await ctx.task!.store.getTask(ctx.task!.id);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
-                const result = await taskStore.getTaskResult(taskId);
+            async getTaskResult(_args, ctx) {
+                const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
                 return result as CallToolResult;
             }
         }

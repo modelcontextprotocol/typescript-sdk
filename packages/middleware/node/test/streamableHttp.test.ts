@@ -214,8 +214,10 @@ describe('Zod v4', () => {
                 description: 'A user profile data tool',
                 inputSchema: z.object({ active: z.boolean().describe('Profile status') })
             },
-            async ({ active }, { authInfo }): Promise<CallToolResult> => {
-                return { content: [{ type: 'text', text: `${active ? 'Active' : 'Inactive'} profile from token: ${authInfo?.token}!` }] };
+            async ({ active }, ctx): Promise<CallToolResult> => {
+                return {
+                    content: [{ type: 'text', text: `${active ? 'Active' : 'Inactive'} profile from token: ${ctx.authInfo?.token}!` }]
+                };
             }
         );
 
@@ -403,11 +405,11 @@ describe('Zod v4', () => {
                     description: 'A simple test tool with request info',
                     inputSchema: z.object({ name: z.string().describe('Name to greet') })
                 },
-                async ({ name }, { requestInfo }): Promise<CallToolResult> => {
+                async ({ name }, ctx): Promise<CallToolResult> => {
                     // Convert Headers object to plain object for JSON serialization
                     // Headers is a Web API class that doesn't serialize with JSON.stringify
                     const serializedRequestInfo = {
-                        headers: Object.fromEntries(requestInfo?.headers ?? new Headers())
+                        headers: Object.fromEntries(ctx.requestInfo?.headers ?? new Headers())
                     };
                     return {
                         content: [
@@ -1831,7 +1833,7 @@ describe('Zod v4', () => {
             expect(text).not.toContain('retry:');
         });
 
-        it('should close POST SSE stream when extra.closeSSEStream is called', async () => {
+        it('should close POST SSE stream when ctx.closeSSEStream is called', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -1849,10 +1851,10 @@ describe('Zod v4', () => {
                 toolResolve = resolve;
             });
 
-            // Register a tool that closes its own SSE stream via extra callback
-            mcpServer.registerTool('close-stream-tool', { description: 'Closes its own stream' }, async extra => {
+            // Register a tool that closes its own SSE stream via ctx callback
+            mcpServer.registerTool('close-stream-tool', { description: 'Closes its own stream' }, async ctx => {
                 // Close the SSE stream for this request
-                extra.closeSSEStream?.();
+                ctx.closeSSEStream?.();
                 streamCloseCalled = true;
 
                 // Wait before returning so we can observe the stream closure
@@ -1903,7 +1905,7 @@ describe('Zod v4', () => {
             toolResolve!();
         });
 
-        it('should provide closeSSEStream callback in extra when eventStore is configured', async () => {
+        it('should provide closeSSEStream callback in ctx when eventStore is configured', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -1917,9 +1919,9 @@ describe('Zod v4', () => {
             // Track whether closeSSEStream callback was provided
             let receivedCloseSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the extra.closeSSEStream callback
-            mcpServer.registerTool('test-callback-tool', { description: 'Test tool' }, async extra => {
-                receivedCloseSSEStream = extra.closeSSEStream;
+            // Register a tool that captures the ctx.closeSSEStream callback
+            mcpServer.registerTool('test-callback-tool', { description: 'Test tool' }, async ctx => {
+                receivedCloseSSEStream = ctx.closeSSEStream;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -1976,10 +1978,10 @@ describe('Zod v4', () => {
             let receivedCloseSSEStream: (() => void) | undefined;
             let receivedCloseStandaloneSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the extra.closeSSEStream callback
-            mcpServer.registerTool('test-old-version-tool', { description: 'Test tool' }, async extra => {
-                receivedCloseSSEStream = extra.closeSSEStream;
-                receivedCloseStandaloneSSEStream = extra.closeStandaloneSSEStream;
+            // Register a tool that captures the ctx.closeSSEStream callback
+            mcpServer.registerTool('test-old-version-tool', { description: 'Test tool' }, async ctx => {
+                receivedCloseSSEStream = ctx.closeSSEStream;
+                receivedCloseStandaloneSSEStream = ctx.closeStandaloneSSEStream;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2035,9 +2037,9 @@ describe('Zod v4', () => {
             // Track whether closeSSEStream callback was provided
             let receivedCloseSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the extra.closeSSEStream callback
-            mcpServer.registerTool('test-no-callback-tool', { description: 'Test tool' }, async extra => {
-                receivedCloseSSEStream = extra.closeSSEStream;
+            // Register a tool that captures the ctx.closeSSEStream callback
+            mcpServer.registerTool('test-no-callback-tool', { description: 'Test tool' }, async ctx => {
+                receivedCloseSSEStream = ctx.closeSSEStream;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2078,7 +2080,7 @@ describe('Zod v4', () => {
             expect(receivedCloseSSEStream).toBeUndefined();
         });
 
-        it('should provide closeStandaloneSSEStream callback in extra when eventStore is configured', async () => {
+        it('should provide closeStandaloneSSEStream callback in ctx when eventStore is configured', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -2092,9 +2094,9 @@ describe('Zod v4', () => {
             // Track whether closeStandaloneSSEStream callback was provided
             let receivedCloseStandaloneSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the extra.closeStandaloneSSEStream callback
-            mcpServer.registerTool('test-standalone-callback-tool', { description: 'Test tool' }, async extra => {
-                receivedCloseStandaloneSSEStream = extra.closeStandaloneSSEStream;
+            // Register a tool that captures the ctx.closeStandaloneSSEStream callback
+            mcpServer.registerTool('test-standalone-callback-tool', { description: 'Test tool' }, async ctx => {
+                receivedCloseStandaloneSSEStream = ctx.closeStandaloneSSEStream;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2136,7 +2138,7 @@ describe('Zod v4', () => {
             expect(typeof receivedCloseStandaloneSSEStream).toBe('function');
         });
 
-        it('should close standalone GET SSE stream when extra.closeStandaloneSSEStream is called', async () => {
+        it('should close standalone GET SSE stream when ctx.closeStandaloneSSEStream is called', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -2147,9 +2149,9 @@ describe('Zod v4', () => {
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
 
-            // Register a tool that closes the standalone SSE stream via extra callback
-            mcpServer.registerTool('close-standalone-stream-tool', { description: 'Closes standalone stream' }, async extra => {
-                extra.closeStandaloneSSEStream?.();
+            // Register a tool that closes the standalone SSE stream via ctx callback
+            mcpServer.registerTool('close-standalone-stream-tool', { description: 'Closes standalone stream' }, async ctx => {
+                ctx.closeStandaloneSSEStream?.();
                 return { content: [{ type: 'text', text: 'Stream closed' }] };
             });
 
@@ -2217,7 +2219,7 @@ describe('Zod v4', () => {
             expect(done).toBe(true);
         });
 
-        it('should allow client to reconnect after standalone SSE stream is closed via extra.closeStandaloneSSEStream', async () => {
+        it('should allow client to reconnect after standalone SSE stream is closed via ctx.closeStandaloneSSEStream', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -2229,8 +2231,8 @@ describe('Zod v4', () => {
             mcpServer = result.mcpServer;
 
             // Register a tool that closes the standalone SSE stream
-            mcpServer.registerTool('close-standalone-for-reconnect', { description: 'Closes standalone stream' }, async extra => {
-                extra.closeStandaloneSSEStream?.();
+            mcpServer.registerTool('close-standalone-for-reconnect', { description: 'Closes standalone stream' }, async ctx => {
+                ctx.closeStandaloneSSEStream?.();
                 return { content: [{ type: 'text', text: 'Stream closed' }] };
             });
 

@@ -1,4 +1,5 @@
 import type {
+    BaseContext,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
@@ -16,17 +17,18 @@ import type {
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
+    MessageExtraInfo,
     Notification,
     NotificationOptions,
     ProtocolOptions,
     Request,
-    RequestHandlerExtra,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
     ServerCapabilities,
+    ServerContext,
     ServerNotification,
     ServerRequest,
     ServerResult,
@@ -139,9 +141,9 @@ export class Server<
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler('logging/setLevel', async (request, extra) => {
+            this.setRequestHandler('logging/setLevel', async (request, ctx) => {
                 const transportSessionId: string | undefined =
-                    extra.sessionId || (extra.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
+                    ctx.sessionId || (ctx.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
                 const parseResult = parseSchema(LoggingLevelSchema, level);
                 if (parseResult.success) {
@@ -150,6 +152,18 @@ export class Server<
                 return {};
             });
         }
+    }
+
+    protected override buildContext(
+        ctx: BaseContext<ServerRequest | RequestT, ServerNotification | NotificationT>,
+        transportInfo?: MessageExtraInfo
+    ): ServerContext<ServerRequest | RequestT, ServerNotification | NotificationT> {
+        return {
+            ...ctx,
+            requestInfo: transportInfo?.requestInfo,
+            closeSSEStream: transportInfo?.closeSSEStream,
+            closeStandaloneSSEStream: transportInfo?.closeStandaloneSSEStream
+        };
     }
 
     /**
@@ -199,13 +213,13 @@ export class Server<
         method: M,
         handler: (
             request: RequestTypeMap[M],
-            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+            ctx: ServerContext<ServerRequest | RequestT, ServerNotification | NotificationT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
         if (method === 'tools/call') {
             const wrappedHandler = async (
                 request: RequestTypeMap[M],
-                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+                ctx: ServerContext<ServerRequest | RequestT, ServerNotification | NotificationT>
             ): Promise<ServerResult | ResultT> => {
                 const validatedRequest = parseSchema(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
@@ -216,7 +230,7 @@ export class Server<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
