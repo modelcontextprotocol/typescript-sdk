@@ -31,8 +31,6 @@ export default defineConfig({
     },
     // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
     //    but treat all other dependencies as external (require/import).
-    noExternal: ['@modelcontextprotocol/core'],
-
-    // 6. External packages - keep core/_shims external for runtime resolution
-    external: ['@modelcontextprotocol/core/_shims']
+    //    Note: core/_shims is also bundled since core is a private package
+    noExternal: ['@modelcontextprotocol/core', '@modelcontextprotocol/core/_shims']
 });
