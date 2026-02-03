@@ -1,11 +1,6 @@
 /**
  * In-memory implementations of TaskStore and TaskMessageQueue.
- *
- * NOTE: These are test fixtures / demo implementations. They are NOT exported
- * from the main package API. For production use, implement TaskStore and
- * TaskMessageQueue interfaces with a real database or distributed cache.
- *
- * @internal
+ * @experimental
  */
 
 import type { Request, RequestId, Result, Task } from '../../../types/types.js';
@@ -20,15 +15,9 @@ interface StoredTask {
 }
 
 /**
- * A simple in-memory implementation of TaskStore for testing and demonstration.
- *
- * This implementation stores all tasks in memory and provides automatic cleanup
- * based on the ttl duration specified in the task creation parameters.
- *
- * Note: This is not suitable for production use as all data is lost on restart.
- * For production, implement TaskStore with a database or distributed cache.
- *
- * @internal
+ * In-memory TaskStore implementation for development and testing.
+ * For production, use a database or distributed cache.
+ * @experimental
  */
 export class InMemoryTaskStore implements TaskStore {
     private tasks = new Map<string, StoredTask>();
@@ -216,15 +205,9 @@ export class InMemoryTaskStore implements TaskStore {
 }
 
 /**
- * A simple in-memory implementation of TaskMessageQueue for testing and demonstration.
- *
- * This implementation stores messages in memory, organized by task ID and optional session ID.
- * Messages are stored in FIFO queues per task.
- *
- * Note: This is not suitable for production use in distributed systems.
- * For production, implement TaskMessageQueue with Redis or other distributed queues.
- *
- * @internal
+ * In-memory TaskMessageQueue implementation for development and testing.
+ * For production, use Redis or another distributed queue.
+ * @experimental
  */
 export class InMemoryTaskMessageQueue implements TaskMessageQueue {
     private queues = new Map<string, QueuedMessage[]>();
