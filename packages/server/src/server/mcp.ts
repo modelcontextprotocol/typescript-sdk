@@ -34,7 +34,7 @@ import {
     objectFromShape,
     ProtocolError,
     ProtocolErrorCode,
-    safeParseAsync,
+    safeParseAsync
 } from '@modelcontextprotocol/core';
 import { ZodOptional } from 'zod';
 
