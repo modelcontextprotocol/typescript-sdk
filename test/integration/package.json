@@ -41,7 +41,7 @@
         "zod": "catalog:runtimeShared",
         "vitest": "catalog:devTools",
         "supertest": "catalog:devTools",
-        "wrangler": "^4.0.0",
+        "wrangler": "catalog:devTools",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
