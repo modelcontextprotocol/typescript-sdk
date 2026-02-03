@@ -16,7 +16,6 @@ import type {
     Notification,
     NotificationMethod,
     NotificationTypeMap,
-    Progress,
     ProgressNotification,
     RelatedTaskMetadata,
     Request,
@@ -51,13 +50,10 @@ import {
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import { safeParse } from '../util/zodCompat.js';
 import { parseWithCompat } from '../util/zodJsonSchemaCompat.js';
+import type { ProgressCallback } from './progressManager.js';
+import { ProgressManager } from './progressManager.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
-
-/**
- * Callback for progress notifications.
- */
-export type ProgressCallback = (progress: Progress) => void;
 
 /**
  * Additional initialization options.
@@ -330,12 +326,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
-    private _progressHandlers: Map<number, ProgressCallback> = new Map();
+    private _progressManager: ProgressManager = new ProgressManager();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
-
-    // Maps task IDs to progress tokens to keep handlers alive after CreateTaskResult
-    private _taskProgressTokens: Map<string, number> = new Map();
 
     private _taskStore?: TaskStore;
     private _taskMessageQueue?: TaskMessageQueue;
@@ -639,8 +632,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _onclose(): void {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
-        this._progressHandlers.clear();
-        this._taskProgressTokens.clear();
+        this._progressManager.clear();
         this._pendingDebouncedNotifications.clear();
 
         const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
@@ -826,11 +818,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     private _onprogress(notification: ProgressNotification): void {
-        const { progressToken, ...params } = notification.params;
+        const progressToken = notification.params.progressToken;
         const messageId = Number(progressToken);
 
-        const handler = this._progressHandlers.get(messageId);
-        if (!handler) {
+        if (!this._progressManager.hasHandler(messageId)) {
             this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
             return;
         }
@@ -844,14 +835,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             } catch (error) {
                 // Clean up if maxTotalTimeout was exceeded
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._progressManager.removeHandler(messageId);
                 this._cleanupTimeout(messageId);
                 responseHandler(error as Error);
                 return;
             }
         }
 
-        handler(params);
+        this._progressManager.handleProgress(notification);
     }
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
@@ -887,13 +878,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 const task = result.task as Record<string, unknown>;
                 if (typeof task.taskId === 'string') {
                     isTaskResponse = true;
-                    this._taskProgressTokens.set(task.taskId, messageId);
+                    this._progressManager.linkTaskToProgressToken(task.taskId, messageId);
                 }
             }
         }
 
         if (!isTaskResponse) {
-            this._progressHandlers.delete(messageId);
+            this._progressManager.removeHandler(messageId);
         }
 
         if (isJSONRPCResultResponse(response)) {
@@ -1116,7 +1107,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             };
 
             if (options?.onprogress) {
-                this._progressHandlers.set(messageId, options.onprogress);
+                this._progressManager.registerHandler(messageId, options.onprogress);
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
@@ -1147,7 +1138,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             const cancel = (reason: unknown) => {
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._progressManager.removeHandler(messageId);
                 this._cleanupTimeout(messageId);
 
                 this._transport
@@ -1459,11 +1450,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * This should be called when a task reaches a terminal status.
      */
     private _cleanupTaskProgressHandler(taskId: string): void {
-        const progressToken = this._taskProgressTokens.get(taskId);
-        if (progressToken !== undefined) {
-            this._progressHandlers.delete(progressToken);
-            this._taskProgressTokens.delete(taskId);
-        }
+        this._progressManager.cleanupTaskProgressHandler(taskId);
     }
 
     /**

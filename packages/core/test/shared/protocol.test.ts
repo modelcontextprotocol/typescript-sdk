@@ -36,7 +36,10 @@ interface TestProtocol {
     _taskMessageQueue?: TaskMessageQueue;
     _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
     _responseHandlers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
-    _taskProgressTokens: Map<string, number>;
+    _progressManager: {
+        getTaskProgressToken(taskId: string): number | undefined;
+        cleanupTaskProgressHandler(taskId: string): void;
+    };
     _clearTaskQueue: (taskId: string, sessionId?: string) => Promise<void>;
     requestTaskStore: (request: Request, authInfo: unknown) => TaskStore;
     // Protected task methods (exposed for testing)
@@ -2564,9 +2567,8 @@ describe('Progress notification support for tasks', () => {
         expect(progressCallback).toHaveBeenCalledTimes(1);
 
         // Verify the task-progress association was created
-        const taskProgressTokens = (protocol as unknown as TestProtocol)._taskProgressTokens as Map<string, number>;
-        expect(taskProgressTokens.has(taskId)).toBe(true);
-        expect(taskProgressTokens.get(taskId)).toBe(progressToken);
+        const progressManager = (protocol as unknown as TestProtocol)._progressManager;
+        expect(progressManager.getTaskProgressToken(taskId)).toBe(progressToken);
 
         // Simulate task completion by calling through the protocol's task store
         // This will trigger the cleanup logic
@@ -2578,7 +2580,7 @@ describe('Progress notification support for tasks', () => {
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Verify the association was cleaned up
-        expect(taskProgressTokens.has(taskId)).toBe(false);
+        expect(progressManager.getTaskProgressToken(taskId)).toBeUndefined();
 
         // Try to send progress notification after task completion - should be ignored
         progressCallback.mockClear();
