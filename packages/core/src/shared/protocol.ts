@@ -16,7 +16,6 @@ import type {
     Notification,
     NotificationMethod,
     NotificationTypeMap,
-    Progress,
     ProgressNotification,
     RelatedTaskMetadata,
     Request,
@@ -52,13 +51,11 @@ import {
 import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
 import { safeParse } from '../util/zodCompat.js';
 import { parseWithCompat } from '../util/zodJsonSchemaCompat.js';
+import type { ProgressCallback } from './progressManager.js';
+import { ProgressManager } from './progressManager.js';
 import type { ResponseMessage } from './responseMessage.js';
+import { TimeoutManager } from './timeoutManager.js';
 import type { Transport, TransportSendOptions } from './transport.js';
-
-/**
- * Callback for progress notifications.
- */
-export type ProgressCallback = (progress: Progress) => void;
 
 /**
  * Additional initialization options.
@@ -314,18 +311,6 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
 };
 
 /**
- * Information about a request's timeout state
- */
-type TimeoutInfo = {
-    timeoutId: ReturnType<typeof setTimeout>;
-    startTime: number;
-    timeout: number;
-    maxTotalTimeout?: number;
-    resetTimeoutOnProgress: boolean;
-    onTimeout: () => void;
-};
-
-/**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
@@ -339,12 +324,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
-    private _progressHandlers: Map<number, ProgressCallback> = new Map();
-    private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
+    readonly #progressManager: ProgressManager = new ProgressManager();
+    readonly #timeoutManager: TimeoutManager = new TimeoutManager();
     private _pendingDebouncedNotifications = new Set<string>();
-
-    // Maps task IDs to progress tokens to keep handlers alive after CreateTaskResult
-    private _taskProgressTokens: Map<string, number> = new Map();
 
     private _taskStore?: TaskStore;
     private _taskMessageQueue?: TaskMessageQueue;
@@ -570,49 +552,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         controller?.abort(notification.params.reason);
     }
 
-    private _setupTimeout(
-        messageId: number,
-        timeout: number,
-        maxTotalTimeout: number | undefined,
-        onTimeout: () => void,
-        resetTimeoutOnProgress: boolean = false
-    ) {
-        this._timeoutInfo.set(messageId, {
-            timeoutId: setTimeout(onTimeout, timeout),
-            startTime: Date.now(),
-            timeout,
-            maxTotalTimeout,
-            resetTimeoutOnProgress,
-            onTimeout
-        });
-    }
-
-    private _resetTimeout(messageId: number): boolean {
-        const info = this._timeoutInfo.get(messageId);
-        if (!info) return false;
-
-        const totalElapsed = Date.now() - info.startTime;
-        if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
-            this._timeoutInfo.delete(messageId);
-            throw McpError.fromError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
-                maxTotalTimeout: info.maxTotalTimeout,
-                totalElapsed
-            });
-        }
-
-        clearTimeout(info.timeoutId);
-        info.timeoutId = setTimeout(info.onTimeout, info.timeout);
-        return true;
-    }
-
-    private _cleanupTimeout(messageId: number) {
-        const info = this._timeoutInfo.get(messageId);
-        if (info) {
-            clearTimeout(info.timeoutId);
-            this._timeoutInfo.delete(messageId);
-        }
-    }
-
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
@@ -655,8 +594,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _onclose(): void {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
-        this._progressHandlers.clear();
-        this._taskProgressTokens.clear();
+        this.#progressManager.clear();
         this._pendingDebouncedNotifications.clear();
 
         const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
@@ -842,32 +780,34 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     private _onprogress(notification: ProgressNotification): void {
-        const { progressToken, ...params } = notification.params;
+        const progressToken = notification.params.progressToken;
         const messageId = Number(progressToken);
 
-        const handler = this._progressHandlers.get(messageId);
-        if (!handler) {
+        if (!this.#progressManager.hasHandler(messageId)) {
             this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
             return;
         }
 
         const responseHandler = this._responseHandlers.get(messageId);
-        const timeoutInfo = this._timeoutInfo.get(messageId);
+        const timeoutInfo = this.#timeoutManager.get(messageId);
 
         if (timeoutInfo && responseHandler && timeoutInfo.resetTimeoutOnProgress) {
-            try {
-                this._resetTimeout(messageId);
-            } catch (error) {
+            const resetResult = this.#timeoutManager.reset(messageId);
+            if (!resetResult.success && resetResult.maxTotalTimeoutExceeded) {
                 // Clean up if maxTotalTimeout was exceeded
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
-                responseHandler(error as Error);
+                this.#progressManager.removeHandler(messageId);
+                this.#timeoutManager.cleanup(messageId);
+                const error = McpError.fromError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+                    maxTotalTimeout: resetResult.maxTotalTimeoutExceeded.maxTotalTimeout,
+                    totalElapsed: resetResult.maxTotalTimeoutExceeded.elapsed
+                });
+                responseHandler(error);
                 return;
             }
         }
 
-        handler(params);
+        this.#progressManager.handleProgress(notification);
     }
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
@@ -893,7 +833,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         this._responseHandlers.delete(messageId);
-        this._cleanupTimeout(messageId);
+        this.#timeoutManager.cleanup(messageId);
 
         // Keep progress handler alive for CreateTaskResult responses
         let isTaskResponse = false;
@@ -903,13 +843,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 const task = result.task as Record<string, unknown>;
                 if (typeof task.taskId === 'string') {
                     isTaskResponse = true;
-                    this._taskProgressTokens.set(task.taskId, messageId);
+                    this.#progressManager.linkTaskToProgressToken(task.taskId, messageId);
                 }
             }
         }
 
         if (!isTaskResponse) {
-            this._progressHandlers.delete(messageId);
+            this.#progressManager.removeHandler(messageId);
         }
 
         if (isJSONRPCResultResponse(response)) {
@@ -922,6 +862,22 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
     get transport(): Transport | undefined {
         return this._transport;
+    }
+
+    /**
+     * Returns the progress manager instance.
+     * Primarily exposed for testing purposes.
+     */
+    getProgressManager(): ProgressManager {
+        return this.#progressManager;
+    }
+
+    /**
+     * Returns the timeout manager instance.
+     * Primarily exposed for testing purposes.
+     */
+    getTimeoutManager(): TimeoutManager {
+        return this.#timeoutManager;
     }
 
     /**
@@ -1132,7 +1088,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             };
 
             if (options?.onprogress) {
-                this._progressHandlers.set(messageId, options.onprogress);
+                this.#progressManager.registerHandler(messageId, options.onprogress);
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
@@ -1163,8 +1119,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             const cancel = (reason: unknown) => {
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
+                this.#progressManager.removeHandler(messageId);
+                this.#timeoutManager.cleanup(messageId);
 
                 this._transport
                     ?.send(
@@ -1214,7 +1170,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             const timeoutHandler = () => cancel(McpError.fromError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
-            this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
+            this.#timeoutManager.setup(messageId, {
+                timeout,
+                maxTotalTimeout: options?.maxTotalTimeout,
+                resetTimeoutOnProgress: options?.resetTimeoutOnProgress ?? false,
+                onTimeout: timeoutHandler
+            });
 
             // Queue request if related to a task
             const relatedTaskId = relatedTask?.taskId;
@@ -1236,7 +1197,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     message: jsonrpcRequest,
                     timestamp: Date.now()
                 }).catch(error => {
-                    this._cleanupTimeout(messageId);
+                    this.#timeoutManager.cleanup(messageId);
                     reject(error);
                 });
 
@@ -1245,7 +1206,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             } else {
                 // No related task - send through transport normally
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                    this._cleanupTimeout(messageId);
+                    this.#timeoutManager.cleanup(messageId);
                     reject(error);
                 });
             }
@@ -1475,11 +1436,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * This should be called when a task reaches a terminal status.
      */
     private _cleanupTaskProgressHandler(taskId: string): void {
-        const progressToken = this._taskProgressTokens.get(taskId);
-        if (progressToken !== undefined) {
-            this._progressHandlers.delete(progressToken);
-            this._taskProgressTokens.delete(taskId);
-        }
+        this.#progressManager.cleanupTaskProgressHandler(taskId);
     }
 
     /**
