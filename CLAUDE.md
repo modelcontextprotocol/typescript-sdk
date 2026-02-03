@@ -29,8 +29,7 @@ When making breaking changes, document them in **both**:
 - `docs/migration.md` — human-readable guide with before/after code examples
 - `docs/migration-SKILL.md` — LLM-optimized mapping tables for mechanical migration
 
-Include what changed, why, and how to migrate. Search for related sections and group
-related changes together rather than adding new standalone sections.
+Include what changed, why, and how to migrate. Search for related sections and group related changes together rather than adding new standalone sections.
 
 ## Code Style Guidelines
 

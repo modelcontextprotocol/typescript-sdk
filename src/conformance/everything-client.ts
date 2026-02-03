@@ -12,12 +12,7 @@
  * consolidating all the individual test clients into one.
  */
 
-import {
-    Client,
-    StreamableHTTPClientTransport,
-    ClientCredentialsProvider,
-    PrivateKeyJwtProvider
-} from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport, ClientCredentialsProvider, PrivateKeyJwtProvider } from '@modelcontextprotocol/client';
 import { z } from 'zod';
 import { withOAuthRetry, handle401 } from './helpers/withOAuthRetry.js';
 import { logger } from './helpers/logger.js';

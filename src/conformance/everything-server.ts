@@ -10,12 +10,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, GetPromptResult, ReadResourceResult, EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
-import {
-    ElicitResultSchema,
-    isInitializeRequest,
-    McpServer,
-    ResourceTemplate
-} from '@modelcontextprotocol/server';
+import { ElicitResultSchema, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { Request, Response } from 'express';
 import cors from 'cors';

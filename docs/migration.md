@@ -4,7 +4,8 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 
 ## Overview
 
-Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`, `@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
+Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
+`@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
 
 ## Breaking Changes
 
@@ -12,11 +13,11 @@ Version 2 of the MCP TypeScript SDK introduces several breaking changes to impro
 
 The single `@modelcontextprotocol/sdk` package has been split into three packages:
 
-| v1 | v2 |
-|----|-----|
+| v1                          | v2                                                         |
+| --------------------------- | ---------------------------------------------------------- |
 | `@modelcontextprotocol/sdk` | `@modelcontextprotocol/core` (types, protocol, transports) |
-| | `@modelcontextprotocol/client` (client implementation) |
-| | `@modelcontextprotocol/server` (server implementation) |
+|                             | `@modelcontextprotocol/client` (client implementation)     |
+|                             | `@modelcontextprotocol/server` (server implementation)     |
 
 Remove the old package and install only the packages you need:
 
@@ -64,6 +65,7 @@ Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-
 v2 requires **Node.js 20+** and ships **ESM only** (no more CommonJS builds).
 
 If your project uses CommonJS (`require()`), you will need to either:
+
 - Migrate to ESM (`import`/`export`)
 - Use dynamic `import()` to load the SDK
 
@@ -71,11 +73,11 @@ If your project uses CommonJS (`require()`), you will need to either:
 
 The server package no longer depends on Express or Hono. HTTP framework integrations are now separate middleware packages:
 
-| v1 | v2 |
-|----|-----|
+| v1                                     | v2                                          |
+| -------------------------------------- | ------------------------------------------- |
 | Built into `@modelcontextprotocol/sdk` | `@modelcontextprotocol/node` (Node.js HTTP) |
-| | `@modelcontextprotocol/express` (Express) |
-| | `@modelcontextprotocol/hono` (Hono) |
+|                                        | `@modelcontextprotocol/express` (Express)   |
+|                                        | `@modelcontextprotocol/hono` (Hono)         |
 
 Install the middleware package for your framework:
 
@@ -128,12 +130,12 @@ This affects both transport constructors and request handler code that reads hea
 ```typescript
 // Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
-  requestInit: {
-    headers: {
-      'Authorization': 'Bearer token',
-      'X-Custom': 'value',
-    },
-  },
+    requestInit: {
+        headers: {
+            Authorization: 'Bearer token',
+            'X-Custom': 'value'
+        }
+    }
 });
 
 // Reading headers in a request handler
@@ -145,12 +147,12 @@ const sessionId = extra.requestInfo?.headers['mcp-session-id'];
 ```typescript
 // Transport headers
 const transport = new StreamableHTTPClientTransport(url, {
-  requestInit: {
-    headers: new Headers({
-      'Authorization': 'Bearer token',
-      'X-Custom': 'value',
-    }),
-  },
+    requestInit: {
+        headers: new Headers({
+            Authorization: 'Bearer token',
+            'X-Custom': 'value'
+        })
+    }
 });
 
 // Reading headers in a request handler
@@ -170,22 +172,22 @@ const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
 server.tool('greet', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
 server.tool('greet', 'Greet a user', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
 server.prompt('summarize', { text: z.string() }, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
 // Resource
-server.resource('config', 'config://app', async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.resource('config', 'config://app', async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
 
@@ -198,28 +200,29 @@ const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
 server.registerTool('greet', { inputSchema: { name: z.string() } }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
 server.registerTool('greet', { description: 'Greet a user', inputSchema: { name: z.string() } }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
 server.registerPrompt('summarize', { argsSchema: { text: z.string() } }, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
+    return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
 // Resource
-server.registerResource('config', 'config://app', {}, async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.registerResource('config', 'config://app', {}, async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
 
 ### Host header validation moved
 
-Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`, `hostHeaderValidationResponse()`.
+Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`,
+`hostHeaderValidationResponse()`.
 
 **Before (v1):**
 
@@ -249,13 +252,13 @@ import { Server, InitializeRequestSchema, LoggingMessageNotificationSchema } fro
 const server = new Server({ name: 'my-server', version: '1.0.0' });
 
 // Request handler with schema
-server.setRequestHandler(InitializeRequestSchema, async (request) => {
-  return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } };
+server.setRequestHandler(InitializeRequestSchema, async request => {
+    return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } };
 });
 
 // Notification handler with schema
-server.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
-  console.log(notification.params.data);
+server.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+    console.log(notification.params.data);
 });
 ```
 
@@ -267,13 +270,13 @@ import { Server } from '@modelcontextprotocol/server';
 const server = new Server({ name: 'my-server', version: '1.0.0' });
 
 // Request handler with method string
-server.setRequestHandler('initialize', async (request) => {
-  return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } };
+server.setRequestHandler('initialize', async request => {
+    return { protocolVersion: '...', capabilities: {}, serverInfo: { name: '...', version: '...' } };
 });
 
 // Notification handler with method string
-server.setNotificationHandler('notifications/message', (notification) => {
-  console.log(notification.params.data);
+server.setNotificationHandler('notifications/message', notification => {
+    console.log(notification.params.data);
 });
 ```
 
@@ -281,21 +284,21 @@ The request and notification parameters remain fully typed via `RequestTypeMap` 
 
 Common method string replacements:
 
-| Schema (v1) | Method string (v2) |
-|-------------|-------------------|
-| `InitializeRequestSchema` | `'initialize'` |
-| `CallToolRequestSchema` | `'tools/call'` |
-| `ListToolsRequestSchema` | `'tools/list'` |
-| `ListPromptsRequestSchema` | `'prompts/list'` |
-| `GetPromptRequestSchema` | `'prompts/get'` |
-| `ListResourcesRequestSchema` | `'resources/list'` |
-| `ReadResourceRequestSchema` | `'resources/read'` |
-| `CreateMessageRequestSchema` | `'sampling/createMessage'` |
-| `ElicitRequestSchema` | `'elicitation/create'` |
-| `LoggingMessageNotificationSchema` | `'notifications/message'` |
-| `ToolListChangedNotificationSchema` | `'notifications/tools/list_changed'` |
+| Schema (v1)                             | Method string (v2)                       |
+| --------------------------------------- | ---------------------------------------- |
+| `InitializeRequestSchema`               | `'initialize'`                           |
+| `CallToolRequestSchema`                 | `'tools/call'`                           |
+| `ListToolsRequestSchema`                | `'tools/list'`                           |
+| `ListPromptsRequestSchema`              | `'prompts/list'`                         |
+| `GetPromptRequestSchema`                | `'prompts/get'`                          |
+| `ListResourcesRequestSchema`            | `'resources/list'`                       |
+| `ReadResourceRequestSchema`             | `'resources/read'`                       |
+| `CreateMessageRequestSchema`            | `'sampling/createMessage'`               |
+| `ElicitRequestSchema`                   | `'elicitation/create'`                   |
+| `LoggingMessageNotificationSchema`      | `'notifications/message'`                |
+| `ToolListChangedNotificationSchema`     | `'notifications/tools/list_changed'`     |
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
-| `PromptListChangedNotificationSchema` | `'notifications/prompts/list_changed'` |
+| `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
 
 ### Client list methods return empty results for missing capabilities
 
@@ -304,24 +307,27 @@ Common method string replacements:
 To restore v1 behavior (throw an error when capabilities are missing), set `enforceStrictCapabilities: true`:
 
 ```typescript
-const client = new Client({ name: 'my-client', version: '1.0.0' }, {
-  enforceStrictCapabilities: true,
-});
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    {
+        enforceStrictCapabilities: true
+    }
+);
 ```
 
 ### Removed type aliases and deprecated exports
 
 The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
 
-| Removed | Replacement |
-|---------|-------------|
-| `JSONRPCError` | `JSONRPCErrorResponse` |
-| `JSONRPCErrorSchema` | `JSONRPCErrorResponseSchema` |
-| `isJSONRPCError` | `isJSONRPCErrorResponse` |
-| `isJSONRPCResponse` | `isJSONRPCResultResponse` |
-| `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
-| `ResourceReference` | `ResourceTemplateReference` |
-| `IsomorphicHeaders` | Use Web Standard `Headers` |
+| Removed                                  | Replacement                                      |
+| ---------------------------------------- | ------------------------------------------------ |
+| `JSONRPCError`                           | `JSONRPCErrorResponse`                           |
+| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                     |
+| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                         |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                        |
+| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
+| `ResourceReference`                      | `ResourceTemplateReference`                      |
+| `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
 
 All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names in `@modelcontextprotocol/core`.
@@ -347,11 +353,11 @@ The SDK now distinguishes between two types of errors:
 
 #### Renamed exports
 
-| v1 | v2 |
-|----|-----|
-| `McpError` | `ProtocolError` |
-| `ErrorCode` | `ProtocolErrorCode` |
-| `ErrorCode.RequestTimeout` | `SdkErrorCode.RequestTimeout` |
+| v1                           | v2                              |
+| ---------------------------- | ------------------------------- |
+| `McpError`                   | `ProtocolError`                 |
+| `ErrorCode`                  | `ProtocolErrorCode`             |
+| `ErrorCode.RequestTimeout`   | `SdkErrorCode.RequestTimeout`   |
 | `ErrorCode.ConnectionClosed` | `SdkErrorCode.ConnectionClosed` |
 
 **Before (v1):**
@@ -394,21 +400,21 @@ try {
 
 The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 
-| Code | Description |
-|------|-------------|
-| `SdkErrorCode.NotConnected` | Transport is not connected |
-| `SdkErrorCode.AlreadyConnected` | Transport is already connected |
-| `SdkErrorCode.NotInitialized` | Protocol is not initialized |
-| `SdkErrorCode.CapabilityNotSupported` | Required capability is not supported |
-| `SdkErrorCode.RequestTimeout` | Request timed out waiting for response |
-| `SdkErrorCode.ConnectionClosed` | Connection was closed |
-| `SdkErrorCode.SendFailed` | Failed to send message |
-| `SdkErrorCode.ClientHttpNotImplemented` | HTTP POST request failed |
-| `SdkErrorCode.ClientHttpAuthentication` | Server returned 401 after successful auth |
-| `SdkErrorCode.ClientHttpForbidden` | Server returned 403 after trying upscoping |
-| `SdkErrorCode.ClientHttpUnexpectedContent` | Unexpected content type in HTTP response |
-| `SdkErrorCode.ClientHttpFailedToOpenStream` | Failed to open SSE stream |
-| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session |
+| Code                                              | Description                                |
+| ------------------------------------------------- | ------------------------------------------ |
+| `SdkErrorCode.NotConnected`                       | Transport is not connected                 |
+| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected             |
+| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                |
+| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported       |
+| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response     |
+| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                      |
+| `SdkErrorCode.SendFailed`                         | Failed to send message                     |
+| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                   |
+| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after successful auth  |
+| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping |
+| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response   |
+| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                  |
+| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                |
 
 #### `StreamableHTTPError` removed
 
@@ -459,9 +465,11 @@ try {
 
 #### Why this change?
 
-Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was semantically inconsistent.
+Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was
+semantically inconsistent.
 
 The new design:
+
 - `ProtocolError` with `ProtocolErrorCode`: For errors that are serialized and sent as JSON-RPC error responses
 - `SdkError` with `SdkErrorCode`: For local errors that are thrown/rejected locally and never leave the SDK
 
@@ -473,26 +481,26 @@ The OAuth error classes have been consolidated into a single `OAuthError` class 
 
 The following individual error classes have been removed in favor of `OAuthError` with the appropriate code:
 
-| v1 Class | v2 Equivalent |
-|----------|---------------|
-| `InvalidRequestError` | `new OAuthError(OAuthErrorCode.InvalidRequest, message)` |
-| `InvalidClientError` | `new OAuthError(OAuthErrorCode.InvalidClient, message)` |
-| `InvalidGrantError` | `new OAuthError(OAuthErrorCode.InvalidGrant, message)` |
-| `UnauthorizedClientError` | `new OAuthError(OAuthErrorCode.UnauthorizedClient, message)` |
-| `UnsupportedGrantTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedGrantType, message)` |
-| `InvalidScopeError` | `new OAuthError(OAuthErrorCode.InvalidScope, message)` |
-| `AccessDeniedError` | `new OAuthError(OAuthErrorCode.AccessDenied, message)` |
-| `ServerError` | `new OAuthError(OAuthErrorCode.ServerError, message)` |
-| `TemporarilyUnavailableError` | `new OAuthError(OAuthErrorCode.TemporarilyUnavailable, message)` |
+| v1 Class                       | v2 Equivalent                                                     |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `InvalidRequestError`          | `new OAuthError(OAuthErrorCode.InvalidRequest, message)`          |
+| `InvalidClientError`           | `new OAuthError(OAuthErrorCode.InvalidClient, message)`           |
+| `InvalidGrantError`            | `new OAuthError(OAuthErrorCode.InvalidGrant, message)`            |
+| `UnauthorizedClientError`      | `new OAuthError(OAuthErrorCode.UnauthorizedClient, message)`      |
+| `UnsupportedGrantTypeError`    | `new OAuthError(OAuthErrorCode.UnsupportedGrantType, message)`    |
+| `InvalidScopeError`            | `new OAuthError(OAuthErrorCode.InvalidScope, message)`            |
+| `AccessDeniedError`            | `new OAuthError(OAuthErrorCode.AccessDenied, message)`            |
+| `ServerError`                  | `new OAuthError(OAuthErrorCode.ServerError, message)`             |
+| `TemporarilyUnavailableError`  | `new OAuthError(OAuthErrorCode.TemporarilyUnavailable, message)`  |
 | `UnsupportedResponseTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedResponseType, message)` |
-| `UnsupportedTokenTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedTokenType, message)` |
-| `InvalidTokenError` | `new OAuthError(OAuthErrorCode.InvalidToken, message)` |
-| `MethodNotAllowedError` | `new OAuthError(OAuthErrorCode.MethodNotAllowed, message)` |
-| `TooManyRequestsError` | `new OAuthError(OAuthErrorCode.TooManyRequests, message)` |
-| `InvalidClientMetadataError` | `new OAuthError(OAuthErrorCode.InvalidClientMetadata, message)` |
-| `InsufficientScopeError` | `new OAuthError(OAuthErrorCode.InsufficientScope, message)` |
-| `InvalidTargetError` | `new OAuthError(OAuthErrorCode.InvalidTarget, message)` |
-| `CustomOAuthError` | `new OAuthError(customCode, message)` |
+| `UnsupportedTokenTypeError`    | `new OAuthError(OAuthErrorCode.UnsupportedTokenType, message)`    |
+| `InvalidTokenError`            | `new OAuthError(OAuthErrorCode.InvalidToken, message)`            |
+| `MethodNotAllowedError`        | `new OAuthError(OAuthErrorCode.MethodNotAllowed, message)`        |
+| `TooManyRequestsError`         | `new OAuthError(OAuthErrorCode.TooManyRequests, message)`         |
+| `InvalidClientMetadataError`   | `new OAuthError(OAuthErrorCode.InvalidClientMetadata, message)`   |
+| `InsufficientScopeError`       | `new OAuthError(OAuthErrorCode.InsufficientScope, message)`       |
+| `InvalidTargetError`           | `new OAuthError(OAuthErrorCode.InvalidTarget, message)`           |
+| `CustomOAuthError`             | `new OAuthError(customCode, message)`                             |
 
 The `OAUTH_ERRORS` constant has also been removed.
 
@@ -552,7 +560,8 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 
 ## Using an LLM to migrate your code
 
-An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as a skill.
+An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as
+a skill.
 
 ## Need Help?
 

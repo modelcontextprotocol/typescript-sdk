@@ -212,7 +212,12 @@ describe('StreamableHTTPClientTransport', () => {
         const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
-        await expect(transport.send(message)).rejects.toThrow(new SdkError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', { status: 404, text: 'Session not found' }));
+        await expect(transport.send(message)).rejects.toThrow(
+            new SdkError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
+                status: 404,
+                text: 'Session not found'
+            })
+        );
         expect(errorSpy).toHaveBeenCalled();
     });
 
