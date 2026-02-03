@@ -1,5 +1,6 @@
 import type {
     ClientCapabilities,
+    ClientToServerRequestMethod,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
@@ -21,7 +22,6 @@ import type {
     ProtocolOptions,
     Request,
     RequestHandlerExtra,
-    RequestMethod,
     RequestOptions,
     RequestTypeMap,
     ResourceUpdatedNotification,
@@ -214,8 +214,10 @@ export class Server<
 
     /**
      * Override request handler registration to enforce server-side validation for tools/call.
+     * Only client-to-server methods are valid (tools/call, prompts/get, resources/read, etc.).
      */
-    public override setRequestHandler<M extends RequestMethod>(
+    // @ts-expect-error - Intentionally narrowing the method constraint for type safety
+    public override setRequestHandler<M extends ClientToServerRequestMethod>(
         method: M,
         handler: (
             request: RequestTypeMap[M],

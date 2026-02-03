@@ -2615,6 +2615,10 @@ export type NotificationMethod = ClientNotification['method'] | ServerNotificati
 export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
 export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
 
+// Narrowed method types for Client and Server request handlers
+export type ServerToClientRequestMethod = ServerRequest['method'];
+export type ClientToServerRequestMethod = ClientRequest['method'];
+
 /* Runtime schema lookup */
 type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
 type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];

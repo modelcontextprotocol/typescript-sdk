@@ -24,11 +24,11 @@ import type {
     ReadResourceRequest,
     Request,
     RequestHandlerExtra,
-    RequestMethod,
     RequestOptions,
     RequestTypeMap,
     Result,
     ServerCapabilities,
+    ServerToClientRequestMethod,
     SubscribeRequest,
     Tool,
     Transport,
@@ -327,8 +327,10 @@ export class Client<
 
     /**
      * Override request handler registration to enforce client-side validation for elicitation.
+     * Only server-to-client methods are valid (sampling/createMessage, elicitation/create, roots/list).
      */
-    public override setRequestHandler<M extends RequestMethod>(
+    // @ts-expect-error - Intentionally narrowing the method constraint for type safety
+    public override setRequestHandler<M extends ServerToClientRequestMethod>(
         method: M,
         handler: (
             request: RequestTypeMap[M],
