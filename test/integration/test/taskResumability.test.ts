@@ -6,8 +6,8 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
 import { CallToolResultSchema, McpServer } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
+import { z } from 'zod/v4';
 
 /**
  * Simple in-memory EventStore for testing resumability.
@@ -43,8 +43,7 @@ class InMemoryEventStore implements EventStore {
     }
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
+describe('Zod v4', () => {
     describe('Transport resumability', () => {
         let server: Server;
         let mcpServer: McpServer;

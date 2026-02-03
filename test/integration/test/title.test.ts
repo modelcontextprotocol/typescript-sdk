@@ -1,12 +1,9 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { z } from 'zod/v4';
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Zod v4', () => {
     describe('Title field backwards compatibility', () => {
         it('should work with tools that have title', async () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

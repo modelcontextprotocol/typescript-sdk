@@ -9,12 +9,9 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport, ListPromptsResultSchema } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { z } from 'zod/v4';
 
-describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Issue #1277: Zod v4', () => {
     test('should preserve argument descriptions from .describe()', async () => {
         const mcpServer = new McpServer({
             name: 'test server',

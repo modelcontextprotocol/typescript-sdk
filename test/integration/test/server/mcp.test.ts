@@ -17,9 +17,8 @@ import {
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { z } from 'zod/v4';
 
 function createLatch() {
     let latch = false;
@@ -37,9 +36,7 @@ function createLatch() {
     };
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Zod v4', () => {
     describe('McpServer', () => {
         /***
          * Test: Basic Server Instance

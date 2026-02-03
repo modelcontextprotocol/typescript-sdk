@@ -14,8 +14,8 @@ import type {
 } from '@modelcontextprotocol/core';
 import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
+import { z } from 'zod/v4';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { NodeStreamableHTTPServerTransport } from '../src/streamableHttp.js';
@@ -148,7 +148,7 @@ function expectErrorResponse(
         expect((data as { error: { data?: string } }).error.data).toBeDefined();
     }
 }
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
+describe('Zod v4', () => {
     /**
      * Helper to create and start test HTTP server with MCP setup
      */
@@ -248,7 +248,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         return { server, transport, mcpServer, baseUrl };
     }
 
-    const { z } = entry;
     describe('NodeStreamableHTTPServerTransport', () => {
         let server: Server;
         let mcpServer: McpServer;

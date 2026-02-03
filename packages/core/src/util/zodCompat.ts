@@ -162,6 +162,19 @@ export function isSchemaOptional(schema: AnySchema): boolean {
 }
 
 /**
+ * Unwraps an optional schema to get the inner type.
+ * Returns the schema unchanged if it's not optional.
+ */
+export function unwrapOptional(schema: AnySchema): AnySchema {
+    const v4Schema = schema as unknown as ZodV4Internal;
+    if (v4Schema._zod?.def?.type === 'optional') {
+        const innerType = (v4Schema._zod.def as { innerType?: AnySchema }).innerType;
+        if (innerType) return innerType;
+    }
+    return schema;
+}
+
+/**
  * Gets the literal value from a schema, if it's a literal schema.
  * Returns undefined if the schema is not a literal or the value cannot be determined.
  */

@@ -46,10 +46,10 @@ import {
     ProtocolErrorCode,
     safeParseAsync,
     toJsonSchemaCompat,
+    unwrapOptional,
     UriTemplate,
     validateAndWarnToolName
 } from '@modelcontextprotocol/core';
-import { ZodOptional } from 'zod';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
@@ -752,7 +752,7 @@ export class McpServer {
         // If any argument uses a Completable schema, enable completions capability
         if (argsSchema) {
             const hasCompletable = Object.values(argsSchema).some(field => {
-                const inner: unknown = field instanceof ZodOptional ? field._def?.innerType : field;
+                const inner = unwrapOptional(field);
                 return isCompletable(inner);
             });
             if (hasCompletable) {
@@ -1146,16 +1146,13 @@ function createToolExecutor(
 }
 
 /**
- * Checks if an object is a Zod schema instance (v3 or v4).
+ * Checks if an object is a Zod v4 schema instance.
  *
- * Zod schemas have internal markers:
- * - v3: `_def` property
- * - v4: `_zod` property
- *
+ * Zod v4 schemas have the `_zod` internal property.
  * This includes transformed schemas like z.preprocess(), z.transform(), z.pipe().
  */
 function isZodSchemaInstance(obj: object): boolean {
-    return '_def' in obj || '_zod' in obj || isZodTypeLike(obj);
+    return '_zod' in obj || isZodTypeLike(obj);
 }
 
 /**
@@ -1346,9 +1343,7 @@ function promptArgumentsFromSchema(schema: AnyObjectSchema): PromptArgument[] {
     const shape = getObjectShape(schema);
     if (!shape) return [];
     return Object.entries(shape).map(([name, field]): PromptArgument => {
-        // Get description - works for both v3 and v4
         const description = getSchemaDescription(field);
-        // Check if optional - works for both v3 and v4
         const isOptional = isSchemaOptional(field);
         return {
             name,

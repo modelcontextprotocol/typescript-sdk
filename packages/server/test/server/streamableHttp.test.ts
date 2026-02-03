@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@modelcontextprotocol/core';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { z } from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp.js';
@@ -118,9 +117,7 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
     });
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Zod v4', () => {
     describe('HTTPServerTransport', () => {
         let transport: WebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
