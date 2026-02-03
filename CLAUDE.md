@@ -22,7 +22,7 @@ npm run typecheck    # Type-check without emitting
 - **Files**: Lowercase with hyphens, test files with `.test.ts` suffix
 - **Imports**: ES module style, include `.js` extension, group imports logically
 - **Formatting**: 2-space indentation, semicolons required, single quotes preferred
-- **Testing**: Co-locate tests with source files, use descriptive test names
+- **Testing**: Co-locate tests with source files, use descriptive test names. Use `vi.useFakeTimers()` instead of real `setTimeout`/`await` delays in tests
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
 
 ## Architecture Overview
