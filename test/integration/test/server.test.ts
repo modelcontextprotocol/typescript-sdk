@@ -2200,11 +2200,14 @@ describe('Task-based execution', () => {
 
         // Use callToolStream to create a task and capture the task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, {
-            task: {
-                ttl: 60_000
+        const stream = client.experimental.tasks.callToolStream(
+            { name: 'test-tool', arguments: {} },
+            {
+                task: {
+                    ttl: 60_000
+                }
             }
-        });
+        );
 
         for await (const message of stream) {
             if (message.type === 'taskCreated') {
@@ -2427,11 +2430,14 @@ describe('Task-based execution', () => {
 
         // Call tool WITH task creation using callToolStream to capture task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'collect-info', arguments: {} }, {
-            task: {
-                ttl: 60_000
+        const stream = client.experimental.tasks.callToolStream(
+            { name: 'collect-info', arguments: {} },
+            {
+                task: {
+                    ttl: 60_000
+                }
             }
-        });
+        );
 
         for await (const message of stream) {
             if (message.type === 'taskCreated') {

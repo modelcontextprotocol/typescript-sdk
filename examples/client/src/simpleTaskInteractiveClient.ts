@@ -10,13 +10,7 @@
 import { createInterface } from 'node:readline';
 
 import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ProtocolError,
-    ProtocolErrorCode,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { Client, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
 const readline = createInterface({

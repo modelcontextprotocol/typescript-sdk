@@ -1622,9 +1622,12 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Use callToolStream instead of raw request()
-            const stream = client.experimental.tasks.callToolStream({ name: 'input-task', arguments: {} }, {
-                task: { ttl: 60_000 }
-            });
+            const stream = client.experimental.tasks.callToolStream(
+                { name: 'input-task', arguments: {} },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             // Collect all stream messages
             const messages: Array<{ type: string; task?: unknown; result?: unknown; error?: unknown }> = [];

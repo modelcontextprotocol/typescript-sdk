@@ -2459,9 +2459,12 @@ describe('Task-based execution', () => {
 
             // Create a task using callToolStream to capture the task ID
             let taskId: string | undefined;
-            const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, {
-                task: { ttl: 60_000 }
-            });
+            const stream = client.experimental.tasks.callToolStream(
+                { name: 'test-tool', arguments: {} },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             for await (const message of stream) {
                 if (message.type === 'taskCreated') {
