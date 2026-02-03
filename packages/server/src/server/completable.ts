@@ -20,10 +20,7 @@ export type CompletableSchema<T extends StandardJSONSchemaV1> = T & {
 /**
  * Wraps a schema to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
  */
-export function completable<T extends StandardJSONSchemaV1>(
-    schema: T,
-    complete: CompleteCallback<T>
-): CompletableSchema<T> {
+export function completable<T extends StandardJSONSchemaV1>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {
     Object.defineProperty(schema as object, COMPLETABLE_SYMBOL, {
         value: { complete } as CompletableMeta<T>,
         enumerable: false,

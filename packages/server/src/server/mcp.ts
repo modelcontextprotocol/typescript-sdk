@@ -137,10 +137,7 @@ export class McpServer {
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = standardSchemaToJsonSchema(
-                                tool.outputSchema,
-                                'output'
-                            ) as Tool['outputSchema'];
+                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
@@ -798,10 +795,7 @@ export class McpServer {
     /**
      * Registers a tool with a config object and callback.
      */
-    registerTool<
-        OutputArgs extends StandardJSONSchemaV1,
-        InputArgs extends StandardJSONSchemaV1 | undefined = undefined
-    >(
+    registerTool<OutputArgs extends StandardJSONSchemaV1, InputArgs extends StandardJSONSchemaV1 | undefined = undefined>(
         name: string,
         config: {
             title?: string;
@@ -984,9 +978,7 @@ export type ToolCallback<Args extends StandardJSONSchemaV1 | undefined = undefin
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
-export type AnyToolHandler<Args extends StandardJSONSchemaV1 | undefined = undefined> =
-    | ToolCallback<Args>
-    | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends StandardJSONSchemaV1 | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
@@ -1249,9 +1241,7 @@ function unwrapZodOptionalSchema(schema: unknown): unknown {
  * @internal Extracts completable callbacks from a schema at registration time.
  * This allows completion to work without runtime Zod introspection.
  */
-function extractCompleters(
-    schema: StandardJSONSchemaV1 | undefined
-): Map<string, CompleteCallback<StandardJSONSchemaV1>> | undefined {
+function extractCompleters(schema: StandardJSONSchemaV1 | undefined): Map<string, CompleteCallback<StandardJSONSchemaV1>> | undefined {
     if (!schema) return undefined;
 
     const shape = getZodSchemaShape(schema);

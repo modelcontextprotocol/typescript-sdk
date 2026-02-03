@@ -32,10 +32,11 @@ export type CreateTaskRequestHandler<
  * Handler for task operations (get, getResult).
  * @experimental
  */
-export type TaskRequestHandler<
-    SendResultT extends Result,
-    Args extends StandardJSONSchemaV1 | undefined = undefined
-> = BaseToolCallback<SendResultT, TaskServerContext, Args>;
+export type TaskRequestHandler<SendResultT extends Result, Args extends StandardJSONSchemaV1 | undefined = undefined> = BaseToolCallback<
+    SendResultT,
+    TaskServerContext,
+    Args
+>;
 
 /**
  * Interface for task-based tool handlers.

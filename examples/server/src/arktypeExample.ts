@@ -48,9 +48,12 @@ server.registerTool(
 
         // Simulate weather API call
         const temp_c = Math.round((Math.random() * 35 - 5) * 10) / 10;
-        const conditions = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'][
-            Math.floor(Math.random() * 5)
-        ] as 'sunny' | 'cloudy' | 'rainy' | 'stormy' | 'snowy';
+        const conditions = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'][Math.floor(Math.random() * 5)] as
+            | 'sunny'
+            | 'cloudy'
+            | 'rainy'
+            | 'stormy'
+            | 'snowy';
 
         const structuredContent = {
             temperature: {
@@ -100,16 +103,19 @@ server.registerTool(
     async ({ operation, a, b }) => {
         let result: number;
         switch (operation) {
-            case 'add':
+            case 'add': {
                 result = a + b;
                 break;
-            case 'subtract':
+            }
+            case 'subtract': {
                 result = a - b;
                 break;
-            case 'multiply':
+            }
+            case 'multiply': {
                 result = a * b;
                 break;
-            case 'divide':
+            }
+            case 'divide': {
                 if (b === 0) {
                     return {
                         content: [{ type: 'text', text: 'Error: Division by zero' }],
@@ -118,6 +124,7 @@ server.registerTool(
                 }
                 result = a / b;
                 break;
+            }
         }
 
         const structuredContent = {

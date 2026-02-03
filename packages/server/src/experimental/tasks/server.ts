@@ -88,11 +88,7 @@ export class ExperimentalServerTasks {
      *
      * @experimental
      */
-    async getTaskResult<T extends z.core.$ZodType>(
-        taskId: string,
-        resultSchema?: T,
-        options?: RequestOptions
-    ): Promise<z.output<T>> {
+    async getTaskResult<T extends z.core.$ZodType>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<z.output<T>> {
         return (
             this._server as unknown as {
                 getTaskResult: <U extends z.core.$ZodType>(

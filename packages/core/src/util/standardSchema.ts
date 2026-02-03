@@ -6,6 +6,10 @@
  * Supported libraries include: Zod v4, Valibot, ArkType, and others.
  */
 
+/* eslint-disable @typescript-eslint/no-namespace */
+// Namespaces are used here to match the Standard Schema spec interface design,
+// enabling ergonomic type inference like `StandardJSONSchemaV1.InferOutput<T>`.
+
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
 
 // ============================================================================
@@ -48,10 +52,7 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
 
 export namespace StandardSchemaV1 {
     export interface Props<Input = unknown, Output = Input> extends StandardTypedV1.Props<Input, Output> {
-        readonly validate: (
-            value: unknown,
-            options?: Options | undefined
-        ) => Result<Output> | Promise<Result<Output>>;
+        readonly validate: (value: unknown, options?: Options | undefined) => Result<Output> | Promise<Result<Output>>;
     }
 
     export interface Options {
@@ -171,10 +172,7 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
  * @param io - Whether to get the 'input' or 'output' JSON Schema (default: 'input')
  * @returns JSON Schema object compatible with Draft 2020-12
  */
-export function standardSchemaToJsonSchema(
-    schema: StandardJSONSchemaV1,
-    io: 'input' | 'output' = 'input'
-): Record<string, unknown> {
+export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
     return schema['~standard'].jsonSchema[io]({ target: 'draft-2020-12' });
 }
 
@@ -219,9 +217,7 @@ export async function validateStandardSchema<T extends StandardJSONSchemaV1>(
     // Fall back to JSON Schema validation if validator provided
     if (jsonSchemaValidatorInstance) {
         const jsonSchema = standardSchemaToJsonSchema(schema, 'input');
-        const validator = jsonSchemaValidatorInstance.getValidator<StandardJSONSchemaV1.InferOutput<T>>(
-            jsonSchema as JsonSchemaType
-        );
+        const validator = jsonSchemaValidatorInstance.getValidator<StandardJSONSchemaV1.InferOutput<T>>(jsonSchema as JsonSchemaType);
         const validationResult = validator(data);
 
         if (validationResult.valid) {

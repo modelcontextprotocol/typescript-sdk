@@ -52,8 +52,8 @@ import {
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
-import * as z from 'zod/v4';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+import * as z from 'zod/v4';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 

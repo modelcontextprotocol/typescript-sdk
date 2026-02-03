@@ -4,14 +4,8 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { CallToolResult, TextContent } from '@modelcontextprotocol/core';
-import {
-    CallToolResultSchema,
-    CompleteResultSchema,
-    InMemoryTransport,
-    ListPromptsResultSchema,
-    ListToolsResultSchema
-} from '@modelcontextprotocol/core';
+import type { TextContent } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, CompleteResultSchema, InMemoryTransport, ListToolsResultSchema } from '@modelcontextprotocol/core';
 import { completable, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
@@ -113,13 +107,9 @@ describe('Standard Schema Support', () => {
             test('should validate valid input and execute tool', async () => {
                 const inputSchema = type({ value: 'number' });
 
-                mcpServer.registerTool(
-                    'double',
-                    { inputSchema },
-                    async ({ value }) => ({
-                        content: [{ type: 'text', text: `${value * 2}` }]
-                    })
-                );
+                mcpServer.registerTool('double', { inputSchema }, async ({ value }) => ({
+                    content: [{ type: 'text', text: `${value * 2}` }]
+                }));
 
                 await connectClientAndServer();
 
@@ -137,13 +127,9 @@ describe('Standard Schema Support', () => {
             test('should return validation error for invalid input type', async () => {
                 const inputSchema = type({ value: 'number' });
 
-                mcpServer.registerTool(
-                    'double',
-                    { inputSchema },
-                    async ({ value }) => ({
-                        content: [{ type: 'text', text: `${value * 2}` }]
-                    })
-                );
+                mcpServer.registerTool('double', { inputSchema }, async ({ value }) => ({
+                    content: [{ type: 'text', text: `${value * 2}` }]
+                }));
 
                 await connectClientAndServer();
 
@@ -167,13 +153,9 @@ describe('Standard Schema Support', () => {
                     operation: "'add' | 'subtract' | 'multiply'"
                 });
 
-                mcpServer.registerTool(
-                    'calculate',
-                    { inputSchema },
-                    async ({ operation }) => ({
-                        content: [{ type: 'text', text: operation }]
-                    })
-                );
+                mcpServer.registerTool('calculate', { inputSchema }, async ({ operation }) => ({
+                    content: [{ type: 'text', text: operation }]
+                }));
 
                 await connectClientAndServer();
 
@@ -194,13 +176,9 @@ describe('Standard Schema Support', () => {
             test('should return validation error for missing required field', async () => {
                 const inputSchema = type({ name: 'string', age: 'number' });
 
-                mcpServer.registerTool(
-                    'greet',
-                    { inputSchema },
-                    async ({ name, age }) => ({
-                        content: [{ type: 'text', text: `Hello ${name}, ${age}` }]
-                    })
-                );
+                mcpServer.registerTool('greet', { inputSchema }, async ({ name, age }) => ({
+                    content: [{ type: 'text', text: `Hello ${name}, ${age}` }]
+                }));
 
                 await connectClientAndServer();
 
@@ -284,13 +262,9 @@ describe('Standard Schema Support', () => {
             test('should validate valid input and execute tool', async () => {
                 const inputSchema = toStandardJsonSchema(v.object({ value: v.number() }));
 
-                mcpServer.registerTool(
-                    'double',
-                    { inputSchema },
-                    async ({ value }) => ({
-                        content: [{ type: 'text', text: `${value * 2}` }]
-                    })
-                );
+                mcpServer.registerTool('double', { inputSchema }, async ({ value }) => ({
+                    content: [{ type: 'text', text: `${value * 2}` }]
+                }));
 
                 await connectClientAndServer();
 
@@ -308,13 +282,9 @@ describe('Standard Schema Support', () => {
             test('should return validation error for invalid input type', async () => {
                 const inputSchema = toStandardJsonSchema(v.object({ value: v.number() }));
 
-                mcpServer.registerTool(
-                    'double',
-                    { inputSchema },
-                    async ({ value }) => ({
-                        content: [{ type: 'text', text: `${value * 2}` }]
-                    })
-                );
+                mcpServer.registerTool('double', { inputSchema }, async ({ value }) => ({
+                    content: [{ type: 'text', text: `${value * 2}` }]
+                }));
 
                 await connectClientAndServer();
 
@@ -339,13 +309,9 @@ describe('Standard Schema Support', () => {
                     })
                 );
 
-                mcpServer.registerTool(
-                    'calculate',
-                    { inputSchema },
-                    async ({ operation }) => ({
-                        content: [{ type: 'text', text: operation }]
-                    })
-                );
+                mcpServer.registerTool('calculate', { inputSchema }, async ({ operation }) => ({
+                    content: [{ type: 'text', text: operation }]
+                }));
 
                 await connectClientAndServer();
 
@@ -369,13 +335,9 @@ describe('Standard Schema Support', () => {
                     })
                 );
 
-                mcpServer.registerTool(
-                    'setPercentage',
-                    { inputSchema },
-                    async ({ percentage }) => ({
-                        content: [{ type: 'text', text: `${percentage}%` }]
-                    })
-                );
+                mcpServer.registerTool('setPercentage', { inputSchema }, async ({ percentage }) => ({
+                    content: [{ type: 'text', text: `${percentage}%` }]
+                }));
 
                 await connectClientAndServer();
 
@@ -407,18 +369,14 @@ describe('Standard Schema Support', () => {
     describe('Mixed schema libraries', () => {
         test('should support tools with different schema libraries in same server', async () => {
             // Zod tool
-            mcpServer.registerTool(
-                'zod-tool',
-                { inputSchema: z.object({ value: z.string() }) },
-                async ({ value }) => ({ content: [{ type: 'text', text: `zod: ${value}` }] })
-            );
+            mcpServer.registerTool('zod-tool', { inputSchema: z.object({ value: z.string() }) }, async ({ value }) => ({
+                content: [{ type: 'text', text: `zod: ${value}` }]
+            }));
 
             // ArkType tool
-            mcpServer.registerTool(
-                'arktype-tool',
-                { inputSchema: type({ value: 'string' }) },
-                async ({ value }) => ({ content: [{ type: 'text', text: `arktype: ${value}` }] })
-            );
+            mcpServer.registerTool('arktype-tool', { inputSchema: type({ value: 'string' }) }, async ({ value }) => ({
+                content: [{ type: 'text', text: `arktype: ${value}` }]
+            }));
 
             // Valibot tool
             mcpServer.registerTool(
@@ -642,20 +600,16 @@ describe('Standard Schema Support', () => {
             });
 
             // This test verifies TypeScript compilation succeeds with correct types
-            mcpServer.registerTool(
-                'typed-tool',
-                { inputSchema },
-                async ({ name, count, enabled }) => {
-                    // TypeScript should infer these types correctly
-                    const _name: string = name;
-                    const _count: number = count;
-                    const _enabled: boolean = enabled;
+            mcpServer.registerTool('typed-tool', { inputSchema }, async ({ name, count, enabled }) => {
+                // TypeScript should infer these types correctly
+                const _name: string = name;
+                const _count: number = count;
+                const _enabled: boolean = enabled;
 
-                    return {
-                        content: [{ type: 'text', text: `${_name}: ${_count}, enabled: ${_enabled}` }]
-                    };
-                }
-            );
+                return {
+                    content: [{ type: 'text', text: `${_name}: ${_count}, enabled: ${_enabled}` }]
+                };
+            });
 
             await connectClientAndServer();
 
@@ -682,20 +636,16 @@ describe('Standard Schema Support', () => {
                 })
             );
 
-            mcpServer.registerTool(
-                'typed-tool',
-                { inputSchema },
-                async ({ name, count, enabled }) => {
-                    // TypeScript should infer these types correctly
-                    const _name: string = name;
-                    const _count: number = count;
-                    const _enabled: boolean = enabled;
+            mcpServer.registerTool('typed-tool', { inputSchema }, async ({ name, count, enabled }) => {
+                // TypeScript should infer these types correctly
+                const _name: string = name;
+                const _count: number = count;
+                const _enabled: boolean = enabled;
 
-                    return {
-                        content: [{ type: 'text', text: `${_name}: ${_count}, enabled: ${_enabled}` }]
-                    };
-                }
-            );
+                return {
+                    content: [{ type: 'text', text: `${_name}: ${_count}, enabled: ${_enabled}` }]
+                };
+            });
 
             await connectClientAndServer();
 

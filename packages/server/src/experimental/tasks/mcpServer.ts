@@ -103,10 +103,7 @@ export class ExperimentalMcpServerTasks {
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool;
 
-    registerToolTask<
-        InputArgs extends StandardJSONSchemaV1 | undefined,
-        OutputArgs extends StandardJSONSchemaV1 | undefined
-    >(
+    registerToolTask<InputArgs extends StandardJSONSchemaV1 | undefined, OutputArgs extends StandardJSONSchemaV1 | undefined>(
         name: string,
         config: {
             title?: string;

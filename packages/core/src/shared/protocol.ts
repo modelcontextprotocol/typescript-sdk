@@ -1,8 +1,6 @@
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../experimental/tasks/interfaces.js';
 import { isTerminal } from '../experimental/tasks/interfaces.js';
-import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
-import { parseSchema } from '../util/schema.js';
 import type {
     AuthInfo,
     CancelledNotification,
@@ -59,6 +57,8 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
 } from '../types/types.js';
+import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
+import { parseSchema } from '../util/schema.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
