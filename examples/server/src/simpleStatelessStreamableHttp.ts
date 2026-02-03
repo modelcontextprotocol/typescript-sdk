@@ -56,13 +56,7 @@ const getServer = () => {
             while (count === 0 || counter < count) {
                 counter++;
                 try {
-                    await server.sendLoggingMessage(
-                        {
-                            level: 'info',
-                            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-                        },
-                        ctx.sessionId
-                    );
+                    await ctx.mcpReq.log('info', `Periodic notification #${counter} at ${new Date().toISOString()}`);
                 } catch (error) {
                     console.error('Error sending notification:', error);
                 }

@@ -156,7 +156,7 @@ const transport = new StreamableHTTPClientTransport(url, {
 });
 
 // Reading headers in a request handler
-const sessionId = extra.requestInfo?.headers.get('mcp-session-id');
+const sessionId = ctx.http?.req?.headers.get('mcp-session-id');
 ```
 
 ### `McpServer.tool()`, `.prompt()`, `.resource()` removed

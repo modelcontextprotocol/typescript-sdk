@@ -6,8 +6,8 @@ import type {
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
-    CreateTaskServerContext,
     CreateTaskResult,
+    CreateTaskServerContext,
     GetPromptResult,
     Implementation,
     ListPromptsResult,
@@ -291,11 +291,7 @@ export class McpServer {
     /**
      * Executes a tool handler (either regular or task-based).
      */
-    private async executeToolHandler(
-        tool: RegisteredTool,
-        args: unknown,
-        ctx: ServerContext
-    ): Promise<CallToolResult | CreateTaskResult> {
+    private async executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult | CreateTaskResult> {
         // Executor encapsulates handler invocation with proper types
         return tool.executor(args, ctx);
     }
@@ -995,11 +991,7 @@ export type BaseToolCallback<
 /**
  * Callback for a tool handler registered with Server.tool().
  */
-export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<
-    CallToolResult,
-    ServerContext,
-    Args
->;
+export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
 
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
@@ -1009,10 +1001,7 @@ export type AnyToolHandler<Args extends AnySchema | undefined = undefined> = Too
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
  */
-type ToolExecutor = (
-    args: unknown,
-    ctx: ServerContext
-) => Promise<CallToolResult | CreateTaskResult>;
+type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | CreateTaskResult>;
 
 export type RegisteredTool = {
     title?: string;
@@ -1044,8 +1033,8 @@ export type RegisteredTool = {
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
- * When inputSchema is defined, the handler is called with (args, extra).
- * When inputSchema is undefined, the handler is called with just (extra).
+ * When inputSchema is defined, the handler is called with (args, ctx).
+ * When inputSchema is undefined, the handler is called with just (ctx).
  */
 function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyToolHandler<AnySchema | undefined>): ToolExecutor {
     const isTaskHandler = 'createTask' in handler;
@@ -1061,9 +1050,7 @@ function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyTool
                 return taskHandler.createTask(args, taskCtx);
             }
             // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-            return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(
-                taskCtx
-            );
+            return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
         };
     }
 
@@ -1145,25 +1132,16 @@ export type RegisteredResourceTemplate = {
 };
 
 export type PromptCallback<Args extends AnySchema | undefined = undefined> = Args extends AnySchema
-    ? (
-          args: SchemaOutput<Args>,
-          ctx: ServerContext
-      ) => GetPromptResult | Promise<GetPromptResult>
+    ? (args: SchemaOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
     : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
 /**
  * Internal handler type that encapsulates parsing and callback invocation.
  * This allows type-safe handling without runtime type assertions.
  */
-type PromptHandler = (
-    args: Record<string, unknown> | undefined,
-    ctx: ServerContext
-) => Promise<GetPromptResult>;
+type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult>;
 
-type ToolCallbackInternal = (
-    args: unknown,
-    ctx: ServerContext
-) => CallToolResult | Promise<CallToolResult>;
+type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
 
 type TaskHandlerInternal = {
     createTask: (args: unknown, ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>;
@@ -1199,10 +1177,7 @@ function createPromptHandler(
     callback: PromptCallback<AnySchema | undefined>
 ): PromptHandler {
     if (argsSchema) {
-        const typedCallback = callback as (
-            args: SchemaOutput<AnySchema>,
-            ctx: ServerContext
-        ) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (args: SchemaOutput<AnySchema>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
         return async (args, ctx) => {
             const parseResult = await parseSchemaAsync(argsSchema, args);
@@ -1213,9 +1188,7 @@ function createPromptHandler(
             return typedCallback(parseResult.data as SchemaOutput<AnySchema>, ctx);
         };
     } else {
-        const typedCallback = callback as (
-            ctx: ServerContext
-        ) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
         return async (_args, ctx) => {
             return typedCallback(ctx);

@@ -163,6 +163,9 @@ export class Server<
         ctx: BaseContext<ServerRequest | RequestT, ServerNotification | NotificationT>,
         transportInfo?: MessageExtraInfo
     ): ServerContext<ServerRequest | RequestT, ServerNotification | NotificationT> {
+        // Only create http when there's actual HTTP transport info or auth info
+        const hasHttpInfo =
+            ctx.http || transportInfo?.requestInfo || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
         return {
             ...ctx,
             mcpReq: {
@@ -171,12 +174,14 @@ export class Server<
                 elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
             },
-            http: {
-                ...ctx.http,
-                req: transportInfo?.requestInfo,
-                closeSSE: transportInfo?.closeSSEStream,
-                closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
-            }
+            http: hasHttpInfo
+                ? {
+                      ...ctx.http,
+                      req: transportInfo?.requestInfo,
+                      closeSSE: transportInfo?.closeSSEStream,
+                      closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
+                  }
+                : undefined
         };
     }
 

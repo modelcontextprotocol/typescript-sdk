@@ -2568,8 +2568,9 @@ describe('Progress notification support for tasks', () => {
                 const task = await ctx.task.store.createTask({ ttl: 60000 });
 
                 // Simulate async work then complete the task
+                const taskStore = ctx.task.store;
                 setTimeout(async () => {
-                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
+                    await taskStore.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: 'Done' }]
                     });
                 }, 50);

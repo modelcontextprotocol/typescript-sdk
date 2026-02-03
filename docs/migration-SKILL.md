@@ -297,7 +297,7 @@ extra.requestInfo?.headers['mcp-session-id']
 
 // v2: Headers object, .get() access
 headers: new Headers({ 'Authorization': 'Bearer token' })
-extra.requestInfo?.headers.get('mcp-session-id')
+ctx.http?.req?.headers.get('mcp-session-id')
 ```
 
 ## 8. Removed Server Features

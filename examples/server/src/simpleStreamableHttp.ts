@@ -91,33 +91,15 @@ const getServer = () => {
         async ({ name }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'debug',
-                    data: `Starting multi-greet for ${name}`
-                },
-                ctx.sessionId
-            );
+            await ctx.mcpReq.log('debug', `Starting multi-greet for ${name}`);
 
             await sleep(1000); // Wait 1 second before first greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending first greeting to ${name}`
-                },
-                ctx.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending first greeting to ${name}`);
 
             await sleep(1000); // Wait another second before second greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending second greeting to ${name}`
-                },
-                ctx.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending second greeting to ${name}`);
 
             return {
                 content: [
@@ -334,13 +316,7 @@ const getServer = () => {
             while (count === 0 || counter < count) {
                 counter++;
                 try {
-                    await server.sendLoggingMessage(
-                        {
-                            level: 'info',
-                            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-                        },
-                        ctx.sessionId
-                    );
+                    await ctx.mcpReq.log('info', `Periodic notification #${counter} at ${new Date().toISOString()}`);
                 } catch (error) {
                     console.error('Error sending notification:', error);
                 }
@@ -486,14 +462,14 @@ const getServer = () => {
         {
             async createTask({ duration }, ctx) {
                 // Create the task
-                const task = await ctx.task!.store.createTask({
-                    ttl: ctx.task!.requestedTtl
+                const task = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
                 });
 
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    await ctx.task!.store.storeTaskResult(task.taskId, 'completed', {
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                         content: [
                             {
                                 type: 'text',
@@ -509,10 +485,10 @@ const getServer = () => {
                 };
             },
             async getTask(_args, ctx) {
-                return await ctx.task!.store.getTask(ctx.task!.id);
+                return await ctx.task.store.getTask(ctx.task.id);
             },
             async getTaskResult(_args, ctx) {
-                const result = await ctx.task!.store.getTaskResult(ctx.task!.id);
+                const result = await ctx.task.store.getTaskResult(ctx.task.id);
                 return result as CallToolResult;
             }
         }

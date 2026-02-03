@@ -46,23 +46,11 @@ server.registerTool(
         console.log(`[${ctx.sessionId}] Starting long-task...`);
 
         // Send first progress notification
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 25% - Starting work...'
-            },
-            ctx.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 25% - Starting work...');
         await sleep(1000);
 
         // Send second progress notification
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 50% - Halfway there...'
-            },
-            ctx.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 50% - Halfway there...');
         await sleep(1000);
 
         // Server decides to disconnect the client to free resources
@@ -76,22 +64,10 @@ server.registerTool(
         // Continue processing while client is disconnected
         // Events are stored in eventStore and will be replayed on reconnect
         await sleep(500);
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 75% - Almost done (sent while client disconnected)...'
-            },
-            ctx.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 75% - Almost done (sent while client disconnected)...');
 
         await sleep(500);
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 100% - Complete!'
-            },
-            ctx.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 100% - Complete!');
 
         console.log(`[${ctx.sessionId}] Task complete`);
 
