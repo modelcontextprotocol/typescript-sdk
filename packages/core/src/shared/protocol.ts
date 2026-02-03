@@ -1,6 +1,8 @@
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../experimental/tasks/interfaces.js';
 import { isTerminal } from '../experimental/tasks/interfaces.js';
+import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
+import { parseSchema } from '../util/schema.js';
 import type {
     AuthInfo,
     CancelledNotification,
@@ -57,7 +59,6 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
 } from '../types/types.js';
-import * as z from 'zod/v4';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -1059,7 +1060,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         request: Request,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<z.output<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         const { task } = options ?? {};
 
         // For non-task requests, just yield the result
@@ -1160,7 +1161,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
-        return new Promise<z.output<T>>((resolve, reject) => {
+        return new Promise<SchemaOutput<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
                 reject(error);
             };
@@ -1257,9 +1258,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
 
                 try {
-                    const parseResult = z.safeParse(resultSchema, response.result);
+                    const parseResult = parseSchema(resultSchema, response.result);
                     if (parseResult.success) {
-                        resolve(parseResult.data as z.output<T>);
+                        resolve(parseResult.data as SchemaOutput<T>);
                     } else {
                         reject(parseResult.error);
                     }
@@ -1327,7 +1328,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * @experimental Use `client.experimental.tasks.getTaskResult()` to access this method.
      */
-    protected async getTaskResult<T extends z.core.$ZodType>(
+    protected async getTaskResult<T extends AnySchema>(
         params: GetTaskPayloadRequest['params'],
         resultSchema: T,
         options?: RequestOptions
