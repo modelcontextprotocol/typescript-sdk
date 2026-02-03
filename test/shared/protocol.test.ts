@@ -5586,9 +5586,13 @@ describe('_onclose cleanup', () => {
         const request = { method: 'example', params: {} };
         const mockSchema = z.object({ result: z.string() });
 
-        const requestPromise = protocol.request(request, mockSchema, {
-            timeout: 60000
-        }).catch(() => {/* expected ConnectionClosed error */});
+        const requestPromise = protocol
+            .request(request, mockSchema, {
+                timeout: 60000
+            })
+            .catch(() => {
+                /* expected ConnectionClosed error */
+            });
 
         // Verify the request was sent
         expect(sendSpy).toHaveBeenCalled();
@@ -5636,7 +5640,9 @@ describe('_onclose cleanup', () => {
             protocol.setRequestHandler(TestRequestSchema, async () => {
                 resolve(); // signal that handler has started
                 // Wait for explicit resolution
-                await new Promise<void>(r => { resolveHandler = r; });
+                await new Promise<void>(r => {
+                    resolveHandler = r;
+                });
                 return { _meta: {} } as Result;
             });
         });
@@ -5666,7 +5672,9 @@ describe('_onclose cleanup', () => {
         const handler2Started = new Promise<void>(resolve => {
             protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
                 resolve();
-                await new Promise<void>(r => { resolveHandler2 = r; });
+                await new Promise<void>(r => {
+                    resolveHandler2 = r;
+                });
                 wasAborted = extra.signal.aborted;
                 return { _meta: {} } as Result;
             });
