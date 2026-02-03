@@ -113,12 +113,12 @@ describe('Zod v4', () => {
                     })
                 },
                 async ({ steps }, ctx) => {
-                    const progressToken = ctx._meta?.progressToken;
+                    const progressToken = ctx.mcpReq._meta?.progressToken;
 
                     if (progressToken) {
                         // Send progress notification for each step
                         for (let i = 1; i <= steps; i++) {
-                            await ctx.sendNotification({
+                            await ctx.notification.send({
                                 method: 'notifications/progress',
                                 params: {
                                     progressToken,
@@ -1379,12 +1379,12 @@ describe('Zod v4', () => {
 
             let receivedRequestId: string | number | undefined;
             mcpServer.registerTool('request-id-test', {}, async ctx => {
-                receivedRequestId = ctx.requestId;
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Received request ID: ${ctx.requestId}`
+                            text: `Received request ID: ${ctx.mcpReq.id}`
                         }
                     ]
                 };
@@ -1441,7 +1441,7 @@ describe('Zod v4', () => {
             });
 
             mcpServer.registerTool('test-tool', {}, async ctx => {
-                await ctx.sendNotification({
+                await ctx.notification.send({
                     method: 'notifications/message',
                     params: { level: 'debug', data: loggingMessage }
                 });
@@ -2854,12 +2854,12 @@ describe('Zod v4', () => {
 
             let receivedRequestId: string | number | undefined;
             mcpServer.registerResource('request-id-test', 'test://resource', {}, async (_uri, ctx) => {
-                receivedRequestId = ctx.requestId;
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     contents: [
                         {
                             uri: 'test://resource',
-                            text: `Received request ID: ${ctx.requestId}`
+                            text: `Received request ID: ${ctx.mcpReq.id}`
                         }
                     ]
                 };
@@ -3792,14 +3792,14 @@ describe('Zod v4', () => {
 
             let receivedRequestId: string | number | undefined;
             mcpServer.registerPrompt('request-id-test', {}, async ctx => {
-                receivedRequestId = ctx.requestId;
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     messages: [
                         {
                             role: 'assistant',
                             content: {
                                 type: 'text',
-                                text: `Received request ID: ${ctx.requestId}`
+                                text: `Received request ID: ${ctx.mcpReq.id}`
                             }
                         }
                     ]

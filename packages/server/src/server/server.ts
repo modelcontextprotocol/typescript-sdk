@@ -148,7 +148,7 @@ export class Server<
         if (this._capabilities.logging) {
             this.setRequestHandler('logging/setLevel', async (request, ctx) => {
                 const transportSessionId: string | undefined =
-                    ctx.sessionId || (ctx.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
+                    ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
                 const parseResult = parseSchema(LoggingLevelSchema, level);
                 if (parseResult.success) {
@@ -165,12 +165,21 @@ export class Server<
     ): ServerContext<ServerRequest | RequestT, ServerNotification | NotificationT> {
         return {
             ...ctx,
-            requestInfo: transportInfo?.requestInfo,
-            closeSSEStream: transportInfo?.closeSSEStream,
-            closeStandaloneSSEStream: transportInfo?.closeStandaloneSSEStream,
-            log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
-            elicitInput: (params, options) => this.elicitInput(params, options),
-            requestSampling: (params, options) => this.createMessage(params, options)
+            mcpReq: {
+                ...ctx.mcpReq,
+                elicitInput: (params, options) => this.elicitInput(params, options),
+                requestSampling: (params, options) => this.createMessage(params, options)
+            },
+            http: {
+                ...ctx.http,
+                req: transportInfo?.requestInfo,
+                closeSSE: transportInfo?.closeSSEStream,
+                closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
+            },
+            notification: {
+                ...ctx.notification,
+                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger })
+            }
         };
     }
 

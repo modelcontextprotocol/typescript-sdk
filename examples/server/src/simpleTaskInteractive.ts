@@ -522,7 +522,7 @@ const createServer = (): Server => {
             pollInterval: taskParams.pollInterval ?? 1000
         };
 
-        const task = await taskStore.createTask(taskOptions, ctx.requestId, request, ctx.sessionId);
+        const task = await taskStore.createTask(taskOptions, ctx.mcpReq.id, request, ctx.sessionId);
 
         console.log(`\n[Server] ${name} called, task created: ${task.taskId}`);
 

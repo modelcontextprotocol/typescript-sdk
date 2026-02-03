@@ -216,7 +216,7 @@ describe('Zod v4', () => {
             },
             async ({ active }, ctx): Promise<CallToolResult> => {
                 return {
-                    content: [{ type: 'text', text: `${active ? 'Active' : 'Inactive'} profile from token: ${ctx.authInfo?.token}!` }]
+                    content: [{ type: 'text', text: `${active ? 'Active' : 'Inactive'} profile from token: ${ctx.http?.authInfo?.token}!` }]
                 };
             }
         );
@@ -409,7 +409,7 @@ describe('Zod v4', () => {
                     // Convert Headers object to plain object for JSON serialization
                     // Headers is a Web API class that doesn't serialize with JSON.stringify
                     const serializedRequestInfo = {
-                        headers: Object.fromEntries(ctx.requestInfo?.headers ?? new Headers())
+                        headers: Object.fromEntries(ctx.http?.req?.headers ?? new Headers())
                     };
                     return {
                         content: [
@@ -1833,7 +1833,7 @@ describe('Zod v4', () => {
             expect(text).not.toContain('retry:');
         });
 
-        it('should close POST SSE stream when ctx.closeSSEStream is called', async () => {
+        it('should close POST SSE stream when ctx.http?.closeSSE is called', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -1854,7 +1854,7 @@ describe('Zod v4', () => {
             // Register a tool that closes its own SSE stream via ctx callback
             mcpServer.registerTool('close-stream-tool', { description: 'Closes its own stream' }, async ctx => {
                 // Close the SSE stream for this request
-                ctx.closeSSEStream?.();
+                ctx.http?.closeSSE?.();
                 streamCloseCalled = true;
 
                 // Wait before returning so we can observe the stream closure
@@ -1919,9 +1919,9 @@ describe('Zod v4', () => {
             // Track whether closeSSEStream callback was provided
             let receivedCloseSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.closeSSEStream callback
+            // Register a tool that captures the ctx.http?.closeSSE callback
             mcpServer.registerTool('test-callback-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseSSEStream = ctx.closeSSEStream;
+                receivedCloseSSEStream = ctx.http?.closeSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -1978,10 +1978,10 @@ describe('Zod v4', () => {
             let receivedCloseSSEStream: (() => void) | undefined;
             let receivedCloseStandaloneSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.closeSSEStream callback
+            // Register a tool that captures the ctx.http?.closeSSE callback
             mcpServer.registerTool('test-old-version-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseSSEStream = ctx.closeSSEStream;
-                receivedCloseStandaloneSSEStream = ctx.closeStandaloneSSEStream;
+                receivedCloseSSEStream = ctx.http?.closeSSE;
+                receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2037,9 +2037,9 @@ describe('Zod v4', () => {
             // Track whether closeSSEStream callback was provided
             let receivedCloseSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.closeSSEStream callback
+            // Register a tool that captures the ctx.http?.closeSSE callback
             mcpServer.registerTool('test-no-callback-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseSSEStream = ctx.closeSSEStream;
+                receivedCloseSSEStream = ctx.http?.closeSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2094,9 +2094,9 @@ describe('Zod v4', () => {
             // Track whether closeStandaloneSSEStream callback was provided
             let receivedCloseStandaloneSSEStream: (() => void) | undefined;
 
-            // Register a tool that captures the ctx.closeStandaloneSSEStream callback
+            // Register a tool that captures the ctx.http?.closeStandaloneSSE callback
             mcpServer.registerTool('test-standalone-callback-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseStandaloneSSEStream = ctx.closeStandaloneSSEStream;
+                receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
@@ -2138,7 +2138,7 @@ describe('Zod v4', () => {
             expect(typeof receivedCloseStandaloneSSEStream).toBe('function');
         });
 
-        it('should close standalone GET SSE stream when ctx.closeStandaloneSSEStream is called', async () => {
+        it('should close standalone GET SSE stream when ctx.http?.closeStandaloneSSE is called', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -2151,7 +2151,7 @@ describe('Zod v4', () => {
 
             // Register a tool that closes the standalone SSE stream via ctx callback
             mcpServer.registerTool('close-standalone-stream-tool', { description: 'Closes standalone stream' }, async ctx => {
-                ctx.closeStandaloneSSEStream?.();
+                ctx.http?.closeStandaloneSSE?.();
                 return { content: [{ type: 'text', text: 'Stream closed' }] };
             });
 
@@ -2219,7 +2219,7 @@ describe('Zod v4', () => {
             expect(done).toBe(true);
         });
 
-        it('should allow client to reconnect after standalone SSE stream is closed via ctx.closeStandaloneSSEStream', async () => {
+        it('should allow client to reconnect after standalone SSE stream is closed via ctx.http?.closeStandaloneSSE', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -2232,7 +2232,7 @@ describe('Zod v4', () => {
 
             // Register a tool that closes the standalone SSE stream
             mcpServer.registerTool('close-standalone-for-reconnect', { description: 'Closes standalone stream' }, async ctx => {
-                ctx.closeStandaloneSSEStream?.();
+                ctx.http?.closeStandaloneSSE?.();
                 return { content: [{ type: 'text', text: 'Stream closed' }] };
             });
 

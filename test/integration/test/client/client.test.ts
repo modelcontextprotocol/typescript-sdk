@@ -1099,7 +1099,7 @@ test('should handle request timeout', async () => {
     server.setRequestHandler('resources/list', async (_request, ctx) => {
         const timer = new Promise(resolve => {
             const timeout = setTimeout(resolve, 100);
-            ctx.signal.addEventListener('abort', () => clearTimeout(timeout));
+            ctx.mcpReq.signal.addEventListener('abort', () => clearTimeout(timeout));
         });
 
         await timer;

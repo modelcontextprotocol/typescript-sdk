@@ -268,30 +268,51 @@ export type TaskContext = {
  */
 export type BaseContext<SendRequestT extends Request, SendNotificationT extends Notification> = {
     /**
-     * An abort signal used to communicate if the request was cancelled from the sender's side.
-     */
-    signal: AbortSignal;
-
-    /**
-     * Information about a validated access token, provided to request handlers.
-     */
-    authInfo?: AuthInfo;
-
-    /**
      * The session ID from the transport, if available.
      */
     sessionId?: string;
 
     /**
-     * Metadata from the original request.
+     * Information about the MCP request being handled.
      */
-    _meta?: RequestMeta;
+    mcpReq: {
+        /**
+         * The JSON-RPC ID of the request being handled.
+         */
+        id: RequestId;
+
+        /**
+         * The method name of the request (e.g., 'tools/call', 'ping').
+         */
+        method: string;
+
+        /**
+         * Metadata from the original request.
+         */
+        _meta?: RequestMeta;
+
+        /**
+         * An abort signal used to communicate if the request was cancelled from the sender's side.
+         */
+        signal: AbortSignal;
+
+        /**
+         * Sends a request that relates to the current request being handled.
+         *
+         * This is used by certain transports to correctly associate related messages.
+         */
+        send: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
+    };
 
     /**
-     * The JSON-RPC ID of the request being handled.
-     * This can be useful for tracking or logging purposes.
+     * HTTP transport information, only available when using an HTTP-based transport.
      */
-    requestId: RequestId;
+    http?: {
+        /**
+         * Information about a validated access token, provided to request handlers.
+         */
+        authInfo?: AuthInfo;
+    };
 
     /**
      * Task context, available when task storage is configured.
@@ -299,18 +320,16 @@ export type BaseContext<SendRequestT extends Request, SendNotificationT extends 
     task?: TaskContext;
 
     /**
-     * Sends a notification that relates to the current request being handled.
-     *
-     * This is used by certain transports to correctly associate related messages.
+     * Outbound notification sending.
      */
-    sendNotification: (notification: SendNotificationT) => Promise<void>;
-
-    /**
-     * Sends a request that relates to the current request being handled.
-     *
-     * This is used by certain transports to correctly associate related messages.
-     */
-    sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
+    notification: {
+        /**
+         * Sends a notification that relates to the current request being handled.
+         *
+         * This is used by certain transports to correctly associate related messages.
+         */
+        send: (notification: SendNotificationT) => Promise<void>;
+    };
 };
 
 /**
@@ -320,45 +339,47 @@ export type ServerContext<
     SendRequestT extends Request = ServerRequest,
     SendNotificationT extends Notification = ServerNotification
 > = BaseContext<SendRequestT, SendNotificationT> & {
-    /**
-     * The original HTTP request.
-     */
-    requestInfo?: RequestInfo;
+    mcpReq: {
+        /**
+         * Send an elicitation request to the client, requesting user input.
+         */
+        elicitInput: (params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions) => Promise<ElicitResult>;
 
-    /**
-     * Closes the SSE stream for this request, triggering client reconnection.
-     * Only available when using a StreamableHTTPServerTransport with eventStore configured.
-     * Use this to implement polling behavior during long-running operations.
-     */
-    closeSSEStream?: () => void;
+        /**
+         * Request LLM sampling from the client.
+         */
+        requestSampling: (
+            params: CreateMessageRequest['params'],
+            options?: RequestOptions
+        ) => Promise<CreateMessageResult | CreateMessageResultWithTools>;
+    };
 
-    /**
-     * Closes the standalone GET SSE stream, triggering client reconnection.
-     * Only available when using a StreamableHTTPServerTransport with eventStore configured.
-     * Use this to implement polling behavior for server-initiated notifications.
-     */
-    closeStandaloneSSEStream?: () => void;
+    http?: {
+        /**
+         * The original HTTP request information.
+         */
+        req?: RequestInfo;
 
-    /**
-     * Send a log message notification to the client.
-     * Respects the client's log level filter set via logging/setLevel.
-     */
-    log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
+        /**
+         * Closes the SSE stream for this request, triggering client reconnection.
+         * Only available when using a StreamableHTTPServerTransport with eventStore configured.
+         */
+        closeSSE?: () => void;
 
-    /**
-     * Send an elicitation request to the client, requesting user input.
-     * Includes capability checks for form/url modes.
-     */
-    elicitInput: (params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions) => Promise<ElicitResult>;
+        /**
+         * Closes the standalone GET SSE stream, triggering client reconnection.
+         * Only available when using a StreamableHTTPServerTransport with eventStore configured.
+         */
+        closeStandaloneSSE?: () => void;
+    };
 
-    /**
-     * Request LLM sampling from the client.
-     * Includes capability checks and message validation.
-     */
-    requestSampling: (
-        params: CreateMessageRequest['params'],
-        options?: RequestOptions
-    ) => Promise<CreateMessageResult | CreateMessageResultWithTools>;
+    notification: {
+        /**
+         * Send a log message notification to the client.
+         * Respects the client's log level filter set via logging/setLevel.
+         */
+        log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
+    };
 };
 
 /**
@@ -514,7 +535,7 @@ export abstract class Protocol<
 
                             // Send the message on the response stream by passing the relatedRequestId
                             // This tells the transport to write the message to the tasks/result response stream
-                            await this._transport?.send(queuedMessage.message, { relatedRequestId: ctx.requestId });
+                            await this._transport?.send(queuedMessage.message, { relatedRequestId: ctx.mcpReq.id });
                         }
                     }
 
@@ -527,7 +548,7 @@ export abstract class Protocol<
                     // Block if task is not terminal (we've already delivered all queued messages above)
                     if (!isTerminal(task.status)) {
                         // Wait for status change or new messages
-                        await this._waitForTaskUpdate(taskId, ctx.signal);
+                        await this._waitForTaskUpdate(taskId, ctx.mcpReq.signal);
 
                         // After waking up, recursively call to deliver any new messages or result
                         return await handleTaskResult();
@@ -803,29 +824,34 @@ export abstract class Protocol<
             : undefined;
 
         const baseCtx: BaseContext<SendRequestT, SendNotificationT> = {
-            signal: abortController.signal,
             sessionId: capturedTransport?.sessionId,
-            _meta: request.params?._meta,
-            requestId: request.id,
-            authInfo: extra?.authInfo,
-            task,
-            sendNotification: async notification => {
-                const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
-                if (relatedTaskId) {
-                    notificationOptions.relatedTask = { taskId: relatedTaskId };
+            mcpReq: {
+                id: request.id,
+                method: request.method,
+                _meta: request.params?._meta,
+                signal: abortController.signal,
+                send: async (r, resultSchema, options?) => {
+                    const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
+                    if (relatedTaskId && !requestOptions.relatedTask) {
+                        requestOptions.relatedTask = { taskId: relatedTaskId };
+                    }
+                    const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
+                    if (effectiveTaskId && taskStore) {
+                        await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
+                    }
+                    return await this.request(r, resultSchema, requestOptions);
                 }
-                await this.notification(notification, notificationOptions);
             },
-            sendRequest: async (r, resultSchema, options?) => {
-                const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
-                if (relatedTaskId && !requestOptions.relatedTask) {
-                    requestOptions.relatedTask = { taskId: relatedTaskId };
+            http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
+            task,
+            notification: {
+                send: async notification => {
+                    const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
+                    if (relatedTaskId) {
+                        notificationOptions.relatedTask = { taskId: relatedTaskId };
+                    }
+                    await this.notification(notification, notificationOptions);
                 }
-                const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
-                if (effectiveTaskId && taskStore) {
-                    await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
-                }
-                return await this.request(r, resultSchema, requestOptions);
             }
         };
         const ctx = this.buildContext(baseCtx, extra);

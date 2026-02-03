@@ -135,7 +135,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 // Task may have been cleaned up if test ended
                             }
                         } else {
-                            const elicitationResult = await ctx.sendRequest(
+                            const elicitationResult = await ctx.mcpReq.send(
                                 {
                                     method: 'elicitation/create',
                                     params: {
@@ -432,7 +432,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                             // Send multiple elicitation requests
                             for (let i = 0; i < requestCount; i++) {
-                                const elicitationResult = await ctx.sendRequest(
+                                const elicitationResult = await ctx.mcpReq.send(
                                     {
                                         method: 'elicitation/create',
                                         params: {
@@ -921,7 +921,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 // Queue multiple elicitation requests
                                 for (let i = 0; i < messageCount; i++) {
                                     // Send request but don't await - let it queue
-                                    ctx.sendRequest(
+                                    ctx.mcpReq.send(
                                         {
                                             method: 'elicitation/create',
                                             params: {
@@ -1119,7 +1119,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Send messages with delays between them
                                 for (let i = 0; i < messageCount; i++) {
-                                    const elicitationResult = await ctx.sendRequest(
+                                    const elicitationResult = await ctx.mcpReq.send(
                                         {
                                             method: 'elicitation/create',
                                             params: {
@@ -1333,7 +1333,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 for (let i = 0; i < messageCount; i++) {
                                     // Start the request but don't wait for response
                                     // The request gets queued when sendRequest is called
-                                    ctx.sendRequest(
+                                    ctx.mcpReq.send(
                                         {
                                             method: 'elicitation/create',
                                             params: {

@@ -239,7 +239,7 @@ const getServer = () => {
 
             try {
                 // Use sendRequest through the ctx parameter to elicit input
-                const result = await ctx.sendRequest(
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {

@@ -2081,8 +2081,8 @@ describe('Task-based execution', () => {
 
             // Set up a handler that uses sendRequest and sendNotification
             serverProtocol.setRequestHandler('tools/call', async (_request, ctx) => {
-                // Send a notification using the ctx.sendNotification
-                await ctx.sendNotification({
+                // Send a notification using the ctx.notification.send
+                await ctx.notification.send({
                     method: 'notifications/message',
                     params: { level: 'info', data: 'test' }
                 });
@@ -2170,7 +2170,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             protocol.setRequestHandler('ping', async (_request, ctx) => {
                 // Simulate a long-running operation
                 await new Promise(resolve => setTimeout(resolve, 100));
-                wasAborted = ctx.signal.aborted;
+                wasAborted = ctx.mcpReq.signal.aborted;
                 return {};
             });
 

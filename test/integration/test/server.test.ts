@@ -1389,9 +1389,9 @@ test('should handle request timeout', async () => {
     client.setRequestHandler('sampling/createMessage', async (_request, ctx) => {
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(resolve, 100);
-            ctx.signal.addEventListener('abort', () => {
+            ctx.mcpReq.signal.addEventListener('abort', () => {
                 clearTimeout(timeout);
-                reject(ctx.signal.reason);
+                reject(ctx.mcpReq.signal.reason);
             });
         });
 
@@ -2378,8 +2378,8 @@ describe('Task-based execution', () => {
 
                     // Perform async work that makes a nested request
                     (async () => {
-                        // During tool execution, make a nested request to the client using ctx.sendRequest
-                        const elicitResult = await ctx.sendRequest(
+                        // During tool execution, make a nested request to the client using ctx.mcpReq.send
+                        const elicitResult = await ctx.mcpReq.send(
                             {
                                 method: 'elicitation/create',
                                 params: {

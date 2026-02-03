@@ -7,7 +7,7 @@
  * Key features:
  * - Configures `retryInterval` to tell clients how long to wait before reconnecting
  * - Uses `eventStore` to persist events for replay after reconnection
- * - Uses `ctx.closeSSEStream()` callback to gracefully disconnect clients mid-operation
+ * - Uses `ctx.http?.closeSSE()` callback to gracefully disconnect clients mid-operation
  *
  * Run with: pnpm tsx src/ssePollingExample.ts
  * Test with: curl or the MCP Inspector
@@ -67,10 +67,10 @@ server.registerTool(
 
         // Server decides to disconnect the client to free resources
         // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
-        // Use ctx.closeSSEStream callback - available when eventStore is configured
-        if (ctx.closeSSEStream) {
+        // Use ctx.http?.closeSSE callback - available when eventStore is configured
+        if (ctx.http?.closeSSE) {
             console.log(`[${ctx.sessionId}] Closing SSE stream to trigger client polling...`);
-            ctx.closeSSEStream();
+            ctx.http?.closeSSE();
         }
 
         // Continue processing while client is disconnected

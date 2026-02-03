@@ -169,24 +169,26 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 The `ctx` parameter in handlers provides a structured context:
 
-**`BaseContext`** (common to both Server and Client):
+**`BaseContext`** (common to both Server and Client), fields organized into nested groups:
 
-- `signal`: AbortSignal for cancellation
-- `sessionId`: Transport session identifier
-- `authInfo`: Validated auth token info (if authenticated)
-- `requestId`: JSON-RPC message ID
+- `sessionId?`: Transport session identifier
+- `mcpReq`: Request-level concerns
+  - `id`: JSON-RPC message ID
+  - `method`: Request method string (e.g., 'tools/call')
+  - `_meta?`: Request metadata
+  - `signal`: AbortSignal for cancellation
+  - `send(request, schema, options?)`: Send related request (for bidirectional flows)
+- `http?`: HTTP transport info (undefined for stdio)
+  - `authInfo?`: Validated auth token info
 - `task?`: Task context (`{ id?, store, requestedTtl? }`) when task storage is configured
-- `sendNotification(notification)`: Send related notification back
-- `sendRequest(request, schema)`: Send related request (for bidirectional flows)
+- `notification`: Outbound notifications
+  - `send(notification)`: Send related notification back
 
-**`ServerContext`** extends `BaseContext` with:
+**`ServerContext`** extends each `BaseContext` group via type intersection:
 
-- `requestInfo?`: Original HTTP request info (headers, etc.)
-- `closeSSEStream?`: Close SSE stream for polling behavior
-- `closeStandaloneSSEStream?`: Close standalone GET SSE stream
-- `log(level, data, logger?)`: Send log notification (respects client's level filter)
-- `elicitInput(params, options?)`: Elicit user input (form or URL mode)
-- `requestSampling(params, options?)`: Request LLM sampling from client
+- `mcpReq` adds: `elicitInput(params, options?)`, `requestSampling(params, options?)`
+- `http?` adds: `req?` (HTTP request info), `closeSSE?`, `closeStandaloneSSE?`
+- `notification` adds: `log(level, data, logger?)`
 
 **`ClientContext`** is currently identical to `BaseContext`.
 

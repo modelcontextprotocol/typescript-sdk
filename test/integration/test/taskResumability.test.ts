@@ -69,7 +69,7 @@ describe('Zod v4', () => {
                 },
                 async ({ message }, ctx) => {
                     // Send notification immediately
-                    await ctx.sendNotification({
+                    await ctx.notification.send({
                         method: 'notifications/message',
                         params: {
                             level: 'info',
@@ -96,7 +96,7 @@ describe('Zod v4', () => {
                 async ({ count, interval }, ctx) => {
                     // Send notifications at specified intervals
                     for (let i = 0; i < count; i++) {
-                        await ctx.sendNotification({
+                        await ctx.notification.send({
                             method: 'notifications/message',
                             params: {
                                 level: 'info',

@@ -91,7 +91,7 @@ describe('Protocol transport handling bug', () => {
 
         // Set up handler with variable delay based on request id
         protocol.setRequestHandler('ping', async (_request, ctx) => {
-            const delay = ctx.requestId === 1 ? 50 : 10;
+            const delay = ctx.mcpReq.id === 1 ? 50 : 10;
             await new Promise(resolve => setTimeout(resolve, delay));
             return {};
         });

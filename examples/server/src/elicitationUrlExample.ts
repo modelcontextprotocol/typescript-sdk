@@ -82,7 +82,7 @@ const getServer = () => {
         async (_, ctx): Promise<CallToolResult> => {
             /*
         In a real world scenario, there would be some logic here to check if we already have a valid access token for the user.
-        Auth info (with a subject or `sub` claim) can be typically be found in `ctx.authInfo`.
+        Auth info (with a subject or `sub` claim) can be typically be found in `ctx.http?.authInfo`.
         If we do, we can just return the result of the tool call.
         If we don't, we can throw an ElicitationRequiredError to request the user to authenticate.
         For the purposes of this example, we'll throw an error (-> elicits the client to open a URL to authenticate).
