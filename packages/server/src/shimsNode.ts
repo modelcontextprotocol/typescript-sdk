@@ -5,3 +5,4 @@
  */
 export { AjvJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core';
 export { randomBytes } from 'node:crypto';
+export { default as process } from 'node:process';

@@ -60,7 +60,7 @@ interface StreamMapping {
     /** Stream controller for pushing SSE data - only used with ReadableStream approach */
     controller?: ReadableStreamDefaultController<Uint8Array>;
     /** Text encoder for SSE formatting */
-    encoder?: TextEncoder;
+    encoder?: InstanceType<typeof TextEncoder>;
     /** Promise resolver for JSON response mode */
     resolveJson?: (response: Response) => void;
     /** Cleanup function to close stream and remove mapping */
@@ -365,7 +365,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      */
     private async writePrimingEvent(
         controller: ReadableStreamDefaultController<Uint8Array>,
-        encoder: TextEncoder,
+        encoder: InstanceType<typeof TextEncoder>,
         streamId: string,
         protocolVersion: string
     ): Promise<void> {
@@ -556,7 +556,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      */
     private writeSSEEvent(
         controller: ReadableStreamDefaultController<Uint8Array>,
-        encoder: TextEncoder,
+        encoder: InstanceType<typeof TextEncoder>,
         message: JSONRPCMessage,
         eventId?: string
     ): boolean {

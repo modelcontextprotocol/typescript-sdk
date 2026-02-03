@@ -21,3 +21,16 @@ export function randomBytes(size: number): { toString(encoding: 'hex'): string }
         }
     };
 }
+
+/**
+ * Stub process object for non-Node.js environments.
+ * StdioServerTransport is not supported in Cloudflare Workers/browser environments.
+ */
+function notSupported(): never {
+    throw new Error('StdioServerTransport is not supported in this environment. Use StreamableHTTPServerTransport instead.');
+}
+
+export const process = {
+    get stdin(): never { return notSupported(); },
+    get stdout(): never { return notSupported(); },
+};

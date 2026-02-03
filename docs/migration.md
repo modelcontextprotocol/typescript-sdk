@@ -51,17 +51,11 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 ```typescript
 import { Client, StreamableHTTPClientTransport, StdioClientTransport } from '@modelcontextprotocol/client';
-import { McpServer } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { CallToolResultSchema } from '@modelcontextprotocol/core';
-
-// Server transports are in separate entry points to avoid pulling Node.js APIs into non-Node runtimes
-import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 // Node.js HTTP server transport is in the @modelcontextprotocol/node package
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-
-// Web-standard HTTP server transport (for Cloudflare Workers, Deno, etc.)
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/server/streamableHttp';
 ```
 
 Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
@@ -403,7 +397,7 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 - `McpServer` constructor, `server.connect(transport)`, `server.close()`
 - `Server` (low-level) constructor and all methods
 - `StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport` constructors and options
-- `StdioServerTransport` constructor and options (now at `@modelcontextprotocol/server/stdio`)
+- `StdioServerTransport` constructor and options
 - All Zod schemas and type definitions from `types.ts` (except the aliases listed above)
 - Tool, prompt, and resource callback return types
 
