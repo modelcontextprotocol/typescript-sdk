@@ -1427,7 +1427,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const schema = getRequestSchema(method);
 
         this._requestHandlers.set(method, (request, extra) => {
-            const parsed = schema.parse(request) as RequestTypeMap[M];
+            const parsed = schema.parse(request);
             return Promise.resolve(handler(parsed, extra));
         });
     }
@@ -1460,7 +1460,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const schema = getNotificationSchema(method);
 
         this._notificationHandlers.set(method, notification => {
-            const parsed = schema.parse(notification) as NotificationTypeMap[M];
+            const parsed = schema.parse(notification);
             return Promise.resolve(handler(parsed));
         });
     }
