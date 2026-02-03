@@ -1213,12 +1213,6 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
     }
 };
 
-// ============================================================================
-// Zod-specific helpers for Completable feature
-// These are internal helpers for the completable prompt argument feature.
-// NOTE: completable() only works with Zod schemas due to Zod-specific introspection.
-// ============================================================================
-
 /** @internal Gets the shape of a Zod object schema */
 function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
     const candidate = schema as { shape?: unknown };
