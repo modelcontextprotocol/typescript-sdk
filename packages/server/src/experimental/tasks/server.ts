@@ -6,7 +6,6 @@
  */
 
 import type {
-    AnySchema,
     CancelTaskResult,
     GetTaskResult,
     ListTasksResult,
@@ -16,6 +15,7 @@ import type {
     Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
+import type * as z from 'zod/v4';
 
 import type { Server } from '../../server/server.js';
 
@@ -52,14 +52,14 @@ export class ExperimentalServerTasks {
         request: Request,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
+    ): AsyncGenerator<ResponseMessage<z.output<T> & Result>, void, void> {
         // Delegate to the server's underlying Protocol method
         type ServerWithRequestStream = {
             requestStream<U extends AnySchema>(
                 request: Request,
                 resultSchema: U,
                 options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
+            ): AsyncGenerator<ResponseMessage<z.output<U> & Result>, void, void>;
         };
         return (this._server as unknown as ServerWithRequestStream).requestStream(request, resultSchema, options);
     }
@@ -88,14 +88,18 @@ export class ExperimentalServerTasks {
      *
      * @experimental
      */
-    async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async getTaskResult<T extends z.core.$ZodType>(
+        taskId: string,
+        resultSchema?: T,
+        options?: RequestOptions
+    ): Promise<z.output<T>> {
         return (
             this._server as unknown as {
-                getTaskResult: <U extends AnySchema>(
+                getTaskResult: <U extends z.core.$ZodType>(
                     params: { taskId: string },
                     resultSchema?: U,
                     options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
+                ) => Promise<z.output<U>>;
             }
         ).getTaskResult({ taskId }, resultSchema, options);
     }

@@ -46,13 +46,13 @@ import {
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
-    parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
+import * as z from 'zod/v4';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
@@ -119,7 +119,7 @@ export class Server extends Protocol<ServerContext> {
                 const transportSessionId: string | undefined =
                     ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
-                const parseResult = parseSchema(LoggingLevelSchema, level);
+                const parseResult = z.safeParse(LoggingLevelSchema, level);
                 if (parseResult.success) {
                     this._loggingLevels.set(transportSessionId, parseResult.data);
                 }
@@ -213,7 +213,7 @@ export class Server extends Protocol<ServerContext> {
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
+                    const taskValidationResult = z.safeParse(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -225,7 +225,7 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 // For non-task requests, validate against CallToolResultSchema
-                const validationResult = parseSchema(CallToolResultSchema, result);
+                const validationResult = z.safeParse(CallToolResultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);

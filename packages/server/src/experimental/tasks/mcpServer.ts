@@ -5,7 +5,7 @@
  * @experimental
  */
 
-import type { AnySchema, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
+import type { StandardJSONSchemaV1, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
 
 import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
 import type { ToolTaskHandler } from './interfaces.js';
@@ -19,12 +19,12 @@ interface McpServerInternal {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: AnySchema | undefined,
-        outputSchema: AnySchema | undefined,
+        inputSchema: StandardJSONSchemaV1 | undefined,
+        outputSchema: StandardJSONSchemaV1 | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
-        handler: AnyToolHandler<AnySchema | undefined>
+        handler: AnyToolHandler<StandardJSONSchemaV1 | undefined>
     ): RegisteredTool;
 }
 
@@ -76,7 +76,7 @@ export class ExperimentalMcpServerTasks {
      *
      * @experimental
      */
-    registerToolTask<OutputArgs extends AnySchema | undefined>(
+    registerToolTask<OutputArgs extends StandardJSONSchemaV1 | undefined>(
         name: string,
         config: {
             title?: string;
@@ -89,7 +89,7 @@ export class ExperimentalMcpServerTasks {
         handler: ToolTaskHandler<undefined>
     ): RegisteredTool;
 
-    registerToolTask<InputArgs extends AnySchema, OutputArgs extends AnySchema | undefined>(
+    registerToolTask<InputArgs extends StandardJSONSchemaV1, OutputArgs extends StandardJSONSchemaV1 | undefined>(
         name: string,
         config: {
             title?: string;
@@ -103,7 +103,10 @@ export class ExperimentalMcpServerTasks {
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool;
 
-    registerToolTask<InputArgs extends AnySchema | undefined, OutputArgs extends AnySchema | undefined>(
+    registerToolTask<
+        InputArgs extends StandardJSONSchemaV1 | undefined,
+        OutputArgs extends StandardJSONSchemaV1 | undefined
+    >(
         name: string,
         config: {
             title?: string;
@@ -133,7 +136,7 @@ export class ExperimentalMcpServerTasks {
             config.annotations,
             execution,
             config._meta,
-            handler as AnyToolHandler<AnySchema | undefined>
+            handler as AnyToolHandler<StandardJSONSchemaV1 | undefined>
         );
     }
 }

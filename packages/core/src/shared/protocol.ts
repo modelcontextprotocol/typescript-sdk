@@ -57,8 +57,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
 } from '../types/types.js';
-import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
-import { parseSchema } from '../util/schema.js';
+import * as z from 'zod/v4';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -1060,7 +1059,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         request: Request,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<z.output<T>>, void, void> {
         const { task } = options ?? {};
 
         // For non-task requests, just yield the result
@@ -1161,7 +1160,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
-        return new Promise<SchemaOutput<T>>((resolve, reject) => {
+        return new Promise<z.output<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
                 reject(error);
             };
@@ -1258,9 +1257,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
 
                 try {
-                    const parseResult = parseSchema(resultSchema, response.result);
+                    const parseResult = z.safeParse(resultSchema, response.result);
                     if (parseResult.success) {
-                        resolve(parseResult.data as SchemaOutput<T>);
+                        resolve(parseResult.data as z.output<T>);
                     } else {
                         reject(parseResult.error);
                     }
@@ -1328,7 +1327,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * @experimental Use `client.experimental.tasks.getTaskResult()` to access this method.
      */
-    protected async getTaskResult<T extends AnySchema>(
+    protected async getTaskResult<T extends z.core.$ZodType>(
         params: GetTaskPayloadRequest['params'],
         resultSchema: T,
         options?: RequestOptions

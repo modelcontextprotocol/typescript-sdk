@@ -1,14 +1,17 @@
+/**
+ * Internal Zod schema utilities for protocol handling.
+ * These are used internally by the SDK for protocol message validation.
+ */
+
 import * as z from 'zod/v4';
 
 /**
  * Base type for any Zod schema.
- * This is the canonical type to use when accepting user-provided schemas.
  */
 export type AnySchema = z.core.$ZodType;
 
 /**
- * A Zod schema for objects specifically (not unions).
- * Use this when you need to constrain to ZodObject schemas.
+ * A Zod schema for objects specifically.
  */
 export type AnyObjectSchema = z.core.$ZodObject;
 
@@ -73,7 +76,6 @@ export function getSchemaDescription(schema: AnySchema): string | undefined {
 
 /**
  * Checks if a schema is optional (accepts undefined).
- * Uses the public .type property which works in both zod/v4 and zod/v4/mini.
  */
 export function isOptionalSchema(schema: AnySchema): boolean {
     const candidate = schema as { type?: string };
@@ -83,7 +85,6 @@ export function isOptionalSchema(schema: AnySchema): boolean {
 /**
  * Unwraps an optional schema to get the inner schema.
  * If the schema is not optional, returns it unchanged.
- * Uses the public .def.innerType property which works in both zod/v4 and zod/v4/mini.
  */
 export function unwrapOptionalSchema(schema: AnySchema): AnySchema {
     if (!isOptionalSchema(schema)) {

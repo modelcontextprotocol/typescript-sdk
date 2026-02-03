@@ -56,7 +56,6 @@ import {
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
-    parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
@@ -64,6 +63,7 @@ import {
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
+import * as z from 'zod/v4';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 
@@ -319,7 +319,7 @@ export class Client extends Protocol<ClientContext> {
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
+                    const taskValidationResult = z.safeParse(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -331,7 +331,7 @@ export class Client extends Protocol<ClientContext> {
                 }
 
                 // For non-task requests, validate against ElicitResultSchema
-                const validationResult = parseSchema(ElicitResultSchema, result);
+                const validationResult = z.safeParse(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -378,7 +378,7 @@ export class Client extends Protocol<ClientContext> {
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
+                    const taskValidationResult = z.safeParse(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -392,7 +392,7 @@ export class Client extends Protocol<ClientContext> {
                 // For non-task requests, validate against appropriate schema based on tools presence
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
-                const validationResult = parseSchema(resultSchema, result);
+                const validationResult = z.safeParse(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
@@ -845,7 +845,7 @@ export class Client extends Protocol<ClientContext> {
         fetcher: () => Promise<T[]>
     ): void {
         // Validate options using Zod schema (validates autoRefresh and debounceMs)
-        const parseResult = parseSchema(ListChangedOptionsBaseSchema, options);
+        const parseResult = z.safeParse(ListChangedOptionsBaseSchema, options);
         if (!parseResult.success) {
             throw new Error(`Invalid ${listType} listChanged options: ${parseResult.error.message}`);
         }
