@@ -412,6 +412,79 @@ The new design:
 - `ProtocolError` with `ProtocolErrorCode`: For errors that are serialized and sent as JSON-RPC error responses
 - `SdkError` with `SdkErrorCode`: For local errors that are thrown/rejected locally and never leave the SDK
 
+### OAuth error refactoring
+
+The OAuth error classes have been consolidated into a single `OAuthError` class with an `OAuthErrorCode` enum.
+
+#### Removed classes
+
+The following individual error classes have been removed in favor of `OAuthError` with the appropriate code:
+
+| v1 Class | v2 Equivalent |
+|----------|---------------|
+| `InvalidRequestError` | `new OAuthError(OAuthErrorCode.InvalidRequest, message)` |
+| `InvalidClientError` | `new OAuthError(OAuthErrorCode.InvalidClient, message)` |
+| `InvalidGrantError` | `new OAuthError(OAuthErrorCode.InvalidGrant, message)` |
+| `UnauthorizedClientError` | `new OAuthError(OAuthErrorCode.UnauthorizedClient, message)` |
+| `UnsupportedGrantTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedGrantType, message)` |
+| `InvalidScopeError` | `new OAuthError(OAuthErrorCode.InvalidScope, message)` |
+| `AccessDeniedError` | `new OAuthError(OAuthErrorCode.AccessDenied, message)` |
+| `ServerError` | `new OAuthError(OAuthErrorCode.ServerError, message)` |
+| `TemporarilyUnavailableError` | `new OAuthError(OAuthErrorCode.TemporarilyUnavailable, message)` |
+| `UnsupportedResponseTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedResponseType, message)` |
+| `UnsupportedTokenTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedTokenType, message)` |
+| `InvalidTokenError` | `new OAuthError(OAuthErrorCode.InvalidToken, message)` |
+| `MethodNotAllowedError` | `new OAuthError(OAuthErrorCode.MethodNotAllowed, message)` |
+| `TooManyRequestsError` | `new OAuthError(OAuthErrorCode.TooManyRequests, message)` |
+| `InvalidClientMetadataError` | `new OAuthError(OAuthErrorCode.InvalidClientMetadata, message)` |
+| `InsufficientScopeError` | `new OAuthError(OAuthErrorCode.InsufficientScope, message)` |
+| `InvalidTargetError` | `new OAuthError(OAuthErrorCode.InvalidTarget, message)` |
+| `CustomOAuthError` | `new OAuthError(customCode, message)` |
+
+The `OAUTH_ERRORS` constant has also been removed.
+
+**Before (v1):**
+
+```typescript
+import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/core';
+
+try {
+    await refreshToken();
+} catch (error) {
+    if (error instanceof InvalidClientError) {
+        // Handle invalid client
+    } else if (error instanceof InvalidGrantError) {
+        // Handle invalid grant
+    } else if (error instanceof ServerError) {
+        // Handle server error
+    }
+}
+```
+
+**After (v2):**
+
+```typescript
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+
+try {
+    await refreshToken();
+} catch (error) {
+    if (error instanceof OAuthError) {
+        switch (error.code) {
+            case OAuthErrorCode.InvalidClient:
+                // Handle invalid client
+                break;
+            case OAuthErrorCode.InvalidGrant:
+                // Handle invalid grant
+                break;
+            case OAuthErrorCode.ServerError:
+                // Handle server error
+                break;
+        }
+    }
+}
+```
+
 ## Unchanged APIs
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):

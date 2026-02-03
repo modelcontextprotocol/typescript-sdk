@@ -132,6 +132,45 @@ import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) { ... }
 ```
 
+### OAuth error consolidation
+
+Individual OAuth error classes replaced with single `OAuthError` class and `OAuthErrorCode` enum:
+
+| v1 Class | v2 Equivalent |
+|----------|---------------|
+| `InvalidRequestError` | `OAuthError` with `OAuthErrorCode.InvalidRequest` |
+| `InvalidClientError` | `OAuthError` with `OAuthErrorCode.InvalidClient` |
+| `InvalidGrantError` | `OAuthError` with `OAuthErrorCode.InvalidGrant` |
+| `UnauthorizedClientError` | `OAuthError` with `OAuthErrorCode.UnauthorizedClient` |
+| `UnsupportedGrantTypeError` | `OAuthError` with `OAuthErrorCode.UnsupportedGrantType` |
+| `InvalidScopeError` | `OAuthError` with `OAuthErrorCode.InvalidScope` |
+| `AccessDeniedError` | `OAuthError` with `OAuthErrorCode.AccessDenied` |
+| `ServerError` | `OAuthError` with `OAuthErrorCode.ServerError` |
+| `TemporarilyUnavailableError` | `OAuthError` with `OAuthErrorCode.TemporarilyUnavailable` |
+| `UnsupportedResponseTypeError` | `OAuthError` with `OAuthErrorCode.UnsupportedResponseType` |
+| `UnsupportedTokenTypeError` | `OAuthError` with `OAuthErrorCode.UnsupportedTokenType` |
+| `InvalidTokenError` | `OAuthError` with `OAuthErrorCode.InvalidToken` |
+| `MethodNotAllowedError` | `OAuthError` with `OAuthErrorCode.MethodNotAllowed` |
+| `TooManyRequestsError` | `OAuthError` with `OAuthErrorCode.TooManyRequests` |
+| `InvalidClientMetadataError` | `OAuthError` with `OAuthErrorCode.InvalidClientMetadata` |
+| `InsufficientScopeError` | `OAuthError` with `OAuthErrorCode.InsufficientScope` |
+| `InvalidTargetError` | `OAuthError` with `OAuthErrorCode.InvalidTarget` |
+| `CustomOAuthError` | `new OAuthError(customCode, message)` |
+
+Removed: `OAUTH_ERRORS` constant.
+
+Update OAuth error handling:
+
+```typescript
+// v1
+import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/core';
+if (error instanceof InvalidClientError) { ... }
+
+// v2
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
+```
+
 **Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types.
 
 ## 6. McpServer API Changes
