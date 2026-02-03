@@ -42,7 +42,6 @@ import {
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
-import type { CompleteCallback } from './completable.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
@@ -367,8 +366,17 @@ export class McpServer {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${ref.name} disabled`);
         }
 
-        // Look up completer from the stored completers map
-        const completer = prompt.completers?.get(request.params.argument.name);
+        if (!prompt.argsSchema) {
+            return EMPTY_COMPLETION_RESULT;
+        }
+
+        const promptShape = getSchemaShape(prompt.argsSchema);
+        const field = promptShape?.[request.params.argument.name];
+        if (!isCompletable(field)) {
+            return EMPTY_COMPLETION_RESULT;
+        }
+
+        const completer = getCompleter(field);
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
         }
@@ -668,14 +676,10 @@ export class McpServer {
         let currentArgsSchema = argsSchema;
         let currentCallback = callback;
 
-        // Extract completable callbacks from schema at registration time
-        const completers = extractCompleters(argsSchema);
-
         const registeredPrompt: RegisteredPrompt = {
             title,
             description,
             argsSchema,
-            completers,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
@@ -694,8 +698,6 @@ export class McpServer {
                 if (updates.argsSchema !== undefined) {
                     registeredPrompt.argsSchema = updates.argsSchema;
                     currentArgsSchema = updates.argsSchema;
-                    // Re-extract completers when schema changes
-                    registeredPrompt.completers = extractCompleters(updates.argsSchema);
                     needsHandlerRegen = true;
                 }
                 if (updates.callback !== undefined) {
@@ -712,9 +714,18 @@ export class McpServer {
         };
         this._registeredPrompts[name] = registeredPrompt;
 
-        // Enable completions capability if any completers were found
-        if (completers && completers.size > 0) {
-            this.setCompletionRequestHandler();
+        // If any argument uses a Completable schema, enable completions capability
+        if (argsSchema) {
+            const shape = getSchemaShape(argsSchema);
+            if (shape) {
+                const hasCompletable = Object.values(shape).some(field => {
+                    const inner = unwrapOptionalSchema(field);
+                    return isCompletable(inner);
+                });
+                if (hasCompletable) {
+                    this.setCompletionRequestHandler();
+                }
+            }
         }
 
         return registeredPrompt;
@@ -1136,8 +1147,6 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: StandardJSONSchemaV1;
-    /** @internal Completable callbacks keyed by argument name */
-    completers?: Map<string, CompleteCallback<StandardJSONSchemaV1>>;
     /** @internal */
     handler: PromptHandler;
     enabled: boolean;
@@ -1210,54 +1219,26 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
 // NOTE: completable() only works with Zod schemas due to Zod-specific introspection.
 // ============================================================================
 
-/** @internal Zod schema shape type for completable introspection */
-type ZodSchemaShape = Record<string, unknown>;
-
 /** @internal Gets the shape of a Zod object schema */
-function getZodSchemaShape(schema: unknown): ZodSchemaShape | undefined {
+function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
     const candidate = schema as { shape?: unknown };
     if (candidate.shape && typeof candidate.shape === 'object') {
-        return candidate.shape as ZodSchemaShape;
+        return candidate.shape as Record<string, unknown>;
     }
     return undefined;
 }
 
 /** @internal Checks if a Zod schema is optional */
-function isZodOptionalSchema(schema: unknown): boolean {
+function isOptionalSchema(schema: unknown): boolean {
     const candidate = schema as { type?: string };
     return candidate.type === 'optional';
 }
 
 /** @internal Unwraps an optional Zod schema */
-function unwrapZodOptionalSchema(schema: unknown): unknown {
-    if (!isZodOptionalSchema(schema)) {
+function unwrapOptionalSchema(schema: unknown): unknown {
+    if (!isOptionalSchema(schema)) {
         return schema;
     }
     const candidate = schema as { def?: { innerType?: unknown } };
     return candidate.def?.innerType ?? schema;
-}
-
-/**
- * @internal Extracts completable callbacks from a Zod schema at registration time.
- * NOTE: This only works with Zod schemas. ArkType and Valibot are not supported.
- */
-function extractCompleters(schema: StandardJSONSchemaV1 | undefined): Map<string, CompleteCallback<StandardJSONSchemaV1>> | undefined {
-    if (!schema) return undefined;
-
-    const shape = getZodSchemaShape(schema);
-    if (!shape) return undefined;
-
-    const completers = new Map<string, CompleteCallback<StandardJSONSchemaV1>>();
-
-    for (const [argName, field] of Object.entries(shape)) {
-        const inner = unwrapZodOptionalSchema(field);
-        if (isCompletable(inner)) {
-            const callback = getCompleter(inner);
-            if (callback) {
-                completers.set(argName, callback as unknown as CompleteCallback<StandardJSONSchemaV1>);
-            }
-        }
-    }
-
-    return completers.size > 0 ? completers : undefined;
 }
