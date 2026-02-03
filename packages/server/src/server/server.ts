@@ -54,7 +54,7 @@ import {
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/_shims';
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 

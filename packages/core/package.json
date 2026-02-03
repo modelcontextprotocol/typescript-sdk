@@ -26,20 +26,6 @@
         ".": {
             "types": "./src/index.ts",
             "import": "./src/index.ts"
-        },
-        "./_shims": {
-            "workerd": {
-                "types": "./src/shims/shimsWorkerd.ts",
-                "import": "./src/shims/shimsWorkerd.ts"
-            },
-            "node": {
-                "types": "./src/shims/shimsNode.ts",
-                "import": "./src/shims/shimsNode.ts"
-            },
-            "default": {
-                "types": "./src/shims/index.ts",
-                "import": "./src/shims/index.ts"
-            }
         }
     },
     "scripts": {

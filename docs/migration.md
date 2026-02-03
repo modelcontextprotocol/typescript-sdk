@@ -384,9 +384,9 @@ const server = new McpServer(
 You can still explicitly override the validator if needed. The validators are available via the `_shims` export:
 
 ```typescript
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/_shims';
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 // or
-import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core';
+import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
 ```
 
 ## Unchanged APIs

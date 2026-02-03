@@ -3,7 +3,7 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
     // 1. Entry Points
     //    Directly matches package.json include/exclude globs
-    entry: ['src/index.ts'],
+    entry: ['src/index.ts', 'src/shimsNode.ts', 'src/shimsWorkerd.ts'],
 
     // 2. Output Configuration
     format: ['esm'],
@@ -24,13 +24,14 @@ export default defineConfig({
         compilerOptions: {
             baseUrl: '.',
             paths: {
-                '@modelcontextprotocol/core': ['../core/src/index.ts'],
-                '@modelcontextprotocol/core/_shims': ['../core/src/shims/shimsNode.ts']
+                '@modelcontextprotocol/core': ['../core/src/index.ts']
             }
         }
     },
     // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
     //    but treat all other dependencies as external (require/import).
-    //    Note: core/_shims is also bundled since core is a private package
-    noExternal: ['@modelcontextprotocol/core', '@modelcontextprotocol/core/_shims']
+    noExternal: ['@modelcontextprotocol/core'],
+
+    // 6. External packages - keep self-reference imports external for runtime resolution
+    external: ['@modelcontextprotocol/server/_shims']
 });

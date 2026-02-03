@@ -378,7 +378,7 @@ new McpServer({ name: 'server', version: '1.0.0' }, {
 new McpServer({ name: 'server', version: '1.0.0' }, {});
 ```
 
-Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/_shims';`
+Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
 
 ## 12. Migration Steps (apply in this order)
 

@@ -1,4 +1,4 @@
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/_shims';
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims';
 import type {
     CallToolRequest,
     ClientCapabilities,
