@@ -3,7 +3,8 @@
  * WARNING: These APIs are experimental and may change without notice.
  */
 
-import type { RequestTaskStore, ServerContext } from '../../shared/protocol.js';
+import type { ServerContext } from '../../shared/protocol.js';
+import type { RequestTaskStore } from '../../shared/taskManager.js';
 import type {
     JSONRPCErrorResponse,
     JSONRPCNotification,

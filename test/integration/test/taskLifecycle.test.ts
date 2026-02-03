@@ -46,8 +46,10 @@ describe('Task Lifecycle Integration Tests', () => {
                         cancel: {}
                     }
                 },
-                taskStore,
-                taskMessageQueue: new InMemoryTaskMessageQueue()
+                tasks: {
+                    taskStore,
+                    taskMessageQueue: new InMemoryTaskMessageQueue()
+                }
             }
         );
 

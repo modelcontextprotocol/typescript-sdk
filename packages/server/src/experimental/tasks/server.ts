@@ -6,6 +6,7 @@
  */
 
 import type {
+    AnyObjectSchema,
     AnySchema,
     CancelTaskResult,
     GetTaskResult,
@@ -48,20 +49,16 @@ export class ExperimentalServerTasks {
      *
      * @experimental
      */
-    requestStream<T extends AnySchema>(
+    requestStream<T extends AnyObjectSchema>(
         request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
-        // Delegate to the server's underlying Protocol method
-        type ServerWithRequestStream = {
-            requestStream<U extends AnySchema>(
-                request: Request,
-                resultSchema: U,
-                options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
-        };
-        return (this._server as unknown as ServerWithRequestStream).requestStream(request, resultSchema, options);
+        return this._server.tasks.requestStream(request, resultSchema, options) as AsyncGenerator<
+            ResponseMessage<SchemaOutput<T> & Result>,
+            void,
+            void
+        >;
     }
 
     /**
@@ -74,8 +71,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async getTask(taskId: string, options?: RequestOptions): Promise<GetTaskResult> {
-        type ServerWithGetTask = { getTask(params: { taskId: string }, options?: RequestOptions): Promise<GetTaskResult> };
-        return (this._server as unknown as ServerWithGetTask).getTask({ taskId }, options);
+        return this._server.tasks.getTask({ taskId }, options);
     }
 
     /**
@@ -89,15 +85,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        return (
-            this._server as unknown as {
-                getTaskResult: <U extends AnySchema>(
-                    params: { taskId: string },
-                    resultSchema?: U,
-                    options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
-            }
-        ).getTaskResult({ taskId }, resultSchema, options);
+        return this._server.tasks.getTaskResult({ taskId }, resultSchema!, options);
     }
 
     /**
@@ -110,11 +98,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async listTasks(cursor?: string, options?: RequestOptions): Promise<ListTasksResult> {
-        return (
-            this._server as unknown as {
-                listTasks: (params?: { cursor?: string }, options?: RequestOptions) => Promise<ListTasksResult>;
-            }
-        ).listTasks(cursor ? { cursor } : undefined, options);
+        return this._server.tasks.listTasks(cursor ? { cursor } : undefined, options);
     }
 
     /**
@@ -126,10 +110,6 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async cancelTask(taskId: string, options?: RequestOptions): Promise<CancelTaskResult> {
-        return (
-            this._server as unknown as {
-                cancelTask: (params: { taskId: string }, options?: RequestOptions) => Promise<CancelTaskResult>;
-            }
-        ).cancelTask({ taskId }, options);
+        return this._server.tasks.cancelTask({ taskId }, options);
     }
 }

@@ -47,8 +47,7 @@ const getServer = () => {
         },
         {
             capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
-            taskStore, // Enable task support
-            taskMessageQueue: new InMemoryTaskMessageQueue()
+            tasks: { taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() }
         }
     );
 
