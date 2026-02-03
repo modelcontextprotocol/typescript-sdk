@@ -21,7 +21,6 @@ export interface ZodV4Internal {
             shape?: Record<string, AnySchema> | (() => Record<string, AnySchema>);
         };
     };
-    value?: unknown;
 }
 
 // --- Type inference helpers ---
@@ -99,12 +98,7 @@ export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | un
             const values = Object.values(schema);
             if (
                 values.length > 0 &&
-                values.every(
-                    v =>
-                        typeof v === 'object' &&
-                        v !== null &&
-                        ((v as unknown as ZodV4Internal)._zod !== undefined || typeof (v as { parse?: unknown }).parse === 'function')
-                )
+                values.every(v => typeof v === 'object' && v !== null && (v as unknown as ZodV4Internal)._zod !== undefined)
             ) {
                 return objectFromShape(schema as ZodRawShapeCompat);
             }
@@ -172,23 +166,4 @@ export function unwrapOptional(schema: AnySchema): AnySchema {
         if (innerType) return innerType;
     }
     return schema;
-}
-
-/**
- * Gets the literal value from a schema, if it's a literal schema.
- * Returns undefined if the schema is not a literal or the value cannot be determined.
- */
-export function getLiteralValue(schema: AnySchema): unknown {
-    const v4Schema = schema as unknown as ZodV4Internal;
-    const def = v4Schema._zod?.def;
-    if (def) {
-        if (def.value !== undefined) return def.value;
-        if (Array.isArray(def.values) && def.values.length > 0) {
-            return def.values[0];
-        }
-    }
-    // Fallback: check for direct value property
-    const directValue = (schema as { value?: unknown }).value;
-    if (directValue !== undefined) return directValue;
-    return undefined;
 }
