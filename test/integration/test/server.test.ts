@@ -2142,7 +2142,8 @@ describe('Task-based execution', () => {
         server.experimental.tasks.registerToolTask(
             'test-tool',
             {
-                description: 'A test tool'
+                description: 'A test tool',
+                inputSchema: z.object({})
             },
             {
                 async createTask(_args, extra) {
@@ -2199,7 +2200,7 @@ describe('Task-based execution', () => {
 
         // Use callToolStream to create a task and capture the task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+        const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, {
             task: {
                 ttl: 60_000
             }
@@ -2363,7 +2364,8 @@ describe('Task-based execution', () => {
         server.experimental.tasks.registerToolTask(
             'collect-info',
             {
-                description: 'Collects user info via elicitation'
+                description: 'Collects user info via elicitation',
+                inputSchema: z.object({})
             },
             {
                 async createTask(_args, extra) {
@@ -2425,7 +2427,7 @@ describe('Task-based execution', () => {
 
         // Call tool WITH task creation using callToolStream to capture task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
+        const stream = client.experimental.tasks.callToolStream({ name: 'collect-info', arguments: {} }, {
             task: {
                 ttl: 60_000
             }
