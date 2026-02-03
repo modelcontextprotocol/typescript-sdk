@@ -7,7 +7,9 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    normalizeHeaders
+    normalizeHeaders,
+    SdkError,
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
@@ -21,15 +23,6 @@ const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOp
     reconnectionDelayGrowFactor: 1.5,
     maxRetries: 2
 };
-
-export class StreamableHTTPError extends Error {
-    constructor(
-        public readonly code: number | undefined,
-        message: string | undefined
-    ) {
-        super(`Streamable HTTP error: ${message}`);
-    }
-}
 
 /**
  * Options for starting or authenticating an SSE connection
@@ -248,7 +241,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new StreamableHTTPError(response.status, `Failed to open SSE stream: ${response.statusText}`);
+                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
             }
 
             this._handleSseStream(response.body, options, true);
@@ -500,7 +496,10 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     // Prevent infinite recursion when server returns 401 after successful auth
                     if (this._hasCompletedAuthFlow) {
-                        throw new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after successful authentication', {
+                            status: 401,
+                            text
+                        });
                     }
 
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -531,7 +530,10 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Check if we've already tried upscoping with this header to prevent infinite loops.
                         if (this._lastUpscopingHeader === wwwAuthHeader) {
-                            throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
+                            throw new SdkError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
+                                status: 403,
+                                text
+                            });
                         }
 
                         if (scope) {
@@ -559,7 +561,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
+                throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
+                    status: response.status,
+                    text
+                });
             }
 
             // Reset auth loop flag on successful response
@@ -604,7 +609,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 } else {
                     await response.text?.().catch(() => {});
-                    throw new StreamableHTTPError(-1, `Unexpected content type: ${contentType}`);
+                    throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, `Unexpected content type: ${contentType}`, {
+                        contentType
+                    });
                 }
             } else {
                 // No requests in message but got 200 OK - still need to release connection
@@ -652,7 +659,10 @@ export class StreamableHTTPClientTransport implements Transport {
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
-                throw new StreamableHTTPError(response.status, `Failed to terminate session: ${response.statusText}`);
+                throw new SdkError(SdkErrorCode.ClientHttpFailedToTerminateSession, `Failed to terminate session: ${response.statusText}`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
             }
 
             this._sessionId = undefined;

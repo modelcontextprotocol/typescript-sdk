@@ -25,7 +25,15 @@ export enum SdkErrorCode {
     /** Connection was closed */
     ConnectionClosed = 'CONNECTION_CLOSED',
     /** Failed to send message */
-    SendFailed = 'SEND_FAILED'
+    SendFailed = 'SEND_FAILED',
+
+    // Transport errors
+    ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',
+    ClientHttpAuthentication = 'CLIENT_HTTP_AUTHENTICATION',
+    ClientHttpForbidden = 'CLIENT_HTTP_FORBIDDEN',
+    ClientHttpUnexpectedContent = 'CLIENT_HTTP_UNEXPECTED_CONTENT',
+    ClientHttpFailedToOpenStream = 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
+    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'
 }
 
 /**
