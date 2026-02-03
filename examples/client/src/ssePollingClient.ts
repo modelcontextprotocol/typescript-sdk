@@ -12,12 +12,7 @@
  * Run with: pnpm tsx src/ssePollingClient.ts
  * Requires: ssePollingExample.ts server running on port 3001
  */
-import {
-    CallToolResultSchema,
-    Client,
-    LoggingMessageNotificationSchema,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { CallToolResultSchema, Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 const SERVER_URL = 'http://localhost:3001/mcp';
 
@@ -60,7 +55,7 @@ async function main(): Promise<void> {
     });
 
     // Set up notification handler to receive progress updates
-    client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+    client.setNotificationHandler('notifications/message', notification => {
         const data = notification.params.data;
         console.log(`[Notification] ${data}`);
     });

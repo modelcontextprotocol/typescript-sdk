@@ -21,8 +21,6 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ElicitationCompleteNotificationSchema,
-    ElicitRequestSchema,
     ErrorCode,
     getDisplayName,
     ListToolsResultSchema,
@@ -560,10 +558,10 @@ async function connect(url?: string): Promise<void> {
     console.log('👤 Client created');
 
     // Set up elicitation request handler with proper validation
-    client.setRequestHandler(ElicitRequestSchema, elicitationRequestHandler);
+    client.setRequestHandler('elicitation/create', elicitationRequestHandler);
 
     // Set up notification handler for elicitation completion
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+    client.setNotificationHandler('notifications/elicitation/complete', notification => {
         const { elicitationId } = notification.params;
         const pending = pendingURLElicitations.get(elicitationId);
         if (pending) {
