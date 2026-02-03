@@ -12,18 +12,15 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ElicitRequestSchema,
     ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
     McpError,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
-    ResourceListChangedNotificationSchema,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
@@ -271,7 +268,7 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.setRequestHandler(ElicitRequestSchema, async request => {
+        client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
                 throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
@@ -496,14 +493,14 @@ async function connect(url?: string): Promise<void> {
         });
 
         // Set up notification handlers
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             notificationCount++;
             console.log(`\nNotification #${notificationCount}: ${notification.params.level} - ${notification.params.data}`);
             // Re-display the prompt
             process.stdout.write('> ');
         });
 
-        client.setNotificationHandler(ResourceListChangedNotificationSchema, async _ => {
+        client.setNotificationHandler('notifications/resources/list_changed', async _ => {
             console.log(`\nResource list changed notification received!`);
             try {
                 if (!client) {

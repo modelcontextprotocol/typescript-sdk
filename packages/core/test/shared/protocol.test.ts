@@ -29,7 +29,7 @@ import type {
     Task,
     TaskCreationParams
 } from '../../src/types/types.js';
-import { CallToolRequestSchema, ErrorCode, McpError, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+import { ErrorCode, McpError, RELATED_TASK_META_KEY } from '../../src/types/types.js';
 
 // Type helper for accessing private/protected Protocol properties in tests
 interface TestProtocol {
@@ -1266,13 +1266,13 @@ describe('Task-based execution', () => {
 
             await protocol.connect(transport);
 
-            protocol.setRequestHandler(CallToolRequestSchema, async request => {
+            protocol.setRequestHandler('tools/call', async request => {
                 // Tool implementor can access task creation parameters from request.params.task
                 expect(request.params.task).toEqual({
                     ttl: 60000,
                     pollInterval: 1000
                 });
-                return { result: 'success' };
+                return { content: [{ type: 'text', text: 'success' }] };
             });
 
             transport.onmessage?.({
@@ -2009,7 +2009,7 @@ describe('Task-based execution', () => {
             await serverProtocol.connect(serverTransport);
 
             // Set up a handler that uses sendRequest and sendNotification
-            serverProtocol.setRequestHandler(CallToolRequestSchema, async (_request, extra) => {
+            serverProtocol.setRequestHandler('tools/call', async (_request, extra) => {
                 // Send a notification using the extra.sendNotification
                 await extra.sendNotification({
                     method: 'notifications/message',
@@ -2093,15 +2093,11 @@ describe('Request Cancellation vs Task Cancellation', () => {
 
             // Set up a request handler that checks if it was aborted
             let wasAborted = false;
-            const TestRequestSchema = z.object({
-                method: z.literal('test/longRunning'),
-                params: z.optional(z.record(z.string(), z.unknown()))
-            });
-            protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
+            protocol.setRequestHandler('ping', async (_request, extra) => {
                 // Simulate a long-running operation
                 await new Promise(resolve => setTimeout(resolve, 100));
                 wasAborted = extra.signal.aborted;
-                return { _meta: {} } as Result;
+                return {};
             });
 
             // Simulate an incoming request
@@ -2110,7 +2106,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
                 transport.onmessage({
                     jsonrpc: '2.0',
                     id: requestId,
-                    method: 'test/longRunning',
+                    method: 'ping',
                     params: {}
                 });
             }
@@ -2308,28 +2304,24 @@ describe('Request Cancellation vs Task Cancellation', () => {
 
             // Set up a request handler
             let requestCompleted = false;
-            const TestMethodSchema = z.object({
-                method: z.literal('test/method'),
-                params: z.optional(z.record(z.string(), z.unknown()))
-            });
-            protocol.setRequestHandler(TestMethodSchema, async () => {
+            protocol.setRequestHandler('ping', async () => {
                 await new Promise(resolve => setTimeout(resolve, 50));
                 requestCompleted = true;
-                return { _meta: {} } as Result;
+                return {};
             });
 
-            // Create a task
+            // Create a task (simulating a long-running tools/call)
             const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
-                method: 'test/method',
-                params: {}
+                method: 'tools/call',
+                params: { name: 'long-running-tool', arguments: {} }
             });
 
-            // Start a request
+            // Start an unrelated ping request
             if (transport.onmessage) {
                 transport.onmessage({
                     jsonrpc: '2.0',
                     id: 123,
-                    method: 'test/method',
+                    method: 'ping',
                     params: {}
                 });
             }
@@ -2488,7 +2480,7 @@ describe('Progress notification support for tasks', () => {
         await protocol.connect(transport);
 
         // Set up a request handler that will complete the task
-        protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+        protocol.setRequestHandler('tools/call', async (_request, extra) => {
             if (extra.taskStore) {
                 const task = await extra.taskStore.createTask({ ttl: 60000 });
 
@@ -3686,17 +3678,8 @@ describe('Message Interception', () => {
             await protocol.connect(transport);
 
             // Set up a request handler that returns a result
-            const TestRequestSchema = z.object({
-                method: z.literal('test/taskRequest'),
-                params: z
-                    .object({
-                        _meta: z.optional(z.record(z.string(), z.unknown()))
-                    })
-                    .passthrough()
-            });
-
-            protocol.setRequestHandler(TestRequestSchema, async () => {
-                return { content: 'test result' } as Result;
+            protocol.setRequestHandler('ping', async () => {
+                return {};
             });
 
             // Simulate an incoming request with relatedTask metadata
@@ -3705,7 +3688,7 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                method: 'test/taskRequest',
+                method: 'ping',
                 params: {
                     _meta: {
                         'io.modelcontextprotocol/related-task': { taskId }
@@ -3725,7 +3708,7 @@ describe('Message Interception', () => {
             expect(queuedMessage!.type).toBe('response');
             if (queuedMessage!.type === 'response') {
                 expect(queuedMessage!.message.id).toBe(requestId);
-                expect(queuedMessage!.message.result).toEqual({ content: 'test result' });
+                expect(queuedMessage!.message.result).toEqual({});
             }
         });
 
@@ -3733,16 +3716,7 @@ describe('Message Interception', () => {
             await protocol.connect(transport);
 
             // Set up a request handler that throws an error
-            const TestRequestSchema = z.object({
-                method: z.literal('test/taskRequestError'),
-                params: z
-                    .object({
-                        _meta: z.optional(z.record(z.string(), z.unknown()))
-                    })
-                    .passthrough()
-            });
-
-            protocol.setRequestHandler(TestRequestSchema, async () => {
+            protocol.setRequestHandler('ping', async () => {
                 throw new McpError(ErrorCode.InternalError, 'Test error message');
             });
 
@@ -3752,7 +3726,7 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                method: 'test/taskRequestError',
+                method: 'ping',
                 params: {
                     _meta: {
                         'io.modelcontextprotocol/related-task': { taskId }
@@ -3815,13 +3789,8 @@ describe('Message Interception', () => {
             const sendSpy = vi.spyOn(transport, 'send');
 
             // Set up a request handler
-            const TestRequestSchema = z.object({
-                method: z.literal('test/normalRequest'),
-                params: z.optional(z.record(z.string(), z.unknown()))
-            });
-
-            protocol.setRequestHandler(TestRequestSchema, async () => {
-                return { content: 'normal result' } as Result;
+            protocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'done' }] };
             });
 
             // Simulate an incoming request WITHOUT relatedTask metadata
@@ -3829,8 +3798,8 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                method: 'test/normalRequest',
-                params: {}
+                method: 'tools/call',
+                params: { name: 'test-tool' }
             });
 
             // Wait for the handler to complete
@@ -3841,7 +3810,7 @@ describe('Message Interception', () => {
                 expect.objectContaining({
                     jsonrpc: '2.0',
                     id: requestId,
-                    result: { content: 'normal result' }
+                    result: { content: [{ type: 'text', text: 'done' }] }
                 })
             );
         });

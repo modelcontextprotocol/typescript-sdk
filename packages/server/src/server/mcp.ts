@@ -36,23 +36,14 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
-    CallToolRequestSchema,
-    CompleteRequestSchema,
     ErrorCode,
-    getLiteralValue,
     getObjectShape,
     getParseErrorMessage,
-    GetPromptRequestSchema,
     getSchemaDescription,
     isSchemaOptional,
-    ListPromptsRequestSchema,
-    ListResourcesRequestSchema,
-    ListResourceTemplatesRequestSchema,
-    ListToolsRequestSchema,
     McpError,
     normalizeObjectSchema,
     objectFromShape,
-    ReadResourceRequestSchema,
     safeParseAsync,
     toJsonSchemaCompat,
     UriTemplate,
@@ -128,8 +119,8 @@ export class McpServer {
             return;
         }
 
-        this.server.assertCanSetRequestHandler(getMethodValue(ListToolsRequestSchema));
-        this.server.assertCanSetRequestHandler(getMethodValue(CallToolRequestSchema));
+        this.server.assertCanSetRequestHandler('tools/list');
+        this.server.assertCanSetRequestHandler('tools/call');
 
         this.server.registerCapabilities({
             tools: {
@@ -138,7 +129,7 @@ export class McpServer {
         });
 
         this.server.setRequestHandler(
-            ListToolsRequestSchema,
+            'tools/list',
             (): ListToolsResult => ({
                 tools: Object.entries(this._registeredTools)
                     .filter(([, tool]) => tool.enabled)
@@ -176,7 +167,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
+        this.server.setRequestHandler('tools/call', async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
             try {
                 const tool = this._registeredTools[request.params.name];
                 if (!tool) {
@@ -404,13 +395,13 @@ export class McpServer {
             return;
         }
 
-        this.server.assertCanSetRequestHandler(getMethodValue(CompleteRequestSchema));
+        this.server.assertCanSetRequestHandler('completion/complete');
 
         this.server.registerCapabilities({
             completions: {}
         });
 
-        this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
+        this.server.setRequestHandler('completion/complete', async (request): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
                 case 'ref/prompt': {
                     assertCompleteRequestPrompt(request);
@@ -490,9 +481,9 @@ export class McpServer {
             return;
         }
 
-        this.server.assertCanSetRequestHandler(getMethodValue(ListResourcesRequestSchema));
-        this.server.assertCanSetRequestHandler(getMethodValue(ListResourceTemplatesRequestSchema));
-        this.server.assertCanSetRequestHandler(getMethodValue(ReadResourceRequestSchema));
+        this.server.assertCanSetRequestHandler('resources/list');
+        this.server.assertCanSetRequestHandler('resources/templates/list');
+        this.server.assertCanSetRequestHandler('resources/read');
 
         this.server.registerCapabilities({
             resources: {
@@ -500,7 +491,7 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+        this.server.setRequestHandler('resources/list', async (_request, extra) => {
             const resources = Object.entries(this._registeredResources)
                 .filter(([_, resource]) => resource.enabled)
                 .map(([uri, resource]) => ({
@@ -528,7 +519,7 @@ export class McpServer {
             return { resources: [...resources, ...templateResources] };
         });
 
-        this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+        this.server.setRequestHandler('resources/templates/list', async () => {
             const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
                 name,
                 uriTemplate: template.resourceTemplate.uriTemplate.toString(),
@@ -538,7 +529,7 @@ export class McpServer {
             return { resourceTemplates };
         });
 
-        this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
+        this.server.setRequestHandler('resources/read', async (request, extra) => {
             const uri = new URL(request.params.uri);
 
             // First check for exact resource match
@@ -571,8 +562,8 @@ export class McpServer {
             return;
         }
 
-        this.server.assertCanSetRequestHandler(getMethodValue(ListPromptsRequestSchema));
-        this.server.assertCanSetRequestHandler(getMethodValue(GetPromptRequestSchema));
+        this.server.assertCanSetRequestHandler('prompts/list');
+        this.server.assertCanSetRequestHandler('prompts/get');
 
         this.server.registerCapabilities({
             prompts: {
@@ -581,7 +572,7 @@ export class McpServer {
         });
 
         this.server.setRequestHandler(
-            ListPromptsRequestSchema,
+            'prompts/list',
             (): ListPromptsResult => ({
                 prompts: Object.entries(this._registeredPrompts)
                     .filter(([, prompt]) => prompt.enabled)
@@ -596,7 +587,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra): Promise<GetPromptResult> => {
+        this.server.setRequestHandler('prompts/get', async (request, extra): Promise<GetPromptResult> => {
             const prompt = this._registeredPrompts[request.params.name];
             if (!prompt) {
                 throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
@@ -1261,22 +1252,6 @@ function promptArgumentsFromSchema(schema: AnyObjectSchema): PromptArgument[] {
             required: !isOptional
         };
     });
-}
-
-function getMethodValue(schema: AnyObjectSchema): string {
-    const shape = getObjectShape(schema);
-    const methodSchema = shape?.method as AnySchema | undefined;
-    if (!methodSchema) {
-        throw new Error('Schema is missing a method literal');
-    }
-
-    // Extract literal value - works for both v3 and v4
-    const value = getLiteralValue(methodSchema);
-    if (typeof value === 'string') {
-        return value;
-    }
-
-    throw new Error('Schema method literal must be a string');
 }
 
 function createCompletionResult(suggestions: string[]): CompleteResult {

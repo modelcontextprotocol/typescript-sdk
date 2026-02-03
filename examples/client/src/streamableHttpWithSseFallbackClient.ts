@@ -3,7 +3,6 @@ import {
     CallToolResultSchema,
     Client,
     ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
     SSEClientTransport,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -39,7 +38,7 @@ async function main(): Promise<void> {
         transport = connection.transport;
 
         // Set up notification handler
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             console.log(`Notification: ${notification.params.level} - ${notification.params.data}`);
         });
 

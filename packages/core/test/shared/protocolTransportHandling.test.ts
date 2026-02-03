@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, test } from 'vitest';
-import * as z from 'zod/v4';
 
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
-import type { JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
+import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -48,54 +47,24 @@ describe('Protocol transport handling bug', () => {
 
     test('should send response to the correct transport when multiple clients are connected', async () => {
         // Set up a request handler that simulates processing time
-        let resolveHandler: (value: Result) => void;
-        const handlerPromise = new Promise<Result>(resolve => {
+        let resolveHandler: (value: EmptyResult) => void;
+        const handlerPromise = new Promise<EmptyResult>(resolve => {
             resolveHandler = resolve;
         });
 
-        const TestRequestSchema = z.object({
-            method: z.literal('test/method'),
-            params: z
-                .object({
-                    from: z.string()
-                })
-                .optional()
-        });
-
-        protocol.setRequestHandler(TestRequestSchema, async request => {
-            console.log(`Processing request from ${request.params?.from}`);
-            return handlerPromise;
-        });
+        protocol.setRequestHandler('ping', async () => handlerPromise);
 
         // Client A connects and sends a request
         await protocol.connect(transportA);
-
-        const requestFromA = {
-            jsonrpc: '2.0' as const,
-            method: 'test/method',
-            params: { from: 'clientA' },
-            id: 1
-        };
-
-        // Simulate client A sending a request
-        transportA.onmessage?.(requestFromA);
+        transportA.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 1 });
 
         // While A's request is being processed, client B connects
         // This overwrites the transport reference in the protocol
         await protocol.connect(transportB);
-
-        const requestFromB = {
-            jsonrpc: '2.0' as const,
-            method: 'test/method',
-            params: { from: 'clientB' },
-            id: 2
-        };
-
-        // Client B sends its own request
-        transportB.onmessage?.(requestFromB);
+        transportB.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 2 });
 
         // Now complete A's request
-        resolveHandler!({ data: 'responseForA' } as Result);
+        resolveHandler!({});
 
         // Wait for async operations to complete
         await new Promise(resolve => setTimeout(resolve, 10));
@@ -104,70 +73,33 @@ describe('Protocol transport handling bug', () => {
         console.log('Transport A received:', transportA.sentMessages);
         console.log('Transport B received:', transportB.sentMessages);
 
-        // FIXED: Each transport now receives its own response
-
         // Transport A should receive response for request ID 1
-        expect(transportA.sentMessages.length).toBe(1);
-        expect(transportA.sentMessages[0]).toMatchObject({
-            jsonrpc: '2.0',
-            id: 1,
-            result: { data: 'responseForA' }
-        });
+        expect(transportA.sentMessages).toHaveLength(1);
+        expect(transportA.sentMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 1, result: {} });
 
-        // Transport B should only receive its own response (when implemented)
-        expect(transportB.sentMessages.length).toBe(1);
-        expect(transportB.sentMessages[0]).toMatchObject({
-            jsonrpc: '2.0',
-            id: 2,
-            result: { data: 'responseForA' } // Same handler result in this test
-        });
+        // Transport B should receive response for request ID 2
+        expect(transportB.sentMessages).toHaveLength(1);
+        expect(transportB.sentMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 2, result: {} });
     });
 
     test('demonstrates the timing issue with multiple rapid connections', async () => {
-        const delays: number[] = [];
         const results: { transport: string; response: JSONRPCMessage[] }[] = [];
 
-        const DelayedRequestSchema = z.object({
-            method: z.literal('test/delayed'),
-            params: z
-                .object({
-                    delay: z.number(),
-                    client: z.string()
-                })
-                .optional()
-        });
-
-        // Set up handler with variable delay
-        protocol.setRequestHandler(DelayedRequestSchema, async (request, extra) => {
-            const delay = request.params?.delay || 0;
-            delays.push(delay);
-
+        // Set up handler with variable delay based on request id
+        protocol.setRequestHandler('ping', async (_request, extra) => {
+            const delay = extra.requestId === 1 ? 50 : 10;
             await new Promise(resolve => setTimeout(resolve, delay));
-
-            return {
-                processedBy: `handler-${extra.requestId}`,
-                delay: delay
-            } as Result;
+            return {};
         });
 
         // Rapid succession of connections and requests
         await protocol.connect(transportA);
-        transportA.onmessage?.({
-            jsonrpc: '2.0' as const,
-            method: 'test/delayed',
-            params: { delay: 50, client: 'A' },
-            id: 1
-        });
+        transportA.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 1 });
 
         // Connect B while A is processing
         setTimeout(async () => {
             await protocol.connect(transportB);
-            transportB.onmessage?.({
-                jsonrpc: '2.0' as const,
-                method: 'test/delayed',
-                params: { delay: 10, client: 'B' },
-                id: 2
-            });
+            transportB.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 2 });
         }, 10);
 
         // Wait for all processing
@@ -183,8 +115,7 @@ describe('Protocol transport handling bug', () => {
 
         console.log('Timing test results:', results);
 
-        // FIXED: Each transport receives its own responses
-        expect(transportA.sentMessages.length).toBe(1);
-        expect(transportB.sentMessages.length).toBe(1);
+        expect(transportA.sentMessages).toHaveLength(1);
+        expect(transportB.sentMessages).toHaveLength(1);
     });
 });
