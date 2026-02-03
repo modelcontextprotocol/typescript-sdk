@@ -47,18 +47,22 @@ export function getCompleter<T extends AnySchema>(schema: T): CompleteCallback<T
 
 /**
  * Unwraps a completable schema to get the underlying schema.
- * For backward compatibility with code that called `.unwrap()`.
+ * @deprecated No longer needed, completable schemas are now identical to the wrapped schema.
  */
 export function unwrapCompletable<T extends AnySchema>(schema: CompletableSchema<T>): T {
     return schema;
 }
 
-// Legacy exports for backward compatibility
-// These types are deprecated but kept for existing code
+/**
+ * @deprecated Legacy enum, no longer used. Will be removed in a future version.
+ */
 export enum McpZodTypeKind {
     Completable = 'McpCompletable'
 }
 
+/**
+ * @deprecated Legacy type, no longer used. Will be removed in a future version.
+ */
 export interface CompletableDef<T extends AnySchema = AnySchema> {
     type: T;
     complete: CompleteCallback<T>;

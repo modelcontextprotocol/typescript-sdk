@@ -1105,44 +1105,32 @@ function createToolExecutor(
     const isTaskHandler = 'createTask' in handler;
 
     if (isTaskHandler) {
-        // Task handler path
         const taskHandler = handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
+        const typedHandler = inputSchema
+            ? (taskHandler as ToolTaskHandler<ZodRawShapeCompat>)
+            : (taskHandler as ToolTaskHandler<undefined>);
 
-        if (inputSchema) {
-            const typedHandler = taskHandler as ToolTaskHandler<ZodRawShapeCompat>;
-            return async (args, extra) => {
-                if (!extra.taskStore) {
-                    throw new Error('No task store provided.');
-                }
-                const taskExtra = { ...extra, taskStore: extra.taskStore };
-                return typedHandler.createTask(args as ShapeOutput<ZodRawShapeCompat>, taskExtra);
-            };
-        } else {
-            const typedHandler = taskHandler as ToolTaskHandler<undefined>;
-            return async (_args, extra) => {
-                if (!extra.taskStore) {
-                    throw new Error('No task store provided.');
-                }
-                const taskExtra = { ...extra, taskStore: extra.taskStore };
-                return typedHandler.createTask(taskExtra);
-            };
-        }
-    } else {
-        // Regular callback path
-        const callback = handler as ToolCallback<ZodRawShapeCompat | undefined>;
-
-        if (inputSchema) {
-            const typedCallback = callback as ToolCallback<ZodRawShapeCompat>;
-            return async (args, extra) => {
-                return typedCallback(args as ShapeOutput<ZodRawShapeCompat>, extra);
-            };
-        } else {
-            const typedCallback = callback as ToolCallback<undefined>;
-            return async (_args, extra) => {
-                return typedCallback(extra);
-            };
-        }
+        return async (args, extra) => {
+            if (!extra.taskStore) {
+                throw new Error('No task store provided.');
+            }
+            const taskExtra = { ...extra, taskStore: extra.taskStore };
+            if (inputSchema) {
+                return (typedHandler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args as ShapeOutput<ZodRawShapeCompat>, taskExtra);
+            }
+            return (typedHandler as ToolTaskHandler<undefined>).createTask(taskExtra);
+        };
     }
+
+    const callback = handler as ToolCallback<ZodRawShapeCompat | undefined>;
+
+    if (inputSchema) {
+        const typedCallback = callback as ToolCallback<ZodRawShapeCompat>;
+        return async (args, extra) => typedCallback(args as ShapeOutput<ZodRawShapeCompat>, extra);
+    }
+
+    const typedCallback = callback as ToolCallback<undefined>;
+    return async (_args, extra) => typedCallback(extra);
 }
 
 /**
