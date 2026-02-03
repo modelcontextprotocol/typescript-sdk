@@ -60,8 +60,7 @@ import {
     mergeCapabilities,
     Protocol,
     ReadResourceResultSchema,
-    safeParse,
-    SUPPORTED_PROTOCOL_VERSIONS
+    safeParse
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -476,7 +475,7 @@ export class Client<
                 {
                     method: 'initialize',
                     params: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
                         capabilities: this._capabilities,
                         clientInfo: this._clientInfo
                     }
@@ -489,7 +488,7 @@ export class Client<
                 throw new Error(`Server sent invalid initialize result: ${result}`);
             }
 
-            if (!SUPPORTED_PROTOCOL_VERSIONS.includes(result.protocolVersion)) {
+            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
                 throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
             }
 

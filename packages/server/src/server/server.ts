@@ -51,8 +51,7 @@ import {
     McpError,
     mergeCapabilities,
     Protocol,
-    safeParse,
-    SUPPORTED_PROTOCOL_VERSIONS
+    safeParse
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
@@ -435,7 +434,9 @@ export class Server<
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion) ? requestedVersion : LATEST_PROTOCOL_VERSION;
+        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+            ? requestedVersion
+            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
         return {
             protocolVersion,
