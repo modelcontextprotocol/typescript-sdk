@@ -5556,3 +5556,154 @@ describe('Error handling for missing resolvers', () => {
         });
     });
 });
+
+describe('_onclose cleanup', () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+    let sendSpy: MockInstance;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        transport = new MockTransport();
+        sendSpy = vi.spyOn(transport, 'send');
+        protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    test('should clear pending timeouts in _onclose to prevent spurious cancellation after reconnect', async () => {
+        await protocol.connect(transport);
+
+        // Start a request with a long timeout
+        const request = { method: 'example', params: {} };
+        const mockSchema = z.object({ result: z.string() });
+
+        const requestPromise = protocol.request(request, mockSchema, {
+            timeout: 60000
+        }).catch(() => {/* expected ConnectionClosed error */});
+
+        // Verify the request was sent
+        expect(sendSpy).toHaveBeenCalled();
+
+        // Spy on clearTimeout to verify it gets called during close
+        const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+
+        // Close the transport - this should clear timeouts
+        await transport.close();
+
+        // Verify clearTimeout was called (at least once for our timeout)
+        expect(clearTimeoutSpy).toHaveBeenCalled();
+
+        // Now reconnect with a new transport
+        const transport2 = new MockTransport();
+        const sendSpy2 = vi.spyOn(transport2, 'send');
+        await protocol.connect(transport2);
+
+        // Advance past the original timeout - if not cleared, this would fire the callback
+        await vi.advanceTimersByTimeAsync(60000);
+
+        // Verify no spurious cancellation notification was sent to the new transport
+        const cancellationCalls = sendSpy2.mock.calls.filter(call => {
+            const msg = call[0] as Record<string, unknown>;
+            return msg.method === 'notifications/cancelled';
+        });
+        expect(cancellationCalls).toHaveLength(0);
+
+        await transport2.close();
+        await requestPromise;
+        clearTimeoutSpy.mockRestore();
+    });
+
+    test('should not let stale .finally() delete a new connections abort controller after reconnect', async () => {
+        await protocol.connect(transport);
+
+        const TestRequestSchema = z.object({
+            method: z.literal('test/longRunning'),
+            params: z.optional(z.record(z.unknown()))
+        });
+
+        // Set up a handler with a deferred resolution we control
+        let resolveHandler!: () => void;
+        const handlerStarted = new Promise<void>(resolve => {
+            protocol.setRequestHandler(TestRequestSchema, async () => {
+                resolve(); // signal that handler has started
+                // Wait for explicit resolution
+                await new Promise<void>(r => { resolveHandler = r; });
+                return { _meta: {} } as Result;
+            });
+        });
+
+        // Simulate an incoming request with id=1 on the first connection
+        const requestId = 1;
+        transport.onmessage!({
+            jsonrpc: '2.0',
+            id: requestId,
+            method: 'test/longRunning',
+            params: {}
+        });
+
+        // Wait for handler to start
+        await handlerStarted;
+
+        // Close the connection (aborts the controller and clears the map)
+        await transport.close();
+
+        // Reconnect with a new transport
+        const transport2 = new MockTransport();
+        await protocol.connect(transport2);
+
+        // Set up a new handler for the second connection that we can verify cancellation on
+        let wasAborted = false;
+        let resolveHandler2!: () => void;
+        const handler2Started = new Promise<void>(resolve => {
+            protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
+                resolve();
+                await new Promise<void>(r => { resolveHandler2 = r; });
+                wasAborted = extra.signal.aborted;
+                return { _meta: {} } as Result;
+            });
+        });
+
+        // Simulate same request id=1 on the new connection
+        transport2.onmessage!({
+            jsonrpc: '2.0',
+            id: requestId,
+            method: 'test/longRunning',
+            params: {}
+        });
+
+        await handler2Started;
+
+        // Resolve the OLD handler so its .finally() runs
+        resolveHandler();
+        // Flush microtasks so .finally() executes
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Send cancellation for request id=1 on the new connection.
+        // If the old .finally() incorrectly deleted the new controller, this won't work.
+        transport2.onmessage!({
+            jsonrpc: '2.0',
+            method: 'notifications/cancelled',
+            params: {
+                requestId: requestId,
+                reason: 'test cancel'
+            }
+        });
+
+        // Resolve handler2 so it can check the abort signal
+        resolveHandler2();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(wasAborted).toBe(true);
+
+        await transport2.close();
+    });
+});
