@@ -95,6 +95,7 @@ Notes:
 | `ErrorCode` | `ProtocolErrorCode` |
 | `ErrorCode.RequestTimeout` | `SdkErrorCode.RequestTimeout` |
 | `ErrorCode.ConnectionClosed` | `SdkErrorCode.ConnectionClosed` |
+| `StreamableHTTPError` | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
@@ -111,6 +112,12 @@ Two error classes now exist:
 | Capability not supported | `new Error(...)` | `SdkError` with `SdkErrorCode.CapabilityNotSupported` |
 | Not connected | `new Error('Not connected')` | `SdkError` with `SdkErrorCode.NotConnected` |
 | Invalid params (server response) | `McpError` with `ErrorCode.InvalidParams` | `ProtocolError` with `ProtocolErrorCode.InvalidParams` |
+| HTTP transport error | `StreamableHTTPError` | `SdkError` with `SdkErrorCode.ClientHttp*` |
+| Failed to open SSE stream | `StreamableHTTPError` | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream` |
+| 401 after auth flow | `StreamableHTTPError` | `SdkError` with `SdkErrorCode.ClientHttpAuthentication` |
+| 403 after upscoping | `StreamableHTTPError` | `SdkError` with `SdkErrorCode.ClientHttpForbidden` |
+| Unexpected content type | `StreamableHTTPError` | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent` |
+| Session termination failed | `StreamableHTTPError` | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
 
 New `SdkErrorCode` enum values:
 - `SdkErrorCode.NotConnected` = `'NOT_CONNECTED'`
