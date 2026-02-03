@@ -593,15 +593,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
-     * Builds the context object for request handlers. Subclasses can override
-     * to add transport-specific fields (e.g., ServerContext adds requestInfo).
+     * Builds the context object for request handlers. Subclasses must override
+     * to return the appropriate context type (e.g., ServerContext adds requestInfo).
      */
-    protected buildContext(
+    protected abstract buildContext(
         ctx: BaseContext<SendRequestT, SendNotificationT>,
-        _transportInfo?: MessageExtraInfo
-    ): BaseContext<SendRequestT, SendNotificationT> {
-        return ctx;
-    }
+        transportInfo?: MessageExtraInfo
+    ): BaseContext<SendRequestT, SendNotificationT>;
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {

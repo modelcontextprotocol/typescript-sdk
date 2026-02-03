@@ -381,6 +381,42 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
 ```
 
+### Request handler context types
+
+The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy:
+
+| v1 | v2 |
+|----|-----|
+| `RequestHandlerExtra` (flat, all fields) | `ServerContext` (server handlers) or `ClientContext` (client handlers) |
+| `extra` parameter name | `ctx` parameter name |
+| `extra.requestInfo` | `ctx.requestInfo` (only on `ServerContext`) |
+| `extra.closeSSEStream` | `ctx.closeSSEStream` (only on `ServerContext`) |
+| `extra.taskStore` | `ctx.task?.store` |
+| `extra.taskId` | `ctx.task?.id` |
+| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+
+**Before (v1):**
+
+```typescript
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  const headers = extra.requestInfo?.headers;
+  const taskStore = extra.taskStore;
+  return { content: [{ type: 'text', text: 'result' }] };
+});
+```
+
+**After (v2):**
+
+```typescript
+server.setRequestHandler('tools/call', async (request, ctx) => {
+  const headers = ctx.requestInfo?.headers;
+  const taskStore = ctx.task?.store;
+  return { content: [{ type: 'text', text: 'result' }] };
+});
+```
+
+`BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. Server-specific fields like `requestInfo` and `closeSSEStream` are only available on `ServerContext`.
+
 ### Error hierarchy refactoring
 
 The SDK now distinguishes between two types of errors:

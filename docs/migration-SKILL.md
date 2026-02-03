@@ -366,7 +366,21 @@ Schema to method string mapping:
 
 Request/notification params remain fully typed. Remove unused schema imports after migration.
 
-## 10. Client Behavioral Changes
+## 10. Request Handler Context Types
+
+`RequestHandlerExtra` → structured context types. Rename `extra` → `ctx` in all handler callbacks.
+
+| v1 | v2 |
+|----|-----|
+| `RequestHandlerExtra` | `ServerContext` (server) / `ClientContext` (client) / `BaseContext` (base) |
+| `extra` (param name) | `ctx` |
+| `extra.requestInfo` | `ctx.requestInfo` (only `ServerContext`) |
+| `extra.closeSSEStream` | `ctx.closeSSEStream` (only `ServerContext`) |
+| `extra.taskStore` | `ctx.task?.store` |
+| `extra.taskId` | `ctx.task?.id` |
+| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+
+## 11. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 

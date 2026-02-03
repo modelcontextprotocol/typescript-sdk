@@ -38,6 +38,9 @@ describe('Protocol transport handling bug', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })();
 

@@ -144,7 +144,8 @@ When a request arrives from the remote side:
 2. **`Protocol.connect()`** routes to `_onrequest()`, `_onresponse()`, or `_onnotification()`
 3. **`Protocol._onrequest()`**:
     - Looks up handler in `_requestHandlers` map (keyed by method name)
-    - Creates `RequestHandlerExtra` with `signal`, `sessionId`, `sendNotification`, `sendRequest`
+    - Creates `BaseContext` with `signal`, `sessionId`, `sendNotification`, `sendRequest`, etc.
+    - Calls `buildContext()` to let subclasses enrich the context (e.g., Server adds `requestInfo`)
     - Invokes handler, sends JSON-RPC response back via transport
 4. **Handler** was registered via `setRequestHandler('method', handler)`
 
@@ -152,29 +153,39 @@ When a request arrives from the remote side:
 
 ```typescript
 // In Client (for server→client requests like sampling, elicitation)
-client.setRequestHandler('sampling/createMessage', async (request, extra) => {
+client.setRequestHandler('sampling/createMessage', async (request, ctx) => {
   // Handle sampling request from server
   return { role: "assistant", content: {...}, model: "..." };
 });
 
 // In Server (for client→server requests like tools/call)
-server.setRequestHandler('tools/call', async (request, extra) => {
+server.setRequestHandler('tools/call', async (request, ctx) => {
   // Handle tool call from client
   return { content: [...] };
 });
 ```
 
-### Request Handler Extra
+### Request Handler Context
 
-The `extra` parameter in handlers (`RequestHandlerExtra`) provides:
+The `ctx` parameter in handlers provides a structured context:
+
+**`BaseContext`** (common to both Server and Client):
 
 - `signal`: AbortSignal for cancellation
 - `sessionId`: Transport session identifier
 - `authInfo`: Validated auth token info (if authenticated)
 - `requestId`: JSON-RPC message ID
+- `task?`: Task context (`{ id?, store, requestedTtl? }`) when task storage is configured
 - `sendNotification(notification)`: Send related notification back
 - `sendRequest(request, schema)`: Send related request (for bidirectional flows)
-- `taskStore`: Task storage interface (if tasks enabled)
+
+**`ServerContext`** extends `BaseContext` with:
+
+- `requestInfo?`: Original HTTP request info (headers, etc.)
+- `closeSSEStream?`: Close SSE stream for polling behavior
+- `closeStandaloneSSEStream?`: Close standalone GET SSE stream
+
+**`ClientContext`** is currently identical to `BaseContext`.
 
 ### Capability Checking
 

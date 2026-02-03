@@ -161,6 +161,9 @@ describe('protocol tests', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })();
     });
@@ -635,6 +638,9 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced_with_params'] });
             await protocol.connect(transport);
@@ -658,6 +664,9 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced_with_options'] });
             await protocol.connect(transport);
@@ -679,6 +688,9 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
@@ -705,6 +717,9 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
@@ -734,6 +749,9 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
@@ -761,6 +779,9 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] }); // Configure for a different method
             await protocol.connect(transport);
@@ -796,6 +817,9 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
@@ -1015,6 +1039,9 @@ describe('Task-based execution', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore: createMockTaskStore(), taskMessageQueue: new InMemoryTaskMessageQueue() });
     });
@@ -1262,6 +1289,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
@@ -1331,6 +1361,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
@@ -1392,6 +1425,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
@@ -1438,6 +1474,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
@@ -1471,6 +1510,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
@@ -1605,6 +1647,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -1647,6 +1692,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -1695,6 +1743,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -1777,6 +1828,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -1827,6 +1881,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -1876,6 +1933,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -1913,6 +1973,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -1958,6 +2021,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
@@ -2001,6 +2067,9 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -2084,6 +2153,9 @@ describe('Request Cancellation vs Task Cancellation', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore });
     });
@@ -2369,6 +2441,9 @@ describe('Progress notification support for tasks', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })();
     });
@@ -2380,6 +2455,9 @@ describe('Progress notification support for tasks', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore });
 
@@ -2473,6 +2551,9 @@ describe('Progress notification support for tasks', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore });
 
@@ -2608,6 +2689,9 @@ describe('Progress notification support for tasks', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore });
 
@@ -2706,6 +2790,9 @@ describe('Progress notification support for tasks', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore });
 
@@ -2801,6 +2888,9 @@ describe('Progress notification support for tasks', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore });
 
@@ -3070,6 +3160,9 @@ describe('Message interception for task-related notifications', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3107,6 +3200,9 @@ describe('Message interception for task-related notifications', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3134,6 +3230,9 @@ describe('Message interception for task-related notifications', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue(), maxTaskQueueSize: 100 });
 
@@ -3181,6 +3280,9 @@ describe('Message interception for task-related notifications', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3214,6 +3316,9 @@ describe('Message interception for task-related notifications', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3256,6 +3361,9 @@ describe('Message interception for task-related requests', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3308,6 +3416,9 @@ describe('Message interception for task-related requests', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3347,6 +3458,9 @@ describe('Message interception for task-related requests', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3400,6 +3514,9 @@ describe('Message interception for task-related requests', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: queue });
 
@@ -3465,6 +3582,9 @@ describe('Message interception for task-related requests', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
@@ -3541,6 +3661,9 @@ describe('Message interception for task-related requests', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue(), maxTaskQueueSize: 100 });
 
@@ -3602,6 +3725,9 @@ describe('Message Interception', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
     });
@@ -4120,6 +4246,9 @@ describe('Queue lifecycle management', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
     });
@@ -4434,6 +4563,9 @@ describe('requestStream() method', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })();
         await protocol.connect(transport);
@@ -4477,6 +4609,9 @@ describe('requestStream() method', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })();
         await protocol.connect(transport);
@@ -4523,6 +4658,9 @@ describe('requestStream() method', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })();
         await protocol.connect(transport);
@@ -4561,6 +4699,9 @@ describe('requestStream() method', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })();
             await protocol.connect(transport);
@@ -4603,6 +4744,9 @@ describe('requestStream() method', () => {
                     protected assertNotificationCapability(): void {}
                     protected assertRequestHandlerCapability(): void {}
                     protected assertTaskCapability(): void {}
+                    protected buildContext(ctx: any) {
+                        return ctx;
+                    }
                     protected assertTaskHandlerCapability(): void {}
                 })();
                 await protocol.connect(transport);
@@ -4642,6 +4786,9 @@ describe('requestStream() method', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })();
             await protocol.connect(transport);
@@ -4675,6 +4822,9 @@ describe('requestStream() method', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })();
             await protocol.connect(transport);
@@ -4727,6 +4877,9 @@ describe('requestStream() method', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             await protocol.connect(transport);
@@ -4787,6 +4940,9 @@ describe('requestStream() method', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })();
             await protocol.connect(transport);
@@ -4815,6 +4971,9 @@ describe('requestStream() method', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected buildContext(ctx: any) {
+                    return ctx;
+                }
                 protected assertTaskHandlerCapability(): void {}
             })();
             await protocol.connect(transport);
@@ -4871,6 +5030,9 @@ describe('Error handling for missing resolvers', () => {
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
+            protected buildContext(ctx: any) {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(_method: string): void {}
         })({
             taskStore,
