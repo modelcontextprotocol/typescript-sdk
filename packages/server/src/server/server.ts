@@ -34,7 +34,6 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    AjvJsonSchemaValidator,
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
     CallToolRequestSchema,
@@ -55,6 +54,7 @@ import {
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/_shims';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
@@ -75,20 +75,28 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default AjvJsonSchemaValidator
+     * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
      *
      * @example
      * ```typescript
-     * // ajv (default)
+     * // Use runtime-detected default (recommended)
+     * const server = new Server(
+     *   { name: 'my-server', version: '1.0.0' },
+     *   { capabilities: {} }
+     * );
+     *
+     * // Explicit AjvJsonSchemaValidator
+     * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
      * const server = new Server(
      *   { name: 'my-server', version: '1.0.0' },
      *   {
-     *     capabilities: {}
+     *     capabilities: {},
      *     jsonSchemaValidator: new AjvJsonSchemaValidator()
      *   }
      * );
      *
-     * // @cfworker/json-schema
+     * // Explicit CfWorkerJsonSchemaValidator (Cloudflare Workers)
+     * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
      * const server = new Server(
      *   { name: 'my-server', version: '1.0.0' },
      *   {
@@ -154,7 +162,7 @@ export class Server<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
-        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());

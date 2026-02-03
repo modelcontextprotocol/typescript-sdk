@@ -1,3 +1,4 @@
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/_shims';
 import type {
     CallToolRequest,
     ClientCapabilities,
@@ -35,7 +36,6 @@ import type {
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
-    AjvJsonSchemaValidator,
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
     CallToolResultSchema,
@@ -153,11 +153,18 @@ export type ClientOptions = ProtocolOptions & {
      * The validator is used to validate structured content returned by tools
      * against their declared output schemas.
      *
-     * @default AjvJsonSchemaValidator
+     * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
      *
      * @example
      * ```typescript
-     * // ajv
+     * // Use runtime-detected default (recommended)
+     * const client = new Client(
+     *   { name: 'my-client', version: '1.0.0' },
+     *   { capabilities: {} }
+     * );
+     *
+     * // Explicit AjvJsonSchemaValidator
+     * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/client';
      * const client = new Client(
      *   { name: 'my-client', version: '1.0.0' },
      *   {
@@ -166,7 +173,8 @@ export type ClientOptions = ProtocolOptions & {
      *   }
      * );
      *
-     * // @cfworker/json-schema
+     * // Explicit CfWorkerJsonSchemaValidator (Cloudflare Workers)
+     * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/client';
      * const client = new Client(
      *   { name: 'my-client', version: '1.0.0' },
      *   {
@@ -259,7 +267,7 @@ export class Client<
     ) {
         super(options);
         this._capabilities = options?.capabilities ?? {};
-        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
 
         // Store list changed config for setup after connection (when we know server capabilities)

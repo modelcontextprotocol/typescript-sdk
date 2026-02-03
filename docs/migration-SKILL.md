@@ -360,7 +360,27 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 11. Migration Steps (apply in this order)
+## 11. Runtime-Specific JSON Schema Validators (Enhancement)
+
+The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
+- Node.js → `AjvJsonSchemaValidator` (no change from v1)
+- Cloudflare Workers (workerd) → `CfWorkerJsonSchemaValidator` (previously required manual config)
+
+**No action required** for most users. Cloudflare Workers users can remove explicit `jsonSchemaValidator` configuration:
+
+```typescript
+// v1 (Cloudflare Workers): Required explicit validator
+new McpServer({ name: 'server', version: '1.0.0' }, {
+  jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
+});
+
+// v2 (Cloudflare Workers): Auto-selected, explicit config optional
+new McpServer({ name: 'server', version: '1.0.0' }, {});
+```
+
+Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/_shims';`
+
+## 12. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
