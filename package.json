@@ -1,9 +1,10 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.19.1",
+    "private": true,
+    "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
-    "license": "MIT",
-    "author": "Anthropic, PBC (https://anthropic.com)",
+    "license": "SEE LICENSE IN LICENSE",
+    "author": "Model Context Protocol a Series of LF Projects, LLC.",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
     "type": "module",
@@ -12,95 +13,72 @@
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
     },
     "engines": {
-        "node": ">=18"
+        "node": ">=20",
+        "pnpm": ">=10.24.0"
     },
+    "packageManager": "pnpm@10.26.1",
     "keywords": [
         "modelcontextprotocol",
         "mcp"
     ],
-    "exports": {
-        ".": {
-            "import": "./dist/esm/index.js",
-            "require": "./dist/cjs/index.js"
-        },
-        "./client": {
-            "import": "./dist/esm/client/index.js",
-            "require": "./dist/cjs/client/index.js"
-        },
-        "./server": {
-            "import": "./dist/esm/server/index.js",
-            "require": "./dist/cjs/server/index.js"
-        },
-        "./*": {
-            "import": "./dist/esm/*",
-            "require": "./dist/cjs/*"
-        }
-    },
-    "typesVersions": {
-        "*": {
-            "*": [
-                "./dist/esm/*"
-            ]
-        }
-    },
-    "files": [
-        "dist"
-    ],
     "scripts": {
-        "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
-        "build": "npm run build:esm && npm run build:cjs",
-        "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
-        "build:esm:w": "npm run build:esm -- -w",
-        "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
-        "build:cjs:w": "npm run build:cjs -- -w",
-        "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
-        "prepack": "npm run build:esm && npm run build:cjs",
-        "lint": "eslint src/ && prettier --check .",
-        "lint:fix": "eslint src/ --fix && prettier --write .",
-        "prepare": "npx --no-install lefthook install",
-        "test": "npm run fetch:spec-types && jest",
-        "start": "npm run server",
-        "server": "tsx watch --clear-screen=false src/cli.ts server",
-        "client": "tsx src/cli.ts client"
-    },
-    "dependencies": {
-        "ajv": "^6.12.6",
-        "content-type": "^1.0.5",
-        "cors": "^2.8.5",
-        "cross-spawn": "^7.0.5",
-        "eventsource": "^3.0.2",
-        "eventsource-parser": "^3.0.0",
-        "express": "^5.0.1",
-        "express-rate-limit": "^7.5.0",
-        "pkce-challenge": "^5.0.0",
-        "raw-body": "^3.0.0",
-        "zod": "^3.23.8",
-        "zod-to-json-schema": "^3.24.1"
+        "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
+        "examples:simple-server:w": "pnpm --filter @modelcontextprotocol/examples-server exec tsx --watch src/simpleStreamableHttp.ts --oauth",
+        "docs": "typedoc",
+        "docs:check": "typedoc --emit none",
+        "typecheck:all": "pnpm -r typecheck",
+        "build:all": "pnpm -r build",
+        "prepack:all": "pnpm -r prepack",
+        "lint:all": "pnpm -r lint",
+        "lint:fix:all": "pnpm -r lint:fix",
+        "check:all": "pnpm -r typecheck && pnpm -r lint",
+        "test:all": "pnpm -r test",
+        "test:conformance:client": "conformance client --command 'npx tsx src/conformance/everything-client.ts'",
+        "test:conformance:client:all": "conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all",
+        "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts",
+        "test:conformance:server": "scripts/run-server-conformance.sh",
+        "test:conformance:server:all": "scripts/run-server-conformance.sh --suite all",
+        "test:conformance:server:run": "npx tsx src/conformance/everything-server.ts",
+        "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all",
+        "prepare": "npx --no-install lefthook install"
     },
     "devDependencies": {
-        "@eslint/js": "^9.8.0",
-        "@jest-mock/express": "^3.0.0",
-        "@types/content-type": "^1.1.8",
-        "@types/cors": "^2.8.17",
-        "@types/cross-spawn": "^6.0.6",
-        "@types/eslint__js": "^8.42.3",
-        "@types/eventsource": "^1.1.15",
-        "@types/express": "^5.0.0",
-        "@types/jest": "^29.5.12",
-        "@types/node": "^22.0.2",
-        "@types/supertest": "^6.0.2",
-        "@types/ws": "^8.5.12",
-        "eslint": "^9.8.0",
-        "eslint-config-prettier": "^10.1.8",
-        "jest": "^29.7.0",
-        "lefthook": "^1.13.6",
-        "prettier": "3.6.2",
-        "supertest": "^7.0.0",
-        "ts-jest": "^29.2.4",
-        "tsx": "^4.16.5",
-        "typescript": "^5.5.4",
-        "typescript-eslint": "^8.0.0",
-        "ws": "^8.18.0"
+        "lefthook": "^2.0.16",
+        "@cfworker/json-schema": "catalog:runtimeShared",
+        "@changesets/changelog-github": "^0.5.2",
+        "@changesets/cli": "^2.29.8",
+        "@eslint/js": "catalog:devTools",
+        "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/conformance": "0.1.10",
+        "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/node": "workspace:^",
+        "@types/content-type": "catalog:devTools",
+        "@types/cors": "catalog:devTools",
+        "@types/cross-spawn": "catalog:devTools",
+        "@types/eventsource": "catalog:devTools",
+        "@types/express": "catalog:devTools",
+        "@types/express-serve-static-core": "catalog:devTools",
+        "@types/node": "^24.10.1",
+        "@types/supertest": "catalog:devTools",
+        "@types/ws": "catalog:devTools",
+        "@typescript/native-preview": "catalog:devTools",
+        "cors": "catalog:runtimeServerOnly",
+        "eslint": "catalog:devTools",
+        "eslint-config-prettier": "catalog:devTools",
+        "eslint-plugin-n": "catalog:devTools",
+        "fast-glob": "^3.3.3",
+        "express": "catalog:runtimeServerOnly",
+        "prettier": "catalog:devTools",
+        "supertest": "catalog:devTools",
+        "tsdown": "catalog:devTools",
+        "tslib": "^2.8.1",
+        "tsx": "catalog:devTools",
+        "typedoc": "catalog:devTools",
+        "typescript": "catalog:devTools",
+        "typescript-eslint": "catalog:devTools",
+        "vitest": "catalog:devTools",
+        "ws": "catalog:devTools",
+        "zod": "catalog:runtimeShared"
     },
     "resolutions": {
         "strip-ansi": "6.0.1"

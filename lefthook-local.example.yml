@@ -1,0 +1,24 @@
+# Optional local lefthook configuration
+# To enable this:
+#  cp lefthook-local.example.yml lefthook-local.yml
+
+pre-commit:
+    parallel: true
+    jobs:
+        - name: 'Typecheck'
+          run: pnpm typecheck:all
+          stage_fixed: true
+
+        - name: 'Lint Fix & Format'
+          run: pnpm lint:fix:all
+          stage_fixed: true
+
+post-checkout:
+    jobs:
+        - name: 'Install Dependencies'
+          run: pnpm install
+
+post-merge:
+    jobs:
+        - name: 'Install Dependencies'
+          run: pnpm install

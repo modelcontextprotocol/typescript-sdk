@@ -18,34 +18,30 @@ pre-push:
     follow: true
     parallel: true
     jobs:
-        - name: 'Lint'
-          run: npx --no-install eslint --fix "{staged_files}"
-          glob:
-              - '*.ts'
-              - '*.js'
-              - '*.tsx'
-              - '*.jsx'
-          stage_fixed: true
-
-        - name: 'Code Formatting'
-          run: npx --no-install prettier --write --ignore-unknown "{staged_files}"
-          stage_fixed: true
+        - name: 'Typecheck'
+          run: pnpm run typecheck:all
+          fail_text: |
+            💡 To catch typechecking issues earlier, enable the pre-commit hook:
+            cp lefthook-local.example.yml lefthook-local.yml
+          
+        - name: 'Lint Fix & Format'
+          run: pnpm run lint:fix:all
+          fail_text: |
+            💡 To catch linting issues earlier, enable the pre-commit hook:
+            cp lefthook-local.example.yml lefthook-local.yml
 
         - name: 'Build'
-          run: npm run build
-          stage_fixed: true
-
-        - name: 'Test'
-          run: npm run fetch:spec-types && npx --no-install jest --passWithNoTests "{staged_files}"
-          glob: '*.{ts,js,json}'
-          stage_fixed: true
+          run: pnpm run build:all
+          fail_text: |
+            💡 To catch build issues earlier, enable the pre-commit hook:
+            cp lefthook-local.example.yml lefthook-local.yml
 
 post-checkout:
     jobs:
         - name: 'Install Dependencies'
-          run: npm install
+          run: pnpm install
 
 post-merge:
     jobs:
         - name: 'Install Dependencies'
-          run: npm install
+          run: pnpm install
