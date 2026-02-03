@@ -215,8 +215,13 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
+                // For task-augmented requests, re-throw McpErrors to avoid masking
+                // them with "Invalid task creation result" errors in server.ts
+                if (request.params.task && error instanceof McpError) {
+                    throw error;
+                }
                 if (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
