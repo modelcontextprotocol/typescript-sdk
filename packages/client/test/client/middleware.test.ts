@@ -148,7 +148,8 @@ describe('withOAuth', () => {
             serverUrl: 'https://api.example.com',
             resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
             scope: mockWWWAuthenticateParams.scope,
-            fetchFn: mockFetch
+            fetchFn: mockFetch,
+            userAgentProvider: expect.any(Function)
         });
 
         // Verify the retry used the new token
@@ -196,7 +197,8 @@ describe('withOAuth', () => {
             serverUrl: 'https://api.example.com', // Should be extracted from request URL
             resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
             scope: mockWWWAuthenticateParams.scope,
-            fetchFn: mockFetch
+            fetchFn: mockFetch,
+            userAgentProvider: expect.any(Function)
         });
 
         // Verify the retry used the new token
@@ -367,7 +369,8 @@ describe('withOAuth', () => {
         expect(mockAuth).toHaveBeenCalledWith(mockProvider, {
             serverUrl: 'https://api.example.com', // Should extract origin from URL object
             resourceMetadataUrl: undefined,
-            fetchFn: mockFetch
+            fetchFn: mockFetch,
+            userAgentProvider: expect.any(Function)
         });
     });
 });
@@ -910,7 +913,8 @@ describe('Integration Tests', () => {
             serverUrl: 'https://mcp-server.example.com',
             resourceMetadataUrl: new URL('https://auth.example.com/.well-known/oauth-protected-resource'),
             scope: 'read',
-            fetchFn: mockFetch
+            fetchFn: mockFetch,
+            userAgentProvider: expect.any(Function)
         });
     });
 });

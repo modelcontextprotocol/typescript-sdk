@@ -36,6 +36,7 @@
     "dependencies": {
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",
+        "bowser": "catalog:runtimeShared",
         "json-schema-typed": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared",
         "zod-to-json-schema": "catalog:runtimeShared"

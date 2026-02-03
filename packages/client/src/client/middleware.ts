@@ -1,4 +1,5 @@
-import type { FetchLike } from '@modelcontextprotocol/core';
+import type { FetchLike, UserAgentProvider } from '@modelcontextprotocol/core';
+import { createUserAgentProvider } from '@modelcontextprotocol/core';
 
 import type { OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
@@ -33,11 +34,13 @@ export type Middleware = (next: FetchLike) => FetchLike;
  *
  * @param provider - OAuth client provider for authentication
  * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL domain)
+ * @param userAgentProvider - User agent provider for the connection.
  * @returns A fetch middleware function
  */
 export const withOAuth =
-    (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware =>
+    (provider: OAuthClientProvider, baseUrl?: string | URL, userAgentProvider?: UserAgentProvider): Middleware =>
     next => {
+        const uaProvider = userAgentProvider ?? createUserAgentProvider();
         return async (input, init) => {
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
@@ -65,7 +68,8 @@ export const withOAuth =
                         serverUrl,
                         resourceMetadataUrl,
                         scope,
-                        fetchFn: next
+                        fetchFn: next,
+                        userAgentProvider: uaProvider
                     });
 
                     if (result === 'REDIRECT') {
