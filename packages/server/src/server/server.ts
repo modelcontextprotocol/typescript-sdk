@@ -436,7 +436,7 @@ export class Server<
 
         const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
             ? requestedVersion
-            : this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION;
+            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
         return {
             protocolVersion,
