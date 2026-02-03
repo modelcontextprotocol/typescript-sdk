@@ -63,8 +63,7 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "zod": "catalog:runtimeShared",
-        "zod-to-json-schema": "catalog:runtimeShared"
+        "zod": "catalog:runtimeShared"
     },
     "peerDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",

@@ -58,14 +58,14 @@ export class ExperimentalServerTasks<
         request: ServerRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
         // Delegate to the server's underlying Protocol method
         type ServerWithRequestStream = {
             requestStream<U extends AnySchema>(
                 request: ServerRequest | RequestT,
                 resultSchema: U,
                 options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;
+            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
         };
         return (this._server as unknown as ServerWithRequestStream).requestStream(request, resultSchema, options);
     }

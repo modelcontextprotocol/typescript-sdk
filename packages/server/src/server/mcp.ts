@@ -320,35 +320,8 @@ export class McpServer {
         args: unknown,
         extra: RequestHandlerExtra<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
-        const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
-        const isTaskHandler = 'createTask' in handler;
-
-        if (isTaskHandler) {
-            if (!extra.taskStore) {
-                throw new Error('No task store provided.');
-            }
-            const taskExtra = { ...extra, taskStore: extra.taskStore };
-
-            if (tool.inputSchema) {
-                const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve(typedHandler.createTask(args as any, taskExtra));
-            } else {
-                const typedHandler = handler as ToolTaskHandler<undefined>;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((typedHandler.createTask as any)(taskExtra));
-            }
-        }
-
-        if (tool.inputSchema) {
-            const typedHandler = handler as ToolCallback<ZodRawShapeCompat>;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return await Promise.resolve(typedHandler(args as any, extra));
-        } else {
-            const typedHandler = handler as ToolCallback<undefined>;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return await Promise.resolve((typedHandler as any)(extra));
-        }
+        // Executor encapsulates handler invocation with proper types
+        return tool.executor(args, extra);
     }
 
     /**
@@ -363,15 +336,9 @@ export class McpServer {
             throw new Error('No task store provided for task-capable tool.');
         }
 
-        // Validate input and create task
+        // Validate input and create task using the executor
         const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-        const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
-        const taskExtra = { ...extra, taskStore: extra.taskStore };
-
-        const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
-            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, taskExtra))
-            : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(taskExtra));
+        const createTaskResult = (await tool.executor(args, extra)) as CreateTaskResult;
 
         // Poll until completion
         const taskId = createTaskResult.task.taskId;
@@ -600,26 +567,8 @@ export class McpServer {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
             }
 
-            if (prompt.argsSchema) {
-                const argsObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
-                const parseResult = await safeParseAsync(argsObj, request.params.arguments);
-                if (!parseResult.success) {
-                    const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
-                    const errorMessage = getParseErrorMessage(error);
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InvalidParams,
-                        `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`
-                    );
-                }
-
-                const args = parseResult.data;
-                const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
-                return await Promise.resolve(cb(args, extra));
-            } else {
-                const cb = prompt.callback as PromptCallback<undefined>;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((cb as any)(extra));
-            }
+            // Handler encapsulates parsing and callback invocation with proper types
+            return prompt.handler(request.params.arguments, extra);
         });
 
         this._promptHandlersInitialized = true;
@@ -758,11 +707,15 @@ export class McpServer {
         argsSchema: PromptArgsRawShape | undefined,
         callback: PromptCallback<PromptArgsRawShape | undefined>
     ): RegisteredPrompt {
+        // Track current schema and callback for handler regeneration
+        let currentArgsSchema = argsSchema;
+        let currentCallback = callback;
+
         const registeredPrompt: RegisteredPrompt = {
             title,
             description,
             argsSchema: argsSchema === undefined ? undefined : objectFromShape(argsSchema),
-            callback,
+            handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
             enable: () => registeredPrompt.update({ enabled: true }),
@@ -774,8 +727,22 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
-                if (updates.argsSchema !== undefined) registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
-                if (updates.callback !== undefined) registeredPrompt.callback = updates.callback;
+
+                // Track if we need to regenerate the handler
+                let needsHandlerRegen = false;
+                if (updates.argsSchema !== undefined) {
+                    registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
+                    currentArgsSchema = updates.argsSchema;
+                    needsHandlerRegen = true;
+                }
+                if (updates.callback !== undefined) {
+                    currentCallback = updates.callback as PromptCallback<PromptArgsRawShape | undefined>;
+                    needsHandlerRegen = true;
+                }
+                if (needsHandlerRegen) {
+                    registeredPrompt.handler = createPromptHandler(name, currentArgsSchema, currentCallback);
+                }
+
                 if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
                 this.sendPromptListChanged();
             }
@@ -810,6 +777,10 @@ export class McpServer {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
+        // Track current schema and handler for executor regeneration
+        let currentInputSchema = inputSchema;
+        let currentHandler = handler;
+
         const registeredTool: RegisteredTool = {
             title,
             description,
@@ -819,6 +790,7 @@ export class McpServer {
             execution,
             _meta,
             handler: handler,
+            executor: createToolExecutor(inputSchema, handler),
             enabled: true,
             disable: () => registeredTool.update({ enabled: false }),
             enable: () => registeredTool.update({ enabled: true }),
@@ -833,9 +805,24 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredTool.title = updates.title;
                 if (updates.description !== undefined) registeredTool.description = updates.description;
-                if (updates.paramsSchema !== undefined) registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
+
+                // Track if we need to regenerate the executor
+                let needsExecutorRegen = false;
+                if (updates.paramsSchema !== undefined) {
+                    registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
+                    currentInputSchema = updates.paramsSchema;
+                    needsExecutorRegen = true;
+                }
+                if (updates.callback !== undefined) {
+                    registeredTool.handler = updates.callback;
+                    currentHandler = updates.callback as AnyToolHandler<ZodRawShapeCompat | undefined>;
+                    needsExecutorRegen = true;
+                }
+                if (needsExecutorRegen) {
+                    registeredTool.executor = createToolExecutor(currentInputSchema, currentHandler);
+                }
+
                 if (updates.outputSchema !== undefined) registeredTool.outputSchema = objectFromShape(updates.outputSchema);
-                if (updates.callback !== undefined) registeredTool.handler = updates.callback;
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
@@ -1051,6 +1038,15 @@ export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema 
  */
 export type AnyToolHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
+/**
+ * Internal executor type that encapsulates handler invocation with proper types.
+ * This allows type-safe handling without runtime type assertions at the call site.
+ */
+type ToolExecutor = (
+    args: unknown,
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+) => Promise<CallToolResult | CreateTaskResult>;
+
 export type RegisteredTool = {
     title?: string;
     description?: string;
@@ -1060,6 +1056,8 @@ export type RegisteredTool = {
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<undefined | ZodRawShapeCompat>;
+    /** @internal */
+    executor: ToolExecutor;
     enabled: boolean;
     enable(): void;
     disable(): void;
@@ -1094,6 +1092,57 @@ function isZodTypeLike(value: unknown): value is AnySchema {
         'safeParse' in value &&
         typeof value.safeParse === 'function'
     );
+}
+
+/**
+ * Creates a type-safe tool executor that captures the schema and handler in a closure.
+ * This eliminates the need for type assertions at the call site.
+ */
+function createToolExecutor(
+    inputSchema: ZodRawShapeCompat | AnySchema | undefined,
+    handler: AnyToolHandler<ZodRawShapeCompat | undefined>
+): ToolExecutor {
+    const isTaskHandler = 'createTask' in handler;
+
+    if (isTaskHandler) {
+        // Task handler path
+        const taskHandler = handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
+
+        if (inputSchema) {
+            const typedHandler = taskHandler as ToolTaskHandler<ZodRawShapeCompat>;
+            return async (args, extra) => {
+                if (!extra.taskStore) {
+                    throw new Error('No task store provided.');
+                }
+                const taskExtra = { ...extra, taskStore: extra.taskStore };
+                return typedHandler.createTask(args as ShapeOutput<ZodRawShapeCompat>, taskExtra);
+            };
+        } else {
+            const typedHandler = taskHandler as ToolTaskHandler<undefined>;
+            return async (_args, extra) => {
+                if (!extra.taskStore) {
+                    throw new Error('No task store provided.');
+                }
+                const taskExtra = { ...extra, taskStore: extra.taskStore };
+                return typedHandler.createTask(taskExtra);
+            };
+        }
+    } else {
+        // Regular callback path
+        const callback = handler as ToolCallback<ZodRawShapeCompat | undefined>;
+
+        if (inputSchema) {
+            const typedCallback = callback as ToolCallback<ZodRawShapeCompat>;
+            return async (args, extra) => {
+                return typedCallback(args as ShapeOutput<ZodRawShapeCompat>, extra);
+            };
+        } else {
+            const typedCallback = callback as ToolCallback<undefined>;
+            return async (_args, extra) => {
+                return typedCallback(extra);
+            };
+        }
+    }
 }
 
 /**
@@ -1225,11 +1274,21 @@ export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefin
     ? (args: ShapeOutput<Args>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
+/**
+ * Internal handler type that encapsulates parsing and callback invocation.
+ * This allows type-safe handling without runtime type assertions.
+ */
+type PromptHandler = (
+    args: Record<string, unknown> | undefined,
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+) => Promise<GetPromptResult>;
+
 export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: AnyObjectSchema;
-    callback: PromptCallback<undefined | PromptArgsRawShape>;
+    /** @internal */
+    handler: PromptHandler;
     enabled: boolean;
     enable(): void;
     disable(): void;
@@ -1243,6 +1302,45 @@ export type RegisteredPrompt = {
     }): void;
     remove(): void;
 };
+
+/**
+ * Creates a type-safe prompt handler that captures the schema and callback in a closure.
+ * This eliminates the need for type assertions at the call site.
+ */
+function createPromptHandler(
+    name: string,
+    argsSchema: PromptArgsRawShape | undefined,
+    callback: PromptCallback<PromptArgsRawShape | undefined>
+): PromptHandler {
+    if (argsSchema) {
+        // Capture the schema and callback with their types at registration time
+        const schemaObj = objectFromShape(argsSchema);
+        const typedCallback = callback as (
+            args: ShapeOutput<PromptArgsRawShape>,
+            extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        ) => GetPromptResult | Promise<GetPromptResult>;
+
+        return async (args, extra) => {
+            const parseResult = await safeParseAsync(schemaObj, args);
+            if (!parseResult.success) {
+                const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
+                const errorMessage = getParseErrorMessage(error);
+                throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${errorMessage}`);
+            }
+            // parseResult.data is validated against schemaObj, so it matches ShapeOutput
+            return typedCallback(parseResult.data as ShapeOutput<PromptArgsRawShape>, extra);
+        };
+    } else {
+        // No args schema - callback takes only extra
+        const typedCallback = callback as (
+            extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        ) => GetPromptResult | Promise<GetPromptResult>;
+
+        return async (_args, extra) => {
+            return typedCallback(extra);
+        };
+    }
+}
 
 function promptArgumentsFromSchema(schema: AnyObjectSchema): PromptArgument[] {
     const shape = getObjectShape(schema);
@@ -1260,10 +1358,11 @@ function promptArgumentsFromSchema(schema: AnyObjectSchema): PromptArgument[] {
     });
 }
 
-function createCompletionResult(suggestions: string[]): CompleteResult {
+function createCompletionResult(suggestions: readonly unknown[]): CompleteResult {
+    const values = suggestions.map(String).slice(0, 100);
     return {
         completion: {
-            values: suggestions.slice(0, 100),
+            values,
             total: suggestions.length,
             hasMore: suggestions.length > 100
         }

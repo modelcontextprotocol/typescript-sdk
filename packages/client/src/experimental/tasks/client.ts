@@ -33,7 +33,7 @@ interface ClientInternal<RequestT extends Request> {
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void>;
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void>;
     isToolTask(toolName: string): boolean;
     getToolOutputValidator(toolName: string): ((data: unknown) => { valid: boolean; errorMessage?: string }) | undefined;
 }
@@ -260,14 +260,14 @@ export class ExperimentalClientTasks<
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
         // Delegate to the client's underlying Protocol method
         type ClientWithRequestStream = {
             requestStream<U extends AnyObjectSchema>(
                 request: ClientRequest | RequestT,
                 resultSchema: U,
                 options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;
+            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
         };
         return (this._client as unknown as ClientWithRequestStream).requestStream(request, resultSchema, options);
     }

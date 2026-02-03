@@ -19,7 +19,6 @@ export type CompletableSchema<T extends AnySchema> = T & {
 
 /**
  * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
- * Works with both Zod v3 and v4 schemas.
  */
 export function completable<T extends AnySchema>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {
     Object.defineProperty(schema as object, COMPLETABLE_SYMBOL, {
