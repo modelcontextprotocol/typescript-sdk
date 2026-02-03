@@ -234,15 +234,11 @@ describe('ServerContext', () => {
                 'prompt',
                 (mcpServer, seen) => {
                     // The test is to ensure that the ctx is compatible with the ContextInterface type
-                    mcpServer.registerPrompt(
-                        'ctx-prompt',
-                        {},
-                        async (ctx: ContextInterface<ServerRequest, ServerNotification>) => {
-                            seen.isContext = ctx instanceof ServerContext;
-                            seen.hasRequestId = !!ctx.mcpReq.id;
-                            return { messages: [] };
-                        }
-                    );
+                    mcpServer.registerPrompt('ctx-prompt', {}, async (ctx: ContextInterface<ServerRequest, ServerNotification>) => {
+                        seen.isContext = ctx instanceof ServerContext;
+                        seen.hasRequestId = !!ctx.mcpReq.id;
+                        return { messages: [] };
+                    });
                 },
                 client => client.request({ method: 'prompts/get', params: { name: 'ctx-prompt', arguments: {} } }, GetPromptResultSchema)
             ]
