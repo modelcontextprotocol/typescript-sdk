@@ -44,27 +44,3 @@ export function getCompleter<T extends AnySchema>(schema: T): CompleteCallback<T
     const meta = (schema as unknown as { [COMPLETABLE_SYMBOL]?: CompletableMeta<T> })[COMPLETABLE_SYMBOL];
     return meta?.complete as CompleteCallback<T> | undefined;
 }
-
-/**
- * Unwraps a completable schema to get the underlying schema.
- * @deprecated No longer needed, completable schemas are now identical to the wrapped schema.
- */
-export function unwrapCompletable<T extends AnySchema>(schema: CompletableSchema<T>): T {
-    return schema;
-}
-
-/**
- * @deprecated Legacy enum, no longer used. Will be removed in a future version.
- */
-export enum McpZodTypeKind {
-    Completable = 'McpCompletable'
-}
-
-/**
- * @deprecated Legacy type, no longer used. Will be removed in a future version.
- */
-export interface CompletableDef<T extends AnySchema = AnySchema> {
-    type: T;
-    complete: CompleteCallback<T>;
-    typeName: McpZodTypeKind.Completable;
-}
