@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/server';
-import { z } from 'zod/v4';
+import * as z from 'zod/v4';
 
 describe('Zod v4', () => {
     describe('Title field backwards compatibility', () => {

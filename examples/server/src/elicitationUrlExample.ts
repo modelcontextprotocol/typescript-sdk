@@ -22,7 +22,7 @@ import { isInitializeRequest, McpServer, UrlElicitationRequiredError } from '@mo
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 import { InMemoryEventStore } from './inMemoryEventStore.js';
 

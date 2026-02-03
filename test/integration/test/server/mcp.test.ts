@@ -18,7 +18,7 @@ import {
 } from '@modelcontextprotocol/core';
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { z } from 'zod/v4';
+import * as z from 'zod/v4';
 
 function createLatch() {
     let latch = false;

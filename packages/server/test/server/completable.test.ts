@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import * as z from 'zod/v4';
 import { describe, expect, it } from 'vitest';
 
 import { completable, getCompleter } from '../../src/server/completable.js';

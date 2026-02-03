@@ -18,7 +18,7 @@ import {
     TaskSchema
 } from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 describe('Task Lifecycle Integration Tests', () => {
     let server: Server;

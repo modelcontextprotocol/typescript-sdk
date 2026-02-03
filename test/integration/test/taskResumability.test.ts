@@ -7,7 +7,7 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
 import { CallToolResultSchema, McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
-import { z } from 'zod/v4';
+import * as z from 'zod/v4';
 
 /**
  * Simple in-memory EventStore for testing resumability.

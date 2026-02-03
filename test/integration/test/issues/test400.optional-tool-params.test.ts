@@ -9,7 +9,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import { CallToolResultSchema, InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
-import { z } from 'zod/v4';
+import * as z from 'zod/v4';
 
 describe('Issue #400: Zod v4', () => {
     test('should accept undefined arguments when all tool params are optional', async () => {

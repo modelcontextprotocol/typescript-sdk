@@ -33,7 +33,7 @@ interface ClientInternal<RequestT extends Request> {
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void>;
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void>;
     isToolTask(toolName: string): boolean;
     getToolOutputValidator(toolName: string): ((data: unknown) => { valid: boolean; errorMessage?: string }) | undefined;
 }
@@ -117,7 +117,7 @@ export class ExperimentalClientTasks<
         for await (const message of stream) {
             // If this is a result message and the tool has an output schema, validate it
             if (message.type === 'result' && validator) {
-                const result = message.result;
+                const result = message.result as Record<string, unknown>;
 
                 // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
                 if (!result.structuredContent && !result.isError) {
@@ -260,14 +260,14 @@ export class ExperimentalClientTasks<
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         // Delegate to the client's underlying Protocol method
         type ClientWithRequestStream = {
             requestStream<U extends AnySchema>(
                 request: ClientRequest | RequestT,
                 resultSchema: U,
                 options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
+            ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;
         };
         return (this._client as unknown as ClientWithRequestStream).requestStream(request, resultSchema, options);
     }

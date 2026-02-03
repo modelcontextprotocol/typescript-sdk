@@ -9,7 +9,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport, ListPromptsResultSchema } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
-import { z } from 'zod/v4';
+import * as z from 'zod/v4';
 
 describe('Issue #1277: Zod v4', () => {
     test('should preserve argument descriptions from .describe()', async () => {

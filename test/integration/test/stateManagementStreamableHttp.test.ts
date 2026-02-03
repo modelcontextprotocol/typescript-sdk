@@ -13,7 +13,7 @@ import {
     McpServer
 } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
-import { z } from 'zod/v4';
+import * as z from 'zod/v4';
 
 async function setupServer(withSessionManagement: boolean) {
     const server: Server = createServer();

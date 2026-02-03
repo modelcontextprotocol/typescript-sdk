@@ -1000,14 +1000,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         request: SendRequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         const { task } = options ?? {};
 
         // For non-task requests, just yield the result
         if (!task) {
             try {
                 const result = await this.request(request, resultSchema, options);
-                yield { type: 'result', result: result as SchemaOutput<T> & Result };
+                yield { type: 'result', result };
             } catch (error) {
                 yield {
                     type: 'error',
@@ -1044,7 +1044,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         case 'completed': {
                             // Get the final result
                             const result = await this.getTaskResult({ taskId }, resultSchema, options);
-                            yield { type: 'result', result: result as SchemaOutput<T> & Result };
+                            yield { type: 'result', result };
 
                             break;
                         }
@@ -1073,7 +1073,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 // (elicitation, sampling) via SSE and block until terminal
                 if (task.status === 'input_required') {
                     const result = await this.getTaskResult({ taskId }, resultSchema, options);
-                    yield { type: 'result', result: result as SchemaOutput<T> & Result };
+                    yield { type: 'result', result };
                     return;
                 }
 
