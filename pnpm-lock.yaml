@@ -72,6 +72,9 @@ catalogs:
     vitest:
       specifier: ^4.0.15
       version: 4.0.16
+    wrangler:
+      specifier: ^4.14.4
+      version: 4.60.0
     ws:
       specifier: ^8.18.0
       version: 8.18.3
@@ -938,7 +941,7 @@ importers:
         specifier: catalog:devTools
         version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
       wrangler:
-        specifier: ^4.0.0
+        specifier: catalog:devTools
         version: 4.60.0
       zod:
         specifier: catalog:runtimeShared
