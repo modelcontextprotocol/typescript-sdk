@@ -26,9 +26,9 @@ const getServer = () => {
         'greet',
         {
             description: 'A simple greeting tool',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            }
+            })
         },
         async ({ name }): Promise<CallToolResult> => {
             return {
@@ -47,9 +47,9 @@ const getServer = () => {
         'multi-greet',
         {
             description: 'A tool that sends different greetings with delays between them',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            }
+            })
         },
         async ({ name }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

@@ -1,7 +1,7 @@
 import type { MockInstance } from 'vitest';
 import { vi } from 'vitest';
-import type { ZodType } from 'zod';
-import { z } from 'zod';
+import type { ZodType } from 'zod/v4';
+import { z } from 'zod/v4';
 
 import type {
     QueuedMessage,

@@ -5,7 +5,7 @@
  * @experimental
  */
 
-import type { AnySchema, TaskToolExecution, ToolAnnotations, ToolExecution, ZodRawShapeCompat } from '@modelcontextprotocol/core';
+import type { AnySchema, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
 
 import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
 import type { ToolTaskHandler } from './interfaces.js';
@@ -19,12 +19,12 @@ interface McpServerInternal {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: ZodRawShapeCompat | AnySchema | undefined,
-        outputSchema: ZodRawShapeCompat | AnySchema | undefined,
+        inputSchema: AnySchema | undefined,
+        outputSchema: AnySchema | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
-        handler: AnyToolHandler<ZodRawShapeCompat | undefined>
+        handler: AnyToolHandler<AnySchema | undefined>
     ): RegisteredTool;
 }
 
@@ -52,7 +52,7 @@ export class ExperimentalMcpServerTasks {
      * ```typescript
      * server.experimental.tasks.registerToolTask('long-computation', {
      *   description: 'Performs a long computation',
-     *   inputSchema: { input: z.string() },
+     *   inputSchema: z.object({ input: z.string() }),
      *   execution: { taskSupport: 'required' }
      * }, {
      *   createTask: async (args, extra) => {
@@ -76,7 +76,7 @@ export class ExperimentalMcpServerTasks {
      *
      * @experimental
      */
-    registerToolTask<OutputArgs extends undefined | ZodRawShapeCompat | AnySchema>(
+    registerToolTask<OutputArgs extends AnySchema | undefined>(
         name: string,
         config: {
             title?: string;
@@ -89,7 +89,7 @@ export class ExperimentalMcpServerTasks {
         handler: ToolTaskHandler<undefined>
     ): RegisteredTool;
 
-    registerToolTask<InputArgs extends ZodRawShapeCompat | AnySchema, OutputArgs extends undefined | ZodRawShapeCompat | AnySchema>(
+    registerToolTask<InputArgs extends AnySchema, OutputArgs extends AnySchema | undefined>(
         name: string,
         config: {
             title?: string;
@@ -103,10 +103,7 @@ export class ExperimentalMcpServerTasks {
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool;
 
-    registerToolTask<
-        InputArgs extends undefined | ZodRawShapeCompat | AnySchema,
-        OutputArgs extends undefined | ZodRawShapeCompat | AnySchema
-    >(
+    registerToolTask<InputArgs extends AnySchema | undefined, OutputArgs extends AnySchema | undefined>(
         name: string,
         config: {
             title?: string;
@@ -136,7 +133,7 @@ export class ExperimentalMcpServerTasks {
             config.annotations,
             execution,
             config._meta,
-            handler as AnyToolHandler<ZodRawShapeCompat | undefined>
+            handler as AnyToolHandler<AnySchema | undefined>
         );
     }
 }

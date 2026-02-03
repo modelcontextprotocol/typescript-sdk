@@ -1,13 +1,14 @@
-import type { AnySchema, SchemaInput } from '@modelcontextprotocol/core';
+import type { AnySchema } from '@modelcontextprotocol/core';
+import type * as z from 'zod/v4';
 
 export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 
 export type CompleteCallback<T extends AnySchema = AnySchema> = (
-    value: SchemaInput<T>,
+    value: z.input<T>,
     context?: {
         arguments?: Record<string, string>;
     }
-) => SchemaInput<T>[] | Promise<SchemaInput<T>[]>;
+) => z.input<T>[] | Promise<z.input<T>[]>;
 
 export type CompletableMeta<T extends AnySchema = AnySchema> = {
     complete: CompleteCallback<T>;

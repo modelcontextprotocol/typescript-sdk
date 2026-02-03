@@ -209,10 +209,12 @@ if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) 
 
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
+**IMPORTANT**: v2 requires full Zod schemas — raw shapes like `{ name: z.string() }` are no longer supported. You must wrap with `z.object()`. This applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+
 ### Tools
 
 ```typescript
-// v1: server.tool(name, schema, callback)
+// v1: server.tool(name, schema, callback) - raw shape worked
 server.tool('greet', { name: z.string() }, async ({ name }) => {
     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
@@ -240,7 +242,7 @@ Config object fields: `title?`, `description?`, `inputSchema?`, `outputSchema?`,
 ### Prompts
 
 ```typescript
-// v1: server.prompt(name, schema, callback)
+// v1: server.prompt(name, schema, callback) - raw shape worked
 server.prompt('summarize', { text: z.string() }, async ({ text }) => {
     return { messages: [{ role: 'user', content: { type: 'text', text } }] };
 });
@@ -274,6 +276,15 @@ server.registerResource('config', 'config://app', {}, async uri => {
 ```
 
 Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
+
+### Schema Migration Quick Reference
+
+| v1 (raw shape) | v2 (Zod schema) |
+|----------------|-----------------|
+| `{ name: z.string() }` | `z.object({ name: z.string() })` |
+| `{ count: z.number().optional() }` | `z.object({ count: z.number().optional() })` |
+| `{}` (empty) | `z.object({})` |
+| `undefined` (no schema) | `undefined` or omit the field |
 
 ## 7. Headers API
 
@@ -385,9 +396,10 @@ Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } fr
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
 3. Replace removed type aliases (`JSONRPCError` → `JSONRPCErrorResponse`, etc.) per section 5
 4. Replace `.tool()` / `.prompt()` / `.resource()` calls with `registerTool` / `registerPrompt` / `registerResource` per section 6
-5. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
-6. If using `hostHeaderValidation` from server, update import and signature per section 8
-7. If using server SSE transport, migrate to Streamable HTTP
-8. If using server auth from the SDK, migrate to an external auth library
-9. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-10. Verify: build with `tsc` / run tests
+5. **Wrap all raw Zod shapes with `z.object()`**: Change `inputSchema: { name: z.string() }` → `inputSchema: z.object({ name: z.string() })`. Same for `outputSchema` in tools and `argsSchema` in prompts.
+6. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
+7. If using `hostHeaderValidation` from server, update import and signature per section 8
+8. If using server SSE transport, migrate to Streamable HTTP
+9. If using server auth from the SDK, migrate to an external auth library
+10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
+11. Verify: build with `tsc` / run tests

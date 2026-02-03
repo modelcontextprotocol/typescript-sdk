@@ -25,10 +25,10 @@ describe('Issue #1277: Zod v4', () => {
         mcpServer.registerPrompt(
             'test',
             {
-                argsSchema: {
+                argsSchema: z.object({
                     name: z.string().describe('The user name'),
                     value: z.string().describe('The value to set')
-                }
+                })
             },
             async ({ name, value }) => ({
                 messages: [

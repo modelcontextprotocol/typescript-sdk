@@ -13,7 +13,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
-import * as z4 from 'zod/v4';
+import * as z from 'zod/v4';
 
 /***
  * Test: Initialize with Matching Protocol Version
@@ -2266,7 +2266,7 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
                     async createTask(_args, extra) {
@@ -2342,7 +2342,7 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
                     async createTask(_args, extra) {
@@ -2419,7 +2419,7 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
                     async createTask(_args, extra) {
@@ -2500,7 +2500,7 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
                     async createTask(_args, extra) {
@@ -2983,9 +2983,9 @@ describe('Task-based execution', () => {
             'test-tool',
             {
                 description: 'A test tool',
-                inputSchema: {
-                    id: z4.string()
-                }
+                inputSchema: z.object({
+                    id: z.string()
+                })
             },
             {
                 async createTask({ id }, extra) {
@@ -3253,7 +3253,7 @@ test('should respect server task capabilities', async () => {
         'test-tool',
         {
             description: 'A test tool',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
         {
             async createTask(_args, extra) {

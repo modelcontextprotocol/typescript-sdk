@@ -195,6 +195,7 @@ server.resource('config', 'config://app', async uri => {
 
 ```typescript
 import { McpServer } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
@@ -218,6 +219,42 @@ server.registerResource('config', 'config://app', {}, async uri => {
     return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
+
+### Zod schemas required (raw shapes no longer supported)
+
+v2 requires full Zod schemas for `inputSchema` and `argsSchema`. Raw object shapes are no longer accepted.
+
+**Before (v1):**
+
+```typescript
+// Raw shape (object with Zod fields) - worked in v1
+server.tool('greet', { name: z.string() }, async ({ name }) => { ... });
+
+server.registerTool('greet', {
+  inputSchema: { name: z.string() }  // raw shape
+}, callback);
+```
+
+**After (v2):**
+
+```typescript
+import * as z from 'zod/v4';
+
+// Must wrap with z.object()
+server.registerTool('greet', {
+  inputSchema: z.object({ name: z.string() })  // full Zod schema
+}, async ({ name }) => { ... });
+
+// For tools with no parameters, use z.object({})
+server.registerTool('ping', {
+  inputSchema: z.object({})
+}, async () => { ... });
+```
+
+This applies to:
+- `inputSchema` in `registerTool()`
+- `outputSchema` in `registerTool()`
+- `argsSchema` in `registerPrompt()`
 
 ### Host header validation moved
 

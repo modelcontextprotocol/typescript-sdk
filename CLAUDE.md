@@ -88,12 +88,11 @@ Located in `packages/*/src/experimental/`:
 
 - **Tasks**: Long-running task support with polling/resumption (`packages/core/src/experimental/tasks/`)
 
-### Zod Compatibility
+### Zod Schemas
 
-The SDK uses `zod/v4` internally but supports both v3 and v4 APIs. Compatibility utilities:
+The SDK uses `zod/v4` internally. Schema utilities live in:
 
-- `packages/core/src/util/zod-compat.ts` - Schema parsing helpers that work across versions
-- `packages/core/src/util/zod-json-schema-compat.ts` - Converts Zod schemas to JSON Schema
+- `packages/core/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
 
 ### Validation
 

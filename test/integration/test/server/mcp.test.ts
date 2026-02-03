@@ -108,9 +108,9 @@ describe('Zod v4', () => {
                 'long-operation',
                 {
                     description: 'A long running operation with progress updates',
-                    inputSchema: {
+                    inputSchema: z.object({
                         steps: z.number().min(1).describe('Number of steps to perform')
-                    }
+                    })
                 },
                 async ({ steps }, { sendNotification, _meta }) => {
                     const progressToken = _meta?.progressToken;
@@ -403,9 +403,9 @@ describe('Zod v4', () => {
             const tool = mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         name: z.string()
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     content: [
@@ -419,10 +419,10 @@ describe('Zod v4', () => {
 
             // Update the tool with a different schema
             tool.update({
-                paramsSchema: {
+                paramsSchema: z.object({
                     name: z.string(),
                     value: z.number()
-                },
+                }),
                 callback: async ({ name, value }) => ({
                     content: [
                         {
@@ -499,9 +499,9 @@ describe('Zod v4', () => {
             const tool = mcpServer.registerTool(
                 'test',
                 {
-                    outputSchema: {
+                    outputSchema: z.object({
                         result: z.number()
-                    }
+                    })
                 },
                 async () => ({
                     content: [{ type: 'text', text: '' }],
@@ -513,10 +513,10 @@ describe('Zod v4', () => {
 
             // Update the tool with a different outputSchema
             tool.update({
-                outputSchema: {
+                outputSchema: z.object({
                     result: z.number(),
                     sum: z.number()
-                },
+                }),
                 callback: async () => ({
                     content: [{ type: 'text', text: '' }],
                     structuredContent: {
@@ -645,7 +645,7 @@ describe('Zod v4', () => {
             mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: { name: z.string(), value: z.number() }
+                    inputSchema: z.object({ name: z.string(), value: z.number() })
                 },
                 async ({ name, value }) => ({
                     content: [{ type: 'text', text: `${name}: ${value}` }]
@@ -793,7 +793,7 @@ describe('Zod v4', () => {
             mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: { name: z.string() },
+                    inputSchema: z.object({ name: z.string() }),
                     annotations: { title: 'Test Tool', readOnlyHint: true }
                 },
                 async ({ name }) => ({
@@ -836,7 +836,7 @@ describe('Zod v4', () => {
                 'test',
                 {
                     description: 'A tool with everything',
-                    inputSchema: { name: z.string() },
+                    inputSchema: z.object({ name: z.string() }),
                     annotations: {
                         title: 'Complete Test Tool',
                         readOnlyHint: true,
@@ -932,10 +932,10 @@ describe('Zod v4', () => {
             mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         name: z.string(),
                         value: z.number()
-                    }
+                    })
                 },
                 async ({ name, value }) => ({
                     content: [
@@ -1041,14 +1041,14 @@ describe('Zod v4', () => {
                 'test',
                 {
                     description: 'Test tool with structured output',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string(),
                         timestamp: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     structuredContent: {
@@ -1143,13 +1143,13 @@ describe('Zod v4', () => {
                 'test',
                 {
                     description: 'Test tool with output schema but missing structured content',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     // Only return content without structuredContent
@@ -1204,13 +1204,13 @@ describe('Zod v4', () => {
                 'test',
                 {
                     description: 'Test tool with output schema but missing structured content',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     content: [
@@ -1264,14 +1264,14 @@ describe('Zod v4', () => {
                 'test',
                 {
                     description: 'Test tool with invalid structured output',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string(),
                         timestamp: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     content: [
@@ -1487,9 +1487,9 @@ describe('Zod v4', () => {
                 'test',
                 {
                     description: 'Test tool',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     content: [
@@ -1693,7 +1693,7 @@ describe('Zod v4', () => {
                 'test-with-meta',
                 {
                     description: 'A tool with _meta field',
-                    inputSchema: { name: z.string() },
+                    inputSchema: z.object({ name: z.string() }),
                     _meta: metaData
                 },
                 async ({ name }) => ({
@@ -1730,7 +1730,7 @@ describe('Zod v4', () => {
                 'test-without-meta',
                 {
                     description: 'A tool without _meta field',
-                    inputSchema: { name: z.string() }
+                    inputSchema: z.object({ name: z.string() })
                 },
                 async ({ name }) => ({
                     content: [{ type: 'text', text: `Hello, ${name}!` }]
@@ -1781,7 +1781,7 @@ describe('Zod v4', () => {
                 'task-tool',
                 {
                     description: 'A tool with task support',
-                    inputSchema: { input: z.string() },
+                    inputSchema: z.object({ input: z.string() }),
                     execution: {
                         taskSupport: 'required'
                     }
@@ -1850,7 +1850,7 @@ describe('Zod v4', () => {
                 'optional-task-tool',
                 {
                     description: 'A tool with optional task support',
-                    inputSchema: { input: z.string() },
+                    inputSchema: z.object({ input: z.string() }),
                     execution: {
                         taskSupport: 'optional'
                     }
@@ -3031,9 +3031,9 @@ describe('Zod v4', () => {
             const prompt = mcpServer.registerPrompt(
                 'test',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string()
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3050,10 +3050,10 @@ describe('Zod v4', () => {
 
             // Update the prompt with a different schema
             prompt.update({
-                argsSchema: {
+                argsSchema: z.object({
                     name: z.string(),
                     value: z.string()
-                },
+                }),
                 callback: async ({ name, value }) => ({
                     messages: [
                         {
@@ -3257,10 +3257,10 @@ describe('Zod v4', () => {
             mcpServer.registerPrompt(
                 'test',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string(),
                         value: z.string()
-                    }
+                    })
                 },
                 async ({ name, value }) => ({
                     messages: [
@@ -3352,10 +3352,10 @@ describe('Zod v4', () => {
             mcpServer.registerPrompt(
                 'test',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string(),
                         value: z.string().min(3)
-                    }
+                    })
                 },
                 async ({ name, value }) => ({
                     messages: [
@@ -3473,7 +3473,7 @@ describe('Zod v4', () => {
             });
 
             // This should succeed
-            mcpServer.registerPrompt('echo', { argsSchema: { message: z.string() } }, ({ message }) => ({
+            mcpServer.registerPrompt('echo', { argsSchema: z.object({ message: z.string() }) }, ({ message }) => ({
                 messages: [
                     {
                         role: 'user',
@@ -3518,7 +3518,7 @@ describe('Zod v4', () => {
             // Register a prompt with completion
             mcpServer.registerPrompt(
                 'echo',
-                { argsSchema: { message: completable(z.string(), () => ['hello', 'world']) } },
+                { argsSchema: z.object({ message: completable(z.string(), () => ['hello', 'world']) }) },
                 ({ message }) => ({
                     messages: [
                         {
@@ -3592,9 +3592,9 @@ describe('Zod v4', () => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string()
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3634,9 +3634,9 @@ describe('Zod v4', () => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3675,9 +3675,9 @@ describe('Zod v4', () => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3734,9 +3734,9 @@ describe('Zod v4', () => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: completable(z.string(), test => ['Alice', 'Bob', 'Charlie'].filter(value => value.startsWith(test)))
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3981,9 +3981,9 @@ describe('Zod v4', () => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string().optional()
-                    }
+                    })
                 },
                 () => ({
                     messages: []
@@ -4284,7 +4284,7 @@ describe('Zod v4', () => {
                 {
                     title: 'Team Greeting',
                     description: 'Generate a greeting for team members',
-                    argsSchema: {
+                    argsSchema: z.object({
                         department: completable(z.string(), value => {
                             return ['engineering', 'sales', 'marketing', 'support'].filter(d => d.startsWith(value));
                         }),
@@ -4304,7 +4304,7 @@ describe('Zod v4', () => {
                             }
                             return ['Guest'].filter(n => n.startsWith(value));
                         })
-                    }
+                    })
                 },
                 async ({ department, name }) => ({
                     messages: [
@@ -4441,11 +4441,11 @@ describe('Zod v4', () => {
             mcpServer.registerTool(
                 'book-restaurant',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         restaurant: z.string(),
                         date: z.string(),
                         partySize: z.number()
-                    }
+                    })
                 },
                 async ({ restaurant, date, partySize }) => {
                     // Check availability
@@ -5574,7 +5574,7 @@ describe('Zod v4', () => {
                 {
                     title: 'Team Greeting',
                     description: 'Generate a greeting for team members',
-                    argsSchema: {
+                    argsSchema: z.object({
                         department: completable(z.string(), value => {
                             return ['engineering', 'sales', 'marketing', 'support'].filter(d => d.startsWith(value));
                         }),
@@ -5594,7 +5594,7 @@ describe('Zod v4', () => {
                             }
                             return ['Guest'].filter(n => n.startsWith(value));
                         })
-                    }
+                    })
                 },
                 async ({ department, name }) => ({
                     messages: [
@@ -5731,11 +5731,11 @@ describe('Zod v4', () => {
             mcpServer.registerTool(
                 'book-restaurant',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         restaurant: z.string(),
                         date: z.string(),
                         partySize: z.number()
-                    }
+                    })
                 },
                 async ({ restaurant, date, partySize }) => {
                     // Check availability
@@ -6211,9 +6211,9 @@ describe('Zod v4', () => {
                 'long-running-task',
                 {
                     description: 'A long running task',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
+                    }),
                     execution: {
                         taskSupport: 'required'
                     }
@@ -6316,9 +6316,9 @@ describe('Zod v4', () => {
                 'optional-task',
                 {
                     description: 'An optional task',
-                    inputSchema: {
+                    inputSchema: z.object({
                         value: z.number()
-                    },
+                    }),
                     execution: {
                         taskSupport: 'optional'
                     }
@@ -6424,9 +6424,9 @@ describe('Zod v4', () => {
                 'task-tool',
                 {
                     description: 'A task tool',
-                    inputSchema: {
+                    inputSchema: z.object({
                         data: z.string()
-                    },
+                    }),
                     execution: {
                         taskSupport: 'required'
                     }
@@ -6734,9 +6734,9 @@ describe('Zod v4', () => {
                     'invalid-task',
                     {
                         description: 'A task with forbidden support',
-                        inputSchema: {
+                        inputSchema: z.object({
                             input: z.string()
-                        },
+                        }),
                         execution: {
                             taskSupport: 'forbidden' as unknown as 'required'
                         }

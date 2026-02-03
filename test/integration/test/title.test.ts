@@ -16,9 +16,9 @@ describe('Zod v4', () => {
                 {
                     title: 'Test Tool Display Name',
                     description: 'A test tool',
-                    inputSchema: {
+                    inputSchema: z.object({
                         value: z.string()
-                    }
+                    })
                 },
                 async () => ({ content: [{ type: 'text', text: 'result' }] })
             );
@@ -41,7 +41,7 @@ describe('Zod v4', () => {
             const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
             // Register tool without title
-            server.registerTool('test-tool', { description: 'A test tool', inputSchema: { value: z.string() } }, async () => ({
+            server.registerTool('test-tool', { description: 'A test tool', inputSchema: z.object({ value: z.string() }) }, async () => ({
                 content: [{ type: 'text', text: 'result' }]
             }));
 
@@ -91,7 +91,7 @@ describe('Zod v4', () => {
                 {
                     title: 'Test Prompt Display Name',
                     description: 'A test prompt',
-                    argsSchema: { input: z.string() }
+                    argsSchema: z.object({ input: z.string() })
                 },
                 async ({ input }) => ({
                     messages: [

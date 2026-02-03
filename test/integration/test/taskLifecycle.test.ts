@@ -57,10 +57,10 @@ describe('Task Lifecycle Integration Tests', () => {
             {
                 title: 'Long Running Task',
                 description: 'A tool that takes time to complete',
-                inputSchema: {
+                inputSchema: z.object({
                     duration: z.number().describe('Duration in milliseconds').default(1000),
                     shouldFail: z.boolean().describe('Whether the task should fail').default(false)
-                }
+                })
             },
             {
                 async createTask({ duration, shouldFail }, extra) {
@@ -109,9 +109,9 @@ describe('Task Lifecycle Integration Tests', () => {
             {
                 title: 'Input Required Task',
                 description: 'A tool that requires user input',
-                inputSchema: {
+                inputSchema: z.object({
                     userName: z.string().describe('User name').optional()
-                }
+                })
             },
             {
                 async createTask({ userName }, extra) {
@@ -413,9 +413,9 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Multi Request Task',
                     description: 'A tool that sends multiple server requests',
-                    inputSchema: {
+                    inputSchema: z.object({
                         requestCount: z.number().describe('Number of requests to send').default(3)
-                    }
+                    })
                 },
                 {
                     async createTask({ requestCount }, extra) {
@@ -902,9 +902,9 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Cancellable Task',
                     description: 'A tool that queues messages and can be cancelled',
-                    inputSchema: {
+                    inputSchema: z.object({
                         messageCount: z.number().describe('Number of messages to queue').default(2)
-                    }
+                    })
                 },
                 {
                     async createTask({ messageCount }, extra) {
@@ -1099,10 +1099,10 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Streaming Task',
                     description: 'A tool that sends messages over time',
-                    inputSchema: {
+                    inputSchema: z.object({
                         messageCount: z.number().describe('Number of messages to send').default(3),
                         delayBetweenMessages: z.number().describe('Delay between messages in ms').default(200)
-                    }
+                    })
                 },
                 {
                     async createTask({ messageCount, delayBetweenMessages }, extra) {
@@ -1316,9 +1316,9 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Quick Complete Task',
                     description: 'A tool that queues messages and completes quickly',
-                    inputSchema: {
+                    inputSchema: z.object({
                         messageCount: z.number().describe('Number of messages to queue').default(2)
-                    }
+                    })
                 },
                 {
                     async createTask({ messageCount }, extra) {

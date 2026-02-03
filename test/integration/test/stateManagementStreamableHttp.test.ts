@@ -55,9 +55,9 @@ async function setupServer(withSessionManagement: boolean) {
         'greet',
         {
             description: 'A simple greeting tool',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet').default('World')
-            }
+            })
         },
         async ({ name }) => {
             return {

@@ -165,7 +165,7 @@ describe('Zod v4', () => {
             'greet',
             {
                 description: 'A simple greeting tool',
-                inputSchema: { name: z.string().describe('Name to greet') }
+                inputSchema: z.object({ name: z.string().describe('Name to greet') })
             },
             async ({ name }): Promise<CallToolResult> => {
                 return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
@@ -212,7 +212,7 @@ describe('Zod v4', () => {
             'profile',
             {
                 description: 'A user profile data tool',
-                inputSchema: { active: z.boolean().describe('Profile status') }
+                inputSchema: z.object({ active: z.boolean().describe('Profile status') })
             },
             async ({ active }, { authInfo }): Promise<CallToolResult> => {
                 return { content: [{ type: 'text', text: `${active ? 'Active' : 'Inactive'} profile from token: ${authInfo?.token}!` }] };
@@ -401,7 +401,7 @@ describe('Zod v4', () => {
                 'test-request-info',
                 {
                     description: 'A simple test tool with request info',
-                    inputSchema: { name: z.string().describe('Name to greet') }
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
                 },
                 async ({ name }, { requestInfo }): Promise<CallToolResult> => {
                     // Convert Headers object to plain object for JSON serialization

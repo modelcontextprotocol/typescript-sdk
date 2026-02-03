@@ -13,9 +13,9 @@ mcpServer.registerTool(
     'summarize',
     {
         description: 'Summarize any text using an LLM',
-        inputSchema: {
+        inputSchema: z.object({
             text: z.string().describe('Text to summarize')
-        }
+        })
     },
     async ({ text }) => {
         // Call the LLM through MCP sampling

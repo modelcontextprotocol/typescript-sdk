@@ -63,9 +63,9 @@ describe('Zod v4', () => {
                 'send-notification',
                 {
                     description: 'Sends a single notification',
-                    inputSchema: {
+                    inputSchema: z.object({
                         message: z.string().describe('Message to send').default('Test notification')
-                    }
+                    })
                 },
                 async ({ message }, { sendNotification }) => {
                     // Send notification immediately
@@ -88,10 +88,10 @@ describe('Zod v4', () => {
                 'run-notifications',
                 {
                     description: 'Sends multiple notifications over time',
-                    inputSchema: {
+                    inputSchema: z.object({
                         count: z.number().describe('Number of notifications to send').default(10),
                         interval: z.number().describe('Interval between notifications in ms').default(50)
-                    }
+                    })
                 },
                 async ({ count, interval }, { sendNotification }) => {
                     // Send notifications at specified intervals

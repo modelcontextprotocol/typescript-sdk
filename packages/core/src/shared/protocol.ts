@@ -50,9 +50,8 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
 } from '../types/types.js';
-import type { AnySchema, SchemaOutput } from '../util/zodCompat.js';
-import { safeParse } from '../util/zodCompat.js';
-import { parseWithCompat } from '../util/zodJsonSchemaCompat.js';
+import type { AnySchema, SchemaOutput } from '../util/schema.js';
+import { parseSchema } from '../util/schema.js';
 import type { ResponseMessage } from './responseMessage.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -1199,11 +1198,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
 
                 try {
-                    const parseResult = safeParse(resultSchema, response.result);
+                    const parseResult = parseSchema(resultSchema, response.result);
                     if (parseResult.success) {
                         resolve(parseResult.data as SchemaOutput<T>);
                     } else {
-                        // Type guard: if success is false, error is guaranteed to exist
                         reject(parseResult.error);
                     }
                 } catch (error) {
@@ -1429,7 +1427,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const schema = getRequestSchema(method);
 
         this._requestHandlers.set(method, (request, extra) => {
-            const parsed = parseWithCompat(schema, request) as RequestTypeMap[M];
+            const parsed = schema.parse(request) as RequestTypeMap[M];
             return Promise.resolve(handler(parsed, extra));
         });
     }
@@ -1462,7 +1460,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const schema = getNotificationSchema(method);
 
         this._notificationHandlers.set(method, notification => {
-            const parsed = parseWithCompat(schema, notification) as NotificationTypeMap[M];
+            const parsed = schema.parse(notification) as NotificationTypeMap[M];
             return Promise.resolve(handler(parsed));
         });
     }

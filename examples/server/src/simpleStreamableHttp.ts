@@ -58,9 +58,9 @@ const getServer = () => {
         {
             title: 'Greeting Tool', // Display name for UI
             description: 'A simple greeting tool',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            }
+            })
         },
         async ({ name }): Promise<CallToolResult> => {
             return {
@@ -79,9 +79,9 @@ const getServer = () => {
         'multi-greet',
         {
             description: 'A tool that sends different greetings with delays between them',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            },
+            }),
             annotations: {
                 title: 'Multiple Greeting Tool',
                 readOnlyHint: true,
@@ -135,9 +135,9 @@ const getServer = () => {
         'collect-user-info',
         {
             description: 'A tool that collects user information through form elicitation',
-            inputSchema: {
+            inputSchema: z.object({
                 infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
-            }
+            })
         },
         async ({ infoType }, extra): Promise<CallToolResult> => {
             let message: string;
@@ -298,9 +298,9 @@ const getServer = () => {
         {
             title: 'Greeting Template', // Display name for UI
             description: 'A simple greeting prompt template',
-            argsSchema: {
+            argsSchema: z.object({
                 name: z.string().describe('Name to include in greeting')
-            }
+            })
         },
         async ({ name }): Promise<GetPromptResult> => {
             return {
@@ -322,10 +322,10 @@ const getServer = () => {
         'start-notification-stream',
         {
             description: 'Starts sending periodic notifications for testing resumability',
-            inputSchema: {
+            inputSchema: z.object({
                 interval: z.number().describe('Interval in milliseconds between notifications').default(100),
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
-            }
+            })
         },
         async ({ interval, count }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -427,9 +427,9 @@ const getServer = () => {
         {
             title: 'List Files with ResourceLinks',
             description: 'Returns a list of files as ResourceLinks without embedding their content',
-            inputSchema: {
+            inputSchema: z.object({
                 includeDescriptions: z.boolean().optional().describe('Whether to include descriptions in the resource links')
-            }
+            })
         },
         async ({ includeDescriptions = true }): Promise<CallToolResult> => {
             const resourceLinks: ResourceLink[] = [
@@ -479,9 +479,9 @@ const getServer = () => {
         {
             title: 'Delay',
             description: 'A simple tool that delays for a specified duration, useful for testing task execution',
-            inputSchema: {
+            inputSchema: z.object({
                 duration: z.number().describe('Duration in milliseconds').default(5000)
-            }
+            })
         },
         {
             async createTask({ duration }, { taskStore, taskRequestedTtl }) {

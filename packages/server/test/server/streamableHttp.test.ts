@@ -130,7 +130,7 @@ describe('Zod v4', () => {
                 'greet',
                 {
                     description: 'A simple greeting tool',
-                    inputSchema: { name: z.string().describe('Name to greet') }
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
                 },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
@@ -436,7 +436,7 @@ describe('Zod v4', () => {
 
             mcpServer.registerTool(
                 'echo',
-                { description: 'Echo tool', inputSchema: { message: z.string() } },
+                { description: 'Echo tool', inputSchema: z.object({ message: z.string() }) },
                 async ({ message }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: message }] };
                 }
@@ -484,7 +484,7 @@ describe('Zod v4', () => {
 
             mcpServer.registerTool(
                 'greet',
-                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
                 }
@@ -656,7 +656,7 @@ describe('Zod v4', () => {
 
             mcpServer.registerTool(
                 'greet',
-                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
                 }

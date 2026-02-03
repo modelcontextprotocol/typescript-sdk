@@ -6,7 +6,7 @@
  */
 
 import type {
-    AnyObjectSchema,
+    AnySchema,
     CallToolRequest,
     CancelTaskResult,
     ClientRequest,
@@ -29,7 +29,7 @@ import type { Client } from '../../client/client.js';
  * @internal
  */
 interface ClientInternal<RequestT extends Request> {
-    requestStream<T extends AnyObjectSchema>(
+    requestStream<T extends AnySchema>(
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
@@ -165,7 +165,7 @@ export class ExperimentalClientTasks<
             }
 
             // Yield the message (either validated result or any other message type)
-            yield message;
+            yield message as ResponseMessage<SchemaOutput<T>>;
         }
     }
 
@@ -194,11 +194,11 @@ export class ExperimentalClientTasks<
      *
      * @experimental
      */
-    async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         // Delegate to the client's underlying Protocol method
         return (
             this._client as unknown as {
-                getTaskResult: <U extends AnyObjectSchema>(
+                getTaskResult: <U extends AnySchema>(
                     params: { taskId: string },
                     resultSchema?: U,
                     options?: RequestOptions
@@ -256,14 +256,14 @@ export class ExperimentalClientTasks<
      *
      * @experimental
      */
-    requestStream<T extends AnyObjectSchema>(
+    requestStream<T extends AnySchema>(
         request: ClientRequest | RequestT,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
         // Delegate to the client's underlying Protocol method
         type ClientWithRequestStream = {
-            requestStream<U extends AnyObjectSchema>(
+            requestStream<U extends AnySchema>(
                 request: ClientRequest | RequestT,
                 resultSchema: U,
                 options?: RequestOptions

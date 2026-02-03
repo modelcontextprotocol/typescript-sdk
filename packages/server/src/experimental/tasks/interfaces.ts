@@ -10,8 +10,7 @@ import type {
     CreateTaskResult,
     GetTaskResult,
     Result,
-    TaskRequestHandlerExtra,
-    ZodRawShapeCompat
+    TaskRequestHandlerExtra
 } from '@modelcontextprotocol/core';
 
 import type { BaseToolCallback } from '../../server/mcp.js';
@@ -24,25 +23,27 @@ import type { BaseToolCallback } from '../../server/mcp.js';
  * Handler for creating a task.
  * @experimental
  */
-export type CreateTaskRequestHandler<
-    SendResultT extends Result,
-    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
-> = BaseToolCallback<SendResultT, CreateTaskRequestHandlerExtra, Args>;
+export type CreateTaskRequestHandler<SendResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
+    SendResultT,
+    CreateTaskRequestHandlerExtra,
+    Args
+>;
 
 /**
  * Handler for task operations (get, getResult).
  * @experimental
  */
-export type TaskRequestHandler<
-    SendResultT extends Result,
-    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
-> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra, Args>;
+export type TaskRequestHandler<SendResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
+    SendResultT,
+    TaskRequestHandlerExtra,
+    Args
+>;
 
 /**
  * Interface for task-based tool handlers.
  * @experimental
  */
-export interface ToolTaskHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> {
+export interface ToolTaskHandler<Args extends AnySchema | undefined = undefined> {
     createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
     getTask: TaskRequestHandler<GetTaskResult, Args>;
     getTaskResult: TaskRequestHandler<CallToolResult, Args>;

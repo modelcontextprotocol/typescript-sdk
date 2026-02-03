@@ -200,7 +200,7 @@ function createMcpServer() {
         'test_tool_with_logging',
         {
             description: 'Tests tool that emits log messages during execution',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
         async (_args, extra): Promise<CallToolResult> => {
             await extra.sendNotification({
@@ -239,7 +239,7 @@ function createMcpServer() {
         'test_tool_with_progress',
         {
             description: 'Tests tool that reports progress notifications',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
         async (_args, extra): Promise<CallToolResult> => {
             const progressToken = extra._meta?.progressToken ?? 0;
@@ -299,7 +299,7 @@ function createMcpServer() {
         {
             description:
                 'Tests SSE stream disconnection and client reconnection (SEP-1699). Server will close the stream mid-call and send the result after client reconnects.',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
         async (_args, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -443,7 +443,7 @@ function createMcpServer() {
         'test_elicitation_sep1034_defaults',
         {
             description: 'Tests elicitation with default values per SEP-1034',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
         async (_args, extra): Promise<CallToolResult> => {
             try {
@@ -517,7 +517,7 @@ function createMcpServer() {
         'test_elicitation_sep1330_enums',
         {
             description: 'Tests elicitation with enum schema improvements per SEP-1330',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
         async (_args, extra): Promise<CallToolResult> => {
             try {

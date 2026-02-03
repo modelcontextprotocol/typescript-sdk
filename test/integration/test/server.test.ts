@@ -25,7 +25,7 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import supertest from 'supertest';
-import * as z4 from 'zod/v4';
+import * as z from 'zod/v4';
 
 describe('Server with standard protocol methods', () => {
     /*
@@ -2143,7 +2143,7 @@ describe('Task-based execution', () => {
             'test-tool',
             {
                 description: 'A test tool',
-                inputSchema: {}
+                inputSchema: z.object({})
             },
             {
                 async createTask(_args, extra) {
@@ -2335,7 +2335,7 @@ describe('Task-based execution', () => {
         );
 
         // Track the elicitation request to verify related-task metadata
-        let capturedElicitRequest: z4.infer<typeof ElicitRequestSchema> | null = null;
+        let capturedElicitRequest: z.infer<typeof ElicitRequestSchema> | null = null;
 
         // Set up client elicitation handler
         client.setRequestHandler('elicitation/create', async (request, extra) => {
@@ -2365,7 +2365,7 @@ describe('Task-based execution', () => {
             'collect-info',
             {
                 description: 'Collects user info via elicitation',
-                inputSchema: {}
+                inputSchema: z.object({})
             },
             {
                 async createTask(_args, extra) {
@@ -2841,10 +2841,10 @@ describe('Task-based execution', () => {
             'async-tool',
             {
                 description: 'An async test tool',
-                inputSchema: {
-                    delay: z4.number().optional().default(10),
-                    taskNum: z4.number().optional()
-                }
+                inputSchema: z.object({
+                    delay: z.number().optional().default(10),
+                    taskNum: z.number().optional()
+                })
             },
             {
                 async createTask({ delay, taskNum }, extra) {

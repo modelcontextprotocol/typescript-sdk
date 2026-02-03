@@ -60,9 +60,10 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
-    safeParse,
+    parseSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -320,7 +321,7 @@ export class Client<
                 request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
-                const validatedRequest = safeParse(ElicitRequestSchema, request);
+                const validatedRequest = parseSchema(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -344,7 +345,7 @@ export class Client<
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -356,7 +357,7 @@ export class Client<
                 }
 
                 // For non-task requests, validate against ElicitResultSchema
-                const validationResult = safeParse(ElicitResultSchema, result);
+                const validationResult = parseSchema(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -393,7 +394,7 @@ export class Client<
                 request: RequestTypeMap[M],
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
-                const validatedRequest = safeParse(CreateMessageRequestSchema, request);
+                const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -406,7 +407,7 @@ export class Client<
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -420,7 +421,7 @@ export class Client<
                 // For non-task requests, validate against appropriate schema based on tools presence
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
-                const validationResult = safeParse(resultSchema, result);
+                const validationResult = parseSchema(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
@@ -873,7 +874,7 @@ export class Client<
         fetcher: () => Promise<T[]>
     ): void {
         // Validate options using Zod schema (validates autoRefresh and debounceMs)
-        const parseResult = ListChangedOptionsBaseSchema.safeParse(options);
+        const parseResult = parseSchema(ListChangedOptionsBaseSchema, options);
         if (!parseResult.success) {
             throw new Error(`Invalid ${listType} listChanged options: ${parseResult.error.message}`);
         }

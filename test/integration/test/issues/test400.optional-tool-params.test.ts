@@ -25,10 +25,10 @@ describe('Issue #400: Zod v4', () => {
         mcpServer.registerTool(
             'optional-params-tool',
             {
-                inputSchema: {
+                inputSchema: z.object({
                     limit: z.number().optional(),
                     offset: z.number().optional()
-                }
+                })
             },
             async ({ limit, offset }) => ({
                 content: [

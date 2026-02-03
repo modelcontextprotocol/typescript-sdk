@@ -42,9 +42,9 @@ const getServer = () => {
         'payment-confirm',
         {
             description: 'A tool that confirms a payment directly with a user',
-            inputSchema: {
+            inputSchema: z.object({
                 cartId: z.string().describe('The ID of the cart to confirm')
-            }
+            })
         },
         async ({ cartId }, extra): Promise<CallToolResult> => {
             /*
@@ -75,9 +75,9 @@ const getServer = () => {
         'third-party-auth',
         {
             description: 'A demo tool that requires third-party OAuth credentials',
-            inputSchema: {
+            inputSchema: z.object({
                 param1: z.string().describe('First parameter')
-            }
+            })
         },
         async (_, extra): Promise<CallToolResult> => {
             /*
