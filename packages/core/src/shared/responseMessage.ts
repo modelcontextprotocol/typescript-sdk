@@ -26,7 +26,7 @@ export interface TaskCreatedMessage extends BaseResponseMessage {
 /**
  * Final result message (terminal)
  */
-export interface ResultMessage<T = Result> extends BaseResponseMessage {
+export interface ResultMessage<T extends Result> extends BaseResponseMessage {
     type: 'result';
     result: T;
 }
@@ -44,7 +44,7 @@ export interface ErrorMessage extends BaseResponseMessage {
  * Note: Progress notifications are handled through the existing onprogress callback mechanism.
  * Side-channeled messages (server requests/notifications) are handled through registered handlers.
  */
-export type ResponseMessage<T = Result> = TaskStatusMessage | TaskCreatedMessage | ResultMessage<T> | ErrorMessage;
+export type ResponseMessage<T extends Result> = TaskStatusMessage | TaskCreatedMessage | ResultMessage<T> | ErrorMessage;
 
 export type AsyncGeneratorValue<T> = T extends AsyncGenerator<infer U> ? U : never;
 
@@ -57,7 +57,7 @@ export async function toArrayAsync<T extends AsyncGenerator<unknown>>(it: T): Pr
     return arr;
 }
 
-export async function takeResult<T, U extends AsyncGenerator<ResponseMessage<T>>>(it: U): Promise<T> {
+export async function takeResult<T extends Result, U extends AsyncGenerator<ResponseMessage<T>>>(it: U): Promise<T> {
     for await (const o of it) {
         if (o.type === 'result') {
             return o.result;
