@@ -13,10 +13,12 @@ import {
     CreateMessageResultSchema,
     CreateTaskResultSchema,
     ElicitResultSchema,
-    ErrorCode,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
@@ -1356,8 +1358,8 @@ test('should handle server cancelling a request', async () => {
     );
     controller.abort('Cancelled by test');
 
-    // Request should be rejected with an McpError
-    await expect(createMessagePromise).rejects.toThrow(McpError);
+    // Request should be rejected with an SdkError (local timeout/cancellation)
+    await expect(createMessagePromise).rejects.toThrow(SdkError);
 });
 
 test('should handle request timeout', async () => {
@@ -1417,7 +1419,7 @@ test('should handle request timeout', async () => {
             { timeout: 0 }
         )
     ).rejects.toMatchObject({
-        code: ErrorCode.RequestTimeout
+        code: SdkErrorCode.RequestTimeout
     });
 });
 

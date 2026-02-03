@@ -1,4 +1,4 @@
-import type { McpError, Result, Task } from '../types/types.js';
+import type { Result, Task } from '../types/types.js';
 
 /**
  * Base message type
@@ -36,7 +36,7 @@ export interface ResultMessage<T extends Result> extends BaseResponseMessage {
  */
 export interface ErrorMessage extends BaseResponseMessage {
     type: 'error';
-    error: McpError;
+    error: Error;
 }
 
 /**

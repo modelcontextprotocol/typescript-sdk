@@ -1,8 +1,8 @@
 import type {
-    OAuthClientProvider,
     OAuthClientInformation,
     OAuthClientInformationFull,
     OAuthClientMetadata,
+    OAuthClientProvider,
     OAuthTokens
 } from '@modelcontextprotocol/client';
 

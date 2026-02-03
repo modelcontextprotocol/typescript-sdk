@@ -11,21 +11,16 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     checkResourceAllowed,
-    InvalidClientError,
-    InvalidClientMetadataError,
-    InvalidGrantError,
     LATEST_PROTOCOL_VERSION,
-    OAUTH_ERRORS,
     OAuthClientInformationFullSchema,
     OAuthError,
+    OAuthErrorCode,
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
-    resourceUrlFromServerUrl,
-    ServerError,
-    UnauthorizedClientError
+    resourceUrlFromServerUrl
 } from '@modelcontextprotocol/core';
 import pkceChallenge from 'pkce-challenge';
 
@@ -328,7 +323,7 @@ function applyPublicAuth(clientId: string, params: URLSearchParams): void {
  * Parses an OAuth error response from a string or Response object.
  *
  * If the input is a standard OAuth2.0 error response, it will be parsed according to the spec
- * and an instance of the appropriate OAuthError subclass will be returned.
+ * and an OAuthError will be returned with the appropriate error code.
  * If parsing fails, it falls back to a generic ServerError that includes
  * the response status (if available) and original content.
  *
@@ -341,13 +336,11 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 
     try {
         const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
-        const { error, error_description, error_uri } = result;
-        const errorClass = OAUTH_ERRORS[error] || ServerError;
-        return new errorClass(error_description || '', error_uri);
+        return OAuthError.fromResponse(result);
     } catch (error) {
         // Not a valid OAuth error response, but try to inform the user of the raw data anyway
         const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
-        return new ServerError(errorMessage);
+        return new OAuthError(OAuthErrorCode.ServerError, errorMessage);
     }
 }
 
@@ -371,12 +364,14 @@ export async function auth(
         return await authInternal(provider, options);
     } catch (error) {
         // Handle recoverable error types by invalidating credentials and retrying
-        if (error instanceof InvalidClientError || error instanceof UnauthorizedClientError) {
-            await provider.invalidateCredentials?.('all');
-            return await authInternal(provider, options);
-        } else if (error instanceof InvalidGrantError) {
-            await provider.invalidateCredentials?.('tokens');
-            return await authInternal(provider, options);
+        if (error instanceof OAuthError) {
+            if (error.code === OAuthErrorCode.InvalidClient || error.code === OAuthErrorCode.UnauthorizedClient) {
+                await provider.invalidateCredentials?.('all');
+                return await authInternal(provider, options);
+            } else if (error.code === OAuthErrorCode.InvalidGrant) {
+                await provider.invalidateCredentials?.('tokens');
+                return await authInternal(provider, options);
+            }
         }
 
         // Throw otherwise
@@ -437,7 +432,8 @@ async function authInternal(
         const clientMetadataUrl = provider.clientMetadataUrl;
 
         if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
-            throw new InvalidClientMetadataError(
+            throw new OAuthError(
+                OAuthErrorCode.InvalidClientMetadata,
                 `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${clientMetadataUrl}`
             );
         }
@@ -502,7 +498,7 @@ async function authInternal(
             return 'AUTHORIZED';
         } catch (error) {
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
-            if (!(error instanceof OAuthError) || error instanceof ServerError) {
+            if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
                 // Could not refresh OAuth tokens
             } else {
                 // Refresh failed for another reason, re-throw

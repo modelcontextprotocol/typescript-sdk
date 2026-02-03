@@ -1,4 +1,5 @@
 export * from './auth/errors.js';
+export * from './errors/sdkErrors.js';
 export * from './shared/auth.js';
 export * from './shared/authUtils.js';
 export * from './shared/metadataUtils.js';

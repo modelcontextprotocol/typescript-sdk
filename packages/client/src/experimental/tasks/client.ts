@@ -20,7 +20,7 @@ import type {
     Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -123,8 +123,8 @@ export class ExperimentalClientTasks<
                 if (!result.structuredContent && !result.isError) {
                     yield {
                         type: 'error',
-                        error: new McpError(
-                            ErrorCode.InvalidRequest,
+                        error: new ProtocolError(
+                            ProtocolErrorCode.InvalidRequest,
                             `Tool ${params.name} has an output schema but did not return structured content`
                         )
                     };
@@ -140,22 +140,22 @@ export class ExperimentalClientTasks<
                         if (!validationResult.valid) {
                             yield {
                                 type: 'error',
-                                error: new McpError(
-                                    ErrorCode.InvalidParams,
+                                error: new ProtocolError(
+                                    ProtocolErrorCode.InvalidParams,
                                     `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
                                 )
                             };
                             return;
                         }
                     } catch (error) {
-                        if (error instanceof McpError) {
+                        if (error instanceof ProtocolError) {
                             yield { type: 'error', error };
                             return;
                         }
                         yield {
                             type: 'error',
-                            error: new McpError(
-                                ErrorCode.InvalidParams,
+                            error: new ProtocolError(
+                                ProtocolErrorCode.InvalidParams,
                                 `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
                             )
                         };

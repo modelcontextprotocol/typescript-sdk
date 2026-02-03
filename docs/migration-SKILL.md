@@ -20,13 +20,13 @@ Remove the old package and install only what you need:
 npm uninstall @modelcontextprotocol/sdk
 ```
 
-| You need | Install |
-|----------|---------|
-| Client only | `npm install @modelcontextprotocol/client` |
-| Server only | `npm install @modelcontextprotocol/server` |
-| Server + Node.js HTTP | `npm install @modelcontextprotocol/server @modelcontextprotocol/node` |
-| Server + Express | `npm install @modelcontextprotocol/server @modelcontextprotocol/express` |
-| Server + Hono | `npm install @modelcontextprotocol/server @modelcontextprotocol/hono` |
+| You need              | Install                                                                  |
+| --------------------- | ------------------------------------------------------------------------ |
+| Client only           | `npm install @modelcontextprotocol/client`                               |
+| Server only           | `npm install @modelcontextprotocol/server`                               |
+| Server + Node.js HTTP | `npm install @modelcontextprotocol/server @modelcontextprotocol/node`    |
+| Server + Express      | `npm install @modelcontextprotocol/server @modelcontextprotocol/express` |
+| Server + Hono         | `npm install @modelcontextprotocol/server @modelcontextprotocol/hono`    |
 
 `@modelcontextprotocol/core` is installed automatically as a dependency.
 
@@ -36,65 +36,175 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Client imports
 
-| v1 import path | v2 package |
-|----------------|------------|
-| `@modelcontextprotocol/sdk/client/index.js` | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/auth.js` | `@modelcontextprotocol/client` |
+| v1 import path                                       | v2 package                     |
+| ---------------------------------------------------- | ------------------------------ |
+| `@modelcontextprotocol/sdk/client/index.js`          | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/auth.js`           | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/streamableHttp.js` | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/sse.js` | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/stdio.js` | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/websocket.js` | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/sse.js`            | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/websocket.js`      | `@modelcontextprotocol/client` |
 
 ### Server imports
 
-| v1 import path | v2 package |
-|----------------|------------|
-| `@modelcontextprotocol/sdk/server/mcp.js` | `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/server/index.js` | `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/server/stdio.js` | `@modelcontextprotocol/server` |
+| v1 import path                                       | v2 package                                                                          |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                      |
+| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                      |
+| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                      |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) |
-| `@modelcontextprotocol/sdk/server/sse.js` | REMOVED (migrate to Streamable HTTP) |
-| `@modelcontextprotocol/sdk/server/auth/*` | REMOVED (use external auth library) |
-| `@modelcontextprotocol/sdk/server/middleware.js` | `@modelcontextprotocol/express` (signature changed, see section 8) |
+| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                |
+| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                 |
+| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                  |
 
 ### Types / shared imports
 
-| v1 import path | v2 package |
-|----------------|------------|
-| `@modelcontextprotocol/sdk/types.js` | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/protocol.js` | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/transport.js` | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/stdio.js` | `@modelcontextprotocol/core` |
+| v1 import path                                    | v2 package                   |
+| ------------------------------------------------- | ---------------------------- |
+| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/core` |
+| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/core` |
+| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/core` |
+| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/core` |
 | `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/auth.js` | `@modelcontextprotocol/core` |
+| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/core` |
 
 Notes:
+
 - `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
 - When multiple v1 imports map to the same v2 package, consolidate them into a single import statement.
 - If code imports from `sdk/client/...`, install `@modelcontextprotocol/client`. If from `sdk/server/...`, install `@modelcontextprotocol/server`. If from `sdk/types.js` or `sdk/shared/...` only, install `@modelcontextprotocol/core`.
 
 ## 4. Renamed Symbols
 
-| v1 symbol | v2 symbol | v2 package |
-|-----------|-----------|------------|
+| v1 symbol                       | v2 symbol                           | v2 package                   |
+| ------------------------------- | ----------------------------------- | ---------------------------- |
 | `StreamableHTTPServerTransport` | `NodeStreamableHTTPServerTransport` | `@modelcontextprotocol/node` |
 
 ## 5. Removed / Renamed Type Aliases and Symbols
 
-| v1 (removed) | v2 (replacement) |
-|--------------|------------------|
-| `JSONRPCError` | `JSONRPCErrorResponse` |
-| `JSONRPCErrorSchema` | `JSONRPCErrorResponseSchema` |
-| `isJSONRPCError` | `isJSONRPCErrorResponse` |
-| `isJSONRPCResponse` | `isJSONRPCResultResponse` |
-| `ResourceReference` | `ResourceTemplateReference` |
-| `ResourceReferenceSchema` | `ResourceTemplateReferenceSchema` |
-| `IsomorphicHeaders` | REMOVED (use Web Standard `Headers`) |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
+| v1 (removed)                             | v2 (replacement)                                         |
+| ---------------------------------------- | -------------------------------------------------------- |
+| `JSONRPCError`                           | `JSONRPCErrorResponse`                                   |
+| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                             |
+| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                 |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                                |
+| `ResourceReference`                      | `ResourceTemplateReference`                              |
+| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                        |
+| `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                     |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`)         |
+| `McpError`                               | `ProtocolError`                                          |
+| `ErrorCode`                              | `ProtocolErrorCode`                                      |
+| `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
+| `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                          |
+| `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
-**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types.
+### Error class changes
+
+Two error classes now exist:
+
+- **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC responses
+- **`SdkError`** (new): Local SDK errors that never cross the wire
+
+| Error scenario                   | v1 type                                      | v2 type                                                           |
+| -------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
+| Request timeout                  | `McpError` with `ErrorCode.RequestTimeout`   | `SdkError` with `SdkErrorCode.RequestTimeout`                     |
+| Connection closed                | `McpError` with `ErrorCode.ConnectionClosed` | `SdkError` with `SdkErrorCode.ConnectionClosed`                   |
+| Capability not supported         | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`             |
+| Not connected                    | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                       |
+| Invalid params (server response) | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`            |
+| HTTP transport error             | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttp*`                        |
+| Failed to open SSE stream        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
+| 401 after auth flow              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpAuthentication`           |
+| 403 after upscoping              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
+| Unexpected content type          | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
+| Session termination failed       | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
+
+New `SdkErrorCode` enum values:
+
+- `SdkErrorCode.NotConnected` = `'NOT_CONNECTED'`
+- `SdkErrorCode.AlreadyConnected` = `'ALREADY_CONNECTED'`
+- `SdkErrorCode.NotInitialized` = `'NOT_INITIALIZED'`
+- `SdkErrorCode.CapabilityNotSupported` = `'CAPABILITY_NOT_SUPPORTED'`
+- `SdkErrorCode.RequestTimeout` = `'REQUEST_TIMEOUT'`
+- `SdkErrorCode.ConnectionClosed` = `'CONNECTION_CLOSED'`
+- `SdkErrorCode.SendFailed` = `'SEND_FAILED'`
+- `SdkErrorCode.ClientHttpNotImplemented` = `'CLIENT_HTTP_NOT_IMPLEMENTED'`
+- `SdkErrorCode.ClientHttpAuthentication` = `'CLIENT_HTTP_AUTHENTICATION'`
+- `SdkErrorCode.ClientHttpForbidden` = `'CLIENT_HTTP_FORBIDDEN'`
+- `SdkErrorCode.ClientHttpUnexpectedContent` = `'CLIENT_HTTP_UNEXPECTED_CONTENT'`
+- `SdkErrorCode.ClientHttpFailedToOpenStream` = `'CLIENT_HTTP_FAILED_TO_OPEN_STREAM'`
+- `SdkErrorCode.ClientHttpFailedToTerminateSession` = `'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'`
+
+Update error handling:
+
+```typescript
+// v1
+if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) { ... }
+
+// v2
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) { ... }
+```
+
+Update HTTP transport error handling:
+
+```typescript
+// v1
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+if (error instanceof StreamableHTTPError) {
+    console.log('HTTP status:', error.code);
+}
+
+// v2
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpFailedToOpenStream) {
+    const status = (error.data as { status?: number })?.status;
+}
+```
+
+### OAuth error consolidation
+
+Individual OAuth error classes replaced with single `OAuthError` class and `OAuthErrorCode` enum:
+
+| v1 Class                       | v2 Equivalent                                              |
+| ------------------------------ | ---------------------------------------------------------- |
+| `InvalidRequestError`          | `OAuthError` with `OAuthErrorCode.InvalidRequest`          |
+| `InvalidClientError`           | `OAuthError` with `OAuthErrorCode.InvalidClient`           |
+| `InvalidGrantError`            | `OAuthError` with `OAuthErrorCode.InvalidGrant`            |
+| `UnauthorizedClientError`      | `OAuthError` with `OAuthErrorCode.UnauthorizedClient`      |
+| `UnsupportedGrantTypeError`    | `OAuthError` with `OAuthErrorCode.UnsupportedGrantType`    |
+| `InvalidScopeError`            | `OAuthError` with `OAuthErrorCode.InvalidScope`            |
+| `AccessDeniedError`            | `OAuthError` with `OAuthErrorCode.AccessDenied`            |
+| `ServerError`                  | `OAuthError` with `OAuthErrorCode.ServerError`             |
+| `TemporarilyUnavailableError`  | `OAuthError` with `OAuthErrorCode.TemporarilyUnavailable`  |
+| `UnsupportedResponseTypeError` | `OAuthError` with `OAuthErrorCode.UnsupportedResponseType` |
+| `UnsupportedTokenTypeError`    | `OAuthError` with `OAuthErrorCode.UnsupportedTokenType`    |
+| `InvalidTokenError`            | `OAuthError` with `OAuthErrorCode.InvalidToken`            |
+| `MethodNotAllowedError`        | `OAuthError` with `OAuthErrorCode.MethodNotAllowed`        |
+| `TooManyRequestsError`         | `OAuthError` with `OAuthErrorCode.TooManyRequests`         |
+| `InvalidClientMetadataError`   | `OAuthError` with `OAuthErrorCode.InvalidClientMetadata`   |
+| `InsufficientScopeError`       | `OAuthError` with `OAuthErrorCode.InsufficientScope`       |
+| `InvalidTargetError`           | `OAuthError` with `OAuthErrorCode.InvalidTarget`           |
+| `CustomOAuthError`             | `new OAuthError(customCode, message)`                      |
+
+Removed: `OAUTH_ERRORS` constant.
+
+Update OAuth error handling:
+
+```typescript
+// v1
+import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/core';
+if (error instanceof InvalidClientError) { ... }
+
+// v2
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
+```
+
+**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod
+schemas, all callback return types.
 
 ## 6. McpServer API Changes
 
@@ -105,21 +215,25 @@ The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the 
 ```typescript
 // v1: server.tool(name, schema, callback)
 server.tool('greet', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // v1: server.tool(name, description, schema, callback)
 server.tool('greet', 'Greet a user', { name: z.string() }, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // v2: server.registerTool(name, config, callback)
-server.registerTool('greet', {
-  description: 'Greet a user',
-  inputSchema: { name: z.string() },
-}, async ({ name }) => {
-  return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
-});
+server.registerTool(
+    'greet',
+    {
+        description: 'Greet a user',
+        inputSchema: { name: z.string() }
+    },
+    async ({ name }) => {
+        return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    }
+);
 ```
 
 Config object fields: `title?`, `description?`, `inputSchema?`, `outputSchema?`, `annotations?`, `_meta?`
@@ -129,15 +243,19 @@ Config object fields: `title?`, `description?`, `inputSchema?`, `outputSchema?`,
 ```typescript
 // v1: server.prompt(name, schema, callback)
 server.prompt('summarize', { text: z.string() }, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text } }] };
+    return { messages: [{ role: 'user', content: { type: 'text', text } }] };
 });
 
 // v2: server.registerPrompt(name, config, callback)
-server.registerPrompt('summarize', {
-  argsSchema: { text: z.string() },
-}, async ({ text }) => {
-  return { messages: [{ role: 'user', content: { type: 'text', text } }] };
-});
+server.registerPrompt(
+    'summarize',
+    {
+        argsSchema: { text: z.string() }
+    },
+    async ({ text }) => {
+        return { messages: [{ role: 'user', content: { type: 'text', text } }] };
+    }
+);
 ```
 
 Config object fields: `title?`, `description?`, `argsSchema?`
@@ -146,13 +264,13 @@ Config object fields: `title?`, `description?`, `argsSchema?`
 
 ```typescript
 // v1: server.resource(name, uri, callback)
-server.resource('config', 'config://app', async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.resource('config', 'config://app', async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 
 // v2: server.registerResource(name, uri, metadata, callback)
-server.registerResource('config', 'config://app', {}, async (uri) => {
-  return { contents: [{ uri: uri.href, text: '{}' }] };
+server.registerResource('config', 'config://app', {}, async uri => {
+    return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
 
@@ -180,7 +298,8 @@ extra.requestInfo?.headers.get('mcp-session-id')
 
 ### Server-side auth
 
-All server OAuth exports removed: `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and associated types. Use an external auth library (e.g., `better-auth`). See `examples/server/src/` for demos.
+All server OAuth exports removed: `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and associated types. Use an external auth library (e.g., `better-auth`). See
+`examples/server/src/` for demos.
 
 ### Host header validation (Express)
 
@@ -214,26 +333,26 @@ server.setNotificationHandler('notifications/message', (notification) => { ... }
 
 Schema to method string mapping:
 
-| v1 Schema | v2 Method String |
-|-----------|-----------------|
-| `InitializeRequestSchema` | `'initialize'` |
-| `CallToolRequestSchema` | `'tools/call'` |
-| `ListToolsRequestSchema` | `'tools/list'` |
-| `ListPromptsRequestSchema` | `'prompts/list'` |
-| `GetPromptRequestSchema` | `'prompts/get'` |
-| `ListResourcesRequestSchema` | `'resources/list'` |
-| `ReadResourceRequestSchema` | `'resources/read'` |
-| `CreateMessageRequestSchema` | `'sampling/createMessage'` |
-| `ElicitRequestSchema` | `'elicitation/create'` |
-| `SetLevelRequestSchema` | `'logging/setLevel'` |
-| `PingRequestSchema` | `'ping'` |
-| `LoggingMessageNotificationSchema` | `'notifications/message'` |
-| `ToolListChangedNotificationSchema` | `'notifications/tools/list_changed'` |
+| v1 Schema                               | v2 Method String                         |
+| --------------------------------------- | ---------------------------------------- |
+| `InitializeRequestSchema`               | `'initialize'`                           |
+| `CallToolRequestSchema`                 | `'tools/call'`                           |
+| `ListToolsRequestSchema`                | `'tools/list'`                           |
+| `ListPromptsRequestSchema`              | `'prompts/list'`                         |
+| `GetPromptRequestSchema`                | `'prompts/get'`                          |
+| `ListResourcesRequestSchema`            | `'resources/list'`                       |
+| `ReadResourceRequestSchema`             | `'resources/read'`                       |
+| `CreateMessageRequestSchema`            | `'sampling/createMessage'`               |
+| `ElicitRequestSchema`                   | `'elicitation/create'`                   |
+| `SetLevelRequestSchema`                 | `'logging/setLevel'`                     |
+| `PingRequestSchema`                     | `'ping'`                                 |
+| `LoggingMessageNotificationSchema`      | `'notifications/message'`                |
+| `ToolListChangedNotificationSchema`     | `'notifications/tools/list_changed'`     |
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
-| `PromptListChangedNotificationSchema` | `'notifications/prompts/list_changed'` |
-| `ProgressNotificationSchema` | `'notifications/progress'` |
-| `CancelledNotificationSchema` | `'notifications/cancelled'` |
-| `InitializedNotificationSchema` | `'notifications/initialized'` |
+| `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
+| `ProgressNotificationSchema`            | `'notifications/progress'`               |
+| `CancelledNotificationSchema`           | `'notifications/cancelled'`              |
+| `InitializedNotificationSchema`         | `'notifications/initialized'`            |
 
 Request/notification params remain fully typed. Remove unused schema imports after migration.
 

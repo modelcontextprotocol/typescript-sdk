@@ -4,11 +4,12 @@ import {
     CallToolResultSchema,
     CreateTaskResultSchema,
     ElicitResultSchema,
-    ErrorCode,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
     ListToolsResultSchema,
-    McpError,
+    ProtocolErrorCode,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
@@ -815,7 +816,7 @@ test('should reject form-mode elicitation when client only supports URL mode', a
     const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
 
     expect(response.id).toBe(requestId);
-    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.code).toBe(ProtocolErrorCode.InvalidParams);
     expect(response.error.message).toContain('Client does not support form-mode elicitation requests');
     expect(handler).not.toHaveBeenCalled();
 
@@ -954,7 +955,7 @@ test('should reject URL-mode elicitation when client only supports form mode', a
     const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
 
     expect(response.id).toBe(requestId);
-    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.code).toBe(ProtocolErrorCode.InvalidParams);
     expect(response.error.message).toContain('Client does not support URL-mode elicitation requests');
     expect(handler).not.toHaveBeenCalled();
 
@@ -1074,8 +1075,8 @@ test('should handle client cancelling a request', async () => {
     });
     controller.abort('Cancelled by test');
 
-    // Request should be rejected with an McpError
-    await expect(listResourcesPromise).rejects.toThrow(McpError);
+    // Request should be rejected with an SdkError (local timeout/cancellation)
+    await expect(listResourcesPromise).rejects.toThrow(SdkError);
 });
 
 /***
@@ -1123,7 +1124,7 @@ test('should handle request timeout', async () => {
 
     // Request with 0 msec timeout should fail immediately
     await expect(client.listResources(undefined, { timeout: 0 })).rejects.toMatchObject({
-        code: ErrorCode.RequestTimeout
+        code: SdkErrorCode.RequestTimeout
     });
 });
 
