@@ -403,6 +403,59 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.RequestTimeout` | Request timed out waiting for response |
 | `SdkErrorCode.ConnectionClosed` | Connection was closed |
 | `SdkErrorCode.SendFailed` | Failed to send message |
+| `SdkErrorCode.ClientHttpNotImplemented` | HTTP POST request failed |
+| `SdkErrorCode.ClientHttpAuthentication` | Server returned 401 after successful auth |
+| `SdkErrorCode.ClientHttpForbidden` | Server returned 403 after trying upscoping |
+| `SdkErrorCode.ClientHttpUnexpectedContent` | Unexpected content type in HTTP response |
+| `SdkErrorCode.ClientHttpFailedToOpenStream` | Failed to open SSE stream |
+| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session |
+
+#### `StreamableHTTPError` removed
+
+The `StreamableHTTPError` class has been removed. HTTP transport errors are now thrown as `SdkError` with specific `SdkErrorCode` values that provide more granular error information:
+
+**Before (v1):**
+
+```typescript
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+try {
+    await transport.send(message);
+} catch (error) {
+    if (error instanceof StreamableHTTPError) {
+        console.log('HTTP error:', error.code); // HTTP status code
+    }
+}
+```
+
+**After (v2):**
+
+```typescript
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+
+try {
+    await transport.send(message);
+} catch (error) {
+    if (error instanceof SdkError) {
+        switch (error.code) {
+            case SdkErrorCode.ClientHttpAuthentication:
+                console.log('Auth failed after completing auth flow');
+                break;
+            case SdkErrorCode.ClientHttpForbidden:
+                console.log('Forbidden after upscoping attempt');
+                break;
+            case SdkErrorCode.ClientHttpFailedToOpenStream:
+                console.log('Failed to open SSE stream');
+                break;
+            case SdkErrorCode.ClientHttpNotImplemented:
+                console.log('HTTP request failed');
+                break;
+        }
+        // Access HTTP status code from error.data if needed
+        const httpStatus = (error.data as { status?: number })?.status;
+    }
+}
+```
 
 #### Why this change?
 

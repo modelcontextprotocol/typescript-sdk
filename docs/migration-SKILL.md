@@ -120,6 +120,12 @@ New `SdkErrorCode` enum values:
 - `SdkErrorCode.RequestTimeout` = `'REQUEST_TIMEOUT'`
 - `SdkErrorCode.ConnectionClosed` = `'CONNECTION_CLOSED'`
 - `SdkErrorCode.SendFailed` = `'SEND_FAILED'`
+- `SdkErrorCode.ClientHttpNotImplemented` = `'CLIENT_HTTP_NOT_IMPLEMENTED'`
+- `SdkErrorCode.ClientHttpAuthentication` = `'CLIENT_HTTP_AUTHENTICATION'`
+- `SdkErrorCode.ClientHttpForbidden` = `'CLIENT_HTTP_FORBIDDEN'`
+- `SdkErrorCode.ClientHttpUnexpectedContent` = `'CLIENT_HTTP_UNEXPECTED_CONTENT'`
+- `SdkErrorCode.ClientHttpFailedToOpenStream` = `'CLIENT_HTTP_FAILED_TO_OPEN_STREAM'`
+- `SdkErrorCode.ClientHttpFailedToTerminateSession` = `'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'`
 
 Update error handling:
 
