@@ -128,10 +128,7 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    protected override buildContext(
-        ctx: BaseContext,
-        transportInfo?: MessageExtraInfo
-    ): ServerContext {
+    protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo =
             ctx.http || transportInfo?.requestInfo || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;

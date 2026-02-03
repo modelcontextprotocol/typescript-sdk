@@ -1320,7 +1320,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * @experimental Use `client.experimental.tasks.getTask()` to access this method.
      */
     protected async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
-
         return this.request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
     }
 
@@ -1334,7 +1333,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<SchemaOutput<T>> {
-
         return this.request({ method: 'tasks/result', params }, resultSchema, options);
     }
 
@@ -1344,7 +1342,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * @experimental Use `client.experimental.tasks.listTasks()` to access this method.
      */
     protected async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
-
         return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
     }
 
@@ -1354,7 +1351,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * @experimental Use `client.experimental.tasks.cancelTask()` to access this method.
      */
     protected async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
-
         return this.request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
     }
 

@@ -23,19 +23,21 @@ import type { BaseToolCallback } from '../../server/mcp.js';
  * Handler for creating a task.
  * @experimental
  */
-export type CreateTaskRequestHandler<
-    ResultT extends Result,
-    Args extends AnySchema | undefined = undefined
-> = BaseToolCallback<ResultT, CreateTaskServerContext, Args>;
+export type CreateTaskRequestHandler<ResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
+    ResultT,
+    CreateTaskServerContext,
+    Args
+>;
 
 /**
  * Handler for task operations (get, getResult).
  * @experimental
  */
-export type TaskRequestHandler<
-    ResultT extends Result,
-    Args extends AnySchema | undefined = undefined
-> = BaseToolCallback<ResultT, TaskServerContext, Args>;
+export type TaskRequestHandler<ResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
+    ResultT,
+    TaskServerContext,
+    Args
+>;
 
 /**
  * Interface for task-based tool handlers.

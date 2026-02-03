@@ -2616,8 +2616,8 @@ export type NotificationMethod = ClientNotification['method'] | ServerNotificati
 export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
 export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
 export type ResultTypeMap = {
-    'ping': EmptyResult;
-    'initialize': InitializeResult;
+    ping: EmptyResult;
+    initialize: InitializeResult;
     'completion/complete': CompleteResult;
     'logging/setLevel': EmptyResult;
     'prompts/get': GetPromptResult;

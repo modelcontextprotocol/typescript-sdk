@@ -224,10 +224,7 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    protected override buildContext(
-        ctx: BaseContext,
-        _transportInfo?: MessageExtraInfo
-    ): ClientContext {
+    protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
         return ctx;
     }
 

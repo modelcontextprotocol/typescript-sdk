@@ -12,8 +12,8 @@ import type {
     ListTasksResult,
     Request,
     RequestOptions,
-    Result,
     ResponseMessage,
+    Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
 
