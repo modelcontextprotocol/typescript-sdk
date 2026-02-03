@@ -147,14 +147,11 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * List of protocol versions that this transport will accept.
      * Used to validate the mcp-protocol-version header in incoming requests.
      *
-     * @default SUPPORTED_PROTOCOL_VERSIONS
+     * Note: When using Server.connect(), the server automatically passes its
+     * supportedProtocolVersions to the transport, so you typically don't need
+     * to set this option directly.
      *
-     * @example
-     * ```typescript
-     * const transport = new WebStandardStreamableHTTPServerTransport({
-     *   supportedProtocolVersions: ['2025-11-25', '2025-06-18', '2025-03-26']
-     * });
-     * ```
+     * @default SUPPORTED_PROTOCOL_VERSIONS
      */
     supportedProtocolVersions?: string[];
 }
@@ -264,6 +261,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             throw new Error('Transport already started');
         }
         this._started = true;
+    }
+
+    /**
+     * Sets the supported protocol versions for header validation.
+     * Called by the server during connect() to pass its supported versions.
+     */
+    setSupportedProtocolVersions(versions: string[]): void {
+        this._supportedProtocolVersions = versions;
     }
 
     /**

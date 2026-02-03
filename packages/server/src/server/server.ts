@@ -31,7 +31,8 @@ import type {
     ServerRequest,
     ServerResult,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
@@ -501,6 +502,15 @@ export class Server<
 
     private getCapabilities(): ServerCapabilities {
         return this._capabilities;
+    }
+
+    /**
+     * Connects to the given transport and passes supported protocol versions.
+     */
+    override async connect(transport: Transport): Promise<void> {
+        // Pass supported versions to transport for header validation
+        transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
+        await super.connect(transport);
     }
 
     async ping() {
