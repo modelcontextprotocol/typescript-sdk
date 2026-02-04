@@ -285,8 +285,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             beforeEach(async () => {
                 const setup = await setupServer(true);
                 server = setup.server;
-                mcpServer = setup.mcpServer;
-                serverTransport = setup.serverTransport;
+                mcpServer = setup.mcpServer!;
+                serverTransport = setup.serverTransport!;
                 baseUrl = setup.baseUrl;
             });
 
