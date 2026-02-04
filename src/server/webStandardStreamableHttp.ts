@@ -210,6 +210,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
+    private _hasHandledRequest: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
@@ -319,6 +320,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns a Response object (Web Standard)
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        // In stateless mode (no sessionIdGenerator), each request must use a fresh transport.
+        // Reusing a stateless transport causes message ID collisions between clients.
+        if (!this.sessionIdGenerator && this._hasHandledRequest) {
+            throw new Error('Stateless transport cannot be reused across requests. Create a new transport per request.');
+        }
+        this._hasHandledRequest = true;
+
         // Validate request headers for DNS rebinding protection
         const validationError = this.validateRequestHeaders(req);
         if (validationError) {

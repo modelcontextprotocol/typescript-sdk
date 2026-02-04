@@ -27,30 +27,36 @@ class MockTransport implements Transport {
     }
 }
 
-describe('Protocol transport handling bug', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+function createProtocol(): Protocol<Request, Notification, Result> {
+    return new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+        protected assertTaskCapability(): void {}
+        protected assertTaskHandlerCapability(): void {}
+    })();
+}
+
+describe('Protocol transport handling', () => {
     let transportA: MockTransport;
     let transportB: MockTransport;
 
     beforeEach(() => {
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
-
         transportA = new MockTransport('A');
         transportB = new MockTransport('B');
     });
 
-    test('should send response to the correct transport when multiple clients are connected', async () => {
-        // Set up a request handler that simulates processing time
-        let resolveHandler: (value: Result) => void;
-        const handlerPromise = new Promise<Result>(resolve => {
-            resolveHandler = resolve;
-        });
+    test('should send response to the correct transport when using separate protocol instances', async () => {
+        const protocolA = createProtocol();
+        const protocolB = createProtocol();
+
+        // Each protocol gets its own resolver so we can verify responses route correctly
+        let resolveA: (value: Result) => void;
+        let resolveB: (value: Result) => void;
+        let handlerAEnteredResolve: () => void;
+        let handlerBEnteredResolve: () => void;
+        const handlerAEntered = new Promise<void>(resolve => { handlerAEnteredResolve = resolve; });
+        const handlerBEntered = new Promise<void>(resolve => { handlerBEnteredResolve = resolve; });
 
         const TestRequestSchema = z.object({
             method: z.literal('test/method'),
@@ -61,13 +67,22 @@ describe('Protocol transport handling bug', () => {
                 .optional()
         });
 
-        protocol.setRequestHandler(TestRequestSchema, async request => {
-            console.log(`Processing request from ${request.params?.from}`);
-            return handlerPromise;
+        protocolA.setRequestHandler(TestRequestSchema, async () => {
+            return new Promise<Result>(resolve => {
+                resolveA = resolve;
+                handlerAEnteredResolve();
+            });
+        });
+
+        protocolB.setRequestHandler(TestRequestSchema, async () => {
+            return new Promise<Result>(resolve => {
+                resolveB = resolve;
+                handlerBEnteredResolve();
+            });
         });
 
         // Client A connects and sends a request
-        await protocol.connect(transportA);
+        await protocolA.connect(transportA);
 
         const requestFromA = {
             jsonrpc: '2.0' as const,
@@ -79,9 +94,8 @@ describe('Protocol transport handling bug', () => {
         // Simulate client A sending a request
         transportA.onmessage?.(requestFromA);
 
-        // While A's request is being processed, client B connects
-        // This overwrites the transport reference in the protocol
-        await protocol.connect(transportB);
+        // Client B connects to a separate protocol instance
+        await protocolB.connect(transportB);
 
         const requestFromB = {
             jsonrpc: '2.0' as const,
@@ -93,19 +107,18 @@ describe('Protocol transport handling bug', () => {
         // Client B sends its own request
         transportB.onmessage?.(requestFromB);
 
-        // Now complete A's request
-        resolveHandler!({ data: 'responseForA' } as Result);
+        // Wait for both handlers to be invoked so resolvers are captured
+        await handlerAEntered;
+        await handlerBEntered;
 
-        // Wait for async operations to complete
+        // Resolve each handler with distinct data
+        resolveA!({ data: 'responseForA' } as Result);
+        resolveB!({ data: 'responseForB' } as Result);
+
+        // Wait for response delivery (transport.send is async)
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // Check where the responses went
-        console.log('Transport A received:', transportA.sentMessages);
-        console.log('Transport B received:', transportB.sentMessages);
-
-        // FIXED: Each transport now receives its own response
-
-        // Transport A should receive response for request ID 1
+        // Each transport receives its own response
         expect(transportA.sentMessages.length).toBe(1);
         expect(transportA.sentMessages[0]).toMatchObject({
             jsonrpc: '2.0',
@@ -113,18 +126,17 @@ describe('Protocol transport handling bug', () => {
             result: { data: 'responseForA' }
         });
 
-        // Transport B should only receive its own response (when implemented)
         expect(transportB.sentMessages.length).toBe(1);
         expect(transportB.sentMessages[0]).toMatchObject({
             jsonrpc: '2.0',
             id: 2,
-            result: { data: 'responseForA' } // Same handler result in this test
+            result: { data: 'responseForB' }
         });
     });
 
-    test('demonstrates the timing issue with multiple rapid connections', async () => {
-        const delays: number[] = [];
-        const results: { transport: string; response: JSONRPCMessage[] }[] = [];
+    test('demonstrates isolation with separate protocol instances for rapid connections', async () => {
+        const protocolA = createProtocol();
+        const protocolB = createProtocol();
 
         const DelayedRequestSchema = z.object({
             method: z.literal('test/delayed'),
@@ -136,21 +148,20 @@ describe('Protocol transport handling bug', () => {
                 .optional()
         });
 
-        // Set up handler with variable delay
-        protocol.setRequestHandler(DelayedRequestSchema, async (request, extra) => {
-            const delay = request.params?.delay || 0;
-            delays.push(delay);
+        // Set up handler with variable delay on each protocol
+        for (const protocol of [protocolA, protocolB]) {
+            protocol.setRequestHandler(DelayedRequestSchema, async (request, extra) => {
+                const delay = request.params?.delay || 0;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return {
+                    processedBy: `handler-${extra.requestId}`,
+                    delay: delay
+                } as Result;
+            });
+        }
 
-            await new Promise(resolve => setTimeout(resolve, delay));
-
-            return {
-                processedBy: `handler-${extra.requestId}`,
-                delay: delay
-            } as Result;
-        });
-
-        // Rapid succession of connections and requests
-        await protocol.connect(transportA);
+        // Connect and send requests
+        await protocolA.connect(transportA);
         transportA.onmessage?.({
             jsonrpc: '2.0' as const,
             method: 'test/delayed',
@@ -160,7 +171,7 @@ describe('Protocol transport handling bug', () => {
 
         // Connect B while A is processing
         setTimeout(async () => {
-            await protocol.connect(transportB);
+            await protocolB.connect(transportB);
             transportB.onmessage?.({
                 jsonrpc: '2.0' as const,
                 method: 'test/delayed',
@@ -172,18 +183,81 @@ describe('Protocol transport handling bug', () => {
         // Wait for all processing
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        // Collect results
-        if (transportA.sentMessages.length > 0) {
-            results.push({ transport: 'A', response: transportA.sentMessages });
-        }
-        if (transportB.sentMessages.length > 0) {
-            results.push({ transport: 'B', response: transportB.sentMessages });
-        }
-
-        console.log('Timing test results:', results);
-
-        // FIXED: Each transport receives its own responses
+        // Each transport receives its own responses
         expect(transportA.sentMessages.length).toBe(1);
         expect(transportB.sentMessages.length).toBe(1);
+    });
+
+    test('connect guard throws when calling connect() twice without closing', async () => {
+        const protocol = createProtocol();
+
+        await protocol.connect(transportA);
+
+        await expect(protocol.connect(transportB)).rejects.toThrow(
+            'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
+        );
+    });
+
+    test('connect succeeds after calling close() first', async () => {
+        const protocol = createProtocol();
+
+        await protocol.connect(transportA);
+        await protocol.close();
+
+        // Should succeed without error
+        await expect(protocol.connect(transportB)).resolves.toBeUndefined();
+    });
+
+    test('close() aborts in-flight request handlers', async () => {
+        const protocol = createProtocol();
+
+        const SlowRequestSchema = z.object({
+            method: z.literal('test/slow')
+        });
+
+        let capturedSignal: AbortSignal | undefined;
+        let capturedSendNotification: ((notification: Notification) => Promise<void>) | undefined;
+        let resolveHandler: () => void;
+        const handlerBlocking = new Promise<void>(resolve => {
+            resolveHandler = resolve;
+        });
+
+        protocol.setRequestHandler(SlowRequestSchema, async (_request, extra) => {
+            capturedSignal = extra.signal;
+            capturedSendNotification = extra.sendNotification;
+            // Block the handler until we release it
+            await handlerBlocking;
+            return {} as Result;
+        });
+
+        await protocol.connect(transportA);
+
+        // Send a request to trigger the handler
+        transportA.onmessage?.({
+            jsonrpc: '2.0' as const,
+            method: 'test/slow',
+            id: 1
+        });
+
+        // Wait for the handler to start and capture the signal
+        await new Promise(resolve => setTimeout(resolve, 10));
+        expect(capturedSignal).toBeDefined();
+        expect(capturedSignal!.aborted).toBe(false);
+
+        // Close the protocol while the handler is still in-flight
+        await protocol.close();
+
+        // The signal should now be aborted
+        expect(capturedSignal!.aborted).toBe(true);
+
+        // sendNotification should be a no-op after close (no error thrown)
+        await expect(capturedSendNotification!({ method: 'notifications/test' } as Notification)).resolves.toBeUndefined();
+
+        // No notification should have been sent to the transport
+        const notifications = transportA.sentMessages.filter((m: JSONRPCMessage) => 'method' in m && m.method === 'notifications/test');
+        expect(notifications).toHaveLength(0);
+
+        // Release the handler so the promise chain completes
+        resolveHandler!();
     });
 });

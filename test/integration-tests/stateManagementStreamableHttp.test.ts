@@ -17,9 +17,11 @@ import { listenOnRandomPort } from '../helpers/http.js';
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
     describe('Streamable HTTP Transport Session Management', () => {
-        // Function to set up the server with optional session management
-        async function setupServer(withSessionManagement: boolean) {
-            const server: Server = createServer();
+        /**
+         * Helper to create and configure a fresh McpServer instance with standard
+         * resources, prompts, and tools for testing.
+         */
+        function createMcpServer(): McpServer {
             const mcpServer = new McpServer(
                 { name: 'test-server', version: '1.0.0' },
                 {
@@ -67,43 +69,67 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             );
 
-            // Create transport with or without session management
-            const serverTransport = new StreamableHTTPServerTransport({
-                sessionIdGenerator: withSessionManagement
-                    ? () => randomUUID() // With session management, generate UUID
-                    : undefined // Without session management, return undefined
-            });
+            return mcpServer;
+        }
 
-            await mcpServer.connect(serverTransport);
+        // Function to set up the server with optional session management
+        async function setupServer(withSessionManagement: boolean): Promise<{
+            server: Server;
+            mcpServer?: McpServer;
+            serverTransport?: StreamableHTTPServerTransport;
+            baseUrl: URL;
+        }> {
+            const server: Server = createServer();
 
-            server.on('request', async (req, res) => {
-                await serverTransport.handleRequest(req, res);
-            });
+            if (withSessionManagement) {
+                // Stateful mode: single transport + server for the session
+                const mcpServer = createMcpServer();
+                const serverTransport = new StreamableHTTPServerTransport({
+                    sessionIdGenerator: () => randomUUID()
+                });
 
-            // Start the server on a random port
-            const baseUrl = await listenOnRandomPort(server);
+                await mcpServer.connect(serverTransport);
 
-            return { server, mcpServer, serverTransport, baseUrl };
+                server.on('request', async (req, res) => {
+                    await serverTransport.handleRequest(req, res);
+                });
+
+                // Start the server on a random port
+                const baseUrl = await listenOnRandomPort(server);
+
+                return { server, mcpServer, serverTransport, baseUrl };
+            } else {
+                // Stateless mode: create a fresh transport + server per request
+                // to comply with the guard that stateless transports cannot be reused.
+                server.on('request', async (req, res) => {
+                    const mcpServer = createMcpServer();
+                    const serverTransport = new StreamableHTTPServerTransport({
+                        sessionIdGenerator: undefined
+                    });
+                    await mcpServer.connect(serverTransport);
+                    await serverTransport.handleRequest(req, res);
+                    // Close the per-request mcpServer after handling to avoid leaks
+                    await mcpServer.close();
+                });
+
+                // Start the server on a random port
+                const baseUrl = await listenOnRandomPort(server);
+
+                return { server, baseUrl };
+            }
         }
 
         describe('Stateless Mode', () => {
             let server: Server;
-            let mcpServer: McpServer;
-            let serverTransport: StreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {
                 const setup = await setupServer(false);
                 server = setup.server;
-                mcpServer = setup.mcpServer;
-                serverTransport = setup.serverTransport;
                 baseUrl = setup.baseUrl;
             });
 
             afterEach(async () => {
-                // Clean up resources
-                await mcpServer.close().catch(() => {});
-                await serverTransport.close().catch(() => {});
                 server.close();
             });
 
