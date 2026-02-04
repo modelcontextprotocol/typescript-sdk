@@ -55,8 +55,12 @@ describe('Protocol transport handling', () => {
         let resolveB: (value: Result) => void;
         let handlerAEnteredResolve: () => void;
         let handlerBEnteredResolve: () => void;
-        const handlerAEntered = new Promise<void>(resolve => { handlerAEnteredResolve = resolve; });
-        const handlerBEntered = new Promise<void>(resolve => { handlerBEnteredResolve = resolve; });
+        const handlerAEntered = new Promise<void>(resolve => {
+            handlerAEnteredResolve = resolve;
+        });
+        const handlerBEntered = new Promise<void>(resolve => {
+            handlerBEnteredResolve = resolve;
+        });
 
         const TestRequestSchema = z.object({
             method: z.literal('test/method'),

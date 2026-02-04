@@ -58,7 +58,7 @@ app.use(
 app.get('/health', c => c.json({ status: 'ok' }));
 
 // MCP endpoint - create a fresh transport and server per request (stateless)
-app.all('/mcp', async (c) => {
+app.all('/mcp', async c => {
     const transport = new WebStandardStreamableHTTPServerTransport();
     const server = getServer();
     await server.connect(transport);
