@@ -123,7 +123,7 @@ export class OAuthError extends Error {
     }
 
     /**
-     * Creates an OAuthError from an OAuth error response.
+     * Creates an {@linkcode OAuthError} from an OAuth error response.
      */
     static fromResponse(response: OAuthErrorResponse): OAuthError {
         return new OAuthError(response.error as OAuthErrorCode, response.error_description ?? response.error, response.error_uri);

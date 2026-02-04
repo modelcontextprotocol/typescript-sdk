@@ -21,7 +21,7 @@ import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelco
 import type { Client } from '../../client/client.js';
 
 /**
- * Internal interface for accessing Client's private methods.
+ * Internal interface for accessing {@linkcode Client}'s private methods.
  * @internal
  */
 interface ClientInternal {
@@ -78,9 +78,9 @@ export class ExperimentalClientTasks {
      * ```
      *
      * @param params - Tool call parameters (name and arguments)
-     * @param resultSchema - Zod schema for validating the result (defaults to CallToolResultSchema)
+     * @param resultSchema - Zod schema for validating the result (defaults to {@linkcode CallToolResultSchema})
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
@@ -243,7 +243,7 @@ export class ExperimentalClientTasks {
      * @param request - The request to send
      * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */

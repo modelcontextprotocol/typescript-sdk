@@ -1,6 +1,7 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Protocol used in JSDoc {@link}
+import type { FetchLike, JSONRPCMessage, Protocol, Transport } from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
     isInitializedNotification,
@@ -50,7 +51,7 @@ export interface StartSSEOptions {
 }
 
 /**
- * Configuration options for reconnection behavior of the StreamableHTTPClientTransport.
+ * Configuration options for reconnection behavior of the {@linkcode StreamableHTTPClientTransport}.
  */
 export interface StreamableHTTPReconnectionOptions {
     /**
@@ -79,7 +80,7 @@ export interface StreamableHTTPReconnectionOptions {
 }
 
 /**
- * Configuration options for the `StreamableHTTPClientTransport`.
+ * Configuration options for the {@linkcode StreamableHTTPClientTransport}.
  */
 export type StreamableHTTPClientTransportOptions = {
     /**
@@ -88,13 +89,13 @@ export type StreamableHTTPClientTransportOptions = {
      * When an `authProvider` is specified and the connection is started:
      * 1. The connection is attempted with any existing access token from the `authProvider`.
      * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, `OAuthClientProvider.redirectToAuthorization` is called, and an `UnauthorizedError` will be thrown from `connect`/`start`.
+     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode Protocol.connect | connect}/{@linkcode StreamableHTTPClientTransport.start | start}.
      *
-     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call `StreamableHTTPClientTransport.finishAuth` with the authorization code before retrying the connection.
+     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call {@linkcode StreamableHTTPClientTransport.finishAuth} with the authorization code before retrying the connection.
      *
-     * If an `authProvider` is not provided, and auth is required, an `UnauthorizedError` will be thrown.
+     * If an `authProvider` is not provided, and auth is required, an {@linkcode UnauthorizedError} will be thrown.
      *
-     * `UnauthorizedError` might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
+     * {@linkcode UnauthorizedError} might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
      */
     authProvider?: OAuthClientProvider;
 

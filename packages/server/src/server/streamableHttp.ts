@@ -4,7 +4,7 @@
  * This is the core transport implementation using Web Standard APIs (Request, Response, ReadableStream).
  * It can run on any runtime that supports Web Standards: Node.js 18+, Cloudflare Workers, Deno, Bun, etc.
  *
- * For Node.js Express/HTTP compatibility, use `NodeStreamableHTTPServerTransport` which wraps this transport.
+ * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
@@ -39,7 +39,7 @@ export interface EventStore {
      * @returns The stream ID, or undefined if not found
      *
      * Optional: If not provided, the SDK will use the streamId returned by
-     * replayEventsAfter for stream mapping.
+     * {@linkcode replayEventsAfter} for stream mapping.
      */
     getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
 
@@ -68,7 +68,7 @@ interface StreamMapping {
 }
 
 /**
- * Configuration options for WebStandardStreamableHTTPServerTransport
+ * Configuration options for {@linkcode WebStandardStreamableHTTPServerTransport}
  */
 export interface WebStandardStreamableHTTPServerTransportOptions {
     /**
@@ -94,7 +94,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * Useful in cases when you need to clean up resources associated with the session.
      * Note that this is different from the transport closing, if you are handling
      * HTTP requests from multiple nodes you might want to close each
-     * WebStandardStreamableHTTPServerTransport after a request is completed while still keeping the
+     * {@linkcode WebStandardStreamableHTTPServerTransport} after a request is completed while still keeping the
      * session open/running.
      * @param sessionId The session ID that was closed
      */
@@ -145,11 +145,11 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * List of protocol versions that this transport will accept.
      * Used to validate the mcp-protocol-version header in incoming requests.
      *
-     * Note: When using Server.connect(), the server automatically passes its
+     * Note: When using {@linkcode server/server.Server.connect | Server.connect()}, the server automatically passes its
      * supportedProtocolVersions to the transport, so you typically don't need
      * to set this option directly.
      *
-     * @default SUPPORTED_PROTOCOL_VERSIONS
+     * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
 }
@@ -251,7 +251,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Starts the transport. This is required by the Transport interface but is a no-op
+     * Starts the transport. This is required by the {@linkcode Transport} interface but is a no-op
      * for the Streamable HTTP transport as connections are managed per-request.
      */
     async start(): Promise<void> {
@@ -263,7 +263,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * Sets the supported protocol versions for header validation.
-     * Called by the server during connect() to pass its supported versions.
+     * Called by the server during {@linkcode server/server.Server.connect | connect()} to pass its supported versions.
      */
     setSupportedProtocolVersions(versions: string[]): void {
         this._supportedProtocolVersions = versions;

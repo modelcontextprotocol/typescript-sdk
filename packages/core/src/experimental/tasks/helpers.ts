@@ -7,7 +7,7 @@
 
 /**
  * Type representing the task requests capability structure.
- * This is derived from ClientTasksCapability.requests and ServerTasksCapability.requests.
+ * This is derived from {@linkcode ClientTasksCapabilitySchema}.`requests` and {@linkcode ServerTasksCapabilitySchema}.`requests`.
  */
 interface TaskRequestsCapability {
     tools?: { call?: object };
@@ -17,7 +17,7 @@ interface TaskRequestsCapability {
 
 /**
  * Asserts that task creation is supported for tools/call.
- * Used by Client.assertTaskCapability and Server.assertTaskHandlerCapability.
+ * Used by {@linkcode @modelcontextprotocol/client!client/client.Client.assertTaskCapability | Client.assertTaskCapability} and {@linkcode @modelcontextprotocol/server!server/server.Server.assertTaskHandlerCapability | Server.assertTaskHandlerCapability}.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
@@ -52,7 +52,7 @@ export function assertToolsCallTaskCapability(
 
 /**
  * Asserts that task creation is supported for sampling/createMessage or elicitation/create.
- * Used by Server.assertTaskCapability and Client.assertTaskHandlerCapability.
+ * Used by {@linkcode @modelcontextprotocol/server!server/server.Server.assertTaskCapability | Server.assertTaskCapability} and {@linkcode @modelcontextprotocol/client!client/client.Client.assertTaskHandlerCapability | Client.assertTaskHandlerCapability}.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
