@@ -1,7 +1,9 @@
 import type { AuthorizationServerMetadata, OAuthTokens } from '@modelcontextprotocol/core';
-import { InvalidClientMetadataError, LATEST_PROTOCOL_VERSION, ServerError } from '@modelcontextprotocol/core';
-import { expect, type Mock, vi } from 'vitest';
+import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import type { Mock } from 'vitest';
+import { expect, vi } from 'vitest';
 
+import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
     auth,
     buildDiscoveryUrls,
@@ -11,7 +13,6 @@ import {
     exchangeAuthorization,
     extractWWWAuthenticateParams,
     isHttpsUrl,
-    type OAuthClientProvider,
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
@@ -29,7 +30,7 @@ vi.mock('pkce-challenge', () => ({
 
 // Mock fetch globally
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 describe('OAuth Authorization', () => {
     beforeEach(() => {
@@ -137,18 +138,13 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call with MCP header - fail with TypeError (simulating CORS error)
-                    // We need to use TypeError specifically because that's what the implementation checks for
-                    return Promise.reject(new TypeError('Network error'));
-                } else {
-                    // Second call without header - succeed
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validMetadata
-                    });
-                }
+                return callCount === 1
+                    ? Promise.reject(new TypeError('Network error'))
+                    : Promise.resolve({
+                          ok: true,
+                          status: 200,
+                          json: async () => validMetadata
+                      });
             });
 
             // Should succeed with the second call
@@ -170,13 +166,7 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call - fail with TypeError
-                    return Promise.reject(new TypeError('First failure'));
-                } else {
-                    // Second call - fail with different error
-                    return Promise.reject(new Error('Second failure'));
-                }
+                return callCount === 1 ? Promise.reject(new TypeError('First failure')) : Promise.reject(new Error('Second failure'));
             });
 
             // Should fail with the second error
@@ -608,18 +598,13 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call with MCP header - fail with TypeError (simulating CORS error)
-                    // We need to use TypeError specifically because that's what the implementation checks for
-                    return Promise.reject(new TypeError('Network error'));
-                } else {
-                    // Second call without header - succeed
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validMetadata
-                    });
-                }
+                return callCount === 1
+                    ? Promise.reject(new TypeError('Network error'))
+                    : Promise.resolve({
+                          ok: true,
+                          status: 200,
+                          json: async () => validMetadata
+                      });
             });
 
             // Should succeed with the second call
@@ -641,13 +626,7 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call - fail with TypeError
-                    return Promise.reject(new TypeError('First failure'));
-                } else {
-                    // Second call - fail with different error
-                    return Promise.reject(new Error('Second failure'));
-                }
+                return callCount === 1 ? Promise.reject(new TypeError('First failure')) : Promise.reject(new Error('Second failure'));
             });
 
             // Should fail with the second error
@@ -1265,7 +1244,9 @@ describe('OAuth Authorization', () => {
         });
 
         it('throws on error response', async () => {
-            mockFetch.mockResolvedValueOnce(Response.json(new ServerError('Token exchange failed').toResponseObject(), { status: 400 }));
+            mockFetch.mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.ServerError, 'Token exchange failed').toResponseObject(), { status: 400 })
+            );
 
             await expect(
                 exchangeAuthorization('https://auth.example.com', {
@@ -1458,7 +1439,9 @@ describe('OAuth Authorization', () => {
         });
 
         it('throws on error response', async () => {
-            mockFetch.mockResolvedValueOnce(Response.json(new ServerError('Token refresh failed').toResponseObject(), { status: 400 }));
+            mockFetch.mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.ServerError, 'Token refresh failed').toResponseObject(), { status: 400 })
+            );
 
             await expect(
                 refreshAuthorization('https://auth.example.com', {
@@ -1478,8 +1461,8 @@ describe('OAuth Authorization', () => {
         const validClientInfo = {
             client_id: 'client123',
             client_secret: 'secret123',
-            client_id_issued_at: 1612137600,
-            client_secret_expires_at: 1612224000,
+            client_id_issued_at: 1_612_137_600,
+            client_secret_expires_at: 1_612_224_000,
             ...validClientMetadata
         };
 
@@ -1544,7 +1527,9 @@ describe('OAuth Authorization', () => {
 
         it('throws on error response', async () => {
             mockFetch.mockResolvedValueOnce(
-                Response.json(new ServerError('Dynamic client registration failed').toResponseObject(), { status: 400 })
+                Response.json(new OAuthError(OAuthErrorCode.ServerError, 'Dynamic client registration failed').toResponseObject(), {
+                    status: 400
+                })
             );
 
             await expect(
@@ -1627,6 +1612,7 @@ describe('OAuth Authorization', () => {
             // redirectUrl returns undefined to indicate non-interactive flow
             const ccProvider: OAuthClientProvider = {
                 get redirectUrl() {
+                    // eslint-disable-next-line unicorn/no-useless-undefined
                     return undefined;
                 },
                 get clientMetadata() {
@@ -1712,8 +1698,8 @@ describe('OAuth Authorization', () => {
                         json: async () => ({
                             client_id: 'test-client-id',
                             client_secret: 'test-client-secret',
-                            client_id_issued_at: 1612137600,
-                            client_secret_expires_at: 1612224000,
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
                             redirect_uris: ['http://localhost:3000/callback'],
                             client_name: 'Test Client'
                         })
@@ -1784,8 +1770,8 @@ describe('OAuth Authorization', () => {
                         json: async () => ({
                             client_id: 'test-client-id',
                             client_secret: 'test-client-secret',
-                            client_id_issued_at: 1612137600,
-                            client_secret_expires_at: 1612224000,
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
                             redirect_uris: ['http://localhost:3000/callback'],
                             client_name: 'Test Client'
                         })
@@ -3120,7 +3106,7 @@ describe('OAuth Authorization', () => {
                 auth(providerWithInvalidUri, {
                     serverUrl: 'https://server.example.com'
                 })
-            ).rejects.toThrow(InvalidClientMetadataError);
+            ).rejects.toMatchObject({ code: OAuthErrorCode.InvalidClientMetadata });
         });
 
         it('throws an error when clientMetadataUrl has root pathname', async () => {
@@ -3155,7 +3141,7 @@ describe('OAuth Authorization', () => {
                 auth(providerWithRootPathname, {
                     serverUrl: 'https://server.example.com'
                 })
-            ).rejects.toThrow(InvalidClientMetadataError);
+            ).rejects.toMatchObject({ code: OAuthErrorCode.InvalidClientMetadata });
         });
 
         it('throws an error when clientMetadataUrl is not a valid URL', async () => {
@@ -3190,7 +3176,7 @@ describe('OAuth Authorization', () => {
                 auth(providerWithInvalidUrl, {
                     serverUrl: 'https://server.example.com'
                 })
-            ).rejects.toThrow(InvalidClientMetadataError);
+            ).rejects.toMatchObject({ code: OAuthErrorCode.InvalidClientMetadata });
         });
 
         it('falls back to DCR when client_uri is missing', async () => {

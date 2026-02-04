@@ -6,6 +6,7 @@
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
+            "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
             "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],
             "@modelcontextprotocol/node": ["./node_modules/@modelcontextprotocol/node/src/index.ts"],
             "@modelcontextprotocol/hono": ["./node_modules/@modelcontextprotocol/hono/src/index.ts"],

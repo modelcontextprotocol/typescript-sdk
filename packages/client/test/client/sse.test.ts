@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
@@ -1001,7 +1001,7 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
         });
 
-        it('invalidates all credentials on InvalidClientError during token refresh', async () => {
+        it('invalidates all credentials on OAuthErrorCode.InvalidClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1009,9 +1009,10 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             });
 
+            const expectedError = new OAuthError(OAuthErrorCode.InvalidClient, 'Client authentication failed');
             let baseUrl = resourceBaseUrl;
 
-            // Create server that returns InvalidClientError on token refresh
+            // Create server that returns OAuthErrorCode.InvalidClient on token refresh
             const server = createServer((req, res) => {
                 lastServerRequest = req;
 
@@ -1031,9 +1032,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return InvalidClientError
-                    const error = new InvalidClientError('Client authentication failed');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1050,11 +1049,11 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(InvalidClientError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
         });
 
-        it('invalidates all credentials on UnauthorizedClientError during token refresh', async () => {
+        it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1062,6 +1061,7 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             });
 
+            const expectedError = new OAuthError(OAuthErrorCode.UnauthorizedClient, 'Client not authorized');
             let baseUrl = resourceBaseUrl;
 
             const server = createServer((req, res) => {
@@ -1083,9 +1083,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return UnauthorizedClientError
-                    const error = new UnauthorizedClientError('Client not authorized');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1102,17 +1100,19 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(UnauthorizedClientError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
         });
 
-        it('invalidates tokens on InvalidGrantError during token refresh', async () => {
+        it('invalidates tokens on OAuthErrorCode.InvalidGrant during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
                 token_type: 'Bearer',
                 refresh_token: 'refresh-token'
             });
+
+            const expectedError = new OAuthError(OAuthErrorCode.InvalidGrant, 'Invalid refresh token');
             let baseUrl = resourceBaseUrl;
 
             const server = createServer((req, res) => {
@@ -1134,9 +1134,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return InvalidGrantError
-                    const error = new InvalidGrantError('Invalid refresh token');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1153,7 +1151,7 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(InvalidGrantError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
         });
     });

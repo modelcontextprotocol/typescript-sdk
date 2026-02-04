@@ -13,17 +13,19 @@ import {
     CreateMessageResultSchema,
     CreateTaskResultSchema,
     ElicitResultSchema,
-    ErrorCode,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import supertest from 'supertest';
-import * as z4 from 'zod/v4';
+import * as z from 'zod/v4';
 
 describe('Server with standard protocol methods', () => {
     /*
@@ -1356,8 +1358,8 @@ test('should handle server cancelling a request', async () => {
     );
     controller.abort('Cancelled by test');
 
-    // Request should be rejected with an McpError
-    await expect(createMessagePromise).rejects.toThrow(McpError);
+    // Request should be rejected with an SdkError (local timeout/cancellation)
+    await expect(createMessagePromise).rejects.toThrow(SdkError);
 });
 
 test('should handle request timeout', async () => {
@@ -1384,12 +1386,12 @@ test('should handle request timeout', async () => {
         }
     );
 
-    client.setRequestHandler('sampling/createMessage', async (_request, extra) => {
+    client.setRequestHandler('sampling/createMessage', async (_request, ctx) => {
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(resolve, 100);
-            extra.signal.addEventListener('abort', () => {
+            ctx.mcpReq.signal.addEventListener('abort', () => {
                 clearTimeout(timeout);
-                reject(extra.signal.reason);
+                reject(ctx.mcpReq.signal.reason);
             });
         });
 
@@ -1417,7 +1419,7 @@ test('should handle request timeout', async () => {
             { timeout: 0 }
         )
     ).rejects.toMatchObject({
-        code: ErrorCode.RequestTimeout
+        code: SdkErrorCode.RequestTimeout
     });
 });
 
@@ -2141,12 +2143,12 @@ describe('Task-based execution', () => {
             'test-tool',
             {
                 description: 'A test tool',
-                inputSchema: {}
+                inputSchema: z.object({})
             },
             {
-                async createTask(_args, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                async createTask(_args, ctx) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
 
                     // Simulate some async work
@@ -2155,20 +2157,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2198,11 +2200,14 @@ describe('Task-based execution', () => {
 
         // Use callToolStream to create a task and capture the task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-            task: {
-                ttl: 60_000
+        const stream = client.experimental.tasks.callToolStream(
+            { name: 'test-tool', arguments: {} },
+            {
+                task: {
+                    ttl: 60_000
+                }
             }
-        });
+        );
 
         for await (const message of stream) {
             if (message.type === 'taskCreated') {
@@ -2333,16 +2338,16 @@ describe('Task-based execution', () => {
         );
 
         // Track the elicitation request to verify related-task metadata
-        let capturedElicitRequest: z4.infer<typeof ElicitRequestSchema> | null = null;
+        let capturedElicitRequest: z.infer<typeof ElicitRequestSchema> | null = null;
 
         // Set up client elicitation handler
-        client.setRequestHandler('elicitation/create', async (request, extra) => {
+        client.setRequestHandler('elicitation/create', async (request, ctx) => {
             let taskId: string | undefined;
 
             // Check if task creation is requested
-            if (request.params.task && extra.taskStore) {
-                const createdTask = await extra.taskStore.createTask({
-                    ttl: extra.taskRequestedTtl
+            if (request.params.task && ctx.task?.store) {
+                const createdTask = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
                 });
                 taskId = createdTask.taskId;
             }
@@ -2363,18 +2368,18 @@ describe('Task-based execution', () => {
             'collect-info',
             {
                 description: 'Collects user info via elicitation',
-                inputSchema: {}
+                inputSchema: z.object({})
             },
             {
-                async createTask(_args, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                async createTask(_args, ctx) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
 
                     // Perform async work that makes a nested request
                     (async () => {
-                        // During tool execution, make a nested request to the client using extra.sendRequest
-                        const elicitResult = await extra.sendRequest(
+                        // During tool execution, make a nested request to the client using ctx.mcpReq.send
+                        const elicitResult = await ctx.mcpReq.send(
                             {
                                 method: 'elicitation/create',
                                 params: {
@@ -2400,20 +2405,20 @@ describe('Task-based execution', () => {
                                 }
                             ]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2425,11 +2430,14 @@ describe('Task-based execution', () => {
 
         // Call tool WITH task creation using callToolStream to capture task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
-            task: {
-                ttl: 60_000
+        const stream = client.experimental.tasks.callToolStream(
+            { name: 'collect-info', arguments: {} },
+            {
+                task: {
+                    ttl: 60_000
+                }
             }
-        });
+        );
 
         for await (const message of stream) {
             if (message.type === 'taskCreated') {
@@ -2490,18 +2498,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler('elicitation/create', async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'server-test-user', confirmed: true }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2571,18 +2579,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler('elicitation/create', async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2650,18 +2658,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler('elicitation/create', async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'result-user', confirmed: true }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2731,18 +2739,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler('elicitation/create', async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2839,15 +2847,15 @@ describe('Task-based execution', () => {
             'async-tool',
             {
                 description: 'An async test tool',
-                inputSchema: {
-                    delay: z4.number().optional().default(10),
-                    taskNum: z4.number().optional()
-                }
+                inputSchema: z.object({
+                    delay: z.number().optional().default(10),
+                    taskNum: z.number().optional()
+                })
             },
             {
-                async createTask({ delay, taskNum }, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                async createTask({ delay, taskNum }, ctx) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
 
                     // Simulate async work
@@ -2856,20 +2864,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -3074,18 +3082,18 @@ test('should respect client task capabilities', async () => {
         }
     );
 
-    client.setRequestHandler('elicitation/create', async (request, extra) => {
+    client.setRequestHandler('elicitation/create', async (request, ctx) => {
         const result = {
             action: 'accept',
             content: { username: 'test-user' }
         };
 
         // Check if task creation is requested
-        if (request.params.task && extra.taskStore) {
-            const task = await extra.taskStore.createTask({
-                ttl: extra.taskRequestedTtl
+        if (request.params.task && ctx.task?.store) {
+            const task = await ctx.task.store.createTask({
+                ttl: ctx.task.requestedTtl
             });
-            await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+            await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
             // Return CreateTaskResult when task creation is requested
             return { task };
         }

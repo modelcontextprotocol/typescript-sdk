@@ -12,13 +12,13 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
     StreamableHTTPClientTransport
@@ -270,7 +270,7 @@ async function connect(url?: string): Promise<void> {
         // Set up elicitation request handler with proper validation
         client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
@@ -293,7 +293,7 @@ async function connect(url?: string): Promise<void> {
                 attempts++;
                 console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
-                const content: Record<string, unknown> = {};
+                const content: Record<string, string | number | boolean | string[]> = {};
                 let inputCancelled = false;
 
                 // Collect input for each field
@@ -357,7 +357,7 @@ async function connect(url?: string): Promise<void> {
                     // Parse and validate the input
                     try {
                         if (answer === '' && field.default !== undefined) {
-                            content[fieldName] = field.default;
+                            content[fieldName] = field.default as string | number | boolean | string[];
                         } else if (answer === '' && !isRequired) {
                             // Skip optional empty fields
                             continue;
@@ -401,7 +401,7 @@ async function connect(url?: string): Promise<void> {
                                 }
                             }
 
-                            content[fieldName] = parsedValue;
+                            content[fieldName] = parsedValue as string | number | boolean | string[];
                         }
                     } catch (error) {
                         console.log(`❌ Error: ${error}`);
@@ -882,7 +882,6 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
                 name,
                 arguments: args
             },
-            CallToolResultSchema,
             {
                 task: {
                     ttl: 60_000 // Keep results for 60 seconds

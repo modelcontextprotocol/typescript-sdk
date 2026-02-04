@@ -25,6 +25,24 @@
         ".": {
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
+        },
+        "./_shims": {
+            "workerd": {
+                "types": "./dist/shimsWorkerd.d.mts",
+                "import": "./dist/shimsWorkerd.mjs"
+            },
+            "browser": {
+                "types": "./dist/shimsWorkerd.d.mts",
+                "import": "./dist/shimsWorkerd.mjs"
+            },
+            "node": {
+                "types": "./dist/shimsNode.d.mts",
+                "import": "./dist/shimsNode.mjs"
+            },
+            "default": {
+                "types": "./dist/shimsNode.d.mts",
+                "import": "./dist/shimsNode.mjs"
+            }
         }
     },
     "files": [

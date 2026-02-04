@@ -13,7 +13,7 @@ cd "$SCRIPT_DIR/.."
 
 # Start the server in the background
 echo "Starting conformance test server on port ${PORT}..."
-npx tsx src/conformance/everything-server.ts &
+npx tsx ./src/everythingServer.ts &
 SERVER_PID=$!
 
 # Function to cleanup on exit

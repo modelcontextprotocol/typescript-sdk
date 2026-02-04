@@ -37,8 +37,8 @@
         "build": "tsdown",
         "build:watch": "tsdown --watch",
         "prepack": "npm run build",
-        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
-        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
+        "lint": "eslint src/ && prettier --ignore-path ../../../.prettierignore --check .",
+        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",
         "test": "vitest run",
         "test:watch": "vitest"

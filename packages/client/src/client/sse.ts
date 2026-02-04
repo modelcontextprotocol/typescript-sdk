@@ -1,5 +1,5 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/core';
+import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
@@ -245,7 +245,7 @@ export class SSEClientTransport implements Transport {
 
     async send(message: JSONRPCMessage): Promise<void> {
         if (!this._endpoint) {
-            throw new Error('Not connected');
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
         try {
