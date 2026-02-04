@@ -1206,6 +1206,7 @@ export async function refreshAuthorization(
  * @throws {Error} When provider doesn't implement prepareTokenRequest or token fetch fails
  *
  * @example
+ * ```typescript
  * // Provider for client_credentials:
  * class MyProvider implements OAuthClientProvider {
  *   prepareTokenRequest(scope) {
@@ -1217,6 +1218,7 @@ export async function refreshAuthorization(
  * }
  *
  * const tokens = await fetchToken(provider, authServerUrl, { metadata });
+ * ```
  */
 export async function fetchToken(
     provider: OAuthClientProvider,
