@@ -2615,6 +2615,28 @@ export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
 export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
 export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
 export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+export type ResultTypeMap = {
+    ping: EmptyResult;
+    initialize: InitializeResult;
+    'completion/complete': CompleteResult;
+    'logging/setLevel': EmptyResult;
+    'prompts/get': GetPromptResult;
+    'prompts/list': ListPromptsResult;
+    'resources/list': ListResourcesResult;
+    'resources/templates/list': ListResourceTemplatesResult;
+    'resources/read': ReadResourceResult;
+    'resources/subscribe': EmptyResult;
+    'resources/unsubscribe': EmptyResult;
+    'tools/call': CallToolResult | CreateTaskResult;
+    'tools/list': ListToolsResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
+    'elicitation/create': ElicitResult;
+    'roots/list': ListRootsResult;
+    'tasks/get': GetTaskResult;
+    'tasks/result': Result;
+    'tasks/list': ListTasksResult;
+    'tasks/cancel': CancelTaskResult;
+};
 
 /* Runtime schema lookup */
 type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
@@ -2638,9 +2660,24 @@ const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options,
     NotificationSchemaType
 >;
 
-export function getRequestSchema<M extends RequestMethod>(method: M) {
-    return requestSchemas[method];
+/**
+ * Gets the Zod schema for a given request method.
+ * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
+ * to use schema.parse() without needing additional type assertions.
+ *
+ * Note: The internal cast is necessary because TypeScript can't correlate the
+ * Record-based schema lookup with the MethodToTypeMap-based RequestTypeMap
+ * when M is a generic type parameter. Both compute to the same type at
+ * instantiation, but TypeScript can't prove this statically.
+ */
+export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> {
+    return requestSchemas[method] as unknown as z.ZodType<RequestTypeMap[M]>;
 }
-export function getNotificationSchema<M extends NotificationMethod>(method: M) {
-    return notificationSchemas[method];
+
+/**
+ * Gets the Zod schema for a given notification method.
+ * @see getRequestSchema for explanation of the internal type assertion.
+ */
+export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]> {
+    return notificationSchemas[method] as unknown as z.ZodType<NotificationTypeMap[M]>;
 }

@@ -10,13 +10,11 @@ import type {
     CancelTaskResult,
     GetTaskResult,
     ListTasksResult,
-    Notification,
     Request,
     RequestOptions,
     ResponseMessage,
     Result,
-    SchemaOutput,
-    ServerRequest
+    SchemaOutput
 } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
@@ -33,12 +31,8 @@ import type { Server } from '../../server/server.js';
  *
  * @experimental
  */
-export class ExperimentalServerTasks<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> {
-    constructor(private readonly _server: Server<RequestT, NotificationT, ResultT>) {}
+export class ExperimentalServerTasks {
+    constructor(private readonly _server: Server) {}
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
@@ -55,17 +49,17 @@ export class ExperimentalServerTasks<
      * @experimental
      */
     requestStream<T extends AnySchema>(
-        request: ServerRequest | RequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
         // Delegate to the server's underlying Protocol method
         type ServerWithRequestStream = {
             requestStream<U extends AnySchema>(
-                request: ServerRequest | RequestT,
+                request: Request,
                 resultSchema: U,
                 options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;
+            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
         };
         return (this._server as unknown as ServerWithRequestStream).requestStream(request, resultSchema, options);
     }

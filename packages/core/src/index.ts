@@ -11,8 +11,7 @@ export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
 export * from './types/types.js';
 export * from './util/inMemory.js';
-export * from './util/zodCompat.js';
-export * from './util/zodJsonSchemaCompat.js';
+export * from './util/schema.js';
 
 // experimental exports
 export * from './experimental/index.js';

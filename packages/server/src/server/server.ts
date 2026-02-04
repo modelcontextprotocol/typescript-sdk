@@ -1,4 +1,5 @@
 import type {
+    BaseContext,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
@@ -16,25 +17,22 @@ import type {
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
-    Notification,
+    MessageExtraInfo,
+    NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
-    Request,
-    RequestHandlerExtra,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
     ResourceUpdatedNotification,
-    Result,
+    ResultTypeMap,
     ServerCapabilities,
-    ServerNotification,
-    ServerRequest,
+    ServerContext,
     ServerResult,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    AjvJsonSchemaValidator,
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
     CallToolRequestSchema,
@@ -48,13 +46,14 @@ import {
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
+    parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
-    safeParse,
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
@@ -75,28 +74,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default AjvJsonSchemaValidator
-     *
-     * @example
-     * ```typescript
-     * // ajv (default)
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   {
-     *     capabilities: {}
-     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
-     *   }
-     * );
-     *
-     * // @cfworker/json-schema
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
-     *   }
-     * );
-     * ```
+     * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
@@ -106,38 +84,15 @@ export type ServerOptions = ProtocolOptions & {
  *
  * This server will automatically respond to the initialization flow as initiated from the client.
  *
- * To use with custom types, extend the base Request/Notification/Result types and pass them as type parameters:
- *
- * ```typescript
- * // Custom schemas
- * const CustomRequestSchema = RequestSchema.extend({...})
- * const CustomNotificationSchema = NotificationSchema.extend({...})
- * const CustomResultSchema = ResultSchema.extend({...})
- *
- * // Type aliases
- * type CustomRequest = z.infer<typeof CustomRequestSchema>
- * type CustomNotification = z.infer<typeof CustomNotificationSchema>
- * type CustomResult = z.infer<typeof CustomResultSchema>
- *
- * // Create typed server
- * const server = new Server<CustomRequest, CustomNotification, CustomResult>({
- *   name: "CustomServer",
- *   version: "1.0.0"
- * })
- * ```
  * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
  */
-export class Server<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
+export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
-    private _experimental?: { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> };
+    private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -154,23 +109,46 @@ export class Server<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
-        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler('logging/setLevel', async (request, extra) => {
+            this.setRequestHandler('logging/setLevel', async (request, ctx) => {
                 const transportSessionId: string | undefined =
-                    extra.sessionId || (extra.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
+                    ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
-                const parseResult = LoggingLevelSchema.safeParse(level);
+                const parseResult = parseSchema(LoggingLevelSchema, level);
                 if (parseResult.success) {
                     this._loggingLevels.set(transportSessionId, parseResult.data);
                 }
                 return {};
             });
         }
+    }
+
+    protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
+        // Only create http when there's actual HTTP transport info or auth info
+        const hasHttpInfo =
+            ctx.http || transportInfo?.requestInfo || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        return {
+            ...ctx,
+            mcpReq: {
+                ...ctx.mcpReq,
+                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
+                elicitInput: (params, options) => this.elicitInput(params, options),
+                requestSampling: (params, options) => this.createMessage(params, options)
+            },
+            http: hasHttpInfo
+                ? {
+                      ...ctx.http,
+                      req: transportInfo?.requestInfo,
+                      closeSSE: transportInfo?.closeSSEStream,
+                      closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
+                  }
+                : undefined
+        };
     }
 
     /**
@@ -180,7 +158,7 @@ export class Server<
      *
      * @experimental
      */
-    get experimental(): { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> } {
+    get experimental(): { tasks: ExperimentalServerTasks } {
         if (!this._experimental) {
             this._experimental = {
                 tasks: new ExperimentalServerTasks(this)
@@ -218,17 +196,11 @@ export class Server<
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (
-            request: RequestTypeMap[M],
-            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
-        ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+        handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void {
         if (method === 'tools/call') {
-            const wrappedHandler = async (
-                request: RequestTypeMap[M],
-                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
-            ): Promise<ServerResult | ResultT> => {
-                const validatedRequest = safeParse(CallToolRequestSchema, request);
+            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
+                const validatedRequest = parseSchema(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -237,11 +209,11 @@ export class Server<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -253,7 +225,7 @@ export class Server<
                 }
 
                 // For non-task requests, validate against CallToolResultSchema
-                const validationResult = safeParse(CallToolResultSchema, result);
+                const validationResult = parseSchema(CallToolResultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
@@ -264,15 +236,15 @@ export class Server<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler);
         }
 
         // Other handlers use default behavior
         return super.setRequestHandler(method, handler);
     }
 
-    protected assertCapabilityForMethod(method: RequestT['method']): void {
-        switch (method as ServerRequest['method']) {
+    protected assertCapabilityForMethod(method: RequestMethod): void {
+        switch (method) {
             case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support sampling (required for ${method})`);
@@ -304,8 +276,8 @@ export class Server<
         }
     }
 
-    protected assertNotificationCapability(method: (ServerNotification | NotificationT)['method']): void {
-        switch (method as ServerNotification['method']) {
+    protected assertNotificationCapability(method: NotificationMethod): void {
+        switch (method) {
             case 'notifications/message': {
                 if (!this._capabilities.logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);

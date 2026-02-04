@@ -39,7 +39,7 @@ This monorepo publishes split packages:
 - **`@modelcontextprotocol/server`**: build MCP servers
 - **`@modelcontextprotocol/client`**: build MCP clients
 
-Both packages have a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but remains compatible with projects using Zod v3.25+.
+Both packages have a **required peer dependency** on `zod` for schema validation. The SDK uses Zod v4.
 
 ### Middleware packages (optional)
 

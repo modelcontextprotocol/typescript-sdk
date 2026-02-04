@@ -13,7 +13,7 @@
  */
 
 import { Client, ClientCredentialsProvider, PrivateKeyJwtProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 import { logger } from './helpers/logger.js';
 import { handle401, withOAuthRetry } from './helpers/withOAuthRetry.js';

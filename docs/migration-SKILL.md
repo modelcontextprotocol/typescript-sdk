@@ -47,15 +47,15 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Server imports
 
-| v1 import path                                       | v2 package                                                                          |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                      |
-| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                      |
-| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                      |
-| `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) |
-| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                |
-| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                 |
-| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                  |
+| v1 import path                                       | v2 package                                                                                                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                      |
+| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                      |
+| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                      |
+| `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
+| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                                |
+| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                 |
+| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                  |
 
 ### Types / shared imports
 
@@ -203,17 +203,18 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
 
-**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod
-schemas, all callback return types.
+**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types.
 
 ## 6. McpServer API Changes
 
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
+**IMPORTANT**: v2 requires full Zod schemas — raw shapes like `{ name: z.string() }` are no longer supported. You must wrap with `z.object()`. This applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+
 ### Tools
 
 ```typescript
-// v1: server.tool(name, schema, callback)
+// v1: server.tool(name, schema, callback) - raw shape worked
 server.tool('greet', { name: z.string() }, async ({ name }) => {
     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
@@ -228,7 +229,7 @@ server.registerTool(
     'greet',
     {
         description: 'Greet a user',
-        inputSchema: { name: z.string() }
+        inputSchema: z.object({ name: z.string() })
     },
     async ({ name }) => {
         return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
@@ -241,7 +242,7 @@ Config object fields: `title?`, `description?`, `inputSchema?`, `outputSchema?`,
 ### Prompts
 
 ```typescript
-// v1: server.prompt(name, schema, callback)
+// v1: server.prompt(name, schema, callback) - raw shape worked
 server.prompt('summarize', { text: z.string() }, async ({ text }) => {
     return { messages: [{ role: 'user', content: { type: 'text', text } }] };
 });
@@ -250,7 +251,7 @@ server.prompt('summarize', { text: z.string() }, async ({ text }) => {
 server.registerPrompt(
     'summarize',
     {
-        argsSchema: { text: z.string() }
+        argsSchema: z.object({ text: z.string() })
     },
     async ({ text }) => {
         return { messages: [{ role: 'user', content: { type: 'text', text } }] };
@@ -276,6 +277,15 @@ server.registerResource('config', 'config://app', {}, async uri => {
 
 Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
+### Schema Migration Quick Reference
+
+| v1 (raw shape) | v2 (Zod schema) |
+|----------------|-----------------|
+| `{ name: z.string() }` | `z.object({ name: z.string() })` |
+| `{ count: z.number().optional() }` | `z.object({ count: z.number().optional() })` |
+| `{}` (empty) | `z.object({})` |
+| `undefined` (no schema) | `undefined` or omit the field |
+
 ## 7. Headers API
 
 Transport constructors and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain objects.
@@ -287,7 +297,7 @@ extra.requestInfo?.headers['mcp-session-id']
 
 // v2: Headers object, .get() access
 headers: new Headers({ 'Authorization': 'Bearer token' })
-extra.requestInfo?.headers.get('mcp-session-id')
+ctx.http?.req?.headers.get('mcp-session-id')
 ```
 
 ## 8. Removed Server Features
@@ -356,19 +366,70 @@ Schema to method string mapping:
 
 Request/notification params remain fully typed. Remove unused schema imports after migration.
 
-## 10. Client Behavioral Changes
+## 10. Request Handler Context Types
+
+`RequestHandlerExtra` → structured context types with nested groups. Rename `extra` → `ctx` in all handler callbacks.
+
+| v1 | v2 |
+|----|-----|
+| `RequestHandlerExtra` | `ServerContext` (server) / `ClientContext` (client) / `BaseContext` (base) |
+| `extra` (param name) | `ctx` |
+| `extra.signal` | `ctx.mcpReq.signal` |
+| `extra.requestId` | `ctx.mcpReq.id` |
+| `extra._meta` | `ctx.mcpReq._meta` |
+| `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
+| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
+| `extra.authInfo` | `ctx.http?.authInfo` |
+| `extra.sessionId` | `ctx.sessionId` |
+| `extra.requestInfo` | `ctx.http?.req` (only `ServerContext`) |
+| `extra.closeSSEStream` | `ctx.http?.closeSSE` (only `ServerContext`) |
+| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`) |
+| `extra.taskStore` | `ctx.task?.store` |
+| `extra.taskId` | `ctx.task?.id` |
+| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+
+`ServerContext` convenience methods (new in v2, no v1 equivalent):
+
+| Method | Description | Replaces |
+|--------|-------------|----------|
+| `ctx.mcpReq.log(level, data, logger?)` | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
+| `ctx.mcpReq.elicitInput(params, options?)` | Elicit user input (form or URL) | `server.elicitInput(...)` from within handler |
+| `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client | `server.createMessage(...)` from within handler |
+
+## 11. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 11. Migration Steps (apply in this order)
+## 12. Runtime-Specific JSON Schema Validators (Enhancement)
+
+The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
+- Node.js → `AjvJsonSchemaValidator` (no change from v1)
+- Cloudflare Workers (workerd) → `CfWorkerJsonSchemaValidator` (previously required manual config)
+
+**No action required** for most users. Cloudflare Workers users can remove explicit `jsonSchemaValidator` configuration:
+
+```typescript
+// v1 (Cloudflare Workers): Required explicit validator
+new McpServer({ name: 'server', version: '1.0.0' }, {
+  jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
+});
+
+// v2 (Cloudflare Workers): Auto-selected, explicit config optional
+new McpServer({ name: 'server', version: '1.0.0' }, {});
+```
+
+Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
+
+## 13. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
 3. Replace removed type aliases (`JSONRPCError` → `JSONRPCErrorResponse`, etc.) per section 5
 4. Replace `.tool()` / `.prompt()` / `.resource()` calls with `registerTool` / `registerPrompt` / `registerResource` per section 6
-5. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
-6. If using `hostHeaderValidation` from server, update import and signature per section 8
-7. If using server SSE transport, migrate to Streamable HTTP
-8. If using server auth from the SDK, migrate to an external auth library
-9. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-10. Verify: build with `tsc` / run tests
+5. **Wrap all raw Zod shapes with `z.object()`**: Change `inputSchema: { name: z.string() }` → `inputSchema: z.object({ name: z.string() })`. Same for `outputSchema` in tools and `argsSchema` in prompts.
+6. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
+7. If using `hostHeaderValidation` from server, update import and signature per section 8
+8. If using server SSE transport, migrate to Streamable HTTP
+9. If using server auth from the SDK, migrate to an external auth library
+10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
+11. Verify: build with `tsc` / run tests

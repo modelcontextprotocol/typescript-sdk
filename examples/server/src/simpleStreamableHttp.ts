@@ -58,9 +58,9 @@ const getServer = () => {
         {
             title: 'Greeting Tool', // Display name for UI
             description: 'A simple greeting tool',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            }
+            })
         },
         async ({ name }): Promise<CallToolResult> => {
             return {
@@ -79,45 +79,27 @@ const getServer = () => {
         'multi-greet',
         {
             description: 'A tool that sends different greetings with delays between them',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            },
+            }),
             annotations: {
                 title: 'Multiple Greeting Tool',
                 readOnlyHint: true,
                 openWorldHint: false
             }
         },
-        async ({ name }, extra): Promise<CallToolResult> => {
+        async ({ name }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'debug',
-                    data: `Starting multi-greet for ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('debug', `Starting multi-greet for ${name}`);
 
             await sleep(1000); // Wait 1 second before first greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending first greeting to ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending first greeting to ${name}`);
 
             await sleep(1000); // Wait another second before second greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending second greeting to ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending second greeting to ${name}`);
 
             return {
                 content: [
@@ -135,11 +117,11 @@ const getServer = () => {
         'collect-user-info',
         {
             description: 'A tool that collects user information through form elicitation',
-            inputSchema: {
+            inputSchema: z.object({
                 infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
-            }
+            })
         },
-        async ({ infoType }, extra): Promise<CallToolResult> => {
+        async ({ infoType }, ctx): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -238,8 +220,8 @@ const getServer = () => {
             }
 
             try {
-                // Use sendRequest through the extra parameter to elicit input
-                const result = await extra.sendRequest(
+                // Use sendRequest through the ctx parameter to elicit input
+                const result = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -298,9 +280,9 @@ const getServer = () => {
         {
             title: 'Greeting Template', // Display name for UI
             description: 'A simple greeting prompt template',
-            argsSchema: {
+            argsSchema: z.object({
                 name: z.string().describe('Name to include in greeting')
-            }
+            })
         },
         async ({ name }): Promise<GetPromptResult> => {
             return {
@@ -322,25 +304,19 @@ const getServer = () => {
         'start-notification-stream',
         {
             description: 'Starts sending periodic notifications for testing resumability',
-            inputSchema: {
+            inputSchema: z.object({
                 interval: z.number().describe('Interval in milliseconds between notifications').default(100),
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
-            }
+            })
         },
-        async ({ interval, count }, extra): Promise<CallToolResult> => {
+        async ({ interval, count }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
             let counter = 0;
 
             while (count === 0 || counter < count) {
                 counter++;
                 try {
-                    await server.sendLoggingMessage(
-                        {
-                            level: 'info',
-                            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-                        },
-                        extra.sessionId
-                    );
+                    await ctx.mcpReq.log('info', `Periodic notification #${counter} at ${new Date().toISOString()}`);
                 } catch (error) {
                     console.error('Error sending notification:', error);
                 }
@@ -427,9 +403,9 @@ const getServer = () => {
         {
             title: 'List Files with ResourceLinks',
             description: 'Returns a list of files as ResourceLinks without embedding their content',
-            inputSchema: {
+            inputSchema: z.object({
                 includeDescriptions: z.boolean().optional().describe('Whether to include descriptions in the resource links')
-            }
+            })
         },
         async ({ includeDescriptions = true }): Promise<CallToolResult> => {
             const resourceLinks: ResourceLink[] = [
@@ -479,21 +455,21 @@ const getServer = () => {
         {
             title: 'Delay',
             description: 'A simple tool that delays for a specified duration, useful for testing task execution',
-            inputSchema: {
+            inputSchema: z.object({
                 duration: z.number().describe('Duration in milliseconds').default(5000)
-            }
+            })
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+            async createTask({ duration }, ctx) {
                 // Create the task
-                const task = await taskStore.createTask({
-                    ttl: taskRequestedTtl
+                const task = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
                 });
 
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    await taskStore.storeTaskResult(task.taskId, 'completed', {
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                         content: [
                             {
                                 type: 'text',
@@ -508,11 +484,11 @@ const getServer = () => {
                     task
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
-                return await taskStore.getTask(taskId);
+            async getTask(_args, ctx) {
+                return await ctx.task.store.getTask(ctx.task.id);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
-                const result = await taskStore.getTaskResult(taskId);
+            async getTaskResult(_args, ctx) {
+                const result = await ctx.task.store.getTaskResult(ctx.task.id);
                 return result as CallToolResult;
             }
         }

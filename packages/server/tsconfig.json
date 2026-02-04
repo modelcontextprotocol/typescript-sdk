@@ -6,7 +6,8 @@
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
-            "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"]
+            "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"],
+            "@modelcontextprotocol/server/_shims": ["./src/shimsNode.ts"]
         }
     }
 }

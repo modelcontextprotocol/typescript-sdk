@@ -51,7 +51,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 ```typescript
 import { Client, StreamableHTTPClientTransport, StdioClientTransport } from '@modelcontextprotocol/client';
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { CallToolResultSchema } from '@modelcontextprotocol/core';
 
 // Node.js HTTP server transport is in the @modelcontextprotocol/node package
@@ -156,7 +156,7 @@ const transport = new StreamableHTTPClientTransport(url, {
 });
 
 // Reading headers in a request handler
-const sessionId = extra.requestInfo?.headers.get('mcp-session-id');
+const sessionId = ctx.http?.req?.headers.get('mcp-session-id');
 ```
 
 ### `McpServer.tool()`, `.prompt()`, `.resource()` removed
@@ -195,6 +195,7 @@ server.resource('config', 'config://app', async uri => {
 
 ```typescript
 import { McpServer } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
@@ -218,6 +219,42 @@ server.registerResource('config', 'config://app', {}, async uri => {
     return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
+
+### Zod schemas required (raw shapes no longer supported)
+
+v2 requires full Zod schemas for `inputSchema` and `argsSchema`. Raw object shapes are no longer accepted.
+
+**Before (v1):**
+
+```typescript
+// Raw shape (object with Zod fields) - worked in v1
+server.tool('greet', { name: z.string() }, async ({ name }) => { ... });
+
+server.registerTool('greet', {
+  inputSchema: { name: z.string() }  // raw shape
+}, callback);
+```
+
+**After (v2):**
+
+```typescript
+import * as z from 'zod/v4';
+
+// Must wrap with z.object()
+server.registerTool('greet', {
+  inputSchema: z.object({ name: z.string() })  // full Zod schema
+}, async ({ name }) => { ... });
+
+// For tools with no parameters, use z.object({})
+server.registerTool('ping', {
+  inputSchema: z.object({})
+}, async () => { ... });
+```
+
+This applies to:
+- `inputSchema` in `registerTool()`
+- `outputSchema` in `registerTool()`
+- `argsSchema` in `registerPrompt()`
 
 ### Host header validation moved
 
@@ -344,6 +381,83 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
 ```
 
+### Request handler context types
+
+The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy using nested groups:
+
+| v1 | v2 |
+|----|-----|
+| `RequestHandlerExtra` (flat, all fields) | `ServerContext` (server handlers) or `ClientContext` (client handlers) |
+| `extra` parameter name | `ctx` parameter name |
+| `extra.signal` | `ctx.mcpReq.signal` |
+| `extra.requestId` | `ctx.mcpReq.id` |
+| `extra._meta` | `ctx.mcpReq._meta` |
+| `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
+| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
+| `extra.authInfo` | `ctx.http?.authInfo` |
+| `extra.requestInfo` | `ctx.http?.req` (only on `ServerContext`) |
+| `extra.closeSSEStream` | `ctx.http?.closeSSE` (only on `ServerContext`) |
+| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`) |
+| `extra.sessionId` | `ctx.sessionId` |
+| `extra.taskStore` | `ctx.task?.store` |
+| `extra.taskId` | `ctx.task?.id` |
+| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+
+**Before (v1):**
+
+```typescript
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  const headers = extra.requestInfo?.headers;
+  const taskStore = extra.taskStore;
+  await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+  return { content: [{ type: 'text', text: 'result' }] };
+});
+```
+
+**After (v2):**
+
+```typescript
+server.setRequestHandler('tools/call', async (request, ctx) => {
+  const headers = ctx.http?.req?.headers;
+  const taskStore = ctx.task?.store;
+  await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+  return { content: [{ type: 'text', text: 'result' }] };
+});
+```
+
+Context fields are organized into 4 groups:
+
+- **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
+- **`http?`** — HTTP transport concerns (undefined for stdio): `authInfo`, plus server-only `req`, `closeSSE`, `closeStandaloneSSE`
+- **`task?`** — task lifecycle: `id`, `store`, `requestedTtl`
+
+`BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. `ServerContext` extends each group with server-specific additions via type intersection.
+
+`ServerContext` also provides convenience methods for common server→client operations:
+
+```typescript
+server.setRequestHandler('tools/call', async (request, ctx) => {
+  // Send a log message (respects client's log level filter)
+  await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
+
+  // Request client to sample an LLM
+  const samplingResult = await ctx.mcpReq.requestSampling({
+    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+    maxTokens: 100,
+  });
+
+  // Elicit user input via a form
+  const elicitResult = await ctx.mcpReq.elicitInput({
+    message: 'Please provide details',
+    requestedSchema: { type: 'object', properties: { name: { type: 'string' } } },
+  });
+
+  return { content: [{ type: 'text', text: 'done' }] };
+});
+```
+
+These replace the pattern of calling `server.sendLoggingMessage()`, `server.createMessage()`, and `server.elicitInput()` from within handlers.
+
 ### Error hierarchy refactoring
 
 The SDK now distinguishes between two types of errors:
@@ -465,8 +579,7 @@ try {
 
 #### Why this change?
 
-Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was
-semantically inconsistent.
+Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was semantically inconsistent.
 
 The new design:
 
@@ -544,6 +657,51 @@ try {
         }
     }
 }
+```
+
+## Enhancements
+
+### Automatic JSON Schema validator selection by runtime
+
+The SDK now automatically selects the appropriate JSON Schema validator based on your runtime environment:
+
+- **Node.js**: Uses `AjvJsonSchemaValidator` (same as v1 default)
+- **Cloudflare Workers**: Uses `CfWorkerJsonSchemaValidator` (previously required manual configuration)
+
+This means Cloudflare Workers users no longer need to explicitly pass the validator:
+
+**Before (v1) - Cloudflare Workers required explicit configuration:**
+
+```typescript
+import { McpServer, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
+
+const server = new McpServer(
+  { name: 'my-server', version: '1.0.0' },
+  {
+    capabilities: { tools: {} },
+    jsonSchemaValidator: new CfWorkerJsonSchemaValidator() // Required in v1
+  }
+);
+```
+
+**After (v2) - Works automatically:**
+
+```typescript
+import { McpServer } from '@modelcontextprotocol/server';
+
+const server = new McpServer(
+  { name: 'my-server', version: '1.0.0' },
+  { capabilities: { tools: {} } }
+  // Validator auto-selected based on runtime
+);
+```
+
+You can still explicitly override the validator if needed. The validators are available via the `_shims` export:
+
+```typescript
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+// or
+import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
 ```
 
 ## Unchanged APIs
