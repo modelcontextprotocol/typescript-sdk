@@ -74,7 +74,7 @@ export interface OAuthClientProvider {
     /**
      * If implemented, this permits the OAuth client to dynamically register with
      * the server. Client information saved this way should later be read via
-     * `clientInformation()`.
+     * {@linkcode OAuthClientProvider.clientInformation | clientInformation()}.
      *
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
@@ -155,7 +155,7 @@ export interface OAuthClientProvider {
      *
      * If not implemented, the default behavior depends on the flow:
      * - For authorization code flow: uses code, code_verifier, and redirect_uri
-     * - For client_credentials: detected via grant_types in clientMetadata
+     * - For client_credentials: detected via grant_types in {@linkcode OAuthClientProvider.clientMetadata | clientMetadata}
      *
      * @param scope - Optional scope to request
      * @returns Grant type and parameters, or undefined to use default behavior
@@ -323,12 +323,12 @@ function applyPublicAuth(clientId: string, params: URLSearchParams): void {
  * Parses an OAuth error response from a string or Response object.
  *
  * If the input is a standard OAuth2.0 error response, it will be parsed according to the spec
- * and an OAuthError will be returned with the appropriate error code.
- * If parsing fails, it falls back to a generic ServerError that includes
+ * and an {@linkcode OAuthError} will be returned with the appropriate error code.
+ * If parsing fails, it falls back to a generic {@linkcode OAuthErrorCode.ServerError | ServerError} that includes
  * the response status (if available) and original content.
  *
  * @param input - A Response object or string containing the error response
- * @returns A Promise that resolves to an OAuthError instance
+ * @returns A Promise that resolves to an {@linkcode OAuthError} instance
  */
 export async function parseErrorResponse(input: Response | string): Promise<OAuthError> {
     const statusCode = input instanceof Response ? input.status : undefined;
@@ -627,7 +627,7 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
 
 /**
  * Extract resource_metadata from response header.
- * @deprecated Use `extractWWWAuthenticateParams` instead.
+ * @deprecated Use {@linkcode extractWWWAuthenticateParams} instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -770,7 +770,7 @@ async function discoverMetadataWithFallback(
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
  *
- * @deprecated This function is deprecated in favor of `discoverAuthorizationServerMetadata`.
+ * @deprecated This function is deprecated in favor of {@linkcode discoverAuthorizationServerMetadata}.
  */
 export async function discoverOAuthMetadata(
     issuer: string | URL,
@@ -888,7 +888,7 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  *                                 metadata was not found.
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use, defaults to LATEST_PROTOCOL_VERSION
+ * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
  */
 export async function discoverAuthorizationServerMetadata(
@@ -1016,8 +1016,8 @@ export async function startAuthorization(
 /**
  * Prepares token request parameters for an authorization code exchange.
  *
- * This is the default implementation used by fetchToken when the provider
- * doesn't implement prepareTokenRequest.
+ * This is the default implementation used by {@linkcode fetchToken} when the provider
+ * doesn't implement {@linkcode OAuthClientProvider.prepareTokenRequest | prepareTokenRequest}.
  *
  * @param authorizationCode - The authorization code received from the authorization endpoint
  * @param codeVerifier - The PKCE code verifier
@@ -1039,7 +1039,7 @@ export function prepareAuthorizationCodeRequest(
 
 /**
  * Internal helper to execute a token request with the given parameters.
- * Used by exchangeAuthorization, refreshAuthorization, and fetchToken.
+ * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
 async function executeTokenRequest(
     authorizationServerUrl: string | URL,
@@ -1197,17 +1197,17 @@ export async function refreshAuthorization(
 }
 
 /**
- * Unified token fetching that works with any grant type via provider.prepareTokenRequest().
+ * Unified token fetching that works with any grant type via {@linkcode OAuthClientProvider.prepareTokenRequest | prepareTokenRequest()}.
  *
  * This function provides a single entry point for obtaining tokens regardless of the
- * OAuth grant type. The provider's prepareTokenRequest() method determines which grant
+ * OAuth grant type. The provider's `prepareTokenRequest()` method determines which grant
  * to use and supplies the grant-specific parameters.
  *
- * @param provider - OAuth client provider that implements prepareTokenRequest()
+ * @param provider - OAuth client provider that implements `prepareTokenRequest()`
  * @param authorizationServerUrl - The authorization server's base URL
  * @param options - Configuration for the token request
  * @returns Promise resolving to OAuth tokens
- * @throws {Error} When provider doesn't implement prepareTokenRequest or token fetch fails
+ * @throws {Error} When provider doesn't implement `prepareTokenRequest` or token fetch fails
  *
  * @example
  * ```typescript

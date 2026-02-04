@@ -1,10 +1,13 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Protocol used in JSDoc {@link}
+import type { FetchLike, JSONRPCMessage, Protocol, Transport } from '@modelcontextprotocol/core';
 import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- StreamableHTTPClientTransport used in JSDoc {@link}
+import type { StreamableHTTPClientTransport } from './streamableHttp.js';
 
 export class SseError extends Error {
     constructor(
@@ -17,7 +20,7 @@ export class SseError extends Error {
 }
 
 /**
- * Configuration options for the `SSEClientTransport`.
+ * Configuration options for the {@linkcode SSEClientTransport}.
  */
 export type SSEClientTransportOptions = {
     /**
@@ -26,13 +29,13 @@ export type SSEClientTransportOptions = {
      * When an `authProvider` is specified and the SSE connection is started:
      * 1. The connection is attempted with any existing access token from the `authProvider`.
      * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, `OAuthClientProvider.redirectToAuthorization` is called, and an `UnauthorizedError` will be thrown from `connect`/`start`.
+     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode Protocol.connect | connect}/{@linkcode SSEClientTransport.start | start}.
      *
-     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call `SSEClientTransport.finishAuth` with the authorization code before retrying the connection.
+     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call {@linkcode SSEClientTransport.finishAuth} with the authorization code before retrying the connection.
      *
-     * If an `authProvider` is not provided, and auth is required, an `UnauthorizedError` will be thrown.
+     * If an `authProvider` is not provided, and auth is required, an {@linkcode UnauthorizedError} will be thrown.
      *
-     * `UnauthorizedError` might also be thrown when sending any message over the SSE transport, indicating that the session has expired, and needs to be re-authed and reconnected.
+     * {@linkcode UnauthorizedError} might also be thrown when sending any message over the SSE transport, indicating that the session has expired, and needs to be re-authed and reconnected.
      */
     authProvider?: OAuthClientProvider;
 
@@ -40,7 +43,7 @@ export type SSEClientTransportOptions = {
      * Customizes the initial SSE request to the server (the request that begins the stream).
      *
      * NOTE: Setting this property will prevent an `Authorization` header from
-     * being automatically attached to the SSE request, if an `authProvider` is
+     * being automatically attached to the SSE request, if an {@linkcode SSEClientTransportOptions.authProvider | authProvider} is
      * also given. This can be worked around by setting the `Authorization` header
      * manually.
      */
@@ -60,7 +63,7 @@ export type SSEClientTransportOptions = {
 /**
  * Client transport for SSE: this will connect to a server using Server-Sent Events for receiving
  * messages and make separate POST requests for sending messages.
- * @deprecated SSEClientTransport is deprecated. Prefer to use StreamableHTTPClientTransport where possible instead. Note that because some servers are still using SSE, clients may need to support both transports during the migration period.
+ * @deprecated SSEClientTransport is deprecated. Prefer to use {@linkcode StreamableHTTPClientTransport} where possible instead. Note that because some servers are still using SSE, clients may need to support both transports during the migration period.
  */
 export class SSEClientTransport implements Transport {
     private _eventSource?: EventSource;

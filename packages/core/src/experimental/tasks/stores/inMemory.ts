@@ -1,5 +1,5 @@
 /**
- * In-memory implementations of TaskStore and TaskMessageQueue.
+ * In-memory implementations of {@linkcode TaskStore} and {@linkcode TaskMessageQueue}.
  * @experimental
  */
 
@@ -16,7 +16,7 @@ interface StoredTask {
 }
 
 /**
- * In-memory TaskStore implementation for development and testing.
+ * In-memory {@linkcode TaskStore} implementation for development and testing.
  * For production, use a database or distributed cache.
  * @experimental
  */
@@ -233,7 +233,7 @@ export class InMemoryTaskStore implements TaskStore {
 }
 
 /**
- * In-memory TaskMessageQueue implementation for development and testing.
+ * In-memory {@linkcode TaskMessageQueue} implementation for development and testing.
  * For production, use Redis or another distributed queue.
  * @experimental
  */

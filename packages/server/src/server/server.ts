@@ -74,7 +74,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
+     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
@@ -84,7 +84,7 @@ export type ServerOptions = ProtocolOptions & {
  *
  * This server will automatically respond to the initialization flow as initiated from the client.
  *
- * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
+ * @deprecated Use {@linkcode server/mcp.McpServer | McpServer} instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
@@ -635,7 +635,7 @@ export class Server extends Protocol<ServerContext> {
     /**
      * Sends a logging message to the client, if connected.
      * Note: You only need to send the parameters object, not the entire JSON-RPC message.
-     * @see LoggingMessageNotification
+     * @see {@linkcode LoggingMessageNotification}
      * @param params
      * @param sessionId Optional for stateless transports and backward compatibility.
      */

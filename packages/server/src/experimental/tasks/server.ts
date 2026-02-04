@@ -17,6 +17,8 @@ import type {
     SchemaOutput
 } from '@modelcontextprotocol/core';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- McpServer used in JSDoc {@link}
+import type { McpServer } from '../../server/mcp.js';
 import type { Server } from '../../server/server.js';
 
 /**
@@ -27,7 +29,7 @@ import type { Server } from '../../server/server.js';
  * const stream = server.experimental.tasks.requestStream(request, schema, options);
  * ```
  *
- * For high-level server usage with task-based tools, use `McpServer.experimental.tasks` instead.
+ * For high-level server usage with task-based tools, use {@linkcode McpServer}.experimental.tasks instead.
  *
  * @experimental
  */
@@ -44,7 +46,7 @@ export class ExperimentalServerTasks {
      * @param request - The request to send
      * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */

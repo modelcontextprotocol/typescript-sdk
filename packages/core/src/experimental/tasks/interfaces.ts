@@ -87,7 +87,7 @@ export interface QueuedError extends BaseQueuedMessage {
 /**
  * Interface for managing per-task FIFO message queues.
  *
- * Similar to TaskStore, this allows pluggable queue implementations
+ * Similar to {@linkcode TaskStore}, this allows pluggable queue implementations
  * (in-memory, Redis, other distributed queues, etc.).
  *
  * Each method accepts taskId and optional sessionId parameters to enable
@@ -95,7 +95,7 @@ export interface QueuedError extends BaseQueuedMessage {
  * isolation based on task ID and session ID.
  *
  * All methods are async to support external storage implementations.
- * All data in QueuedMessage must be JSON-serializable.
+ * All data in {@linkcode QueuedMessage} must be JSON-serializable.
  *
  * @see {@linkcode InMemoryTaskMessageQueue} for a reference implementation
  * @experimental
@@ -155,7 +155,7 @@ export interface CreateTaskOptions {
 /**
  * Interface for storing and retrieving task state and results.
  *
- * Similar to Transport, this allows pluggable task storage implementations
+ * Similar to {@linkcode Transport}, this allows pluggable task storage implementations
  * (in-memory, database, distributed cache, etc.).
  *
  * @see {@linkcode InMemoryTaskStore} for a reference implementation
@@ -169,7 +169,7 @@ export interface TaskStore {
      * TTL Management:
      * - The implementation receives the TTL suggested by the requestor via taskParams.ttl
      * - The implementation MAY override the requested TTL (e.g., to enforce limits)
-     * - The actual TTL used MUST be returned in the Task object
+     * - The actual TTL used MUST be returned in the {@linkcode Task} object
      * - Null TTL indicates unlimited task lifetime (no automatic cleanup)
      * - Cleanup SHOULD occur automatically after TTL expires, regardless of task status
      *
@@ -177,7 +177,7 @@ export interface TaskStore {
      * @param requestId - The JSON-RPC request ID
      * @param request - The original request that triggered task creation
      * @param sessionId - Optional session ID for binding the task to a specific session
-     * @returns The created task object
+     * @returns The created {@linkcode Task} object
      */
     createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task>;
 
@@ -186,7 +186,7 @@ export interface TaskStore {
      *
      * @param taskId - The task identifier
      * @param sessionId - Optional session ID for binding the query to a specific session
-     * @returns The task object, or null if it does not exist
+     * @returns The {@linkcode Task} object, or null if it does not exist
      */
     getTask(taskId: string, sessionId?: string): Promise<Task | null>;
 

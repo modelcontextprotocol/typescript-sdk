@@ -1,7 +1,7 @@
 /**
  * OAuth provider extensions for specialized authentication flows.
  *
- * This module provides ready-to-use OAuthClientProvider implementations
+ * This module provides ready-to-use {@linkcode OAuthClientProvider} implementations
  * for common machine-to-machine authentication scenarios.
  */
 
@@ -90,7 +90,7 @@ export function createPrivateKeyJwtAuth(options: {
 }
 
 /**
- * Options for creating a ClientCredentialsProvider.
+ * Options for creating a {@linkcode ClientCredentialsProvider}.
  */
 export interface ClientCredentialsProviderOptions {
     /**
@@ -189,7 +189,7 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
 }
 
 /**
- * Options for creating a PrivateKeyJwtProvider.
+ * Options for creating a {@linkcode PrivateKeyJwtProvider}.
  */
 export interface PrivateKeyJwtProviderOptions {
     /**
@@ -308,7 +308,7 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
 }
 
 /**
- * Options for creating a StaticPrivateKeyJwtProvider.
+ * Options for creating a {@linkcode StaticPrivateKeyJwtProvider}.
  */
 export interface StaticPrivateKeyJwtProviderOptions {
     /**
@@ -333,7 +333,7 @@ export interface StaticPrivateKeyJwtProviderOptions {
 /**
  * OAuth provider for client_credentials grant with a static private_key_jwt assertion.
  *
- * This provider mirrors {@link PrivateKeyJwtProvider} but instead of constructing and
+ * This provider mirrors {@linkcode PrivateKeyJwtProvider} but instead of constructing and
  * signing a JWT on each request, it accepts a pre-built JWT assertion string and
  * uses it directly for authentication.
  */

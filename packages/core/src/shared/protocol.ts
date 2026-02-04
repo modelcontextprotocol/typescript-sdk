@@ -73,9 +73,9 @@ export type ProgressCallback = (progress: Progress) => void;
 export type ProtocolOptions = {
     /**
      * Protocol versions supported. First version is preferred (sent by client,
-     * used as fallback by server). Passed to transport during connect().
+     * used as fallback by server). Passed to transport during {@linkcode Protocol.connect | connect()}.
      *
-     * @default SUPPORTED_PROTOCOL_VERSIONS
+     * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
 
@@ -112,7 +112,7 @@ export type ProtocolOptions = {
     /**
      * Maximum number of messages that can be queued per task for side-channel delivery.
      * If undefined, the queue size is unbounded.
-     * When the limit is exceeded, the TaskMessageQueue implementation's enqueue() method
+     * When the limit is exceeded, the {@linkcode TaskMessageQueue} implementation's {@linkcode TaskMessageQueue.enqueue | enqueue()} method
      * will throw an error. It's the implementation's responsibility to handle overflow
      * appropriately (e.g., by failing the task, dropping messages, etc.).
      */
@@ -131,19 +131,19 @@ export type RequestOptions = {
     /**
      * If set, requests progress notifications from the remote end (if supported). When progress notifications are received, this callback will be invoked.
      *
-     * For task-augmented requests: progress notifications continue after CreateTaskResult is returned and stop automatically when the task reaches a terminal status.
+     * For task-augmented requests: progress notifications continue after {@linkcode CreateTaskResult} is returned and stop automatically when the task reaches a terminal status.
      */
     onprogress?: ProgressCallback;
 
     /**
-     * Can be used to cancel an in-flight request. This will cause an AbortError to be raised from request().
+     * Can be used to cancel an in-flight request. This will cause an AbortError to be raised from {@linkcode Protocol.request | request()}.
      */
     signal?: AbortSignal;
 
     /**
-     * A timeout (in milliseconds) for this request. If exceeded, an SdkError with code `SdkErrorCode.RequestTimeout` will be raised from request().
+     * A timeout (in milliseconds) for this request. If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised from {@linkcode Protocol.request | request()}.
      *
-     * If not specified, `DEFAULT_REQUEST_TIMEOUT_MSEC` will be used as the timeout.
+     * If not specified, {@linkcode DEFAULT_REQUEST_TIMEOUT_MSEC} will be used as the timeout.
      */
     timeout?: number;
 
@@ -156,7 +156,7 @@ export type RequestOptions = {
 
     /**
      * Maximum total time (in milliseconds) to wait for a response.
-     * If exceeded, an SdkError with code `SdkErrorCode.RequestTimeout` will be raised, regardless of progress notifications.
+     * If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised, regardless of progress notifications.
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
@@ -194,7 +194,7 @@ export type NotificationOptions = {
 export type TaskRequestOptions = Omit<RequestOptions, 'relatedTask'>;
 
 /**
- * Request-scoped TaskStore interface.
+ * Request-scoped {@linkcode TaskStore} interface.
  */
 export interface RequestTaskStore {
     /**
@@ -202,7 +202,7 @@ export interface RequestTaskStore {
      * The implementation generates a unique taskId and createdAt timestamp.
      *
      * @param taskParams - The task creation parameters from the request
-     * @returns The created task object
+     * @returns The created {@linkcode Task} object
      */
     createTask(taskParams: CreateTaskOptions): Promise<Task>;
 
@@ -210,7 +210,7 @@ export interface RequestTaskStore {
      * Gets the current status of a task.
      *
      * @param taskId - The task identifier
-     * @returns The task object
+     * @returns The {@linkcode Task} object
      * @throws If the task does not exist
      */
     getTask(taskId: string): Promise<Task>;
@@ -324,7 +324,7 @@ export type BaseContext = {
 };
 
 /**
- * Context provided to server-side request handlers, extending BaseContext with server-specific fields.
+ * Context provided to server-side request handlers, extending {@linkcode BaseContext} with server-specific fields.
  */
 export type ServerContext = BaseContext & {
     mcpReq: {
@@ -413,7 +413,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Callback for when the connection is closed for any reason.
      *
-     * This is invoked when close() is called as well.
+     * This is invoked when {@linkcode Protocol.close | close()} is called as well.
      */
     onclose?: () => void;
 
@@ -682,7 +682,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
-     * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
+     * The {@linkcode Protocol} object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
@@ -1155,7 +1155,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Sends a request and waits for a response.
      *
-     * Do not use this method to emit notifications! Use notification() instead.
+     * Do not use this method to emit notifications! Use {@linkcode Protocol.notification | notification()} instead.
      */
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
@@ -1544,7 +1544,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * @param sessionId Optional session ID for binding the operation to a specific session
      * @throws Error if taskStore is not configured or if enqueue fails (e.g., queue overflow)
      *
-     * Note: If enqueue fails, it's the TaskMessageQueue implementation's responsibility to handle
+     * Note: If enqueue fails, it's the {@linkcode TaskMessageQueue} implementation's responsibility to handle
      * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer
      * simply propagates the error.
      */

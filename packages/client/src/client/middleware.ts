@@ -1,4 +1,5 @@
-import type { FetchLike } from '@modelcontextprotocol/core';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- OAuthErrorCode used in JSDoc {@link}
+import type { FetchLike, OAuthErrorCode } from '@modelcontextprotocol/core';
 
 import type { OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
@@ -16,7 +17,7 @@ export type Middleware = (next: FetchLike) => FetchLike;
  * - Add Authorization headers with access tokens
  * - Handle 401 responses by attempting re-authentication
  * - Retry the original request after successful auth
- * - Handle OAuth errors appropriately (OAuthErrorCode.InvalidClient, etc.)
+ * - Handle OAuth errors appropriately ({@linkcode OAuthErrorCode.InvalidClient}, etc.)
  *
  * The baseUrl parameter is optional and defaults to using the domain from the request URL.
  * However, you should explicitly provide baseUrl when:
