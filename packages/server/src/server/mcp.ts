@@ -886,10 +886,10 @@ export class McpServer {
 
     /**
      * Sends a logging message to the client, if connected.
-     * Note: You only need to send the parameters object, not the entire JSON RPC message
+     * Note: You only need to send the parameters object, not the entire JSON-RPC message.
      * @see LoggingMessageNotification
      * @param params
-     * @param sessionId optional for stateless and backward compatibility
+     * @param sessionId Optional for stateless transports and backward compatibility.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         return this.server.sendLoggingMessage(params, sessionId);
@@ -943,7 +943,7 @@ export class ResourceTemplate {
         uriTemplate: string | UriTemplate,
         private _callbacks: {
             /**
-             * A callback to list all resources matching this template. This is required to specified, even if `undefined`, to avoid accidentally forgetting resource listing.
+             * A callback to list all resources matching this template. This is required to be specified, even if `undefined`, to avoid accidentally forgetting resource listing.
              */
             list: ListResourcesCallback | undefined;
 

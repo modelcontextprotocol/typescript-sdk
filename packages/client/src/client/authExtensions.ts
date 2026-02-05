@@ -30,7 +30,7 @@ export function createPrivateKeyJwtAuth(options: {
         // Lazy import to avoid heavy dependency unless used
         if (globalThis.crypto === undefined) {
             throw new TypeError(
-                'crypto is not available, please ensure you add have Web Crypto API support for older Node.js versions (see https://github.com/modelcontextprotocol/typescript-sdk#nodejs-web-crypto-globalthiscrypto-compatibility)'
+                'crypto is not available, please ensure you have Web Crypto API support for older Node.js versions (see https://github.com/modelcontextprotocol/typescript-sdk#nodejs-web-crypto-globalthiscrypto-compatibility)'
             );
         }
 
