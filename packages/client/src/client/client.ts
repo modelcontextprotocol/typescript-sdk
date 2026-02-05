@@ -161,25 +161,25 @@ export type ClientOptions = ProtocolOptions & {
      * Configure handlers for list changed notifications (tools, prompts, resources).
      *
      * @example
-     * ```typescript
+     * ```ts source="./client.examples.ts#ClientOptions_listChanged"
      * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     listChanged: {
-     *       tools: {
-     *         onChanged: (error, tools) => {
-     *           if (error) {
-     *             console.error('Failed to refresh tools:', error);
-     *             return;
-     *           }
-     *           console.log('Tools updated:', tools);
+     *     { name: 'my-client', version: '1.0.0' },
+     *     {
+     *         listChanged: {
+     *             tools: {
+     *                 onChanged: (error, tools) => {
+     *                     if (error) {
+     *                         console.error('Failed to refresh tools:', error);
+     *                         return;
+     *                     }
+     *                     console.log('Tools updated:', tools);
+     *                 }
+     *             },
+     *             prompts: {
+     *                 onChanged: (error, prompts) => console.log('Prompts updated:', prompts)
+     *             }
      *         }
-     *       },
-     *       prompts: {
-     *         onChanged: (error, prompts) => console.log('Prompts updated:', prompts)
-     *       }
      *     }
-     *   }
      * );
      * ```
      */

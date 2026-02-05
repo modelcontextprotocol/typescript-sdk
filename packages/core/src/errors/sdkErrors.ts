@@ -42,13 +42,15 @@ export enum SdkErrorCode {
  * that are serialized and sent as error responses.
  *
  * @example
- * ```typescript
- * // Throwing an SDK error
- * throw new SdkError(SdkErrorCode.NotConnected, 'Transport is not connected');
- *
- * // Checking error type by code
- * if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
- *     // Handle timeout
+ * ```ts source="./sdkErrors.examples.ts#SdkError_basicUsage"
+ * try {
+ *     // Throwing an SDK error
+ *     throw new SdkError(SdkErrorCode.NotConnected, 'Transport is not connected');
+ * } catch (error) {
+ *     // Checking error type by code
+ *     if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
+ *         // Handle timeout
+ *     }
  * }
  * ```
  */

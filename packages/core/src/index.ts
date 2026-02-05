@@ -31,14 +31,13 @@ export * from './validation/cfWorkerProvider.js';
  *   Import from: @modelcontextprotocol/sdk/validation/cfworker
  *   Requires peer dependency: @cfworker/json-schema
  *
- * @example
- * ```typescript
- * // For Node.js with AJV
- * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+ * @example For Node.js with AJV
+ * ```ts source="./index.examples.ts#validation_ajv"
  * const validator = new AjvJsonSchemaValidator();
+ * ```
  *
- * // For Cloudflare Workers
- * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
+ * @example For Cloudflare Workers
+ * ```ts source="./index.examples.ts#validation_cfWorker"
  * const validator = new CfWorkerJsonSchemaValidator();
  * ```
  *
