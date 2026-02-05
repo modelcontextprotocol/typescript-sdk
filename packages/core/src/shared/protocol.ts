@@ -84,14 +84,14 @@ export type ProtocolOptions = {
      *
      * Note that this DOES NOT affect checking of _local_ side capabilities, as it is considered a logic error to mis-specify those.
      *
-     * Currently this defaults to false, for backwards compatibility with SDK versions that did not advertise capabilities correctly. In future, this will default to true.
+     * Currently this defaults to `false`, for backwards compatibility with SDK versions that did not advertise capabilities correctly. In future, this will default to `true`.
      */
     enforceStrictCapabilities?: boolean;
     /**
      * An array of notification method names that should be automatically debounced.
      * Any notifications with a method in this list will be coalesced if they
      * occur in the same tick of the event loop.
-     * e.g., ['notifications/tools/list_changed']
+     * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
     /**
@@ -105,7 +105,7 @@ export type ProtocolOptions = {
      */
     taskMessageQueue?: TaskMessageQueue;
     /**
-     * Default polling interval (in milliseconds) for task status checks when no pollInterval
+     * Default polling interval (in milliseconds) for task status checks when no `pollInterval`
      * is provided by the server. Defaults to 5000ms if not specified.
      */
     defaultTaskPollInterval?: number;
@@ -136,7 +136,7 @@ export type RequestOptions = {
     onprogress?: ProgressCallback;
 
     /**
-     * Can be used to cancel an in-flight request. This will cause an AbortError to be raised from {@linkcode Protocol.request | request()}.
+     * Can be used to cancel an in-flight request. This will cause an `AbortError` to be raised from {@linkcode Protocol.request | request()}.
      */
     signal?: AbortSignal;
 
@@ -148,9 +148,9 @@ export type RequestOptions = {
     timeout?: number;
 
     /**
-     * If true, receiving a progress notification will reset the request timeout.
+     * If `true`, receiving a progress notification will reset the request timeout.
      * This is useful for long-running operations that send periodic progress updates.
-     * Default: false
+     * Default: `false`
      */
     resetTimeoutOnProgress?: boolean;
 
@@ -199,7 +199,7 @@ export type TaskRequestOptions = Omit<RequestOptions, 'relatedTask'>;
 export interface RequestTaskStore {
     /**
      * Creates a new task with the given creation parameters.
-     * The implementation generates a unique taskId and createdAt timestamp.
+     * The implementation generates a unique `taskId` and `createdAt` timestamp.
      *
      * @param taskParams - The task creation parameters from the request
      * @returns The created {@linkcode Task} object
@@ -219,7 +219,7 @@ export interface RequestTaskStore {
      * Stores the result of a task and sets its final status.
      *
      * @param taskId - The task identifier
-     * @param status - The final status: 'completed' for success, 'failed' for errors
+     * @param status - The final status: `'completed'` for success, `'failed'` for errors
      * @param result - The result to store
      */
     storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result): Promise<void>;
@@ -233,7 +233,7 @@ export interface RequestTaskStore {
     getTaskResult(taskId: string): Promise<Result>;
 
     /**
-     * Updates a task's status (e.g., to 'cancelled', 'failed', 'completed').
+     * Updates a task's status (e.g., to `'cancelled'`, `'failed'`, `'completed'`).
      *
      * @param taskId - The task identifier
      * @param status - The new status
@@ -245,7 +245,7 @@ export interface RequestTaskStore {
      * Lists tasks, optionally starting from a pagination cursor.
      *
      * @param cursor - Optional cursor for pagination
-     * @returns An object containing the tasks array and an optional nextCursor
+     * @returns An object containing the `tasks` array and an optional `nextCursor`
      */
     listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
 }
@@ -1031,7 +1031,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * @example
      * ```typescript
@@ -1538,11 +1538,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Enqueues a task-related message for side-channel delivery via tasks/result.
+     * Enqueues a task-related message for side-channel delivery via `tasks/result`.
      * @param taskId The task ID to associate the message with
      * @param message The message to enqueue
      * @param sessionId Optional session ID for binding the operation to a specific session
-     * @throws Error if taskStore is not configured or if enqueue fails (e.g., queue overflow)
+     * @throws Error if `taskStore` is not configured or if enqueue fails (e.g., queue overflow)
      *
      * Note: If enqueue fails, it's the {@linkcode TaskMessageQueue} implementation's responsibility to handle
      * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer

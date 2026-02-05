@@ -30,7 +30,7 @@ export type CreateTaskRequestHandler<ResultT extends Result, Args extends AnySch
 >;
 
 /**
- * Handler for task operations (get, getResult).
+ * Handler for task operations (`get`, `getResult`).
  * @experimental
  */
 export type TaskRequestHandler<ResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<

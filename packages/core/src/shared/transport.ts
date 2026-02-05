@@ -3,8 +3,8 @@ import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/types
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 /**
- * Normalizes HeadersInit to a plain Record<string, string> for manipulation.
- * Handles Headers objects, arrays of tuples, and plain objects.
+ * Normalizes `HeadersInit` to a plain `Record<string, string>` for manipulation.
+ * Handles `Headers` objects, arrays of tuples, and plain objects.
  */
 export function normalizeHeaders(headers: RequestInit['headers'] | undefined): Record<string, string> {
     if (!headers) return {};
@@ -21,11 +21,11 @@ export function normalizeHeaders(headers: RequestInit['headers'] | undefined): R
 }
 
 /**
- * Creates a fetch function that includes base RequestInit options.
+ * Creates a fetch function that includes base `RequestInit` options.
  * This ensures requests inherit settings like credentials, mode, headers, etc. from the base init.
  *
- * @param baseFetch - The base fetch function to wrap (defaults to global fetch)
- * @param baseInit - The base RequestInit to merge with each request
+ * @param baseFetch - The base fetch function to wrap (defaults to global `fetch`)
+ * @param baseInit - The base `RequestInit` to merge with each request
  * @returns A wrapped fetch function that merges base options with call-specific options
  */
 export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: RequestInit): FetchLike {
