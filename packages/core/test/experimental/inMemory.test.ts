@@ -668,26 +668,20 @@ describe('InMemoryTaskStore', () => {
         it('should not allow session-b to update a task created by session-a', async () => {
             const task = await store.createTask({}, 1, baseRequest, 'session-a');
 
-            await expect(
-                store.updateTaskStatus(task.taskId, 'cancelled', undefined, 'session-b')
-            ).rejects.toThrow('not found');
+            await expect(store.updateTaskStatus(task.taskId, 'cancelled', undefined, 'session-b')).rejects.toThrow('not found');
         });
 
         it('should not allow session-b to store a result on session-a task', async () => {
             const task = await store.createTask({}, 1, baseRequest, 'session-a');
 
-            await expect(
-                store.storeTaskResult(task.taskId, 'completed', { content: [] }, 'session-b')
-            ).rejects.toThrow('not found');
+            await expect(store.storeTaskResult(task.taskId, 'completed', { content: [] }, 'session-b')).rejects.toThrow('not found');
         });
 
         it('should not allow session-b to get the result of session-a task', async () => {
             const task = await store.createTask({}, 1, baseRequest, 'session-a');
             await store.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'secret' }] }, 'session-a');
 
-            await expect(
-                store.getTaskResult(task.taskId, 'session-b')
-            ).rejects.toThrow('not found');
+            await expect(store.getTaskResult(task.taskId, 'session-b')).rejects.toThrow('not found');
         });
 
         it('should allow the owning session to access its own tasks', async () => {
