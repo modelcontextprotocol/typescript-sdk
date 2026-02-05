@@ -15,7 +15,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
  * @returns Express middleware function
  *
  * @example
- * ```typescript
+ * ```ts source="./hostHeaderValidation.examples.ts#hostHeaderValidation_basicUsage"
  * const middleware = hostHeaderValidation(['localhost', '127.0.0.1', '[::1]']);
  * app.use(middleware);
  * ```
@@ -43,7 +43,7 @@ export function hostHeaderValidation(allowedHostnames: string[]): RequestHandler
  * Allows only `localhost`, `127.0.0.1`, and `[::1]` (IPv6 localhost) hostnames.
  *
  * @example
- * ```typescript
+ * ```ts source="./hostHeaderValidation.examples.ts#localhostHostValidation_basicUsage"
  * app.use(localhostHostValidation());
  * ```
  */

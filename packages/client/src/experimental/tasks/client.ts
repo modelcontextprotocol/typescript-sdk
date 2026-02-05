@@ -57,23 +57,27 @@ export class ExperimentalClientTasks {
      * Automatically validates structured output if the tool has an `outputSchema`.
      *
      * @example
-     * ```typescript
+     * ```ts source="./client.examples.ts#ExperimentalClientTasks_callToolStream"
      * const stream = client.experimental.tasks.callToolStream({ name: 'myTool', arguments: {} });
      * for await (const message of stream) {
-     *   switch (message.type) {
-     *     case 'taskCreated':
-     *       console.log('Tool execution started:', message.task.taskId);
-     *       break;
-     *     case 'taskStatus':
-     *       console.log('Tool status:', message.task.status);
-     *       break;
-     *     case 'result':
-     *       console.log('Tool result:', message.result);
-     *       break;
-     *     case 'error':
-     *       console.error('Tool error:', message.error);
-     *       break;
-     *   }
+     *     switch (message.type) {
+     *         case 'taskCreated': {
+     *             console.log('Tool execution started:', message.task.taskId);
+     *             break;
+     *         }
+     *         case 'taskStatus': {
+     *             console.log('Tool status:', message.task.status);
+     *             break;
+     *         }
+     *         case 'result': {
+     *             console.log('Tool result:', message.result);
+     *             break;
+     *         }
+     *         case 'error': {
+     *             console.error('Tool error:', message.error);
+     *             break;
+     *         }
+     *     }
      * }
      * ```
      *
@@ -239,6 +243,31 @@ export class ExperimentalClientTasks {
      *
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.
+     *
+     * @example
+     * ```ts source="./client.examples.ts#ExperimentalClientTasks_requestStream"
+     * const stream = client.experimental.tasks.requestStream(request, CallToolResultSchema, options);
+     * for await (const message of stream) {
+     *     switch (message.type) {
+     *         case 'taskCreated': {
+     *             console.log('Task created:', message.task.taskId);
+     *             break;
+     *         }
+     *         case 'taskStatus': {
+     *             console.log('Task status:', message.task.status);
+     *             break;
+     *         }
+     *         case 'result': {
+     *             console.log('Final result:', message.result);
+     *             break;
+     *         }
+     *         case 'error': {
+     *             console.error('Error:', message.error);
+     *             break;
+     *         }
+     *     }
+     * }
+     * ```
      *
      * @param request - The request to send
      * @param resultSchema - Zod schema for validating the result

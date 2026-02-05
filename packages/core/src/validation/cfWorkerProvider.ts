@@ -19,15 +19,16 @@ export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
 
 /**
  *
- * @example
- * ```typescript
- * // Use with default configuration (2020-12, shortcircuit)
+ * @example Use with default configuration (2020-12, shortcircuit)
+ * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_default"
  * const validator = new CfWorkerJsonSchemaValidator();
+ * ```
  *
- * // Use with custom configuration
+ * @example Use with custom configuration
+ * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_customConfig"
  * const validator = new CfWorkerJsonSchemaValidator({
- *   draft: '2020-12',
- *   shortcircuit: false // Report all errors
+ *     draft: '2020-12',
+ *     shortcircuit: false // Report all errors
  * });
  * ```
  */

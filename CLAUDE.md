@@ -41,6 +41,12 @@ Include what changed, why, and how to migrate. Search for related sections and g
 - **Testing**: Co-locate tests with source files, use descriptive test names
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
 
+### JSDoc `@example` Code Snippets
+
+JSDoc `@example` tags should pull type-checked code from companion `.examples.ts` files (e.g., `client.ts` → `client.examples.ts`). Use `` ```ts source="./file.examples.ts#regionName" `` fences referencing `//#region regionName` blocks; region names follow `exportedName_variant` or `ClassName_methodName_variant` pattern (e.g., `applyMiddlewares_basicUsage`, `Client_connect_basicUsage`). For whole-file inclusion (any file type), omit the `#regionName`.
+
+Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdown files.
+
 ## Architecture Overview
 
 ### Core Layers

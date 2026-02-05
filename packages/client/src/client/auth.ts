@@ -1210,18 +1210,17 @@ export async function refreshAuthorization(
  * @throws {Error} When provider doesn't implement `prepareTokenRequest` or token fetch fails
  *
  * @example
- * ```typescript
+ * ```ts source="./auth.examples.ts#fetchToken_clientCredentials"
  * // Provider for client_credentials:
- * class MyProvider implements OAuthClientProvider {
- *   prepareTokenRequest(scope) {
- *     const params = new URLSearchParams({ grant_type: 'client_credentials' });
- *     if (scope) params.set('scope', scope);
- *     return params;
- *   }
- *   // ... other methods
+ * class MyProvider extends MyProviderBase implements OAuthClientProvider {
+ *     prepareTokenRequest(scope?: string) {
+ *         const params = new URLSearchParams({ grant_type: 'client_credentials' });
+ *         if (scope) params.set('scope', scope);
+ *         return params;
+ *     }
  * }
  *
- * const tokens = await fetchToken(provider, authServerUrl, { metadata });
+ * const tokens = await fetchToken(new MyProvider(), authServerUrl, { metadata });
  * ```
  */
 export async function fetchToken(
