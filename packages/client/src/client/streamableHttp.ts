@@ -123,7 +123,7 @@ export type StreamableHTTPClientTransportOptions = {
 
 /**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
- * It will connect to a server using HTTP POST for sending messages and HTTP GET with Server-Sent Events
+ * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
  */
 export class StreamableHTTPClientTransport implements Transport {
@@ -629,14 +629,14 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Terminates the current session by sending a DELETE request to the server.
+     * Terminates the current session by sending a `DELETE` request to the server.
      *
      * Clients that no longer need a particular session
      * (e.g., because the user is leaving the client application) SHOULD send an
-     * HTTP DELETE to the MCP endpoint with the Mcp-Session-Id header to explicitly
+     * HTTP `DELETE` to the MCP endpoint with the `Mcp-Session-Id` header to explicitly
      * terminate the session.
      *
-     * The server MAY respond with HTTP 405 Method Not Allowed, indicating that
+     * The server MAY respond with HTTP `405 Method Not Allowed`, indicating that
      * the server does not allow clients to terminate sessions.
      */
     async terminateSession(): Promise<void> {
@@ -682,7 +682,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     /**
      * Resume an SSE stream from a previous event ID.
-     * Opens a GET SSE connection with Last-Event-ID header to replay missed events.
+     * Opens a `GET` SSE connection with `Last-Event-ID` header to replay missed events.
      *
      * @param lastEventId The event ID to resume from
      * @param options Optional callback to receive new resumption tokens

@@ -297,7 +297,7 @@ export class McpServer {
     }
 
     /**
-     * Handles automatic task polling for tools with taskSupport 'optional'.
+     * Handles automatic task polling for tools with `taskSupport` `'optional'`.
      */
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
@@ -878,7 +878,7 @@ export class McpServer {
 
     /**
      * Checks if the server is connected to a transport.
-     * @returns True if the server is connected
+     * @returns `true` if the server is connected
      */
     isConnected() {
         return this.server.transport !== undefined;
@@ -1029,8 +1029,8 @@ export type RegisteredTool = {
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
- * When inputSchema is defined, the handler is called with (args, ctx).
- * When inputSchema is undefined, the handler is called with just (ctx).
+ * When `inputSchema` is defined, the handler is called with `(args, ctx)`.
+ * When `inputSchema` is undefined, the handler is called with just `(ctx)`.
  */
 function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyToolHandler<AnySchema | undefined>): ToolExecutor {
     const isTaskHandler = 'createTask' in handler;

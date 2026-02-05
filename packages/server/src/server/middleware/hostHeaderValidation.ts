@@ -9,7 +9,7 @@ export type HostHeaderValidationResult =
       };
 
 /**
- * Parse and validate a Host header against an allowlist of hostnames (port-agnostic).
+ * Parse and validate a `Host` header against an allowlist of hostnames (port-agnostic).
  *
  * - Input host header may include a port (e.g. `localhost:3000`) or IPv6 brackets (e.g. `[::1]:3000`).
  * - Allowlist items should be hostnames only (no ports). For IPv6, include brackets (e.g. `[::1]`).
@@ -35,14 +35,14 @@ export function validateHostHeader(hostHeader: string | null | undefined, allowe
 }
 
 /**
- * Convenience allowlist for localhost DNS rebinding protection.
+ * Convenience allowlist for `localhost` DNS rebinding protection.
  */
 export function localhostAllowedHostnames(): string[] {
     return ['localhost', '127.0.0.1', '[::1]'];
 }
 
 /**
- * Web-standard Request helper for DNS rebinding protection.
+ * Web-standard `Request` helper for DNS rebinding protection.
  * @example
  * ```typescript
  * const result = validateHostHeader(req.headers.get('host'), ['localhost'])

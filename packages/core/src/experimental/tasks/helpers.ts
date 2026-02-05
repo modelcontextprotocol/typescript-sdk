@@ -7,7 +7,7 @@
 
 /**
  * Type representing the task requests capability structure.
- * This is derived from {@linkcode ClientTasksCapabilitySchema}.`requests` and {@linkcode ServerTasksCapabilitySchema}.`requests`.
+ * This is derived from `ClientTasksCapability.requests` and `ServerTasksCapability.requests`.
  */
 interface TaskRequestsCapability {
     tools?: { call?: object };
@@ -16,12 +16,12 @@ interface TaskRequestsCapability {
 }
 
 /**
- * Asserts that task creation is supported for tools/call.
+ * Asserts that task creation is supported for `tools/call`.
  * Used by {@linkcode @modelcontextprotocol/client!client/client.Client.assertTaskCapability | Client.assertTaskCapability} and {@linkcode @modelcontextprotocol/server!server/server.Server.assertTaskHandlerCapability | Server.assertTaskHandlerCapability}.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
- * @param entityName - 'Server' or 'Client' for error messages
+ * @param entityName - `'Server'` or `'Client'` for error messages
  * @throws Error if the capability is not supported
  *
  * @experimental
@@ -51,12 +51,12 @@ export function assertToolsCallTaskCapability(
 }
 
 /**
- * Asserts that task creation is supported for sampling/createMessage or elicitation/create.
+ * Asserts that task creation is supported for `sampling/createMessage` or `elicitation/create`.
  * Used by {@linkcode @modelcontextprotocol/server!server/server.Server.assertTaskCapability | Server.assertTaskCapability} and {@linkcode @modelcontextprotocol/client!client/client.Client.assertTaskHandlerCapability | Client.assertTaskHandlerCapability}.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
- * @param entityName - 'Server' or 'Client' for error messages
+ * @param entityName - `'Server'` or `'Client'` for error messages
  * @throws Error if the capability is not supported
  *
  * @experimental

@@ -286,7 +286,7 @@ export class InMemoryTaskMessageQueue implements TaskMessageQueue {
      * Removes and returns the first message from the queue for a specific task.
      * @param taskId The task identifier
      * @param sessionId Optional session ID for binding the query to a specific session
-     * @returns The first message, or undefined if the queue is empty
+     * @returns The first message, or `undefined` if the queue is empty
      */
     async dequeue(taskId: string, sessionId?: string): Promise<QueuedMessage | undefined> {
         const queue = this.getQueue(taskId, sessionId);

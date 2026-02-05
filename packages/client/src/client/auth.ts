@@ -44,8 +44,8 @@ export type AddClientAuthentication = (
 export interface OAuthClientProvider {
     /**
      * The URL to redirect the user agent to after authorization.
-     * Return undefined for non-interactive flows that don't require user interaction
-     * (e.g., client_credentials, jwt-bearer).
+     * Return `undefined` for non-interactive flows that don't require user interaction
+     * (e.g., `client_credentials`, `jwt-bearer`).
      */
     get redirectUrl(): string | URL | undefined;
 
@@ -154,11 +154,11 @@ export interface OAuthClientProvider {
      * any grant-specific parameters needed for the token exchange.
      *
      * If not implemented, the default behavior depends on the flow:
-     * - For authorization code flow: uses code, code_verifier, and redirect_uri
-     * - For client_credentials: detected via grant_types in {@linkcode OAuthClientProvider.clientMetadata | clientMetadata}
+     * - For authorization code flow: uses `code`, `code_verifier`, and `redirect_uri`
+     * - For `client_credentials`: detected via `grant_types` in {@linkcode OAuthClientProvider.clientMetadata | clientMetadata}
      *
      * @param scope - Optional scope to request
-     * @returns Grant type and parameters, or undefined to use default behavior
+     * @returns Grant type and parameters, or `undefined` to use default behavior
      *
      * @example
      * // For client_credentials grant:
@@ -206,9 +206,9 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
  * Determines the best client authentication method to use based on server support and client configuration.
  *
  * Priority order (highest to lowest):
- * 1. client_secret_basic (if client secret is available)
- * 2. client_secret_post (if client secret is available)
- * 3. none (for public clients)
+ * 1. `client_secret_basic` (if client secret is available)
+ * 2. `client_secret_post` (if client secret is available)
+ * 3. `none` (for public clients)
  *
  * @param clientInformation - OAuth client information containing credentials
  * @param supportedMethods - Authentication methods supported by the authorization server
@@ -253,9 +253,9 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * Applies client authentication to the request based on the specified method.
  *
  * Implements OAuth 2.1 client authentication methods:
- * - client_secret_basic: HTTP Basic authentication (RFC 6749 Section 2.3.1)
- * - client_secret_post: Credentials in request body (RFC 6749 Section 2.3.1)
- * - none: Public client authentication (RFC 6749 Section 2.1)
+ * - `client_secret_basic`: HTTP Basic authentication (RFC 6749 Section 2.3.1)
+ * - `client_secret_post`: Credentials in request body (RFC 6749 Section 2.3.1)
+ * - `none`: Public client authentication (RFC 6749 Section 2.1)
  *
  * @param method - The authentication method to use
  * @param clientInformation - OAuth client information containing credentials
@@ -526,7 +526,7 @@ async function authInternal(
 
 /**
  * SEP-991: URL-based Client IDs
- * Validate that the client_id is a valid URL with https scheme
+ * Validate that the `client_id` is a valid URL with `https` scheme
  */
 export function isHttpsUrl(value?: string): boolean {
     if (!value) return false;
@@ -564,7 +564,7 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract resource_metadata, scope, and error from WWW-Authenticate header.
+ * Extract `resource_metadata`, `scope`, and `error` from `WWW-Authenticate` header.
  */
 export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -599,10 +599,10 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
 }
 
 /**
- * Extracts a specific field's value from the WWW-Authenticate header string.
+ * Extracts a specific field's value from the `WWW-Authenticate` header string.
  *
  * @param response The HTTP response object containing the headers.
- * @param fieldName The name of the field to extract (e.g., "realm", "nonce").
+ * @param fieldName The name of the field to extract (e.g., `"realm"`, `"nonce"`).
  * @returns The field value
  */
 function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
@@ -626,7 +626,7 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
 }
 
 /**
- * Extract resource_metadata from response header.
+ * Extract `resource_metadata` from response header.
  * @deprecated Use {@linkcode extractWWWAuthenticateParams} instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
@@ -1022,7 +1022,7 @@ export async function startAuthorization(
  * @param authorizationCode - The authorization code received from the authorization endpoint
  * @param codeVerifier - The PKCE code verifier
  * @param redirectUri - The redirect URI used in the authorization request
- * @returns URLSearchParams for the authorization_code grant
+ * @returns URLSearchParams for the `authorization_code` grant
  */
 export function prepareAuthorizationCodeRequest(
     authorizationCode: string,
@@ -1157,7 +1157,7 @@ export async function exchangeAuthorization(
  *
  * @param authorizationServerUrl - The authorization server's base URL
  * @param options - Configuration object containing client info, refresh token, etc.
- * @returns Promise resolving to OAuth tokens (preserves original refresh_token if not replaced)
+ * @returns Promise resolving to OAuth tokens (preserves original `refresh_token` if not replaced)
  * @throws {Error} When token refresh fails or authentication is invalid
  */
 export async function refreshAuthorization(
@@ -1235,7 +1235,7 @@ export async function fetchToken(
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: URL;
-        /** Authorization code for the default authorization_code grant flow */
+        /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         fetchFn?: FetchLike;
     } = {}

@@ -8,17 +8,17 @@ import { hostHeaderValidation, localhostHostValidation } from './middleware/host
  */
 export interface CreateMcpExpressAppOptions {
     /**
-     * The hostname to bind to. Defaults to '127.0.0.1'.
-     * When set to '127.0.0.1', 'localhost', or '::1', DNS rebinding protection is automatically enabled.
+     * The hostname to bind to. Defaults to `'127.0.0.1'`.
+     * When set to `'127.0.0.1'`, `'localhost'`, or `'::1'`, DNS rebinding protection is automatically enabled.
      */
     host?: string;
 
     /**
      * List of allowed hostnames for DNS rebinding protection.
      * If provided, host header validation will be applied using this list.
-     * For IPv6, provide addresses with brackets (e.g., '[::1]').
+     * For IPv6, provide addresses with brackets (e.g., `'[::1]'`).
      *
-     * This is useful when binding to '0.0.0.0' or '::' but still wanting
+     * This is useful when binding to `'0.0.0.0'` or `'::'` but still wanting
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
@@ -27,7 +27,7 @@ export interface CreateMcpExpressAppOptions {
 /**
  * Creates an Express application pre-configured for MCP servers.
  *
- * When the host is '127.0.0.1', 'localhost', or '::1' (the default is '127.0.0.1'),
+ * When the host is `'127.0.0.1'`, `'localhost'`, or `'::1'` (the default is `'127.0.0.1'`),
  * DNS rebinding protection middleware is automatically applied to protect against
  * DNS rebinding attacks on localhost servers.
  *

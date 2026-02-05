@@ -50,11 +50,11 @@ export class ExperimentalClientTasks {
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to tool execution, allowing you to
      * observe intermediate task status updates for long-running tool calls.
-     * Automatically validates structured output if the tool has an outputSchema.
+     * Automatically validates structured output if the tool has an `outputSchema`.
      *
      * @example
      * ```typescript
@@ -235,7 +235,7 @@ export class ExperimentalClientTasks {
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.

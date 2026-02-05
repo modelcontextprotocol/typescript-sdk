@@ -2,7 +2,7 @@
  * Node.js Streamable HTTP Server Transport
  *
  * This is a thin wrapper around {@linkcode WebStandardStreamableHTTPServerTransport} that provides
- * compatibility with Node.js HTTP server (IncomingMessage/ServerResponse).
+ * compatibility with Node.js HTTP server (`IncomingMessage`/`ServerResponse`).
  *
  * For web-standard environments (Cloudflare Workers, Deno, Bun), use {@linkcode WebStandardStreamableHTTPServerTransport} directly.
  */
@@ -50,8 +50,8 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * In stateful mode:
  * - Session ID is generated and included in response headers
  * - Session ID is always included in initialization responses
- * - Requests with invalid session IDs are rejected with 404 Not Found
- * - Non-initialization requests without a session ID are rejected with 400 Bad Request
+ * - Requests with invalid session IDs are rejected with `404 Not Found`
+ * - Non-initialization requests without a session ID are rejected with `400 Bad Request`
  * - State is maintained in-memory (connections, message history)
  *
  * In stateless mode:
@@ -147,13 +147,13 @@ export class NodeStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles an incoming HTTP request, whether GET or POST.
+     * Handles an incoming HTTP request, whether `GET` or `POST`.
      *
      * This method converts Node.js HTTP objects to Web Standard Request/Response
      * and delegates to the underlying {@linkcode WebStandardStreamableHTTPServerTransport}.
      *
-     * @param req - Node.js IncomingMessage, optionally with auth property from middleware
-     * @param res - Node.js ServerResponse
+     * @param req - Node.js `IncomingMessage`, optionally with `auth` property from middleware
+     * @param res - Node.js `ServerResponse`
      * @param parsedBody - Optional pre-parsed body from body-parser middleware
      */
     async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {

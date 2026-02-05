@@ -38,7 +38,7 @@ export class ExperimentalServerTasks {
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.

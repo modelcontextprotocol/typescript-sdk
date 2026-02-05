@@ -68,7 +68,7 @@ import {
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 
 /**
- * Elicitation default application helper. Applies defaults to the data based on the schema.
+ * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
  *
  * @param schema - The schema to apply defaults to.
  * @param data - The data to apply defaults to.
@@ -713,7 +713,7 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an outputSchema.
+     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an `outputSchema`.
      *
      * For task-based execution with streaming behavior, use {@linkcode ExperimentalClientTasks.callToolStream | client.experimental.tasks.callToolStream()} instead.
      */
@@ -780,7 +780,7 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Check if a tool requires task-based execution.
-     * Unlike {@linkcode isToolTask} which includes 'optional' tools, this only checks for 'required'.
+     * Unlike {@linkcode isToolTask} which includes `'optional'` tools, this only checks for `'required'`.
      */
     private isToolTaskRequired(toolName: string): boolean {
         return this._cachedRequiredTaskTools.has(toolName);

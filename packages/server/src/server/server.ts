@@ -95,7 +95,7 @@ export class Server extends Protocol<ServerContext> {
     private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
-     * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
+     * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
      */
     oninitialized?: () => void;
 
@@ -192,7 +192,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
-     * Override request handler registration to enforce server-side validation for tools/call.
+     * Override request handler registration to enforce server-side validation for `tools/call`.
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
@@ -547,7 +547,7 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * Creates an elicitation request for the given parameters.
-     * For backwards compatibility, `mode` may be omitted for form requests and will default to `'form'`.
+     * For backwards compatibility, `mode` may be omitted for form requests and will default to `"form"`.
      * @param params The parameters for the elicitation request.
      * @param options Optional request options.
      * @returns The result of the elicitation request.
