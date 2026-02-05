@@ -219,7 +219,8 @@ export interface PrivateKeyJwtProviderOptions {
  * OAuth provider for client_credentials grant with private_key_jwt authentication.
  *
  * This provider is designed for machine-to-machine authentication where
- * the client authenticates using a signed JWT assertion (RFC 7523 Section 2.2).
+ * the client authenticates using a signed JWT assertion
+ * ({@link https://datatracker.ietf.org/doc/html/rfc7523#section-2.2 | RFC 7523 Section 2.2}).
  *
  * @example
  * const provider = new PrivateKeyJwtProvider({
