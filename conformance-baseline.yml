@@ -1,0 +1,13 @@
+# MCP Conformance Test Expected Failures
+# List scenario names that are known to fail in this SDK.
+# Format:
+#   server:
+#     - scenario-name-1
+#     - scenario-name-2
+#   client:
+#     - scenario-name-3
+#
+# The conformance runner will:
+#   - Exit 0 if only expected failures occur
+#   - Exit 1 if unexpected failures occur (regression)
+#   - Exit 1 if expected failures now pass (stale baseline, update this file)
