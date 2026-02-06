@@ -2134,7 +2134,7 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                taskStore
+                tasks: { taskStore }
             }
         );
 
@@ -2314,7 +2314,7 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                taskStore
+                tasks: { taskStore }
             }
         );
 
@@ -2494,7 +2494,7 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    taskStore: clientTaskStore
+                    tasks: { taskStore: clientTaskStore }
                 }
             );
 
@@ -2575,7 +2575,7 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    taskStore: clientTaskStore
+                    tasks: { taskStore: clientTaskStore }
                 }
             );
 
@@ -2654,7 +2654,7 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    taskStore: clientTaskStore
+                    tasks: { taskStore: clientTaskStore }
                 }
             );
 
@@ -2735,7 +2735,7 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    taskStore: clientTaskStore
+                    tasks: { taskStore: clientTaskStore }
                 }
             );
 
@@ -2838,7 +2838,7 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                taskStore
+                tasks: { taskStore }
             }
         );
 
@@ -2974,7 +2974,7 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    taskStore
+                    tasks: { taskStore }
                 }
             );
 
@@ -3021,7 +3021,7 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    taskStore: clientTaskStore
+                    tasks: { taskStore: clientTaskStore }
                 }
             );
 
@@ -3078,7 +3078,7 @@ test('should respect client task capabilities', async () => {
                     }
                 }
             },
-            taskStore: clientTaskStore
+            tasks: { taskStore: clientTaskStore }
         }
     );
 
