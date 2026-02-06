@@ -11,7 +11,7 @@ export class UriTemplate {
     /**
      * Returns true if the given string contains any URI template expressions.
      * A template expression is a sequence of characters enclosed in curly braces,
-     * like {foo} or {?bar}.
+     * like `{foo}` or `{?bar}`.
      */
     static isTemplate(str: string): boolean {
         // Look for any sequence of characters between curly braces

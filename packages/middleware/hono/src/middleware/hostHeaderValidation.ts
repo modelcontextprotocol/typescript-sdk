@@ -3,7 +3,7 @@ import type { MiddlewareHandler } from 'hono';
 
 /**
  * Hono middleware for DNS rebinding protection.
- * Validates Host header hostname (port-agnostic) against an allowed list.
+ * Validates `Host` header hostname (port-agnostic) against an allowed list.
  */
 export function hostHeaderValidation(allowedHostnames: string[]): MiddlewareHandler {
     return async (c, next) => {
@@ -26,7 +26,7 @@ export function hostHeaderValidation(allowedHostnames: string[]): MiddlewareHand
 }
 
 /**
- * Convenience middleware for localhost DNS rebinding protection.
+ * Convenience middleware for `localhost` DNS rebinding protection.
  */
 export function localhostHostValidation(): MiddlewareHandler {
     return hostHeaderValidation(localhostAllowedHostnames());

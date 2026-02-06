@@ -73,9 +73,9 @@ export type ProgressCallback = (progress: Progress) => void;
 export type ProtocolOptions = {
     /**
      * Protocol versions supported. First version is preferred (sent by client,
-     * used as fallback by server). Passed to transport during connect().
+     * used as fallback by server). Passed to transport during {@linkcode Protocol.connect | connect()}.
      *
-     * @default SUPPORTED_PROTOCOL_VERSIONS
+     * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
 
@@ -84,14 +84,14 @@ export type ProtocolOptions = {
      *
      * Note that this DOES NOT affect checking of _local_ side capabilities, as it is considered a logic error to mis-specify those.
      *
-     * Currently this defaults to false, for backwards compatibility with SDK versions that did not advertise capabilities correctly. In future, this will default to true.
+     * Currently this defaults to `false`, for backwards compatibility with SDK versions that did not advertise capabilities correctly. In future, this will default to `true`.
      */
     enforceStrictCapabilities?: boolean;
     /**
      * An array of notification method names that should be automatically debounced.
      * Any notifications with a method in this list will be coalesced if they
      * occur in the same tick of the event loop.
-     * e.g., ['notifications/tools/list_changed']
+     * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
     /**
@@ -105,14 +105,14 @@ export type ProtocolOptions = {
      */
     taskMessageQueue?: TaskMessageQueue;
     /**
-     * Default polling interval (in milliseconds) for task status checks when no pollInterval
+     * Default polling interval (in milliseconds) for task status checks when no `pollInterval`
      * is provided by the server. Defaults to 5000ms if not specified.
      */
     defaultTaskPollInterval?: number;
     /**
      * Maximum number of messages that can be queued per task for side-channel delivery.
      * If undefined, the queue size is unbounded.
-     * When the limit is exceeded, the TaskMessageQueue implementation's enqueue() method
+     * When the limit is exceeded, the {@linkcode TaskMessageQueue} implementation's {@linkcode TaskMessageQueue.enqueue | enqueue()} method
      * will throw an error. It's the implementation's responsibility to handle overflow
      * appropriately (e.g., by failing the task, dropping messages, etc.).
      */
@@ -131,32 +131,32 @@ export type RequestOptions = {
     /**
      * If set, requests progress notifications from the remote end (if supported). When progress notifications are received, this callback will be invoked.
      *
-     * For task-augmented requests: progress notifications continue after CreateTaskResult is returned and stop automatically when the task reaches a terminal status.
+     * For task-augmented requests: progress notifications continue after {@linkcode CreateTaskResult} is returned and stop automatically when the task reaches a terminal status.
      */
     onprogress?: ProgressCallback;
 
     /**
-     * Can be used to cancel an in-flight request. This will cause an AbortError to be raised from request().
+     * Can be used to cancel an in-flight request. This will cause an `AbortError` to be raised from {@linkcode Protocol.request | request()}.
      */
     signal?: AbortSignal;
 
     /**
-     * A timeout (in milliseconds) for this request. If exceeded, an SdkError with code `SdkErrorCode.RequestTimeout` will be raised from request().
+     * A timeout (in milliseconds) for this request. If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised from {@linkcode Protocol.request | request()}.
      *
-     * If not specified, `DEFAULT_REQUEST_TIMEOUT_MSEC` will be used as the timeout.
+     * If not specified, {@linkcode DEFAULT_REQUEST_TIMEOUT_MSEC} will be used as the timeout.
      */
     timeout?: number;
 
     /**
-     * If true, receiving a progress notification will reset the request timeout.
+     * If `true`, receiving a progress notification will reset the request timeout.
      * This is useful for long-running operations that send periodic progress updates.
-     * Default: false
+     * Default: `false`
      */
     resetTimeoutOnProgress?: boolean;
 
     /**
      * Maximum total time (in milliseconds) to wait for a response.
-     * If exceeded, an SdkError with code `SdkErrorCode.RequestTimeout` will be raised, regardless of progress notifications.
+     * If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised, regardless of progress notifications.
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
@@ -194,15 +194,15 @@ export type NotificationOptions = {
 export type TaskRequestOptions = Omit<RequestOptions, 'relatedTask'>;
 
 /**
- * Request-scoped TaskStore interface.
+ * Request-scoped {@linkcode TaskStore} interface.
  */
 export interface RequestTaskStore {
     /**
      * Creates a new task with the given creation parameters.
-     * The implementation generates a unique taskId and createdAt timestamp.
+     * The implementation generates a unique `taskId` and `createdAt` timestamp.
      *
      * @param taskParams - The task creation parameters from the request
-     * @returns The created task object
+     * @returns The created {@linkcode Task} object
      */
     createTask(taskParams: CreateTaskOptions): Promise<Task>;
 
@@ -210,7 +210,7 @@ export interface RequestTaskStore {
      * Gets the current status of a task.
      *
      * @param taskId - The task identifier
-     * @returns The task object
+     * @returns The {@linkcode Task} object
      * @throws If the task does not exist
      */
     getTask(taskId: string): Promise<Task>;
@@ -219,7 +219,7 @@ export interface RequestTaskStore {
      * Stores the result of a task and sets its final status.
      *
      * @param taskId - The task identifier
-     * @param status - The final status: 'completed' for success, 'failed' for errors
+     * @param status - The final status: `'completed'` for success, `'failed'` for errors
      * @param result - The result to store
      */
     storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result): Promise<void>;
@@ -233,7 +233,7 @@ export interface RequestTaskStore {
     getTaskResult(taskId: string): Promise<Result>;
 
     /**
-     * Updates a task's status (e.g., to 'cancelled', 'failed', 'completed').
+     * Updates a task's status (e.g., to `'cancelled'`, `'failed'`, `'completed'`).
      *
      * @param taskId - The task identifier
      * @param status - The new status
@@ -245,7 +245,7 @@ export interface RequestTaskStore {
      * Lists tasks, optionally starting from a pagination cursor.
      *
      * @param cursor - Optional cursor for pagination
-     * @returns An object containing the tasks array and an optional nextCursor
+     * @returns An object containing the `tasks` array and an optional `nextCursor`
      */
     listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
 }
@@ -324,7 +324,7 @@ export type BaseContext = {
 };
 
 /**
- * Context provided to server-side request handlers, extending BaseContext with server-specific fields.
+ * Context provided to server-side request handlers, extending {@linkcode BaseContext} with server-specific fields.
  */
 export type ServerContext = BaseContext & {
     mcpReq: {
@@ -413,7 +413,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Callback for when the connection is closed for any reason.
      *
-     * This is invoked when close() is called as well.
+     * This is invoked when {@linkcode Protocol.close | close()} is called as well.
      */
     onclose?: () => void;
 
@@ -682,7 +682,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
-     * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
+     * The {@linkcode Protocol} object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
@@ -1031,7 +1031,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * @example
      * ```typescript
@@ -1155,7 +1155,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Sends a request and waits for a response.
      *
-     * Do not use this method to emit notifications! Use notification() instead.
+     * Do not use this method to emit notifications! Use {@linkcode Protocol.notification | notification()} instead.
      */
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
@@ -1538,13 +1538,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Enqueues a task-related message for side-channel delivery via tasks/result.
+     * Enqueues a task-related message for side-channel delivery via `tasks/result`.
      * @param taskId The task ID to associate the message with
      * @param message The message to enqueue
      * @param sessionId Optional session ID for binding the operation to a specific session
-     * @throws Error if taskStore is not configured or if enqueue fails (e.g., queue overflow)
+     * @throws Error if `taskStore` is not configured or if enqueue fails (e.g., queue overflow)
      *
-     * Note: If enqueue fails, it's the TaskMessageQueue implementation's responsibility to handle
+     * Note: If enqueue fails, it's the {@linkcode TaskMessageQueue} implementation's responsibility to handle
      * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer
      * simply propagates the error.
      */

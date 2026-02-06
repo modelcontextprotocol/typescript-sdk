@@ -1,5 +1,5 @@
 /**
- * In-memory implementations of TaskStore and TaskMessageQueue.
+ * In-memory implementations of {@linkcode TaskStore} and {@linkcode TaskMessageQueue}.
  * @experimental
  */
 
@@ -16,7 +16,7 @@ interface StoredTask {
 }
 
 /**
- * In-memory TaskStore implementation for development and testing.
+ * In-memory {@linkcode TaskStore} implementation for development and testing.
  * For production, use a database or distributed cache.
  * @experimental
  */
@@ -233,7 +233,7 @@ export class InMemoryTaskStore implements TaskStore {
 }
 
 /**
- * In-memory TaskMessageQueue implementation for development and testing.
+ * In-memory {@linkcode TaskMessageQueue} implementation for development and testing.
  * For production, use Redis or another distributed queue.
  * @experimental
  */
@@ -286,7 +286,7 @@ export class InMemoryTaskMessageQueue implements TaskMessageQueue {
      * Removes and returns the first message from the queue for a specific task.
      * @param taskId The task identifier
      * @param sessionId Optional session ID for binding the query to a specific session
-     * @returns The first message, or undefined if the queue is empty
+     * @returns The first message, or `undefined` if the queue is empty
      */
     async dequeue(taskId: string, sessionId?: string): Promise<QueuedMessage | undefined> {
         const queue = this.getQueue(taskId, sessionId);

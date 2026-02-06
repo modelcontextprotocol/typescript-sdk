@@ -1,10 +1,10 @@
 /**
  * Web Standards Streamable HTTP Server Transport
  *
- * This is the core transport implementation using Web Standard APIs (Request, Response, ReadableStream).
+ * This is the core transport implementation using Web Standard APIs (`Request`, `Response`, `ReadableStream`).
  * It can run on any runtime that supports Web Standards: Node.js 18+, Cloudflare Workers, Deno, Bun, etc.
  *
- * For Node.js Express/HTTP compatibility, use `NodeStreamableHTTPServerTransport` which wraps this transport.
+ * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
@@ -36,10 +36,10 @@ export interface EventStore {
     /**
      * Get the stream ID associated with a given event ID.
      * @param eventId The event ID to look up
-     * @returns The stream ID, or undefined if not found
+     * @returns The stream ID, or `undefined` if not found
      *
-     * Optional: If not provided, the SDK will use the streamId returned by
-     * replayEventsAfter for stream mapping.
+     * Optional: If not provided, the SDK will use the `streamId` returned by
+     * {@linkcode replayEventsAfter} for stream mapping.
      */
     getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
 
@@ -57,7 +57,7 @@ export interface EventStore {
  * Internal stream mapping for managing SSE connections
  */
 interface StreamMapping {
-    /** Stream controller for pushing SSE data - only used with ReadableStream approach */
+    /** Stream controller for pushing SSE data - only used with `ReadableStream` approach */
     controller?: ReadableStreamDefaultController<Uint8Array>;
     /** Text encoder for SSE formatting */
     encoder?: InstanceType<typeof TextEncoder>;
@@ -68,7 +68,7 @@ interface StreamMapping {
 }
 
 /**
- * Configuration options for WebStandardStreamableHTTPServerTransport
+ * Configuration options for {@linkcode WebStandardStreamableHTTPServerTransport}
  */
 export interface WebStandardStreamableHTTPServerTransportOptions {
     /**
@@ -90,20 +90,20 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
 
     /**
      * A callback for session close events
-     * This is called when the server closes a session due to a DELETE request.
+     * This is called when the server closes a session due to a `DELETE` request.
      * Useful in cases when you need to clean up resources associated with the session.
      * Note that this is different from the transport closing, if you are handling
      * HTTP requests from multiple nodes you might want to close each
-     * WebStandardStreamableHTTPServerTransport after a request is completed while still keeping the
+     * {@linkcode WebStandardStreamableHTTPServerTransport} after a request is completed while still keeping the
      * session open/running.
      * @param sessionId The session ID that was closed
      */
     onsessionclosed?: (sessionId: string) => void | Promise<void>;
 
     /**
-     * If true, the server will return JSON responses instead of starting an SSE stream.
+     * If `true`, the server will return JSON responses instead of starting an SSE stream.
      * This can be useful for simple request/response scenarios without streaming.
-     * Default is false (SSE streams are preferred).
+     * Default is `false` (SSE streams are preferred).
      */
     enableJsonResponse?: boolean;
 
@@ -114,42 +114,42 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     eventStore?: EventStore;
 
     /**
-     * List of allowed host header values for DNS rebinding protection.
+     * List of allowed `Host` header values for DNS rebinding protection.
      * If not specified, host validation is disabled.
      * @deprecated Use external middleware for host validation instead.
      */
     allowedHosts?: string[];
 
     /**
-     * List of allowed origin header values for DNS rebinding protection.
+     * List of allowed `Origin` header values for DNS rebinding protection.
      * If not specified, origin validation is disabled.
      * @deprecated Use external middleware for origin validation instead.
      */
     allowedOrigins?: string[];
 
     /**
-     * Enable DNS rebinding protection (requires allowedHosts and/or allowedOrigins to be configured).
-     * Default is false for backwards compatibility.
+     * Enable DNS rebinding protection (requires `allowedHosts` and/or `allowedOrigins` to be configured).
+     * Default is `false` for backwards compatibility.
      * @deprecated Use external middleware for DNS rebinding protection instead.
      */
     enableDnsRebindingProtection?: boolean;
 
     /**
-     * Retry interval in milliseconds to suggest to clients in SSE retry field.
-     * When set, the server will send a retry field in SSE priming events to control
+     * Retry interval in milliseconds to suggest to clients in SSE `retry` field.
+     * When set, the server will send a `retry` field in SSE priming events to control
      * client reconnection timing for polling behavior.
      */
     retryInterval?: number;
 
     /**
      * List of protocol versions that this transport will accept.
-     * Used to validate the mcp-protocol-version header in incoming requests.
+     * Used to validate the `mcp-protocol-version` header in incoming requests.
      *
-     * Note: When using Server.connect(), the server automatically passes its
-     * supportedProtocolVersions to the transport, so you typically don't need
+     * Note: When using {@linkcode server/server.Server.connect | Server.connect()}, the server automatically passes its
+     * `supportedProtocolVersions` to the transport, so you typically don't need
      * to set this option directly.
      *
-     * @default SUPPORTED_PROTOCOL_VERSIONS
+     * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
 }
@@ -159,7 +159,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
  */
 export interface HandleRequestOptions {
     /**
-     * Pre-parsed request body. If provided, the transport will use this instead of parsing req.json().
+     * Pre-parsed request body. If provided, the transport will use this instead of parsing `req.json()`.
      * Useful when using body-parser middleware that has already parsed the body.
      */
     parsedBody?: unknown;
@@ -172,7 +172,7 @@ export interface HandleRequestOptions {
 
 /**
  * Server transport for Web Standards Streamable HTTP: this implements the MCP Streamable HTTP transport specification
- * using Web Standard APIs (Request, Response, ReadableStream).
+ * using Web Standard APIs (`Request`, `Response`, `ReadableStream`).
  *
  * This transport works on any runtime that supports Web Standards: Node.js 18+, Cloudflare Workers, Deno, Bun, etc.
  *
@@ -205,8 +205,8 @@ export interface HandleRequestOptions {
  * In stateful mode:
  * - Session ID is generated and included in response headers
  * - Session ID is always included in initialization responses
- * - Requests with invalid session IDs are rejected with 404 Not Found
- * - Non-initialization requests without a session ID are rejected with 400 Bad Request
+ * - Requests with invalid session IDs are rejected with `404 Not Found`
+ * - Non-initialization requests without a session ID are rejected with `400 Bad Request`
  * - State is maintained in-memory (connections, message history)
  *
  * In stateless mode:
@@ -251,7 +251,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Starts the transport. This is required by the Transport interface but is a no-op
+     * Starts the transport. This is required by the {@linkcode Transport} interface but is a no-op
      * for the Streamable HTTP transport as connections are managed per-request.
      */
     async start(): Promise<void> {
@@ -263,7 +263,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * Sets the supported protocol versions for header validation.
-     * Called by the server during connect() to pass its supported versions.
+     * Called by the server during {@linkcode server/server.Server.connect | connect()} to pass its supported versions.
      */
     setSupportedProtocolVersions(versions: string[]): void {
         this._supportedProtocolVersions = versions;
@@ -300,7 +300,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * Validates request headers for DNS rebinding protection.
-     * @returns Error response if validation fails, undefined if validation passes.
+     * @returns Error response if validation fails, `undefined` if validation passes.
      */
     private validateRequestHeaders(req: Request): Response | undefined {
         // Skip validation if protection is not enabled
@@ -332,8 +332,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles an incoming HTTP request, whether GET, POST, or DELETE
-     * Returns a Response object (Web Standard)
+     * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
+     * Returns a `Response` object (Web Standard)
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
         // Validate request headers for DNS rebinding protection
@@ -360,8 +360,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * Writes a priming event to establish resumption capability.
-     * Only sends if eventStore is configured (opt-in for resumability) and
-     * the client's protocol version supports empty SSE data (>= 2025-11-25).
+     * Only sends if `eventStore` is configured (opt-in for resumability) and
+     * the client's protocol version supports empty SSE data (>= `2025-11-25`).
      */
     private async writePrimingEvent(
         controller: ReadableStreamDefaultController<Uint8Array>,
@@ -390,7 +390,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles GET requests for SSE stream
+     * Handles `GET` requests for SSE stream
      */
     private async handleGetRequest(req: Request): Promise<Response> {
         // The client MUST include an Accept header, listing text/event-stream as a supported content type.
@@ -575,7 +575,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles unsupported requests (PUT, PATCH, etc.)
+     * Handles unsupported requests (`PUT`, `PATCH`, etc.)
      */
     private handleUnsupportedRequest(): Response {
         return Response.json(
@@ -598,7 +598,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles POST requests containing JSON-RPC messages
+     * Handles `POST` requests containing JSON-RPC messages
      */
     private async handlePostRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
         try {
@@ -805,7 +805,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles DELETE requests to terminate sessions
+     * Handles `DELETE` requests to terminate sessions
      */
     private async handleDeleteRequest(req: Request): Promise<Response> {
         const sessionError = this.validateSession(req);
@@ -824,7 +824,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * Validates session ID for non-initialization requests.
-     * Returns Response error if invalid, undefined otherwise
+     * Returns `Response` error if invalid, `undefined` otherwise
      */
     private validateSession(req: Request): Response | undefined {
         if (this.sessionIdGenerator === undefined) {
@@ -853,16 +853,16 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Validates the MCP-Protocol-Version header on incoming requests.
+     * Validates the `MCP-Protocol-Version` header on incoming requests.
      *
      * For initialization: Version negotiation handles unknown versions gracefully
      * (server responds with its supported version).
      *
-     * For subsequent requests with MCP-Protocol-Version header:
+     * For subsequent requests with `MCP-Protocol-Version` header:
      * - Accept if in supported list
      * - 400 if unsupported
      *
-     * For HTTP requests without the MCP-Protocol-Version header:
+     * For HTTP requests without the `MCP-Protocol-Version` header:
      * - Accept and default to the version negotiated at initialization
      */
     private validateProtocolVersion(req: Request): Response | undefined {
@@ -906,7 +906,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Close the standalone GET SSE stream, triggering client reconnection.
+     * Close the standalone `GET` SSE stream, triggering client reconnection.
      * Use this to implement polling behavior for server-initiated notifications.
      */
     closeStandaloneSSEStream(): void {
