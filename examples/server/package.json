@@ -36,14 +36,17 @@
     "dependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/examples-shared": "workspace:^",
-        "@modelcontextprotocol/node": "workspace:^",
-        "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/hono": "workspace:^",
+        "@modelcontextprotocol/node": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
+        "@valibot/to-json-schema": "catalog:devTools",
+        "arktype": "catalog:devTools",
         "better-auth": "^1.4.17",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly",
+        "valibot": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {

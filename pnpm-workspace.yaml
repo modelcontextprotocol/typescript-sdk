@@ -7,6 +7,9 @@ packages:
 catalogs:
     devTools:
         '@eslint/js': ^9.39.2
+        '@valibot/to-json-schema': ^1.5.0
+        arktype: ^2.1.29
+        valibot: ^1.2.0
         wrangler: ^4.14.4
         '@types/content-type': ^1.1.8
         '@types/cors': ^2.8.17

@@ -32,19 +32,22 @@
         "client": "tsx scripts/cli.ts client"
     },
     "devDependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@cfworker/json-schema": "catalog:runtimeShared",
         "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared",
-        "vitest": "catalog:devTools",
-        "supertest": "catalog:devTools",
-        "wrangler": "catalog:devTools",
+        "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@modelcontextprotocol/test-helpers": "workspace:^"
+        "@valibot/to-json-schema": "catalog:devTools",
+        "arktype": "catalog:devTools",
+        "supertest": "catalog:devTools",
+        "valibot": "catalog:devTools",
+        "vitest": "catalog:devTools",
+        "wrangler": "catalog:devTools",
+        "zod": "catalog:runtimeShared"
     }
 }
