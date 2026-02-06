@@ -34,16 +34,19 @@ export interface CreateMcpExpressAppOptions {
  * @param options - Configuration options
  * @returns A configured Express application
  *
- * @example
- * ```typescript
- * // Basic usage - defaults to 127.0.0.1 with DNS rebinding protection
+ * @example Basic usage - defaults to 127.0.0.1 with DNS rebinding protection
+ * ```ts source="./express.examples.ts#createMcpExpressApp_default"
  * const app = createMcpExpressApp();
+ * ```
  *
- * // Custom host - DNS rebinding protection only applied for localhost hosts
- * const app = createMcpExpressApp({ host: '0.0.0.0' }); // No automatic DNS rebinding protection
- * const app = createMcpExpressApp({ host: 'localhost' }); // DNS rebinding protection enabled
+ * @example Custom host - DNS rebinding protection only applied for localhost hosts
+ * ```ts source="./express.examples.ts#createMcpExpressApp_customHost"
+ * const appOpen = createMcpExpressApp({ host: '0.0.0.0' }); // No automatic DNS rebinding protection
+ * const appLocal = createMcpExpressApp({ host: 'localhost' }); // DNS rebinding protection enabled
+ * ```
  *
- * // Custom allowed hosts for non-localhost binding
+ * @example Custom allowed hosts for non-localhost binding
+ * ```ts source="./express.examples.ts#createMcpExpressApp_allowedHosts"
  * const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local', 'localhost'] });
  * ```
  */
