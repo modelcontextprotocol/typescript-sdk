@@ -1592,6 +1592,75 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('Request Compression', () => {
+        it('should compress request body when compressRequests is enabled', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                compressRequests: true
+            });
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-id'
+            };
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+            await transport.send(message);
+
+            const fetchCall = (globalThis.fetch as Mock).mock.calls[0]!;
+            const init = fetchCall[1];
+
+            // Body should be a Uint8Array (compressed), not a string
+            expect(init.body).toBeInstanceOf(Uint8Array);
+            // Content-Encoding header should be set
+            expect(init.headers.get('content-encoding')).toBe('gzip');
+            // Content-Type should still be application/json
+            expect(init.headers.get('content-type')).toBe('application/json');
+
+            // Decompress and verify the body content
+            const compressed = init.body as Uint8Array;
+            const ds = new DecompressionStream('gzip');
+            const writer = ds.writable.getWriter();
+            void writer.write(compressed).then(() => writer.close());
+            const text = await new Response(ds.readable).text();
+            expect(JSON.parse(text)).toEqual(message);
+        });
+
+        it('should not compress request body by default', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-id'
+            };
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+            await transport.send(message);
+
+            const fetchCall = (globalThis.fetch as Mock).mock.calls[0]!;
+            const init = fetchCall[1];
+
+            // Body should be a plain string (uncompressed)
+            expect(typeof init.body).toBe('string');
+            expect(init.body).toBe(JSON.stringify(message));
+            // No Content-Encoding header
+            expect(init.headers.get('content-encoding')).toBeNull();
+        });
+    });
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {
