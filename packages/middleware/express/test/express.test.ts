@@ -167,6 +167,16 @@ describe('@modelcontextprotocol/express', () => {
             warn.mockRestore();
         });
 
+        test('should accept limit option for JSON body parser', () => {
+            const app = createMcpExpressApp({ limit: '10mb' });
+            expect(app).toBeDefined();
+        });
+
+        test('should accept numeric limit option for JSON body parser', () => {
+            const app = createMcpExpressApp({ limit: 1048576 });
+            expect(app).toBeDefined();
+        });
+
         test('should not apply host validation for non-localhost hosts without allowedHosts', () => {
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
