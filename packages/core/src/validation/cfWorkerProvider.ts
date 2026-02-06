@@ -4,6 +4,8 @@
  * This provider uses @cfworker/json-schema for validation without code generation,
  * making it compatible with edge runtimes like Cloudflare Workers that restrict
  * eval and new Function.
+ *
+ * @see {@linkcode AjvJsonSchemaValidator} for the Node.js alternative
  */
 
 import { Validator } from '@cfworker/json-schema';

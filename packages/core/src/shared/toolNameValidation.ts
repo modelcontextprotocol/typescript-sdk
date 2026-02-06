@@ -6,6 +6,8 @@
  * Allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z), digits
  * (0-9), underscore (_), dash (-), and dot (.).
  * Tool names SHOULD NOT contain spaces, commas, or other special characters.
+ *
+ * @see {@link https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986 | SEP-986: Specify Format for Tool Names}
  */
 
 /**

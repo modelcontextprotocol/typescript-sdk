@@ -71,7 +71,8 @@ export const OAuthMetadataSchema = z.looseObject({
 
 /**
  * OpenID Connect Discovery 1.0 Provider Metadata
- * see: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
+ *
+ * @see https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
  */
 export const OpenIdProviderMetadataSchema = z.looseObject({
     issuer: z.string(),
