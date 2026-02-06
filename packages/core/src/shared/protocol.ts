@@ -120,7 +120,7 @@ export type ProtocolOptions = {
 };
 
 /**
- * The default request timeout, in miliseconds.
+ * The default request timeout, in milliseconds.
  */
 export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
 
@@ -1023,7 +1023,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     protected abstract assertTaskCapability(method: string): void;
 
     /**
-     * A method to check if task handler is supported by the local side, for the given method to be handled.
+     * A method to check if a task handler is supported by the local side, for the given method to be handled.
      *
      * This should be implemented by subclasses.
      */

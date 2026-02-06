@@ -44,7 +44,7 @@ export interface StartSSEOptions {
 
     /**
      * Override Message ID to associate with the replay message
-     * so that response can be associate with the new resumed request.
+     * so that the response can be associated with the new resumed request.
      */
     replayMessageId?: string | number;
 }
@@ -255,7 +255,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Calculates the next reconnection delay using  backoff algorithm
+     * Calculates the next reconnection delay using a backoff algorithm
      *
      * @param attempt Current reconnection attempt count for the specific stream
      * @returns Time to wait in milliseconds before next reconnection attempt
@@ -463,7 +463,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const { resumptionToken, onresumptiontoken } = options || {};
 
             if (resumptionToken) {
-                // If we have at last event ID, we need to reconnect the SSE stream
+                // If we have a last event ID, we need to reconnect the SSE stream
                 this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
                     error => this.onerror?.(error)
                 );

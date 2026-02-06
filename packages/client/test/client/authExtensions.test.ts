@@ -191,7 +191,7 @@ describe('createPrivateKeyJwtAuth', () => {
             const params = new URLSearchParams();
 
             await expect(addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)).rejects.toThrow(
-                'crypto is not available, please ensure you add have Web Crypto API support for older Node.js versions'
+                'crypto is not available, please ensure you have Web Crypto API support for older Node.js versions'
             );
         } finally {
             // Restore original crypto to avoid affecting other tests

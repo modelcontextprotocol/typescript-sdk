@@ -60,7 +60,7 @@ export interface OAuthClientProvider {
     get clientMetadata(): OAuthClientMetadata;
 
     /**
-     * Returns a OAuth2 state parameter.
+     * Returns an OAuth2 state parameter.
      */
     state?(): string | Promise<string>;
 

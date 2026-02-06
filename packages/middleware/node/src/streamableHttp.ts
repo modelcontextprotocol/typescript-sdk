@@ -1,5 +1,5 @@
 /**
- * Node.js HTTP Streamable HTTP Server Transport
+ * Node.js Streamable HTTP Server Transport
  *
  * This is a thin wrapper around `WebStandardStreamableHTTPServerTransport` that provides
  * compatibility with Node.js HTTP server (IncomingMessage/ServerResponse).
