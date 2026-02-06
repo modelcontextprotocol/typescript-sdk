@@ -315,6 +315,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Parses the request body, handling Content-Encoding (gzip/deflate) if present.
+     * Uses DecompressionStream for compressed bodies, falls back to req.json() for plain bodies.
+     */
+    private async _parseRequestBody(req: Request): Promise<unknown> {
+        const contentEncoding = req.headers.get('content-encoding');
+        if ((contentEncoding === 'gzip' || contentEncoding === 'deflate') && typeof DecompressionStream !== 'undefined' && req.body) {
+            const decompressed = req.body.pipeThrough(new DecompressionStream(contentEncoding));
+            const text = await new Response(decompressed).text();
+            return JSON.parse(text);
+        }
+        return req.json();
+    }
+
+    /**
      * Validates request headers for DNS rebinding protection.
      * @returns Error response if validation fails, undefined if validation passes.
      */
@@ -691,7 +705,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let rawMessage;
             if (options?.parsedBody === undefined) {
                 try {
-                    rawMessage = await req.json();
+                    rawMessage = await this._parseRequestBody(req);
                 } catch {
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }

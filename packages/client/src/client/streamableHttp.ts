@@ -118,6 +118,21 @@ export type StreamableHTTPClientTransportOptions = {
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
     sessionId?: string;
+
+    /**
+     * Enable request body compression using gzip Content-Encoding.
+     *
+     * When enabled, the client will compress JSON POST request bodies using
+     * the Web Standard CompressionStream API and set the Content-Encoding: gzip header.
+     * The server must support decompression of incoming request bodies.
+     *
+     * Note: Response decompression is handled automatically by the fetch API
+     * via Accept-Encoding / Content-Encoding negotiation and requires no
+     * client-side configuration.
+     *
+     * @default false
+     */
+    compressRequests?: boolean;
 };
 
 /**
@@ -141,6 +156,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
+    private _compressRequests: boolean;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -156,6 +172,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+        this._compressRequests = opts?.compressRequests ?? false;
     }
 
     private async _authThenStart(): Promise<void> {
@@ -181,6 +198,32 @@ export class StreamableHTTPClientTransport implements Transport {
         }
 
         return await this._startOrAuthSse({ resumptionToken: undefined });
+    }
+
+    /**
+     * Compresses a string body using gzip via CompressionStream.
+     */
+    private async _compressBody(body: string): Promise<Uint8Array> {
+        const encoder = new TextEncoder();
+        const input = encoder.encode(body);
+        const cs = new CompressionStream('gzip');
+        const writer = cs.writable.getWriter();
+        void writer.write(input).then(() => writer.close());
+        const reader = cs.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+        }
+        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const result = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+            result.set(chunk, offset);
+            offset += chunk.length;
+        }
+        return result;
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -474,11 +517,19 @@ export class StreamableHTTPClientTransport implements Transport {
             headers.set('content-type', 'application/json');
             headers.set('accept', 'application/json, text/event-stream');
 
+            const jsonBody = JSON.stringify(message);
+            let body: string | Uint8Array = jsonBody;
+
+            if (this._compressRequests && typeof CompressionStream !== 'undefined') {
+                body = await this._compressBody(jsonBody);
+                headers.set('content-encoding', 'gzip');
+            }
+
             const init = {
                 ...this._requestInit,
                 method: 'POST',
                 headers,
-                body: JSON.stringify(message),
+                body,
                 signal: this._abortController?.signal
             };
 
