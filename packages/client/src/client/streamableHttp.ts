@@ -231,6 +231,11 @@ export class StreamableHTTPClientTransport implements Transport {
                 await response.text?.().catch(() => {});
 
                 if (response.status === 401 && this._authProvider) {
+                    // Extract resource metadata URL from WWW-Authenticate header before starting auth flow
+                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                    this._resourceMetadataUrl = resourceMetadataUrl;
+                    this._scope = scope;
+
                     // Need to authenticate
                     return await this._authThenStart();
                 }
