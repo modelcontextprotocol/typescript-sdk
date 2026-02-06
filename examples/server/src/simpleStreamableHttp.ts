@@ -560,6 +560,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore, // Enable resumability
+                compressResponses: true, // Enable gzip/deflate compression
                 onsessioninitialized: sessionId => {
                     // Store the transport by session ID when session is initialized
                     // This avoids race conditions where requests might come in before the session is stored
