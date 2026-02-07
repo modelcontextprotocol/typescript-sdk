@@ -77,6 +77,19 @@ describe('@modelcontextprotocol/hono', () => {
         expect(await res.json()).toEqual({ a: 1 });
     });
 
+    test('createMcpHonoApp returns 413 on oversized JSON bodies', async () => {
+        const app = createMcpHonoApp({ maxBodyBytes: 10 });
+        app.post('/echo', (c: Context) => c.text('ok'));
+
+        const res = await app.request('http://localhost/echo', {
+            method: 'POST',
+            headers: { Host: 'localhost:3000', 'content-type': 'application/json' },
+            body: JSON.stringify({ a: '0123456789' })
+        });
+        expect(res.status).toBe(413);
+        expect(await res.text()).toBe('Payload too large');
+    });
+
     test('createMcpHonoApp returns 400 on invalid JSON', async () => {
         const app = createMcpHonoApp();
         app.post('/echo', (c: Context) => c.text('ok'));
