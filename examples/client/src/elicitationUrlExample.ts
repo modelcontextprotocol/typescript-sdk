@@ -34,7 +34,8 @@ import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
 // Set up OAuth (required for this example)
 const OAUTH_CALLBACK_PORT = 8090; // Use different port than auth server (3001)
-const OAUTH_CALLBACK_URL = `http://localhost:${OAUTH_CALLBACK_PORT}/callback`;
+const OAUTH_CALLBACK_HOST = process.env.MCP_HOST ?? 'localhost';
+const OAUTH_CALLBACK_URL = `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}/callback`;
 
 console.log('Getting OAuth token...');
 const clientMetadata: OAuthClientMetadata = {
@@ -484,8 +485,8 @@ async function waitForOAuthCallback(): Promise<string> {
             }
         });
 
-        server.listen(OAUTH_CALLBACK_PORT, () => {
-            console.log(`OAuth callback server started on http://localhost:${OAUTH_CALLBACK_PORT}`);
+        server.listen(OAUTH_CALLBACK_PORT, OAUTH_CALLBACK_HOST, () => {
+            console.log(`OAuth callback server started on ${OAUTH_CALLBACK_URL}`);
         });
     });
 }

@@ -19,7 +19,8 @@ import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 // Configuration
 const DEFAULT_SERVER_URL = 'http://localhost:3000/mcp';
 const CALLBACK_PORT = 8090; // Use different port than auth server (3001)
-const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
+const CALLBACK_HOST = process.env.MCP_HOST ?? 'localhost';
+const CALLBACK_URL = `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback`;
 
 /**
  * Interactive MCP client with OAuth authentication
@@ -118,8 +119,8 @@ class InteractiveOAuthClient {
                 }
             });
 
-            server.listen(CALLBACK_PORT, () => {
-                console.log(`OAuth callback server started on http://localhost:${CALLBACK_PORT}`);
+            server.listen(CALLBACK_PORT, CALLBACK_HOST, () => {
+                console.log(`OAuth callback server started on ${CALLBACK_URL}`);
             });
         });
     }

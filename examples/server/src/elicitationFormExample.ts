@@ -315,9 +315,10 @@ mcpServer.registerTool(
 );
 
 async function main() {
+    const HOST = process.env.MCP_HOST ?? 'localhost';
     const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
 
-    const app = createMcpExpressApp();
+    const app = createMcpExpressApp({ host: HOST });
 
     // Map to store transports by session ID
     const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
@@ -430,18 +431,18 @@ async function main() {
     app.delete('/mcp', mcpDeleteHandler);
 
     // Start listening
-    app.listen(PORT, error => {
-        if (error) {
-            console.error('Failed to start server:', error);
-            // eslint-disable-next-line unicorn/no-process-exit
-            process.exit(1);
-        }
-        console.log(`Form elicitation example server is running on http://localhost:${PORT}/mcp`);
+    const httpServer = app.listen(PORT, HOST, () => {
+        console.log(`Form elicitation example server is running on http://${HOST}:${PORT}/mcp`);
         console.log('Available tools:');
         console.log('  - register_user: Collect user registration information');
         console.log('  - create_event: Multi-step event creation');
         console.log('  - update_shipping_address: Collect and validate address');
         console.log('\nConnect your MCP client to this server using the HTTP transport.');
+    });
+    httpServer.on('error', error => {
+        console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
+        process.exit(1);
     });
 
     // Handle server shutdown

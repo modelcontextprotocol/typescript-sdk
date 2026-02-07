@@ -240,16 +240,17 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
 
     // Start the auth server
     const authPort = Number.parseInt(authServerUrl.port, 10);
-    authApp.listen(authPort, (error?: Error) => {
-        if (error) {
-            console.error('Failed to start auth server:', error);
-            // eslint-disable-next-line unicorn/no-process-exit
-            process.exit(1);
-        }
+    const authHost = authServerUrl.hostname || 'localhost';
+    const server = authApp.listen(authPort, authHost, () => {
         console.log(`OAuth Authorization Server listening on port ${authPort}`);
         console.log(`  Authorization: ${authServerUrl}api/auth/mcp/authorize`);
         console.log(`  Token: ${authServerUrl}api/auth/mcp/token`);
         console.log(`  Metadata: ${authServerUrl}.well-known/oauth-authorization-server`);
+    });
+    server.on('error', error => {
+        console.error('Failed to start auth server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
+        process.exit(1);
     });
 }
 

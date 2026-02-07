@@ -20,6 +20,8 @@ cd examples/client
 pnpm tsx src/simpleStreamableHttp.ts
 ```
 
+By default, examples that start a local OAuth callback server bind to `localhost`. To bind to a different interface, set `MCP_HOST` (for example `MCP_HOST=127.0.0.1`).
+
 Most clients expect a server to be running. Start one from [`../server/README.md`](../server/README.md) (for example `src/simpleStreamableHttp.ts` in `examples/server`).
 
 ## Example index

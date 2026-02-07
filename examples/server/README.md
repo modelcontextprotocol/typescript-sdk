@@ -16,6 +16,8 @@ pnpm install
 pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
 ```
 
+By default, example servers bind to `localhost`. To bind to a different interface, set `MCP_HOST` (for example `MCP_HOST=0.0.0.0`).
+
 Or, from within this package:
 
 ```bash

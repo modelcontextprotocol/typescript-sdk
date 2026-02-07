@@ -59,15 +59,17 @@ app.get('/health', c => c.json({ status: 'ok' }));
 app.all('/mcp', c => transport.handleRequest(c.req.raw));
 
 // Start the server
+const HOST = process.env.MCP_HOST ?? 'localhost';
 const PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
 
 await server.connect(transport);
 
-console.log(`Starting Hono MCP server on port ${PORT}`);
-console.log(`Health check: http://localhost:${PORT}/health`);
-console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
+console.log(`Starting Hono MCP server on http://${HOST}:${PORT}`);
+console.log(`Health check: http://${HOST}:${PORT}/health`);
+console.log(`MCP endpoint: http://${HOST}:${PORT}/mcp`);
 
 serve({
     fetch: app.fetch,
+    hostname: HOST,
     port: PORT
 });

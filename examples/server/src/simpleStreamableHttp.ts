@@ -497,10 +497,11 @@ const getServer = () => {
     return server;
 };
 
+const MCP_HOST = process.env.MCP_HOST ?? 'localhost';
 const MCP_PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
-const app = createMcpExpressApp();
+const app = createMcpExpressApp({ host: MCP_HOST });
 
 // Enable CORS for browser-based clients (demo only)
 // This allows cross-origin requests and exposes WWW-Authenticate header for OAuth
@@ -681,16 +682,16 @@ if (useOAuth && authMiddleware) {
     app.delete('/mcp', mcpDeleteHandler);
 }
 
-app.listen(MCP_PORT, error => {
-    if (error) {
-        console.error('Failed to start server:', error);
-        // eslint-disable-next-line unicorn/no-process-exit
-        process.exit(1);
-    }
-    console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
+const httpServer = app.listen(MCP_PORT, MCP_HOST, () => {
+    console.log(`MCP Streamable HTTP Server listening on http://${MCP_HOST}:${MCP_PORT}/mcp`);
     if (useOAuth) {
-        console.log(`  Protected Resource Metadata: http://localhost:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
+        console.log(`  Protected Resource Metadata: http://${MCP_HOST}:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
     }
+});
+httpServer.on('error', error => {
+    console.error('Failed to start server:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
 });
 
 // Handle server shutdown
