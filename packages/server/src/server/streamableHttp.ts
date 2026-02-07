@@ -125,6 +125,9 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      *
      * Set to `0` (or any non-finite value like `Infinity`) to disable the limit (not recommended).
      *
+     * Note: if you pass `parsedBody` to `handleRequest`, this limit is not applied
+     * (your framework/body parser must enforce its own limit).
+     *
      * @default 1_000_000
      */
     maxBodyBytes?: number;
@@ -348,26 +351,34 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const chunks: Uint8Array[] = [];
         let totalBytes = 0;
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-            if (!value) {
-                continue;
-            }
-
-            totalBytes += value.byteLength;
-            if (totalBytes > maxBodyBytes) {
-                try {
-                    await reader.cancel();
-                } catch {
-                    // Best-effort.
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
                 }
-                throw new PayloadTooLargeError(maxBodyBytes);
-            }
+                if (!value) {
+                    continue;
+                }
 
-            chunks.push(value);
+                totalBytes += value.byteLength;
+                if (totalBytes > maxBodyBytes) {
+                    try {
+                        await reader.cancel();
+                    } catch {
+                        // Best-effort.
+                    }
+                    throw new PayloadTooLargeError(maxBodyBytes);
+                }
+
+                chunks.push(value);
+            }
+        } finally {
+            try {
+                reader.releaseLock();
+            } catch {
+                // Ignore.
+            }
         }
 
         const bodyBytes = new Uint8Array(totalBytes);
