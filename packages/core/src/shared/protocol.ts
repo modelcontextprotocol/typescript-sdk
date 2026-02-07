@@ -679,6 +679,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
     }
 
+    private _getDefaultListResponse(method: string): SendResultT | null {
+        const listMethodResponses: Record<string, string> = {
+            'prompts/list': 'prompts',
+            'resources/list': 'resources',
+            'resources/templates/list': 'resourceTemplates',
+            'tools/list': 'tools'
+        };
+        const responseKey = listMethodResponses[method];
+        return responseKey ? ({ [responseKey]: [] } as SendResultT) : null;
+    }
+
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
@@ -763,6 +774,32 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
 
         if (handler === undefined) {
+            const defaultResponse = this._getDefaultListResponse(request.method);
+            if (defaultResponse !== null) {
+                const successResponse: JSONRPCResultResponse = {
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    result: defaultResponse
+                };
+
+                if (relatedTaskId && this._taskMessageQueue) {
+                    this._enqueueTaskMessage(
+                        relatedTaskId,
+                        {
+                            type: 'response',
+                            message: successResponse,
+                            timestamp: Date.now()
+                        },
+                        capturedTransport?.sessionId
+                    ).catch(error => this._onerror(new Error(`Failed to enqueue default list response: ${error}`)));
+                } else {
+                    capturedTransport
+                        ?.send(successResponse)
+                        .catch(error => this._onerror(new Error(`Failed to send default list response: ${error}`)));
+                }
+                return;
+            }
+
             const errorResponse: JSONRPCErrorResponse = {
                 jsonrpc: '2.0',
                 id: request.id,
