@@ -211,7 +211,7 @@ describe('@modelcontextprotocol/express', () => {
                 const data = await resp.json();
                 expect(data).toEqual({
                     jsonrpc: '2.0',
-                    error: { code: -32_000, message: 'Invalid JSON' },
+                    error: { code: -32_700, message: 'Parse error: Invalid JSON' },
                     id: null
                 });
             });

@@ -21,7 +21,7 @@ const jsonBodyErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
     if (type === 'entity.parse.failed') {
         res.status(400).json({
             jsonrpc: '2.0',
-            error: { code: -32_000, message: 'Invalid JSON' },
+            error: { code: -32_700, message: 'Parse error: Invalid JSON' },
             id: null
         });
         return;
