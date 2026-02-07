@@ -87,7 +87,29 @@ const HOST = process.env.MCP_HOST ?? 'localhost';
 const PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3001;
 
 const app = createMcpExpressApp({ host: HOST });
-app.use(cors());
+const DEFAULT_CORS_ORIGIN_REGEX = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/;
+
+let corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+if (process.env.MCP_CORS_ORIGIN_REGEX) {
+    try {
+        corsOriginRegex = new RegExp(process.env.MCP_CORS_ORIGIN_REGEX);
+    } catch (error) {
+        const msg =
+            error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : String(error);
+        console.warn(`Invalid MCP_CORS_ORIGIN_REGEX (${process.env.MCP_CORS_ORIGIN_REGEX}): ${msg}`);
+        corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+    }
+}
+
+app.use(
+    cors({
+        origin: (origin, cb) => {
+            // Allow non-browser clients (no Origin header).
+            if (!origin) return cb(null, true);
+            return cb(null, corsOriginRegex.test(origin));
+        }
+    })
+);
 
 // Create event store for resumability
 const eventStore = new InMemoryEventStore();
