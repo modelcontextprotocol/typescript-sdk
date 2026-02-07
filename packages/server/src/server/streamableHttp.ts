@@ -77,7 +77,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      *
      * If not provided, session management is disabled (stateless mode).
      */
-    sessionIdGenerator?: () => string;
+    sessionIdGenerator?: (() => string) | undefined;
 
     /**
      * A callback for session initialization events
@@ -86,7 +86,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * and need to keep track of them.
      * @param sessionId The generated session ID
      */
-    onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+    onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
 
     /**
      * A callback for session close events
@@ -98,7 +98,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * session open/running.
      * @param sessionId The session ID that was closed
      */
-    onsessionclosed?: (sessionId: string) => void | Promise<void>;
+    onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
 
     /**
      * If true, the server will return JSON responses instead of starting an SSE stream.
