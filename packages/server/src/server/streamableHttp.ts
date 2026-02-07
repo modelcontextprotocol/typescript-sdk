@@ -21,6 +21,62 @@ import {
 export type StreamId = string;
 export type EventId = string;
 
+const DEFAULT_MAX_BODY_BYTES = 1_000_000; // 1MB
+
+class PayloadTooLargeError extends Error {
+    constructor() {
+        super('payload_too_large');
+        this.name = 'PayloadTooLargeError';
+    }
+}
+
+async function readRequestTextWithLimit(req: Request, maxBytes: number): Promise<string> {
+    const body = req.body;
+    if (!body) return '';
+
+    if (Number.isFinite(maxBytes)) {
+        const clRaw = req.headers.get('content-length') ?? '';
+        const cl = Number(clRaw);
+        if (Number.isFinite(cl) && cl > maxBytes) {
+            throw new PayloadTooLargeError();
+        }
+    }
+
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+
+            total += value.byteLength;
+            if (Number.isFinite(maxBytes) && total > maxBytes) {
+                void reader.cancel().catch(() => {});
+                throw new PayloadTooLargeError();
+            }
+            chunks.push(value);
+        }
+    } finally {
+        try {
+            reader.releaseLock();
+        } catch {
+            // Ignore.
+        }
+    }
+
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+        out.set(c, offset);
+        offset += c.byteLength;
+    }
+
+    return new TextDecoder().decode(out);
+}
+
 /**
  * Interface for resumability support via event storage
  */
@@ -152,6 +208,19 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default SUPPORTED_PROTOCOL_VERSIONS
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Maximum JSON request body size in bytes.
+     * Used when parsing request bodies to guard against unbounded buffering.
+     *
+     * Set to a negative number to disable the limit.
+     *
+     * Note: if you pass `parsedBody` to `handleRequest`, this limit is not applied
+     * (your framework/body parser must enforce its own limit).
+     *
+     * @default 1_000_000 (1 MB)
+     */
+    maxBodyBytes?: number;
 }
 
 /**
@@ -231,6 +300,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _maxBodyBytes: number;
 
     sessionId?: string;
     onclose?: () => void;
@@ -248,6 +318,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     }
 
     /**
@@ -625,8 +696,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             let rawMessage;
             if (options?.parsedBody === undefined) {
+                const effectiveMaxBodyBytes = this._maxBodyBytes < 0 ? Number.POSITIVE_INFINITY : this._maxBodyBytes;
+                let text: string;
                 try {
-                    rawMessage = await req.json();
+                    text = await readRequestTextWithLimit(req, effectiveMaxBodyBytes);
+                } catch (error) {
+                    if (error instanceof PayloadTooLargeError) {
+                        return this.createJsonErrorResponse(413, -32_000, 'Payload too large');
+                    }
+                    return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
+                }
+                try {
+                    rawMessage = JSON.parse(text);
                 } catch {
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }

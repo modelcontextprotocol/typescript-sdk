@@ -209,6 +209,23 @@ describe('Zod v4', () => {
         });
 
         describe('POST Requests', () => {
+            it('should return 413 on oversized JSON request bodies', async () => {
+                const limitedTransport = new WebStandardStreamableHTTPServerTransport({
+                    sessionIdGenerator: () => randomUUID(),
+                    maxBodyBytes: 10
+                });
+                await mcpServer.connect(limitedTransport);
+
+                const request = createRequest('POST', TEST_MESSAGES.initialize);
+                const response = await limitedTransport.handleRequest(request);
+
+                expect(response.status).toBe(413);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_000, /Payload too large/);
+
+                await limitedTransport.close();
+            });
+
             it('should handle post requests via SSE response correctly', async () => {
                 sessionId = await initializeServer();
 
