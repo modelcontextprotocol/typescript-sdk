@@ -167,8 +167,9 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     authApp.get('/.well-known/oauth-authorization-server', cors(), toNodeHandler(oAuthDiscoveryMetadata(auth)));
 
     // Body parsers for non-better-auth routes (like /sign-in)
-    authApp.use(express.json());
-    authApp.use(express.urlencoded({ extended: true }));
+    const maxBodyBytes = 100 * 1024; // Make the default explicit to avoid accidental large-body DoS.
+    authApp.use(express.json({ limit: maxBodyBytes }));
+    authApp.use(express.urlencoded({ extended: true, limit: maxBodyBytes }));
 
     // Auto-login page that creates a real better-auth session
     // This simulates a user logging in and approving the OAuth request
