@@ -333,6 +333,33 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_700, /Parse error.*Invalid JSON/);
             });
 
+            it('should reject JSON bodies larger than maxBodyBytes', async () => {
+                const limitedTransport = new WebStandardStreamableHTTPServerTransport({
+                    sessionIdGenerator: () => randomUUID(),
+                    maxBodyBytes: 256
+                });
+
+                const bigInit: JSONRPCMessage = {
+                    ...TEST_MESSAGES.initialize,
+                    params: {
+                        ...(TEST_MESSAGES.initialize as any).params,
+                        clientInfo: {
+                            ...(TEST_MESSAGES.initialize as any).params.clientInfo,
+                            name: 'a'.repeat(1024)
+                        }
+                    }
+                };
+
+                const request = createRequest('POST', bigInit);
+                const response = await limitedTransport.handleRequest(request);
+
+                expect(response.status).toBe(413);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_000, /Payload too large/);
+
+                await limitedTransport.close();
+            });
+
             it('should accept notifications without session and return 202', async () => {
                 sessionId = await initializeServer();
 
