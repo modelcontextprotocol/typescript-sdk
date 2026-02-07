@@ -5,7 +5,7 @@
 // URL elicitation allows servers to prompt the end-user to open a URL in their browser
 // to collect sensitive information.
 
-import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 
@@ -274,14 +274,27 @@ async function elicitationLoop(): Promise<void> {
 }
 
 async function openBrowser(url: string): Promise<void> {
-    const command = `open "${url}"`;
+    const platform = process.platform;
+    let cmd: string;
+    let args: string[];
 
-    exec(command, error => {
-        if (error) {
-            console.error(`Failed to open browser: ${error.message}`);
-            console.log(`Please manually open: ${url}`);
-        }
+    if (platform === 'darwin') {
+        cmd = 'open';
+        args = [url];
+    } else if (platform === 'win32') {
+        cmd = 'cmd';
+        args = ['/c', 'start', '', url];
+    } else {
+        cmd = 'xdg-open';
+        args = [url];
+    }
+
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', error => {
+        console.error(`Failed to open browser: ${error.message}`);
+        console.log(`Please manually open: ${url}`);
     });
+    child.unref();
 }
 
 /**
