@@ -107,6 +107,21 @@ describe('@modelcontextprotocol/express', () => {
     });
 
     describe('createMcpExpressApp', () => {
+        async function withServer(app: ReturnType<typeof createMcpExpressApp>, fn: (baseUrl: string) => Promise<void>) {
+            const server = await new Promise<import('node:http').Server>(resolve => {
+                const s = app.listen(0, '127.0.0.1', () => resolve(s));
+            });
+            try {
+                const addr = server.address();
+                if (!addr || typeof addr === 'string') throw new TypeError('Unexpected server address');
+                await fn(`http://127.0.0.1:${addr.port}`);
+            } finally {
+                await new Promise<void>((resolve, reject) => {
+                    server.close(err => (err ? reject(err) : resolve()));
+                });
+            }
+        }
+
         test('should enable localhost DNS rebinding protection by default', () => {
             const app = createMcpExpressApp();
 
@@ -177,6 +192,52 @@ describe('@modelcontextprotocol/express', () => {
             expect(app).toBeDefined();
 
             warn.mockRestore();
+        });
+
+        test('should return JSON-RPC error for invalid JSON', async () => {
+            const app = createMcpExpressApp({ maxBodyBytes: 1024 });
+            app.post('/mcp', (_req, res) => {
+                res.json({ ok: true });
+            });
+
+            await withServer(app, async baseUrl => {
+                const resp = await fetch(`${baseUrl}/mcp`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: '{'
+                });
+
+                expect(resp.status).toBe(400);
+                const data = await resp.json();
+                expect(data).toEqual({
+                    jsonrpc: '2.0',
+                    error: { code: -32_000, message: 'Invalid JSON' },
+                    id: null
+                });
+            });
+        });
+
+        test('should return JSON-RPC error for payload too large', async () => {
+            const app = createMcpExpressApp({ maxBodyBytes: 64 });
+            app.post('/mcp', (_req, res) => {
+                res.json({ ok: true });
+            });
+
+            await withServer(app, async baseUrl => {
+                const resp = await fetch(`${baseUrl}/mcp`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ data: 'x'.repeat(2048) })
+                });
+
+                expect(resp.status).toBe(413);
+                const data = await resp.json();
+                expect(data).toEqual({
+                    jsonrpc: '2.0',
+                    error: { code: -32_000, message: 'Payload too large' },
+                    id: null
+                });
+            });
         });
     });
 });
