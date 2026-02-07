@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import request from 'supertest';
 import { vi } from 'vitest';
 
 import { createMcpExpressApp } from '../src/express.js';
@@ -177,6 +178,18 @@ describe('@modelcontextprotocol/express', () => {
             expect(app).toBeDefined();
 
             warn.mockRestore();
+        });
+
+        test('should enforce maxBodyBytes on the built-in JSON parser', async () => {
+            const app = createMcpExpressApp({ maxBodyBytes: 10 });
+            app.post('/echo', (_req, res) => {
+                res.status(200).json({ ok: true });
+            });
+
+            const body = JSON.stringify({ a: '0123456789' }); // > 10 bytes
+            const res = await request(app).post('/echo').set('Host', '127.0.0.1').set('Content-Type', 'application/json').send(body);
+
+            expect(res.status).toBe(413);
         });
     });
 });

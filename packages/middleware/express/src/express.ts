@@ -3,6 +3,8 @@ import express from 'express';
 
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
 
+const DEFAULT_MAX_BODY_BYTES = 1_000_000; // 1MB
+
 /**
  * Options for creating an MCP Express application.
  */
@@ -22,6 +24,14 @@ export interface CreateMcpExpressAppOptions {
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
+
+    /**
+     * Maximum JSON request body size in bytes.
+     * Used by the built-in `express.json()` middleware for basic DoS resistance.
+     *
+     * @default 1_000_000 (1 MB)
+     */
+    maxBodyBytes?: number;
 }
 
 /**
@@ -48,10 +58,10 @@ export interface CreateMcpExpressAppOptions {
  * ```
  */
 export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): Express {
-    const { host = '127.0.0.1', allowedHosts } = options;
+    const { host = '127.0.0.1', allowedHosts, maxBodyBytes = DEFAULT_MAX_BODY_BYTES } = options;
 
     const app = express();
-    app.use(express.json());
+    app.use(express.json({ limit: maxBodyBytes }));
 
     // If allowedHosts is explicitly provided, use that for validation
     if (allowedHosts) {

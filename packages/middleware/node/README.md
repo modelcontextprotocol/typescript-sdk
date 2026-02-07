@@ -28,6 +28,8 @@ import { McpServer } from '@modelcontextprotocol/server';
 
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 const app = createMcpExpressApp();
+// You can tune the built-in JSON body size limit:
+// const app = createMcpExpressApp({ maxBodyBytes: 200_000 });
 
 app.post('/mcp', async (req, res) => {
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
