@@ -18,6 +18,8 @@ pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamabl
 
 By default, example servers bind to `localhost`. To bind to a different interface, set `MCP_HOST` (for example `MCP_HOST=0.0.0.0`).
 
+Some examples also enable demo-only CORS for browser-based clients. By default they only allow loopback origins; to allow a different origin, set `MCP_CORS_ORIGIN_REGEX` (for example `MCP_CORS_ORIGIN_REGEX=^https://chatgpt\\.com$`).
+
 Or, from within this package:
 
 ```bash
