@@ -220,12 +220,13 @@ const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AU
 
 const app = createMcpExpressApp();
 
-// Allow CORS all domains, expose the Mcp-Session-Id header
+// CORS: allow only localhost origins (typical for local dev / Inspector direct connect),
+// and expose the Mcp-Session-Id header.
 app.use(
     cors({
-        origin: '*', // Allow all origins
+        origin: [/^http:\/\/localhost(?::\d+)?$/, /^http:\/\/127\.0\.0\.1(?::\d+)?$/, /^http:\/\/\[::1\](?::\d+)?$/],
         exposedHeaders: ['Mcp-Session-Id'],
-        credentials: true // Allow cookies to be sent cross-origin
+        credentials: true
     })
 );
 
