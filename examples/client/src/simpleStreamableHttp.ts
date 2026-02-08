@@ -298,11 +298,14 @@ async function connect(url?: string): Promise<void> {
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
 
             // Helper to return result, optionally creating a task if requested
-            const returnResult = async (result: { action: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> }) => {
-                if (request.params.task && extra.taskStore) {
+            const returnResult = async (result: {
+                action: 'accept' | 'decline' | 'cancel';
+                content?: Record<string, string | number | boolean | string[]>;
+            }) => {
+                if (request.params.task && extra.task?.store) {
                     // Create a task and store the result
-                    const task = await extra.taskStore.createTask({ ttl: extra.taskRequestedTtl });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
                     console.log(`📋 Created client-side task: ${task.taskId}`);
                     return { task };
                 }

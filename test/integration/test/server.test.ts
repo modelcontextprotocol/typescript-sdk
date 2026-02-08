@@ -1833,7 +1833,7 @@ describe('createMessageStream', () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             role: 'assistant',
             content: { type: 'text', text: 'Response' },
             model: 'test-model'
@@ -1855,7 +1855,7 @@ describe('createMessageStream', () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             role: 'assistant',
             content: { type: 'text', text: 'Response' },
             model: 'test-model'
@@ -1883,7 +1883,7 @@ describe('createMessageStream', () => {
             const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
             const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-            client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            client.setRequestHandler('sampling/createMessage', async () => ({
                 role: 'assistant',
                 content: { type: 'text', text: 'Response' },
                 model: 'test-model'
@@ -1910,7 +1910,7 @@ describe('createMessageStream', () => {
             const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
             const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-            client.setRequestHandler(CreateMessageRequestSchema, async () => {
+            client.setRequestHandler('sampling/createMessage', async () => {
                 throw new Error('Simulated client error');
             });
 
@@ -1932,7 +1932,7 @@ describe('createMessageStream', () => {
             const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
             const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-            client.setRequestHandler(CreateMessageRequestSchema, () => ({
+            client.setRequestHandler('sampling/createMessage', () => ({
                 model: 'test-model',
                 role: 'assistant' as const,
                 content: { type: 'text' as const, text: 'Response' }
@@ -1965,7 +1965,7 @@ describe('createMessageStream', () => {
             const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
             const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-            client.setRequestHandler(CreateMessageRequestSchema, () => ({
+            client.setRequestHandler('sampling/createMessage', () => ({
                 model: 'test-model',
                 role: 'assistant' as const,
                 content: { type: 'text' as const, text: 'Response' }
@@ -2010,16 +2010,16 @@ describe('createMessageStream', () => {
                 }
             );
 
-            client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+            client.setRequestHandler('sampling/createMessage', async (request, extra) => {
                 const result = {
                     model: 'test-model',
                     role: 'assistant' as const,
                     content: { type: 'text' as const, text: 'Task response' }
                 };
 
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({ ttl: extra.taskRequestedTtl });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                if (request.params.task && extra.task?.store) {
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
                     return { task };
                 }
                 return result;
@@ -3505,7 +3505,7 @@ describe('elicitInputStream', () => {
     test('should default to form mode when mode is not specified', async () => {
         const requestStreamSpy = vi.spyOn(server.experimental.tasks, 'requestStream');
 
-        client.setRequestHandler(ElicitRequestSchema, () => ({
+        client.setRequestHandler('elicitation/create', () => ({
             action: 'accept',
             content: { value: 'test' }
         }));
@@ -3538,7 +3538,7 @@ describe('elicitInputStream', () => {
     });
 
     test('should yield error as terminal message when client returns error', async () => {
-        client.setRequestHandler(ElicitRequestSchema, () => {
+        client.setRequestHandler('elicitation/create', () => {
             throw new Error('Simulated client error');
         });
 
@@ -3567,7 +3567,7 @@ describe('elicitInputStream', () => {
             { action: 'decline' as const, content: undefined },
             { action: 'cancel' as const, content: undefined }
         ])('should yield exactly one terminal message for action: $action', async ({ action, content }) => {
-            client.setRequestHandler(ElicitRequestSchema, () => ({
+            client.setRequestHandler('elicitation/create', () => ({
                 action,
                 content
             }));
@@ -3609,7 +3609,7 @@ describe('elicitInputStream', () => {
             { action: 'decline' as const, content: undefined },
             { action: 'cancel' as const, content: undefined }
         ])('should yield only result message for non-task request with action: $action', async ({ action, content }) => {
-            client.setRequestHandler(ElicitRequestSchema, () => ({
+            client.setRequestHandler('elicitation/create', () => ({
                 action,
                 content
             }));
@@ -3662,15 +3662,15 @@ describe('elicitInputStream', () => {
                 }
             );
 
-            taskClient.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            taskClient.setRequestHandler('elicitation/create', async (request, extra) => {
                 const result = {
                     action: 'accept' as const,
                     content: { username: 'task-user' }
                 };
 
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({ ttl: extra.taskRequestedTtl });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                if (request.params.task && extra.task?.store) {
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
                     return { task };
                 }
                 return result;
