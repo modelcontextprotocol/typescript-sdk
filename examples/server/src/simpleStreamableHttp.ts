@@ -503,13 +503,31 @@ const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AU
 
 const app = createMcpExpressApp({ host: MCP_HOST });
 
-// Enable CORS for browser-based clients (demo only)
-// This allows cross-origin requests and exposes WWW-Authenticate header for OAuth
-// WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
+const DEFAULT_CORS_ORIGIN_REGEX = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+
+let corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+if (process.env.MCP_CORS_ORIGIN_REGEX) {
+    try {
+        corsOriginRegex = new RegExp(process.env.MCP_CORS_ORIGIN_REGEX);
+    } catch (error) {
+        const msg =
+            error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : String(error);
+        console.warn(`Invalid MCP_CORS_ORIGIN_REGEX (${process.env.MCP_CORS_ORIGIN_REGEX}): ${msg}`);
+        corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+    }
+}
+
+// CORS: allow only loopback origins by default (typical for local dev / Inspector direct connect).
+// If you intentionally expose this demo remotely, set MCP_CORS_ORIGIN_REGEX explicitly.
+// This also exposes WWW-Authenticate for OAuth flows.
 app.use(
     cors({
         exposedHeaders: ['WWW-Authenticate', 'Mcp-Session-Id', 'Last-Event-Id', 'Mcp-Protocol-Version'],
-        origin: '*' // WARNING: This allows all origins to access the MCP server. In production, you should restrict this to specific origins.
+        origin: (origin, cb) => {
+            // Allow non-browser clients (no Origin header).
+            if (!origin) return cb(null, true);
+            return cb(null, corsOriginRegex.test(origin));
+        }
     })
 );
 

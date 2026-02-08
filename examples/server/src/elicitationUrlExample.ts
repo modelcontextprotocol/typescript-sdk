@@ -221,12 +221,32 @@ const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AU
 
 const app = createMcpExpressApp({ host: MCP_HOST });
 
-// Allow CORS all domains, expose the Mcp-Session-Id header
+const DEFAULT_CORS_ORIGIN_REGEX = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+
+let corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+if (process.env.MCP_CORS_ORIGIN_REGEX) {
+    try {
+        corsOriginRegex = new RegExp(process.env.MCP_CORS_ORIGIN_REGEX);
+    } catch (error) {
+        const msg =
+            error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : String(error);
+        console.warn(`Invalid MCP_CORS_ORIGIN_REGEX (${process.env.MCP_CORS_ORIGIN_REGEX}): ${msg}`);
+        corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+    }
+}
+
+// CORS: allow only loopback origins by default (typical for local dev / Inspector direct connect).
+// If you intentionally expose this demo remotely, set MCP_CORS_ORIGIN_REGEX explicitly.
+// Also expose the Mcp-Session-Id header.
 app.use(
     cors({
-        origin: '*', // Allow all origins
+        origin: (origin, cb) => {
+            // Allow non-browser clients (no Origin header).
+            if (!origin) return cb(null, true);
+            return cb(null, corsOriginRegex.test(origin));
+        },
         exposedHeaders: ['Mcp-Session-Id'],
-        credentials: true // Allow cookies to be sent cross-origin
+        credentials: true
     })
 );
 

@@ -38,6 +38,30 @@ export interface SetupAuthServerOptions {
 let globalAuth: DemoAuth | null = null;
 let demoUserCreated = false;
 
+const DEFAULT_CORS_ORIGIN_REGEX = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+
+function buildCorsMiddleware(): ReturnType<typeof cors> {
+    let corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+    if (process.env.MCP_CORS_ORIGIN_REGEX) {
+        try {
+            corsOriginRegex = new RegExp(process.env.MCP_CORS_ORIGIN_REGEX);
+        } catch (error) {
+            const msg =
+                error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : String(error);
+            console.warn(`Invalid MCP_CORS_ORIGIN_REGEX (${process.env.MCP_CORS_ORIGIN_REGEX}): ${msg}`);
+            corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+        }
+    }
+
+    return cors({
+        origin: (origin, cb) => {
+            // Allow non-browser clients (no Origin header).
+            if (!origin) return cb(null, true);
+            return cb(null, corsOriginRegex.test(origin));
+        }
+    });
+}
+
 /**
  * Gets the global auth instance (must call setupAuthServer first)
  */
@@ -102,13 +126,11 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     // Create Express app for auth server
     const authApp = express();
 
-    // Enable CORS for all origins (demo only) - must be before other middleware
-    // WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
-    authApp.use(
-        cors({
-            origin: '*' // WARNING: This allows all origins to access the auth server. In production, you should restrict this to specific origins.
-        })
-    );
+    // CORS: allow only loopback origins by default (typical for local dev / Inspector direct connect).
+    // If you intentionally expose this demo remotely, set MCP_CORS_ORIGIN_REGEX explicitly.
+    // Must be before other middleware.
+    const corsMw = buildCorsMiddleware();
+    authApp.use(corsMw);
 
     // Create better-auth handler
     // toNodeHandler bypasses Express methods
@@ -163,8 +185,8 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
 
     // OAuth metadata endpoints using better-auth's built-in handlers
     // Add explicit OPTIONS handler for CORS preflight
-    authApp.options('/.well-known/oauth-authorization-server', cors());
-    authApp.get('/.well-known/oauth-authorization-server', cors(), toNodeHandler(oAuthDiscoveryMetadata(auth)));
+    authApp.options('/.well-known/oauth-authorization-server', corsMw);
+    authApp.get('/.well-known/oauth-authorization-server', corsMw, toNodeHandler(oAuthDiscoveryMetadata(auth)));
 
     // Body parsers for non-better-auth routes (like /sign-in)
     const maxBodyBytes = 100 * 1024; // Make the default explicit to avoid accidental large-body DoS.
@@ -273,14 +295,15 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
 export function createProtectedResourceMetadataRouter(resourcePath = '/mcp'): Router {
     const auth = getAuth();
     const router = express.Router();
+    const corsMw = buildCorsMiddleware();
 
     // Construct the metadata path per RFC 9728 Section 3
     const metadataPath = `/.well-known/oauth-protected-resource${resourcePath}`;
 
     // Enable CORS for browser-based clients to discover the auth server
     // Add explicit OPTIONS handler for CORS preflight
-    router.options(metadataPath, cors());
-    router.get(metadataPath, cors(), toNodeHandler(oAuthProtectedResourceMetadata(auth)));
+    router.options(metadataPath, corsMw);
+    router.get(metadataPath, corsMw, toNodeHandler(oAuthProtectedResourceMetadata(auth)));
 
     return router;
 }

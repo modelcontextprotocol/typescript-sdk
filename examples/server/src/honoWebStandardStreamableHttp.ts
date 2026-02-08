@@ -41,11 +41,29 @@ const transport = new WebStandardStreamableHTTPServerTransport();
 // Create the Hono app
 const app = new Hono();
 
-// Enable CORS for all origins
+const DEFAULT_CORS_ORIGIN_REGEX = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+
+let corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+if (process.env.MCP_CORS_ORIGIN_REGEX) {
+    try {
+        corsOriginRegex = new RegExp(process.env.MCP_CORS_ORIGIN_REGEX);
+    } catch (error) {
+        const msg =
+            error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : String(error);
+        console.warn(`Invalid MCP_CORS_ORIGIN_REGEX (${process.env.MCP_CORS_ORIGIN_REGEX}): ${msg}`);
+        corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+    }
+}
+
+// CORS: allow only loopback origins by default (typical for local dev / Inspector direct connect).
+// If you intentionally expose this demo remotely, set MCP_CORS_ORIGIN_REGEX explicitly.
 app.use(
     '*',
     cors({
-        origin: '*',
+        origin: (origin, _c) => {
+            if (!origin) return null;
+            return corsOriginRegex.test(origin) ? origin : null;
+        },
         allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'mcp-session-id', 'Last-Event-ID', 'mcp-protocol-version'],
         exposeHeaders: ['mcp-session-id', 'mcp-protocol-version']
