@@ -2,6 +2,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import type {
     CreateMessageResult,
+    ElicitRequestSchema,
     ElicitResult,
     JsonSchemaType,
     JsonSchemaValidator,
@@ -13,12 +14,11 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
+    CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateTaskResultSchema,
     ElicitResultSchema,
     InMemoryTransport,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
     LATEST_PROTOCOL_VERSION,
     SdkError,
     SdkErrorCode,
