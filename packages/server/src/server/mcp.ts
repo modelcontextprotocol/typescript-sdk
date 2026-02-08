@@ -115,7 +115,12 @@ export class McpServer {
         this.server.assertCanSetRequestHandler('tools/list');
         this.server.assertCanSetRequestHandler('tools/call');
 
-       
+        // Register tools capability BEFORE setting handlers
+        this.server.registerCapabilities({
+            tools: {
+                listChanged: true
+            }
+        });
 
         this.server.setRequestHandler(
             'tools/list',
