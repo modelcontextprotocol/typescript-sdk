@@ -94,7 +94,10 @@ const getServer = () => {
     return server;
 };
 
-const app = createMcpExpressApp();
+const HOST = process.env.MCP_HOST ?? 'localhost';
+const PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
+
+const app = createMcpExpressApp({ host: HOST });
 
 app.post('/mcp', async (req: Request, res: Response) => {
     const server = getServer();
@@ -153,14 +156,13 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 });
 
 // Start the server
-const PORT = 3000;
-app.listen(PORT, error => {
-    if (error) {
-        console.error('Failed to start server:', error);
-        // eslint-disable-next-line unicorn/no-process-exit
-        process.exit(1);
-    }
-    console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+    console.log(`MCP Stateless Streamable HTTP Server listening on http://${HOST}:${PORT}/mcp`);
+});
+server.on('error', error => {
+    console.error('Failed to start server:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
 });
 
 // Handle server shutdown

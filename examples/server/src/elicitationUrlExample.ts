@@ -215,17 +215,38 @@ function completeURLElicitation(elicitationId: string) {
     elicitation.completeResolver();
 }
 
+const MCP_HOST = process.env.MCP_HOST ?? 'localhost';
 const MCP_PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
-const app = createMcpExpressApp();
+const app = createMcpExpressApp({ host: MCP_HOST });
 
-// Allow CORS all domains, expose the Mcp-Session-Id header
+const DEFAULT_CORS_ORIGIN_REGEX = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+
+let corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+if (process.env.MCP_CORS_ORIGIN_REGEX) {
+    try {
+        corsOriginRegex = new RegExp(process.env.MCP_CORS_ORIGIN_REGEX);
+    } catch (error) {
+        const msg =
+            error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : String(error);
+        console.warn(`Invalid MCP_CORS_ORIGIN_REGEX (${process.env.MCP_CORS_ORIGIN_REGEX}): ${msg}`);
+        corsOriginRegex = DEFAULT_CORS_ORIGIN_REGEX;
+    }
+}
+
+// CORS: allow only loopback origins by default (typical for local dev / Inspector direct connect).
+// If you intentionally expose this demo remotely, set MCP_CORS_ORIGIN_REGEX explicitly.
+// Also expose the Mcp-Session-Id header.
 app.use(
     cors({
-        origin: '*', // Allow all origins
+        origin: (origin, cb) => {
+            // Allow non-browser clients (no Origin header).
+            if (!origin) return cb(null, true);
+            return cb(null, corsOriginRegex.test(origin));
+        },
         exposedHeaders: ['Mcp-Session-Id'],
-        credentials: true // Allow cookies to be sent cross-origin
+        credentials: true
     })
 );
 
@@ -703,14 +724,14 @@ const mcpDeleteHandler = async (req: Request, res: Response) => {
 // Set up DELETE route with auth middleware
 app.delete('/mcp', authMiddleware, mcpDeleteHandler);
 
-app.listen(MCP_PORT, error => {
-    if (error) {
-        console.error('Failed to start server:', error);
-        // eslint-disable-next-line unicorn/no-process-exit
-        process.exit(1);
-    }
-    console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
-    console.log(`  Protected Resource Metadata: http://localhost:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
+const httpServer = app.listen(MCP_PORT, MCP_HOST, () => {
+    console.log(`MCP Streamable HTTP Server listening on http://${MCP_HOST}:${MCP_PORT}/mcp`);
+    console.log(`  Protected Resource Metadata: http://${MCP_HOST}:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
+});
+httpServer.on('error', error => {
+    console.error('Failed to start server:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
 });
 
 // Handle server shutdown

@@ -51,15 +51,23 @@ const transport = new NodeStreamableHTTPServerTransport({
 await server.connect(transport);
 
 // Simple HTTP server
+const HOST = process.env.MCP_HOST ?? 'localhost';
 const PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
 
-createServer(async (req, res) => {
+const httpServer = createServer(async (req, res) => {
     if (req.url === '/mcp') {
         await transport.handleRequest(req, res);
     } else {
         res.writeHead(404).end('Not Found');
     }
-}).listen(PORT, () => {
-    console.log(`MCP server with custom protocol versions on port ${PORT}`);
+});
+
+httpServer.listen(PORT, HOST, () => {
+    console.log(`MCP server with custom protocol versions on http://${HOST}:${PORT}/mcp`);
     console.log(`Supported versions: ${CUSTOM_VERSIONS.join(', ')}`);
+});
+httpServer.on('error', error => {
+    console.error('Failed to start server:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
 });

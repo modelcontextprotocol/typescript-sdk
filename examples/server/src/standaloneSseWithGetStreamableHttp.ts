@@ -36,7 +36,10 @@ const resourceChangeInterval = setInterval(() => {
     addResource(name, `Content for ${name}`);
 }, 5000); // Change resources every 5 seconds for testing
 
-const app = createMcpExpressApp();
+const HOST = process.env.MCP_HOST ?? 'localhost';
+const PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
+
+const app = createMcpExpressApp({ host: HOST });
 
 app.post('/mcp', async (req: Request, res: Response) => {
     console.log('Received MCP request:', req.body);
@@ -110,14 +113,13 @@ app.get('/mcp', async (req: Request, res: Response) => {
 });
 
 // Start the server
-const PORT = 3000;
-app.listen(PORT, error => {
-    if (error) {
-        console.error('Failed to start server:', error);
-        // eslint-disable-next-line unicorn/no-process-exit
-        process.exit(1);
-    }
-    console.log(`Server listening on port ${PORT}`);
+const httpServer = app.listen(PORT, HOST, () => {
+    console.log(`Server listening on http://${HOST}:${PORT}/mcp`);
+});
+httpServer.on('error', error => {
+    console.error('Failed to start server:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
 });
 
 // Handle server shutdown
