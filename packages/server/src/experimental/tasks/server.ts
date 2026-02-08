@@ -118,10 +118,7 @@ export class ExperimentalServerTasks {
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<CreateMessageResult>, void, void> {
         // Access client capabilities via the server
-        type ServerWithCapabilities = {
-            getClientCapabilities(): { sampling?: { tools?: boolean } } | undefined;
-        };
-        const clientCapabilities = (this._server as unknown as ServerWithCapabilities).getClientCapabilities();
+        const clientCapabilities = this._server.getClientCapabilities();
 
         // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !clientCapabilities?.sampling?.tools) {
@@ -153,23 +150,22 @@ export class ExperimentalServerTasks {
                 }
             }
             if (hasPreviousToolUse) {
-                type ToolUseContent = { type: 'tool_use'; id: string };
-                type ToolResultContent = { type: 'tool_result'; toolUseId: string };
-                const toolUseIds = new Set(previousContent.filter(c => c.type === 'tool_use').map(c => (c as ToolUseContent).id));
-                const toolResultIds = new Set(
-                    lastContent.filter(c => c.type === 'tool_result').map(c => (c as ToolResultContent).toolUseId)
-                );
+                const toolUseIds = new Set(previousContent.filter(c => c.type === 'tool_use').map(c => c.id));
+                const toolResultIds = new Set(lastContent.filter(c => c.type === 'tool_result').map(c => c.toolUseId));
                 if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every(id => toolResultIds.has(id))) {
                     throw new Error('ids of tool_result blocks and tool_use blocks from previous message do not match');
                 }
             }
         }
 
-        const request = {
-            method: 'sampling/createMessage' as const,
-            params
-        };
-        return this.requestStream(request, CreateMessageResultSchema, options);
+        return this.requestStream(
+            {
+                method: 'sampling/createMessage',
+                params
+            },
+            CreateMessageResultSchema,
+            options
+        );
     }
 
     /**
@@ -219,12 +215,8 @@ export class ExperimentalServerTasks {
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<ElicitResult>, void, void> {
         // Access client capabilities via the server
-        type ServerWithCapabilities = {
-            getClientCapabilities(): { elicitation?: { form?: boolean; url?: boolean } } | undefined;
-        };
-        const clientCapabilities = (this._server as unknown as ServerWithCapabilities).getClientCapabilities();
-
-        const mode = (params.mode ?? 'form') as 'form' | 'url';
+        const clientCapabilities = this._server.getClientCapabilities();
+        const mode = params.mode ?? 'form';
 
         // Capability check based on mode
         switch (mode) {
@@ -243,14 +235,15 @@ export class ExperimentalServerTasks {
         }
 
         // Normalize params to ensure mode is set
-        const normalizedParams =
-            mode === 'form' && params.mode !== 'form' ? { ...(params as ElicitRequestFormParams), mode: 'form' as const } : params;
-
-        const request = {
-            method: 'elicitation/create' as const,
-            params: normalizedParams
-        };
-        return this.requestStream(request, ElicitResultSchema, options);
+        const normalizedParams = mode === 'form' && params.mode !== 'form' ? { ...params, mode: 'form' } : params;
+        return this.requestStream(
+            {
+                method: 'elicitation/create',
+                params: normalizedParams
+            },
+            ElicitResultSchema,
+            options
+        );
     }
 
     /**
