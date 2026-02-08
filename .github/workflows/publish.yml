@@ -38,6 +38,33 @@ jobs:
               run: pnpm run build:all
 
             - name: Publish preview packages
-              run:
-                  pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/client'
-                  './packages/middleware/express' './packages/middleware/hono' './packages/middleware/node'
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  # pkg.pr.new can occasionally return transient 5xx/Cloudflare errors.
+                  # Retry a few times to reduce CI flake without masking real failures.
+                  for attempt in 1 2 3; do
+                      tmp="$(mktemp)"
+                      if pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm \
+                          './packages/server' \
+                          './packages/client' \
+                          './packages/middleware/express' \
+                          './packages/middleware/hono' \
+                          './packages/middleware/node' \
+                          2>&1 | tee "$tmp"; then
+                          exit 0
+                      fi
+
+                      if grep -Eq 'Check failed \\(5[0-9]{2}\\)|Cloudflare|Worker threw exception' "$tmp"; then
+                          echo "pkg-pr-new publish failed with a transient-looking error (attempt $attempt/3). Retrying..." >&2
+                          sleep "$((attempt * 10))"
+                          continue
+                      fi
+
+                      echo "pkg-pr-new publish failed with a non-transient error; not retrying." >&2
+                      exit 1
+                  done
+
+                  echo "pkg-pr-new publish failed after retries." >&2
+                  exit 1
