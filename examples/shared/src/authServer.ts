@@ -106,11 +106,7 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     // WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
     authApp.use(
         cors({
-            origin: [
-                /^http:\/\/localhost(?::\d+)?$/,
-                /^http:\/\/127\.0\.0\.1(?::\d+)?$/,
-                /^http:\/\/\[::1\](?::\d+)?$/
-            ] // Default to localhost for demo safety. In production, configure this explicitly.
+            origin: [/^http:\/\/localhost(?::\d+)?$/, /^http:\/\/127\.0\.0\.1(?::\d+)?$/, /^http:\/\/\[::1\](?::\d+)?$/] // Default to localhost for demo safety. In production, configure this explicitly.
         })
     );
 
