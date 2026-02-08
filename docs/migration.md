@@ -252,6 +252,7 @@ server.registerTool('ping', {
 ```
 
 This applies to:
+
 - `inputSchema` in `registerTool()`
 - `outputSchema` in `registerTool()`
 - `argsSchema` in `registerPrompt()`
@@ -385,32 +386,32 @@ import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse
 
 The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy using nested groups:
 
-| v1 | v2 |
-|----|-----|
+| v1                                       | v2                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
 | `RequestHandlerExtra` (flat, all fields) | `ServerContext` (server handlers) or `ClientContext` (client handlers) |
-| `extra` parameter name | `ctx` parameter name |
-| `extra.signal` | `ctx.mcpReq.signal` |
-| `extra.requestId` | `ctx.mcpReq.id` |
-| `extra._meta` | `ctx.mcpReq._meta` |
-| `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
-| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
-| `extra.authInfo` | `ctx.http?.authInfo` |
-| `extra.requestInfo` | `ctx.http?.req` (only on `ServerContext`) |
-| `extra.closeSSEStream` | `ctx.http?.closeSSE` (only on `ServerContext`) |
-| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`) |
-| `extra.sessionId` | `ctx.sessionId` |
-| `extra.taskStore` | `ctx.task?.store` |
-| `extra.taskId` | `ctx.task?.id` |
-| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+| `extra` parameter name                   | `ctx` parameter name                                                   |
+| `extra.signal`                           | `ctx.mcpReq.signal`                                                    |
+| `extra.requestId`                        | `ctx.mcpReq.id`                                                        |
+| `extra._meta`                            | `ctx.mcpReq._meta`                                                     |
+| `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
+| `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
+| `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
+| `extra.requestInfo`                      | `ctx.http?.req` (only on `ServerContext`)                              |
+| `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
+| `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
+| `extra.sessionId`                        | `ctx.sessionId`                                                        |
+| `extra.taskStore`                        | `ctx.task?.store`                                                      |
+| `extra.taskId`                           | `ctx.task?.id`                                                         |
+| `extra.taskRequestedTtl`                 | `ctx.task?.requestedTtl`                                               |
 
 **Before (v1):**
 
 ```typescript
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-  const headers = extra.requestInfo?.headers;
-  const taskStore = extra.taskStore;
-  await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
-  return { content: [{ type: 'text', text: 'result' }] };
+    const headers = extra.requestInfo?.headers;
+    const taskStore = extra.taskStore;
+    await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+    return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
@@ -418,10 +419,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-  const headers = ctx.http?.req?.headers;
-  const taskStore = ctx.task?.store;
-  await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
-  return { content: [{ type: 'text', text: 'result' }] };
+    const headers = ctx.http?.req?.headers;
+    const taskStore = ctx.task?.store;
+    await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+    return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
@@ -437,22 +438,22 @@ Context fields are organized into 4 groups:
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-  // Send a log message (respects client's log level filter)
-  await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
+    // Send a log message (respects client's log level filter)
+    await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
 
-  // Request client to sample an LLM
-  const samplingResult = await ctx.mcpReq.requestSampling({
-    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
-    maxTokens: 100,
-  });
+    // Request client to sample an LLM
+    const samplingResult = await ctx.mcpReq.requestSampling({
+        messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+        maxTokens: 100
+    });
 
-  // Elicit user input via a form
-  const elicitResult = await ctx.mcpReq.elicitInput({
-    message: 'Please provide details',
-    requestedSchema: { type: 'object', properties: { name: { type: 'string' } } },
-  });
+    // Elicit user input via a form
+    const elicitResult = await ctx.mcpReq.elicitInput({
+        message: 'Please provide details',
+        requestedSchema: { type: 'object', properties: { name: { type: 'string' } } }
+    });
 
-  return { content: [{ type: 'text', text: 'done' }] };
+    return { content: [{ type: 'text', text: 'done' }] };
 });
 ```
 
@@ -579,7 +580,8 @@ try {
 
 #### Why this change?
 
-Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was semantically inconsistent.
+Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was
+semantically inconsistent.
 
 The new design:
 
@@ -676,11 +678,11 @@ This means Cloudflare Workers users no longer need to explicitly pass the valida
 import { McpServer, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
 
 const server = new McpServer(
-  { name: 'my-server', version: '1.0.0' },
-  {
-    capabilities: { tools: {} },
-    jsonSchemaValidator: new CfWorkerJsonSchemaValidator() // Required in v1
-  }
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator() // Required in v1
+    }
 );
 ```
 
@@ -690,9 +692,9 @@ const server = new McpServer(
 import { McpServer } from '@modelcontextprotocol/server';
 
 const server = new McpServer(
-  { name: 'my-server', version: '1.0.0' },
-  { capabilities: { tools: {} } }
-  // Validator auto-selected based on runtime
+    { name: 'my-server', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+    // Validator auto-selected based on runtime
 );
 ```
 

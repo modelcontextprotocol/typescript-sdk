@@ -173,14 +173,14 @@ The `ctx` parameter in handlers provides a structured context:
 
 - `sessionId?`: Transport session identifier
 - `mcpReq`: Request-level concerns
-  - `id`: JSON-RPC message ID
-  - `method`: Request method string (e.g., 'tools/call')
-  - `_meta?`: Request metadata
-  - `signal`: AbortSignal for cancellation
-  - `send(request, schema, options?)`: Send related request (for bidirectional flows)
-  - `notify(notification)`: Send related notification back
+    - `id`: JSON-RPC message ID
+    - `method`: Request method string (e.g., 'tools/call')
+    - `_meta?`: Request metadata
+    - `signal`: AbortSignal for cancellation
+    - `send(request, schema, options?)`: Send related request (for bidirectional flows)
+    - `notify(notification)`: Send related notification back
 - `http?`: HTTP transport info (undefined for stdio)
-  - `authInfo?`: Validated auth token info
+    - `authInfo?`: Validated auth token info
 - `task?`: Task context (`{ id?, store, requestedTtl? }`) when task storage is configured
 
 **`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:

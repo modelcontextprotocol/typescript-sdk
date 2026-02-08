@@ -142,11 +142,11 @@ export class Server extends Protocol<ServerContext> {
             },
             http: hasHttpInfo
                 ? {
-                    ...ctx.http,
-                    req: transportInfo?.requestInfo,
-                    closeSSE: transportInfo?.closeSSEStream,
-                    closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
-                }
+                      ...ctx.http,
+                      req: transportInfo?.requestInfo,
+                      closeSSE: transportInfo?.closeSSEStream,
+                      closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
+                  }
                 : undefined
         };
     }

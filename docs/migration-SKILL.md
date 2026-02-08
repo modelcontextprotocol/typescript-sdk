@@ -47,15 +47,15 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Server imports
 
-| v1 import path                                       | v2 package                                                                                                                                                                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                      |
-| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                      |
-| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                      |
+| v1 import path                                       | v2 package                                                                                                                                                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
-| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                                |
-| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                 |
-| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                  |
+| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
+| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                |
+| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                 |
 
 ### Types / shared imports
 
@@ -203,7 +203,8 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
 
-**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types.
+**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod
+schemas, all callback return types.
 
 ## 6. McpServer API Changes
 
@@ -279,12 +280,12 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ### Schema Migration Quick Reference
 
-| v1 (raw shape) | v2 (Zod schema) |
-|----------------|-----------------|
-| `{ name: z.string() }` | `z.object({ name: z.string() })` |
+| v1 (raw shape)                     | v2 (Zod schema)                              |
+| ---------------------------------- | -------------------------------------------- |
+| `{ name: z.string() }`             | `z.object({ name: z.string() })`             |
 | `{ count: z.number().optional() }` | `z.object({ count: z.number().optional() })` |
-| `{}` (empty) | `z.object({})` |
-| `undefined` (no schema) | `undefined` or omit the field |
+| `{}` (empty)                       | `z.object({})`                               |
+| `undefined` (no schema)            | `undefined` or omit the field                |
 
 ## 7. Headers API
 
@@ -370,31 +371,31 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 
 `RequestHandlerExtra` → structured context types with nested groups. Rename `extra` → `ctx` in all handler callbacks.
 
-| v1 | v2 |
-|----|-----|
-| `RequestHandlerExtra` | `ServerContext` (server) / `ClientContext` (client) / `BaseContext` (base) |
-| `extra` (param name) | `ctx` |
-| `extra.signal` | `ctx.mcpReq.signal` |
-| `extra.requestId` | `ctx.mcpReq.id` |
-| `extra._meta` | `ctx.mcpReq._meta` |
-| `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
-| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
-| `extra.authInfo` | `ctx.http?.authInfo` |
-| `extra.sessionId` | `ctx.sessionId` |
-| `extra.requestInfo` | `ctx.http?.req` (only `ServerContext`) |
-| `extra.closeSSEStream` | `ctx.http?.closeSSE` (only `ServerContext`) |
-| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`) |
-| `extra.taskStore` | `ctx.task?.store` |
-| `extra.taskId` | `ctx.task?.id` |
-| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+| v1                               | v2                                                                         |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `RequestHandlerExtra`            | `ServerContext` (server) / `ClientContext` (client) / `BaseContext` (base) |
+| `extra` (param name)             | `ctx`                                                                      |
+| `extra.signal`                   | `ctx.mcpReq.signal`                                                        |
+| `extra.requestId`                | `ctx.mcpReq.id`                                                            |
+| `extra._meta`                    | `ctx.mcpReq._meta`                                                         |
+| `extra.sendRequest(...)`         | `ctx.mcpReq.send(...)`                                                     |
+| `extra.sendNotification(...)`    | `ctx.mcpReq.notify(...)`                                                   |
+| `extra.authInfo`                 | `ctx.http?.authInfo`                                                       |
+| `extra.sessionId`                | `ctx.sessionId`                                                            |
+| `extra.requestInfo`              | `ctx.http?.req` (only `ServerContext`)                                     |
+| `extra.closeSSEStream`           | `ctx.http?.closeSSE` (only `ServerContext`)                                |
+| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
+| `extra.taskStore`                | `ctx.task?.store`                                                          |
+| `extra.taskId`                   | `ctx.task?.id`                                                             |
+| `extra.taskRequestedTtl`         | `ctx.task?.requestedTtl`                                                   |
 
 `ServerContext` convenience methods (new in v2, no v1 equivalent):
 
-| Method | Description | Replaces |
-|--------|-------------|----------|
-| `ctx.mcpReq.log(level, data, logger?)` | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
-| `ctx.mcpReq.elicitInput(params, options?)` | Elicit user input (form or URL) | `server.elicitInput(...)` from within handler |
-| `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client | `server.createMessage(...)` from within handler |
+| Method                                         | Description                                            | Replaces                                             |
+| ---------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
+| `ctx.mcpReq.log(level, data, logger?)`         | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
+| `ctx.mcpReq.elicitInput(params, options?)`     | Elicit user input (form or URL)                        | `server.elicitInput(...)` from within handler        |
+| `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client                       | `server.createMessage(...)` from within handler      |
 
 ## 11. Client Behavioral Changes
 
@@ -403,6 +404,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 ## 12. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
+
 - Node.js → `AjvJsonSchemaValidator` (no change from v1)
 - Cloudflare Workers (workerd) → `CfWorkerJsonSchemaValidator` (previously required manual config)
 
@@ -410,9 +412,12 @@ The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 
 ```typescript
 // v1 (Cloudflare Workers): Required explicit validator
-new McpServer({ name: 'server', version: '1.0.0' }, {
-  jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
-});
+new McpServer(
+    { name: 'server', version: '1.0.0' },
+    {
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
+    }
+);
 
 // v2 (Cloudflare Workers): Auto-selected, explicit config optional
 new McpServer({ name: 'server', version: '1.0.0' }, {});
