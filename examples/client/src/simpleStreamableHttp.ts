@@ -14,6 +14,7 @@ import {
     Client,
     getDisplayName,
     GetPromptResultSchema,
+    InMemoryTaskStore,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
@@ -65,6 +66,7 @@ function printHelp(): void {
     console.log('  greet [name]               - Call the greet tool');
     console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
     console.log('  collect-info [type]        - Test form elicitation with collect-user-info tool (contact/preferences/feedback)');
+    console.log('  collect-info-task [type]   - Test bidirectional task support (server+client tasks) with elicitation');
     console.log('  start-notifications [interval] [count] - Start periodic notifications');
     console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
     console.log('  list-prompts               - List available prompts');
@@ -137,6 +139,11 @@ function commandLoop(): void {
 
                 case 'collect-info': {
                     await callCollectInfoTool(args[1] || 'contact');
+                    break;
+                }
+
+                case 'collect-info-task': {
+                    await callCollectInfoWithTask(args[1] || 'contact');
                     break;
                 }
 
@@ -249,7 +256,10 @@ async function connect(url?: string): Promise<void> {
     console.log(`Connecting to ${serverUrl}...`);
 
     try {
-        // Create a new client with form elicitation capability
+        // Create task store for client-side task support
+        const clientTaskStore = new InMemoryTaskStore();
+
+        // Create a new client with form elicitation capability and task support
         client = new Client(
             {
                 name: 'example-client',
@@ -259,24 +269,48 @@ async function connect(url?: string): Promise<void> {
                 capabilities: {
                     elicitation: {
                         form: {}
+                    },
+                    tasks: {
+                        requests: {
+                            elicitation: {
+                                create: {}
+                            }
+                        }
                     }
-                }
+                },
+                taskStore: clientTaskStore
             }
         );
         client.onerror = error => {
             console.error('\u001B[31mClient error:', error, '\u001B[0m');
         };
 
-        // Set up elicitation request handler with proper validation
-        client.setRequestHandler('elicitation/create', async request => {
+        // Set up elicitation request handler with proper validation and task support
+        client.setRequestHandler('elicitation/create', async (request, extra) => {
             if (request.params.mode !== 'form') {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
             console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);
+            console.log(`Task Creation Requested: ${request.params.task ? 'yes' : 'no'}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
+
+            // Helper to return result, optionally creating a task if requested
+            const returnResult = async (result: {
+                action: 'accept' | 'decline' | 'cancel';
+                content?: Record<string, string | number | boolean | string[]>;
+            }) => {
+                if (request.params.task && extra.task?.store) {
+                    // Create a task and store the result
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
+                    console.log(`📋 Created client-side task: ${task.taskId}`);
+                    return { task };
+                }
+                return result;
+            };
 
             const schema = request.params.requestedSchema;
             const properties = schema.properties;
@@ -411,7 +445,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return { action: 'cancel' };
+                    return returnResult({ action: 'cancel' });
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -424,7 +458,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return returnResult({ action: 'decline' });
                     }
                 }
 
@@ -443,7 +477,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return returnResult({ action: 'decline' });
                     }
                 }
 
@@ -460,14 +494,14 @@ async function connect(url?: string): Promise<void> {
                 switch (confirmAnswer) {
                     case 'yes':
                     case 'y': {
-                        return {
+                        return returnResult({
                             action: 'accept',
                             content
-                        };
+                        });
                     }
                     case 'cancel':
                     case 'c': {
-                        return { action: 'cancel' };
+                        return returnResult({ action: 'cancel' });
                     }
                     case 'no':
                     case 'n': {
@@ -475,7 +509,7 @@ async function connect(url?: string): Promise<void> {
                             console.log('Please re-enter the information...');
                             continue;
                         } else {
-                            return { action: 'decline' };
+                            return returnResult({ action: 'decline' });
                         }
 
                         break;
@@ -485,7 +519,7 @@ async function connect(url?: string): Promise<void> {
             }
 
             console.log('Maximum attempts reached. Declining request.');
-            return { action: 'decline' };
+            return returnResult({ action: 'decline' });
         });
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
@@ -697,6 +731,12 @@ async function callMultiGreetTool(name: string): Promise<void> {
 async function callCollectInfoTool(infoType: string): Promise<void> {
     console.log(`Testing form elicitation with collect-user-info tool (${infoType})...`);
     await callTool('collect-user-info', { infoType });
+}
+
+async function callCollectInfoWithTask(infoType: string): Promise<void> {
+    console.log(`\n🔄 Testing bidirectional task support with collect-user-info-task tool (${infoType})...`);
+    console.log('This will create a task on the server, which will elicit input and create a task on the client.\n');
+    await callToolTask('collect-user-info-task', { infoType });
 }
 
 async function startNotifications(interval: number, count: number): Promise<void> {
