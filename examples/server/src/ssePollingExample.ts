@@ -84,7 +84,11 @@ server.registerTool(
 
 // Set up Express app
 const app = createMcpExpressApp();
-app.use(cors());
+app.use(
+    cors({
+        origin: [/^http:\/\/localhost(?::\d+)?$/, /^http:\/\/127\.0\.0\.1(?::\d+)?$/, /^http:\/\/\[::1\](?::\d+)?$/]
+    })
+);
 
 // Create event store for resumability
 const eventStore = new InMemoryEventStore();

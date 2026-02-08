@@ -508,7 +508,11 @@ const app = createMcpExpressApp();
 app.use(
     cors({
         exposedHeaders: ['WWW-Authenticate', 'Mcp-Session-Id', 'Last-Event-Id', 'Mcp-Protocol-Version'],
-        origin: '*' // WARNING: This allows all origins to access the MCP server. In production, you should restrict this to specific origins.
+        origin: [
+            /^http:\/\/localhost(?::\d+)?$/,
+            /^http:\/\/127\.0\.0\.1(?::\d+)?$/,
+            /^http:\/\/\[::1\](?::\d+)?$/
+        ] // Default to localhost for demo safety. In production, configure this explicitly.
     })
 );
 

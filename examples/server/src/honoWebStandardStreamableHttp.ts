@@ -14,6 +14,12 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import * as z from 'zod/v4';
 
+const LOCALHOST_ORIGINS = [
+    /^http:\/\/localhost(?::\d+)?$/,
+    /^http:\/\/127\.0\.0\.1(?::\d+)?$/,
+    /^http:\/\/\[::1\](?::\d+)?$/
+];
+
 // Create the MCP server
 const server = new McpServer({
     name: 'hono-webstandard-mcp-server',
@@ -41,11 +47,11 @@ const transport = new WebStandardStreamableHTTPServerTransport();
 // Create the Hono app
 const app = new Hono();
 
-// Enable CORS for all origins
+// CORS: allow only localhost origins (typical for local dev / Inspector direct connect).
 app.use(
     '*',
     cors({
-        origin: '*',
+        origin: (origin, _c) => (LOCALHOST_ORIGINS.some(re => re.test(origin)) ? origin : null),
         allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'mcp-session-id', 'Last-Event-ID', 'mcp-protocol-version'],
         exposeHeaders: ['mcp-session-id', 'mcp-protocol-version']
