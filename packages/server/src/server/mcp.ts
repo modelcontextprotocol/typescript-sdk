@@ -115,11 +115,7 @@ export class McpServer {
         this.server.assertCanSetRequestHandler('tools/list');
         this.server.assertCanSetRequestHandler('tools/call');
 
-        this.server.registerCapabilities({
-            tools: {
-                listChanged: true
-            }
-        });
+       
 
         this.server.setRequestHandler(
             'tools/list',
