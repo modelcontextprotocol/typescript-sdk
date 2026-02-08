@@ -5,9 +5,9 @@ import { createServer } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
-import { CallToolResultSchema, LoggingMessageNotificationSchema, McpServer } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { CallToolResultSchema, McpServer } from '@modelcontextprotocol/server';
+import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
 /**
  * Simple in-memory EventStore for testing resumability.
@@ -43,8 +43,7 @@ class InMemoryEventStore implements EventStore {
     }
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
+describe('Zod v4', () => {
     describe('Transport resumability', () => {
         let server: Server;
         let mcpServer: McpServer;
@@ -64,13 +63,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'send-notification',
                 {
                     description: 'Sends a single notification',
-                    inputSchema: {
+                    inputSchema: z.object({
                         message: z.string().describe('Message to send').default('Test notification')
-                    }
+                    })
                 },
-                async ({ message }, { sendNotification }) => {
+                async ({ message }, ctx) => {
                     // Send notification immediately
-                    await sendNotification({
+                    await ctx.mcpReq.notify({
                         method: 'notifications/message',
                         params: {
                             level: 'info',
@@ -89,15 +88,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'run-notifications',
                 {
                     description: 'Sends multiple notifications over time',
-                    inputSchema: {
+                    inputSchema: z.object({
                         count: z.number().describe('Number of notifications to send').default(10),
                         interval: z.number().describe('Interval between notifications in ms').default(50)
-                    }
+                    })
                 },
-                async ({ count, interval }, { sendNotification }) => {
+                async ({ count, interval }, ctx) => {
                     // Send notifications at specified intervals
                     for (let i = 0; i < count; i++) {
-                        await sendNotification({
+                        await ctx.mcpReq.notify({
                             method: 'notifications/message',
                             params: {
                                 level: 'info',
@@ -192,7 +191,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Set up notification handler for first client
-            client1.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client1.setNotificationHandler('notifications/message', notification => {
                 if (notification.method === 'notifications/message') {
                     notifications.push(notification.params);
                 }
@@ -271,7 +270,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Track replayed notifications separately
             const replayedNotifications: unknown[] = [];
-            client2.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client2.setNotificationHandler('notifications/message', notification => {
                 if (notification.method === 'notifications/message') {
                     replayedNotifications.push(notification.params);
                 }

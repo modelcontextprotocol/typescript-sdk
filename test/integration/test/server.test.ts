@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Client } from '@modelcontextprotocol/client';
 import type {
-    AnyObjectSchema,
     CreateMessageResult,
     ElicitResult,
     JsonSchemaType,
@@ -13,25 +12,16 @@ import type {
     Transport
 } from '@modelcontextprotocol/core';
 import {
-    CallToolRequestSchema,
     CallToolResultSchema,
-    CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateTaskResultSchema,
-    ElicitationCompleteNotificationSchema,
-    ElicitRequestSchema,
     ElicitResultSchema,
-    ErrorCode,
     InMemoryTransport,
+    CreateMessageRequestSchema,
+    ElicitRequestSchema,
     LATEST_PROTOCOL_VERSION,
-    ListPromptsRequestSchema,
-    ListResourcesRequestSchema,
-    ListToolsRequestSchema,
-    McpError,
-    NotificationSchema,
-    RequestSchema,
-    ResultSchema,
-    SetLevelRequestSchema,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS,
     toArrayAsync
 } from '@modelcontextprotocol/core';
@@ -39,62 +29,17 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import supertest from 'supertest';
-import * as z3 from 'zod/v3';
-import * as z4 from 'zod/v4';
+import * as z from 'zod/v4';
 
-describe('Zod v3', () => {
+describe('Server with standard protocol methods', () => {
     /*
-    Test that custom request/notification/result schemas can be used with the Server class.
+    Test that Server class works with standard protocol method handlers.
     */
-    test('should typecheck', () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const GetWeatherRequestSchema = (RequestSchema as unknown as z3.ZodObject<any>).extend({
-            method: z3.literal('weather/get'),
-            params: z3.object({
-                city: z3.string()
-            })
-        }) as AnyObjectSchema;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const GetForecastRequestSchema = (RequestSchema as unknown as z3.ZodObject<any>).extend({
-            method: z3.literal('weather/forecast'),
-            params: z3.object({
-                city: z3.string(),
-                days: z3.number()
-            })
-        }) as AnyObjectSchema;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const WeatherForecastNotificationSchema = (NotificationSchema as unknown as z3.ZodObject<any>).extend({
-            method: z3.literal('weather/alert'),
-            params: z3.object({
-                severity: z3.enum(['warning', 'watch']),
-                message: z3.string()
-            })
-        }) as AnyObjectSchema;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const WeatherRequestSchema = (GetWeatherRequestSchema as unknown as z3.ZodObject<any>).or(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            GetForecastRequestSchema as unknown as z3.ZodObject<any>
-        ) as AnyObjectSchema;
-        const WeatherNotificationSchema = WeatherForecastNotificationSchema as AnyObjectSchema;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const WeatherResultSchema = (ResultSchema as unknown as z3.ZodObject<any>).extend({
-            temperature: z3.number(),
-            conditions: z3.string()
-        }) as AnyObjectSchema;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        type InferSchema<T> = T extends z3.ZodType<infer Output, any, any> ? Output : never;
-        type WeatherRequest = InferSchema<typeof WeatherRequestSchema>;
-        type WeatherNotification = InferSchema<typeof WeatherNotificationSchema>;
-        type WeatherResult = InferSchema<typeof WeatherResultSchema>;
-
-        // Create a typed Server for weather data
-        const weatherServer = new Server<WeatherRequest, WeatherNotification, WeatherResult>(
+    test('should typecheck with standard protocol methods', () => {
+        // Create a Server with default types
+        const server = new Server(
             {
-                name: 'WeatherServer',
+                name: 'TestServer',
                 version: '1.0.0'
             },
             {
@@ -107,84 +52,36 @@ describe('Zod v3', () => {
             }
         );
 
-        // Typecheck that only valid weather requests/notifications/results are allowed
-        weatherServer.setRequestHandler(GetWeatherRequestSchema, _request => {
-            return {
-                temperature: 72,
-                conditions: 'sunny'
-            };
+        // Register handlers using method strings
+        server.setRequestHandler('ping', _request => {
+            return {};
         });
 
-        weatherServer.setNotificationHandler(WeatherForecastNotificationSchema, notification => {
-            // Type assertion needed for v3/v4 schema mixing
-            const params = notification.params as { message: string; severity: 'warning' | 'watch' };
-            console.log(`Weather alert: ${params.message}`);
+        server.setNotificationHandler('notifications/initialized', () => {
+            console.log('Client initialized');
         });
     });
 });
 
-describe('Zod v4', () => {
-    test('should typecheck', () => {
-        const GetWeatherRequestSchema = RequestSchema.extend({
-            method: z4.literal('weather/get'),
-            params: z4.object({
-                city: z4.string()
-            })
-        });
-
-        const GetForecastRequestSchema = RequestSchema.extend({
-            method: z4.literal('weather/forecast'),
-            params: z4.object({
-                city: z4.string(),
-                days: z4.number()
-            })
-        });
-
-        const WeatherForecastNotificationSchema = NotificationSchema.extend({
-            method: z4.literal('weather/alert'),
-            params: z4.object({
-                severity: z4.enum(['warning', 'watch']),
-                message: z4.string()
-            })
-        });
-
-        const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
-        const WeatherNotificationSchema = WeatherForecastNotificationSchema;
-        const WeatherResultSchema = ResultSchema.extend({
-            temperature: z4.number(),
-            conditions: z4.string()
-        });
-
-        type WeatherRequest = z4.infer<typeof WeatherRequestSchema>;
-        type WeatherNotification = z4.infer<typeof WeatherNotificationSchema>;
-        type WeatherResult = z4.infer<typeof WeatherResultSchema>;
-
-        // Create a typed Server for weather data
-        const weatherServer = new Server<WeatherRequest, WeatherNotification, WeatherResult>(
+describe('Server with tools capability', () => {
+    test('should register tools/list handler', () => {
+        const server = new Server(
             {
-                name: 'WeatherServer',
+                name: 'ToolServer',
                 version: '1.0.0'
             },
             {
                 capabilities: {
-                    prompts: {},
-                    resources: {},
-                    tools: {},
-                    logging: {}
+                    tools: {}
                 }
             }
         );
 
-        // Typecheck that only valid weather requests/notifications/results are allowed
-        weatherServer.setRequestHandler(GetWeatherRequestSchema, _request => {
+        // Register handler using method string
+        server.setRequestHandler('tools/list', _request => {
             return {
-                temperature: 72,
-                conditions: 'sunny'
+                tools: []
             };
-        });
-
-        weatherServer.setNotificationHandler(WeatherForecastNotificationSchema, notification => {
-            console.log(`Weather alert: ${notification.params.message}`);
         });
     });
 });
@@ -402,7 +299,7 @@ test('should respect client capabilities', async () => {
     );
 
     // Implement request handler for sampling/createMessage
-    client.setRequestHandler(CreateMessageRequestSchema, async _request => {
+    client.setRequestHandler('sampling/createMessage', async _request => {
         // Mock implementation of createMessage
         return {
             model: 'test-model',
@@ -461,7 +358,7 @@ test('should respect client elicitation capabilities', async () => {
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, params => ({
+    client.setRequestHandler('elicitation/create', params => ({
         action: 'accept',
         content: {
             username: params.params.message.includes('username') ? 'test-user' : undefined,
@@ -545,7 +442,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, params => ({
+    client.setRequestHandler('elicitation/create', params => ({
         action: 'accept',
         content: {
             username: params.params.message.includes('username') ? 'test-user' : undefined,
@@ -624,7 +521,7 @@ test('should throw when elicitInput is called without client form capability', a
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, () => ({
+    client.setRequestHandler('elicitation/create', () => ({
         action: 'cancel'
     }));
 
@@ -673,7 +570,7 @@ test('should throw when elicitInput is called without client URL capability', as
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, () => ({
+    client.setRequestHandler('elicitation/create', () => ({
         action: 'cancel'
     }));
 
@@ -717,7 +614,7 @@ test('should include form mode when sending elicitation form requests', async ()
     );
 
     const receivedModes: string[] = [];
-    client.setRequestHandler(ElicitRequestSchema, request => {
+    client.setRequestHandler('elicitation/create', request => {
         receivedModes.push(request.params.mode ?? '');
         return {
             action: 'accept',
@@ -781,7 +678,7 @@ test('should include url mode when sending elicitation URL requests', async () =
 
     const receivedModes: string[] = [];
     const receivedIds: string[] = [];
-    client.setRequestHandler(ElicitRequestSchema, request => {
+    client.setRequestHandler('elicitation/create', request => {
         receivedModes.push(request.params.mode ?? '');
         if (request.params.mode === 'url') {
             receivedIds.push(request.params.elicitationId);
@@ -835,7 +732,7 @@ test('should reject elicitInput when client response violates requested schema',
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, () => ({
+    client.setRequestHandler('elicitation/create', () => ({
         action: 'accept',
 
         // Bad response: missing required field `username`
@@ -894,7 +791,7 @@ test('should wrap unexpected validator errors during elicitInput', async () => {
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, () => ({
+    client.setRequestHandler('elicitation/create', () => ({
         action: 'accept',
         content: {
             username: 'ignored'
@@ -943,7 +840,7 @@ test('should forward notification options when using elicitation completion noti
         }
     );
 
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, () => {});
+    client.setNotificationHandler('notifications/elicitation/complete', () => {});
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -991,7 +888,7 @@ test('should create notifier that emits elicitation completion notification', as
     );
 
     const receivedIds: string[] = [];
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+    client.setNotificationHandler('notifications/elicitation/complete', notification => {
         receivedIds.push(notification.params.elicitationId);
     });
 
@@ -1157,7 +1054,7 @@ test('should validate elicitation response against requested schema', async () =
     );
 
     // Set up client to return valid response
-    client.setRequestHandler(ElicitRequestSchema, _request => ({
+    client.setRequestHandler('elicitation/create', _request => ({
         action: 'accept',
         content: {
             name: 'John Doe',
@@ -1235,7 +1132,7 @@ test('should reject elicitation response with invalid data', async () => {
     );
 
     // Set up client to return invalid response (missing required field, invalid age)
-    client.setRequestHandler(ElicitRequestSchema, _request => ({
+    client.setRequestHandler('elicitation/create', _request => ({
         action: 'accept',
         content: {
             email: '', // Invalid - too short
@@ -1305,7 +1202,7 @@ test('should allow elicitation reject and cancel without validation', async () =
     );
 
     let requestCount = 0;
-    client.setRequestHandler(ElicitRequestSchema, _request => {
+    client.setRequestHandler('elicitation/create', _request => {
         requestCount++;
         return requestCount === 1 ? { action: 'decline' } : { action: 'cancel' };
     });
@@ -1391,22 +1288,22 @@ test('should only allow setRequestHandler for declared capabilities', () => {
 
     // These should work because the capabilities are declared
     expect(() => {
-        server.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: [] }));
+        server.setRequestHandler('prompts/list', () => ({ prompts: [] }));
     }).not.toThrow();
 
     expect(() => {
-        server.setRequestHandler(ListResourcesRequestSchema, () => ({
+        server.setRequestHandler('resources/list', () => ({
             resources: []
         }));
     }).not.toThrow();
 
     // These should throw because the capabilities are not declared
     expect(() => {
-        server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+        server.setRequestHandler('tools/list', () => ({ tools: [] }));
     }).toThrow(/^Server does not support tools/);
 
     expect(() => {
-        server.setRequestHandler(SetLevelRequestSchema, () => ({}));
+        server.setRequestHandler('logging/setLevel', () => ({}));
     }).toThrow(/^Server does not support logging/);
 });
 
@@ -1434,7 +1331,7 @@ test('should handle server cancelling a request', async () => {
     );
 
     // Set up client to delay responding to createMessage
-    client.setRequestHandler(CreateMessageRequestSchema, async (_request, _extra) => {
+    client.setRequestHandler('sampling/createMessage', async (_request, _extra) => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return {
             model: 'test',
@@ -1465,8 +1362,8 @@ test('should handle server cancelling a request', async () => {
     );
     controller.abort('Cancelled by test');
 
-    // Request should be rejected with an McpError
-    await expect(createMessagePromise).rejects.toThrow(McpError);
+    // Request should be rejected with an SdkError (local timeout/cancellation)
+    await expect(createMessagePromise).rejects.toThrow(SdkError);
 });
 
 test('should handle request timeout', async () => {
@@ -1493,12 +1390,12 @@ test('should handle request timeout', async () => {
         }
     );
 
-    client.setRequestHandler(CreateMessageRequestSchema, async (_request, extra) => {
+    client.setRequestHandler('sampling/createMessage', async (_request, ctx) => {
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(resolve, 100);
-            extra.signal.addEventListener('abort', () => {
+            ctx.mcpReq.signal.addEventListener('abort', () => {
                 clearTimeout(timeout);
-                reject(extra.signal.reason);
+                reject(ctx.mcpReq.signal.reason);
             });
         });
 
@@ -1526,7 +1423,7 @@ test('should handle request timeout', async () => {
             { timeout: 0 }
         )
     ).rejects.toMatchObject({
-        code: ErrorCode.RequestTimeout
+        code: SdkErrorCode.RequestTimeout
     });
 });
 
@@ -1605,7 +1502,7 @@ describe('createMessage validation', () => {
             { capabilities: { sampling: {} } } // No tools capability
         );
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1631,7 +1528,7 @@ describe('createMessage validation', () => {
             { capabilities: { sampling: {} } } // No tools capability
         );
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1654,7 +1551,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1687,7 +1584,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1714,7 +1611,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1741,7 +1638,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1764,7 +1661,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1791,7 +1688,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1819,7 +1716,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1856,7 +1753,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1884,7 +1781,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -1912,7 +1809,7 @@ describe('createMessage validation', () => {
 
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -2168,7 +2065,7 @@ describe('createMessage backwards compatibility', () => {
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
         // Mock client returns single text content
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Hello from LLM' }
@@ -2198,7 +2095,7 @@ describe('createMessage backwards compatibility', () => {
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Mock client returns text content (tool_use schema validation is tested in types.test.ts)
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'I will use the weather tool' },
@@ -2480,12 +2377,12 @@ describe('Task-based execution', () => {
             'test-tool',
             {
                 description: 'A test tool',
-                inputSchema: {}
+                inputSchema: z.object({})
             },
             {
-                async createTask(_args, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                async createTask(_args, ctx) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
 
                     // Simulate some async work
@@ -2494,20 +2391,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2537,11 +2434,14 @@ describe('Task-based execution', () => {
 
         // Use callToolStream to create a task and capture the task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-            task: {
-                ttl: 60_000
+        const stream = client.experimental.tasks.callToolStream(
+            { name: 'test-tool', arguments: {} },
+            {
+                task: {
+                    ttl: 60_000
+                }
             }
-        });
+        );
 
         for await (const message of stream) {
             if (message.type === 'taskCreated') {
@@ -2581,7 +2481,7 @@ describe('Task-based execution', () => {
             }
         );
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'test-tool') {
                 return {
                     content: [{ type: 'text', text: 'Success!' }]
@@ -2590,7 +2490,7 @@ describe('Task-based execution', () => {
             throw new Error('Unknown tool');
         });
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        server.setRequestHandler('tools/list', async () => ({
             tools: [
                 {
                     name: 'test-tool',
@@ -2672,16 +2572,16 @@ describe('Task-based execution', () => {
         );
 
         // Track the elicitation request to verify related-task metadata
-        let capturedElicitRequest: z4.infer<typeof ElicitRequestSchema> | null = null;
+        let capturedElicitRequest: z.infer<typeof ElicitRequestSchema> | null = null;
 
         // Set up client elicitation handler
-        client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+        client.setRequestHandler('elicitation/create', async (request, ctx) => {
             let taskId: string | undefined;
 
             // Check if task creation is requested
-            if (request.params.task && extra.taskStore) {
-                const createdTask = await extra.taskStore.createTask({
-                    ttl: extra.taskRequestedTtl
+            if (request.params.task && ctx.task?.store) {
+                const createdTask = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
                 });
                 taskId = createdTask.taskId;
             }
@@ -2702,18 +2602,18 @@ describe('Task-based execution', () => {
             'collect-info',
             {
                 description: 'Collects user info via elicitation',
-                inputSchema: {}
+                inputSchema: z.object({})
             },
             {
-                async createTask(_args, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                async createTask(_args, ctx) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
 
                     // Perform async work that makes a nested request
                     (async () => {
-                        // During tool execution, make a nested request to the client using extra.sendRequest
-                        const elicitResult = await extra.sendRequest(
+                        // During tool execution, make a nested request to the client using ctx.mcpReq.send
+                        const elicitResult = await ctx.mcpReq.send(
                             {
                                 method: 'elicitation/create',
                                 params: {
@@ -2739,20 +2639,20 @@ describe('Task-based execution', () => {
                                 }
                             ]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2764,11 +2664,14 @@ describe('Task-based execution', () => {
 
         // Call tool WITH task creation using callToolStream to capture task ID
         let taskId: string | undefined;
-        const stream = client.experimental.tasks.callToolStream({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
-            task: {
-                ttl: 60_000
+        const stream = client.experimental.tasks.callToolStream(
+            { name: 'collect-info', arguments: {} },
+            {
+                task: {
+                    ttl: 60_000
+                }
             }
-        });
+        );
 
         for await (const message of stream) {
             if (message.type === 'taskCreated') {
@@ -2829,18 +2732,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'server-test-user', confirmed: true }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2910,18 +2813,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2989,18 +2892,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'result-user', confirmed: true }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -3070,18 +2973,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -3178,15 +3081,15 @@ describe('Task-based execution', () => {
             'async-tool',
             {
                 description: 'An async test tool',
-                inputSchema: {
-                    delay: z4.number().optional().default(10),
-                    taskNum: z4.number().optional()
-                }
+                inputSchema: z.object({
+                    delay: z.number().optional().default(10),
+                    taskNum: z.number().optional()
+                })
             },
             {
-                async createTask({ delay, taskNum }, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                async createTask({ delay, taskNum }, ctx) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
 
                     // Simulate async work
@@ -3195,20 +3098,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -3356,7 +3259,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
+            client.setRequestHandler('elicitation/create', async () => ({
                 action: 'accept',
                 content: { username: 'test' }
             }));
@@ -3413,18 +3316,18 @@ test('should respect client task capabilities', async () => {
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+    client.setRequestHandler('elicitation/create', async (request, ctx) => {
         const result = {
             action: 'accept',
             content: { username: 'test-user' }
         };
 
         // Check if task creation is requested
-        if (request.params.task && extra.taskStore) {
-            const task = await extra.taskStore.createTask({
-                ttl: extra.taskRequestedTtl
+        if (request.params.task && ctx.task?.store) {
+            const task = await ctx.task.store.createTask({
+                ttl: ctx.task.requestedTtl
             });
-            await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+            await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
             // Return CreateTaskResult when task creation is requested
             return { task };
         }

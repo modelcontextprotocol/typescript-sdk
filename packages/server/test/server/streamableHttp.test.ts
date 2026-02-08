@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@modelcontextprotocol/core';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp.js';
@@ -118,9 +117,7 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
     });
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Zod v4', () => {
     describe('HTTPServerTransport', () => {
         let transport: WebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
@@ -133,7 +130,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'greet',
                 {
                     description: 'A simple greeting tool',
-                    inputSchema: { name: z.string().describe('Name to greet') }
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
                 },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
@@ -439,7 +436,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             mcpServer.registerTool(
                 'echo',
-                { description: 'Echo tool', inputSchema: { message: z.string() } },
+                { description: 'Echo tool', inputSchema: z.object({ message: z.string() }) },
                 async ({ message }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: message }] };
                 }
@@ -487,7 +484,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             mcpServer.registerTool(
                 'greet',
-                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
                 }
@@ -659,7 +656,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             mcpServer.registerTool(
                 'greet',
-                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
                 }

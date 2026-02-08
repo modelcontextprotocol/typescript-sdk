@@ -8,18 +8,17 @@ import type { TaskRequestOptions } from '@modelcontextprotocol/server';
 import {
     CallToolResultSchema,
     CreateTaskResultSchema,
-    ElicitRequestSchema,
     ElicitResultSchema,
-    ErrorCode,
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
-    McpError,
     McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
     RELATED_TASK_META_KEY,
     TaskSchema
 } from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 describe('Task Lifecycle Integration Tests', () => {
     let server: Server;
@@ -58,14 +57,14 @@ describe('Task Lifecycle Integration Tests', () => {
             {
                 title: 'Long Running Task',
                 description: 'A tool that takes time to complete',
-                inputSchema: {
+                inputSchema: z.object({
                     duration: z.number().describe('Duration in milliseconds').default(1000),
                     shouldFail: z.boolean().describe('Whether the task should fail').default(false)
-                }
+                })
             },
             {
-                async createTask({ duration, shouldFail }, extra) {
-                    const task = await extra.taskStore.createTask({
+                async createTask({ duration, shouldFail }, ctx) {
+                    const task = await ctx.task.store.createTask({
                         ttl: 60_000,
                         pollInterval: 100
                     });
@@ -76,11 +75,11 @@ describe('Task Lifecycle Integration Tests', () => {
 
                         try {
                             await (shouldFail
-                                ? extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                ? ctx.task.store.storeTaskResult(task.taskId, 'failed', {
                                       content: [{ type: 'text', text: 'Task failed as requested' }],
                                       isError: true
                                   })
-                                : extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                : ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                                       content: [{ type: 'text', text: `Completed after ${duration}ms` }]
                                   }));
                         } catch {
@@ -90,15 +89,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -110,13 +109,13 @@ describe('Task Lifecycle Integration Tests', () => {
             {
                 title: 'Input Required Task',
                 description: 'A tool that requires user input',
-                inputSchema: {
+                inputSchema: z.object({
                     userName: z.string().describe('User name').optional()
-                }
+                })
             },
             {
-                async createTask({ userName }, extra) {
-                    const task = await extra.taskStore.createTask({
+                async createTask({ userName }, ctx) {
+                    const task = await ctx.task.store.createTask({
                         ttl: 60_000,
                         pollInterval: 100
                     });
@@ -129,14 +128,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         if (userName) {
                             // Complete immediately if userName was provided
                             try {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${userName}!` }]
                                 });
                             } catch {
                                 // Task may have been cleaned up if test ended
                             }
                         } else {
-                            const elicitationResult = await extra.sendRequest(
+                            const elicitationResult = await ctx.mcpReq.send(
                                 {
                                     method: 'elicitation/create',
                                     params: {
@@ -161,7 +160,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                     ? elicitationResult.content.userName
                                     : 'Unknown';
                             try {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${name}!` }]
                                 });
                             } catch {
@@ -172,15 +171,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -395,9 +394,9 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(task.status).toBe('completed');
 
             // Try to cancel via tasks/cancel request (should fail with -32602)
-            await expect(client.experimental.tasks.cancelTask(taskId)).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            await expect(client.experimental.tasks.cancelTask(taskId)).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Cannot cancel task in terminal status');
                 return true;
             });
@@ -414,13 +413,13 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Multi Request Task',
                     description: 'A tool that sends multiple server requests',
-                    inputSchema: {
+                    inputSchema: z.object({
                         requestCount: z.number().describe('Number of requests to send').default(3)
-                    }
+                    })
                 },
                 {
-                    async createTask({ requestCount }, extra) {
-                        const task = await extra.taskStore.createTask({
+                    async createTask({ requestCount }, ctx) {
+                        const task = await ctx.task.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -433,7 +432,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                             // Send multiple elicitation requests
                             for (let i = 0; i < requestCount; i++) {
-                                const elicitationResult = await extra.sendRequest(
+                                const elicitationResult = await ctx.mcpReq.send(
                                     {
                                         method: 'elicitation/create',
                                         params: {
@@ -459,7 +458,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                             // Complete with all responses
                             try {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Received responses: ${responses.join(', ')}` }]
                                 });
                             } catch {
@@ -469,15 +468,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -498,7 +497,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const receivedMessages: Array<{ method: string; message: string }> = [];
 
             // Set up elicitation handler on client to track message order
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 // Track the message
                 receivedMessages.push({
                     method: request.method,
@@ -604,7 +603,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let elicitationRequestMeta: Record<string, unknown> | undefined;
 
             // Set up elicitation handler on client
-            elicitClient.setRequestHandler(ElicitRequestSchema, async request => {
+            elicitClient.setRequestHandler('elicitation/create', async request => {
                 elicitationReceived = true;
                 elicitationRequestMeta = request.params._meta;
 
@@ -789,9 +788,9 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Try to get non-existent task via tasks/get request
-            await expect(client.experimental.tasks.getTask('non-existent-task-id')).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            await expect(client.experimental.tasks.getTask('non-existent-task-id')).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Task not found');
                 return true;
             });
@@ -809,9 +808,9 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Try to cancel non-existent task via tasks/cancel request
-            await expect(client.experimental.tasks.cancelTask('non-existent-task-id')).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            await expect(client.experimental.tasks.cancelTask('non-existent-task-id')).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Task not found');
                 return true;
             });
@@ -837,9 +836,9 @@ describe('Task Lifecycle Integration Tests', () => {
                     },
                     CallToolResultSchema
                 )
-            ).rejects.toSatisfy((error: McpError) => {
-                expect(error).toBeInstanceOf(McpError);
-                expect(error.code).toBe(ErrorCode.InvalidParams);
+            ).rejects.toSatisfy((error: ProtocolError) => {
+                expect(error).toBeInstanceOf(ProtocolError);
+                expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
                 expect(error.message).toContain('Task not found');
                 return true;
             });
@@ -903,13 +902,13 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Cancellable Task',
                     description: 'A tool that queues messages and can be cancelled',
-                    inputSchema: {
+                    inputSchema: z.object({
                         messageCount: z.number().describe('Number of messages to queue').default(2)
-                    }
+                    })
                 },
                 {
-                    async createTask({ messageCount }, extra) {
-                        const task = await extra.taskStore.createTask({
+                    async createTask({ messageCount }, ctx) {
+                        const task = await ctx.task.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -922,8 +921,8 @@ describe('Task Lifecycle Integration Tests', () => {
                                 // Queue multiple elicitation requests
                                 for (let i = 0; i < messageCount; i++) {
                                     // Send request but don't await - let it queue
-                                    extra
-                                        .sendRequest(
+                                    ctx.mcpReq
+                                        .send(
                                             {
                                                 method: 'elicitation/create',
                                                 params: {
@@ -958,15 +957,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -987,7 +986,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let elicitationCallCount = 0;
 
             // Set up elicitation handler to track if any messages are delivered
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 elicitationCallCount++;
                 return {
                     action: 'accept' as const,
@@ -1100,14 +1099,14 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Streaming Task',
                     description: 'A tool that sends messages over time',
-                    inputSchema: {
+                    inputSchema: z.object({
                         messageCount: z.number().describe('Number of messages to send').default(3),
                         delayBetweenMessages: z.number().describe('Delay between messages in ms').default(200)
-                    }
+                    })
                 },
                 {
-                    async createTask({ messageCount, delayBetweenMessages }, extra) {
-                        const task = await extra.taskStore.createTask({
+                    async createTask({ messageCount, delayBetweenMessages }, ctx) {
+                        const task = await ctx.task.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -1122,7 +1121,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Send messages with delays between them
                                 for (let i = 0; i < messageCount; i++) {
-                                    const elicitationResult = await extra.sendRequest(
+                                    const elicitationResult = await ctx.mcpReq.send(
                                         {
                                             method: 'elicitation/create',
                                             params: {
@@ -1153,7 +1152,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Complete with all responses
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: `Received all responses: ${responses.join(', ')}` }]
                                     });
                                 } catch {
@@ -1162,7 +1161,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             } catch (error) {
                                 // Handle errors
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                    await ctx.task.store.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
                                     });
@@ -1174,15 +1173,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -1204,7 +1203,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let tasksResultStartTime = 0;
 
             // Set up elicitation handler to track when messages arrive
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 const timestamp = Date.now();
                 receivedMessages.push({
                     message: request.params.message,
@@ -1317,13 +1316,13 @@ describe('Task Lifecycle Integration Tests', () => {
                 {
                     title: 'Quick Complete Task',
                     description: 'A tool that queues messages and completes quickly',
-                    inputSchema: {
+                    inputSchema: z.object({
                         messageCount: z.number().describe('Number of messages to queue').default(2)
-                    }
+                    })
                 },
                 {
-                    async createTask({ messageCount }, extra) {
-                        const task = await extra.taskStore.createTask({
+                    async createTask({ messageCount }, ctx) {
+                        const task = await ctx.task.store.createTask({
                             ttl: 60_000,
                             pollInterval: 100
                         });
@@ -1336,8 +1335,8 @@ describe('Task Lifecycle Integration Tests', () => {
                                 for (let i = 0; i < messageCount; i++) {
                                     // Start the request but don't wait for response
                                     // The request gets queued when sendRequest is called
-                                    extra
-                                        .sendRequest(
+                                    ctx.mcpReq
+                                        .send(
                                             {
                                                 method: 'elicitation/create',
                                                 params: {
@@ -1362,7 +1361,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Complete the task after all messages are queued
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: 'Task completed quickly' }]
                                     });
                                 } catch {
@@ -1371,7 +1370,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             } catch (error) {
                                 // Handle errors
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                    await ctx.task.store.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
                                     });
@@ -1383,15 +1382,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -1412,7 +1411,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const receivedMessages: Array<{ type: string; message?: string; content?: unknown }> = [];
 
             // Set up elicitation handler to track message order
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 receivedMessages.push({
                     type: 'elicitation',
                     message: request.params.message
@@ -1607,7 +1606,7 @@ describe('Task Lifecycle Integration Tests', () => {
             let elicitationMessage = '';
 
             // Set up elicitation handler on client
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 elicitationReceived = true;
                 elicitationMessage = request.params.message;
 
@@ -1623,9 +1622,12 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Use callToolStream instead of raw request()
-            const stream = client.experimental.tasks.callToolStream({ name: 'input-task', arguments: {} }, CallToolResultSchema, {
-                task: { ttl: 60_000 }
-            });
+            const stream = client.experimental.tasks.callToolStream(
+                { name: 'input-task', arguments: {} },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             // Collect all stream messages
             const messages: Array<{ type: string; task?: unknown; result?: unknown; error?: unknown }> = [];

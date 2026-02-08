@@ -20,9 +20,9 @@ const getServer = () => {
         'greeting-template',
         {
             description: 'A simple greeting prompt template',
-            argsSchema: {
+            argsSchema: z.object({
                 name: z.string().describe('Name to include in greeting')
-            }
+            })
         },
         async ({ name }): Promise<GetPromptResult> => {
             return {
@@ -44,25 +44,19 @@ const getServer = () => {
         'start-notification-stream',
         {
             description: 'Starts sending periodic notifications for testing resumability',
-            inputSchema: {
+            inputSchema: z.object({
                 interval: z.number().describe('Interval in milliseconds between notifications').default(100),
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(10)
-            }
+            })
         },
-        async ({ interval, count }, extra): Promise<CallToolResult> => {
+        async ({ interval, count }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
             let counter = 0;
 
             while (count === 0 || counter < count) {
                 counter++;
                 try {
-                    await server.sendLoggingMessage(
-                        {
-                            level: 'info',
-                            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-                        },
-                        extra.sessionId
-                    );
+                    await ctx.mcpReq.log('info', `Periodic notification #${counter} at ${new Date().toISOString()}`);
                 } catch (error) {
                     console.error('Error sending notification:', error);
                 }

@@ -7,8 +7,6 @@
  * For Node.js Express/HTTP compatibility, use `NodeStreamableHTTPServerTransport` which wraps this transport.
  */
 
-import { TextEncoder } from 'node:util';
-
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
@@ -62,7 +60,7 @@ interface StreamMapping {
     /** Stream controller for pushing SSE data - only used with ReadableStream approach */
     controller?: ReadableStreamDefaultController<Uint8Array>;
     /** Text encoder for SSE formatting */
-    encoder?: TextEncoder;
+    encoder?: InstanceType<typeof TextEncoder>;
     /** Promise resolver for JSON response mode */
     resolveJson?: (response: Response) => void;
     /** Cleanup function to close stream and remove mapping */
@@ -142,6 +140,18 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * client reconnection timing for polling behavior.
      */
     retryInterval?: number;
+
+    /**
+     * List of protocol versions that this transport will accept.
+     * Used to validate the mcp-protocol-version header in incoming requests.
+     *
+     * Note: When using Server.connect(), the server automatically passes its
+     * supportedProtocolVersions to the transport, so you typically don't need
+     * to set this option directly.
+     *
+     * @default SUPPORTED_PROTOCOL_VERSIONS
+     */
+    supportedProtocolVersions?: string[];
 }
 
 /**
@@ -220,6 +230,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
+    private _supportedProtocolVersions: string[];
 
     sessionId?: string;
     onclose?: () => void;
@@ -236,6 +247,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
+        this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
     }
 
     /**
@@ -247,6 +259,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             throw new Error('Transport already started');
         }
         this._started = true;
+    }
+
+    /**
+     * Sets the supported protocol versions for header validation.
+     * Called by the server during connect() to pass its supported versions.
+     */
+    setSupportedProtocolVersions(versions: string[]): void {
+        this._supportedProtocolVersions = versions;
     }
 
     /**
@@ -345,7 +365,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      */
     private async writePrimingEvent(
         controller: ReadableStreamDefaultController<Uint8Array>,
-        encoder: TextEncoder,
+        encoder: InstanceType<typeof TextEncoder>,
         streamId: string,
         protocolVersion: string
     ): Promise<void> {
@@ -536,7 +556,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      */
     private writeSSEEvent(
         controller: ReadableStreamDefaultController<Uint8Array>,
-        encoder: TextEncoder,
+        encoder: InstanceType<typeof TextEncoder>,
         message: JSONRPCMessage,
         eventId?: string
     ): boolean {
@@ -848,11 +868,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private validateProtocolVersion(req: Request): Response | undefined {
         const protocolVersion = req.headers.get('mcp-protocol-version');
 
-        if (protocolVersion !== null && !SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
+        if (protocolVersion !== null && !this._supportedProtocolVersions.includes(protocolVersion)) {
             return this.createJsonErrorResponse(
                 400,
                 -32_000,
-                `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
+                `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${this._supportedProtocolVersions.join(', ')})`
             );
         }
         return undefined;

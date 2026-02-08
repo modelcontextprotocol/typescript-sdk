@@ -9,12 +9,9 @@
 import { Client } from '@modelcontextprotocol/client';
 import { CallToolResultSchema, InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
-describe.each(zodTestMatrix)('Issue #400: $zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Issue #400: Zod v4', () => {
     test('should accept undefined arguments when all tool params are optional', async () => {
         const mcpServer = new McpServer({
             name: 'test server',
@@ -28,10 +25,10 @@ describe.each(zodTestMatrix)('Issue #400: $zodVersionLabel', (entry: ZodMatrixEn
         mcpServer.registerTool(
             'optional-params-tool',
             {
-                inputSchema: {
+                inputSchema: z.object({
                     limit: z.number().optional(),
                     offset: z.number().optional()
-                }
+                })
             },
             async ({ limit, offset }) => ({
                 content: [

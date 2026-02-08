@@ -12,19 +12,16 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ElicitRequestSchema,
-    ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
     InMemoryTaskStore,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
-    ResourceListChangedNotificationSchema,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
@@ -289,9 +286,9 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation and task support
-        client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+        client.setRequestHandler('elicitation/create', async (request, extra) => {
             if (request.params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
@@ -327,7 +324,7 @@ async function connect(url?: string): Promise<void> {
                 attempts++;
                 console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
-                const content: Record<string, unknown> = {};
+                const content: Record<string, string | number | boolean | string[]> = {};
                 let inputCancelled = false;
 
                 // Collect input for each field
@@ -391,7 +388,7 @@ async function connect(url?: string): Promise<void> {
                     // Parse and validate the input
                     try {
                         if (answer === '' && field.default !== undefined) {
-                            content[fieldName] = field.default;
+                            content[fieldName] = field.default as string | number | boolean | string[];
                         } else if (answer === '' && !isRequired) {
                             // Skip optional empty fields
                             continue;
@@ -435,7 +432,7 @@ async function connect(url?: string): Promise<void> {
                                 }
                             }
 
-                            content[fieldName] = parsedValue;
+                            content[fieldName] = parsedValue as string | number | boolean | string[];
                         }
                     } catch (error) {
                         console.log(`❌ Error: ${error}`);
@@ -527,14 +524,14 @@ async function connect(url?: string): Promise<void> {
         });
 
         // Set up notification handlers
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             notificationCount++;
             console.log(`\nNotification #${notificationCount}: ${notification.params.level} - ${notification.params.data}`);
             // Re-display the prompt
             process.stdout.write('> ');
         });
 
-        client.setNotificationHandler(ResourceListChangedNotificationSchema, async _ => {
+        client.setNotificationHandler('notifications/resources/list_changed', async _ => {
             console.log(`\nResource list changed notification received!`);
             try {
                 if (!client) {
@@ -922,7 +919,6 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
                 name,
                 arguments: args
             },
-            CallToolResultSchema,
             {
                 task: {
                     ttl: 60_000 // Keep results for 60 seconds

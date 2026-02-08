@@ -21,12 +21,10 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ElicitationCompleteNotificationSchema,
-    ElicitRequestSchema,
-    ErrorCode,
     getDisplayName,
     ListToolsResultSchema,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
     StreamableHTTPClientTransport,
     UnauthorizedError,
     UrlElicitationRequiredError
@@ -339,7 +337,7 @@ async function handleElicitationRequest(request: ElicitRequest): Promise<ElicitR
     } else {
         // Should not happen because the client declares its capabilities to the server,
         // but being defensive is a good practice:
-        throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${mode}`);
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${mode}`);
     }
 }
 
@@ -560,10 +558,10 @@ async function connect(url?: string): Promise<void> {
     console.log('👤 Client created');
 
     // Set up elicitation request handler with proper validation
-    client.setRequestHandler(ElicitRequestSchema, elicitationRequestHandler);
+    client.setRequestHandler('elicitation/create', elicitationRequestHandler);
 
     // Set up notification handler for elicitation completion
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+    client.setNotificationHandler('notifications/elicitation/complete', notification => {
         const { elicitationId } = notification.params;
         const pending = pendingURLElicitations.get(elicitationId);
         if (pending) {

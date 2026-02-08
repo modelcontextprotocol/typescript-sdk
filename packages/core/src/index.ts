@@ -1,4 +1,5 @@
 export * from './auth/errors.js';
+export * from './errors/sdkErrors.js';
 export * from './shared/auth.js';
 export * from './shared/authUtils.js';
 export * from './shared/metadataUtils.js';
@@ -10,8 +11,7 @@ export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
 export * from './types/types.js';
 export * from './util/inMemory.js';
-export * from './util/zodCompat.js';
-export * from './util/zodJsonSchemaCompat.js';
+export * from './util/schema.js';
 
 // experimental exports
 export * from './experimental/index.js';
