@@ -14,11 +14,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import * as z from 'zod/v4';
 
-const LOCALHOST_ORIGINS = [
-    /^http:\/\/localhost(?::\d+)?$/,
-    /^http:\/\/127\.0\.0\.1(?::\d+)?$/,
-    /^http:\/\/\[::1\](?::\d+)?$/
-];
+const LOCALHOST_ORIGINS = [/^http:\/\/localhost(?::\d+)?$/, /^http:\/\/127\.0\.0\.1(?::\d+)?$/, /^http:\/\/\[::1\](?::\d+)?$/];
 
 // Create the MCP server
 const server = new McpServer({
