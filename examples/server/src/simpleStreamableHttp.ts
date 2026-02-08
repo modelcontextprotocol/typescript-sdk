@@ -503,15 +503,15 @@ const getServer = () => {
         {
             title: 'Collect Info with Task',
             description: 'Collects user info via elicitation with task support using elicitInputStream',
-            inputSchema: {
+            inputSchema: z.object({
                 infoType: z.enum(['contact', 'preferences']).describe('Type of information to collect').default('contact')
-            }
+            })
         },
         {
-            async createTask({ infoType }, { taskStore, taskRequestedTtl }) {
+            async createTask({ infoType }, ctx) {
                 // Create the server-side task
-                const task = await taskStore.createTask({
-                    ttl: taskRequestedTtl
+                const task = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
                 });
 
                 // Perform async work that makes a nested elicitation request using elicitInputStream
@@ -593,11 +593,11 @@ const getServer = () => {
 
                 return { task };
             },
-            async getTask(_args, { taskId, taskStore }) {
-                return await taskStore.getTask(taskId);
+            async getTask(_args, ctx) {
+                return await ctx.task.store.getTask(ctx.task.id);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
-                const result = await taskStore.getTaskResult(taskId);
+            async getTaskResult(_args, ctx) {
+                const result = await ctx.task.store.getTaskResult(ctx.task.id);
                 return result as CallToolResult;
             }
         }
