@@ -11,7 +11,7 @@
 /**
  * Regular expression for valid tool names according to SEP-986 specification
  */
-const TOOL_NAME_REGEX = /^[A-Za-z0-9._\/-]{1,64}$/;
+const TOOL_NAME_REGEX = /^[A-Za-z0-9._/-]{1,64}$/;
 
 /**
  * Validates a tool name according to the SEP specification
@@ -64,7 +64,7 @@ export function validateToolName(name: string): {
     // Check for invalid characters
     if (!TOOL_NAME_REGEX.test(name)) {
         const invalidChars = [...name]
-            .filter(char => !/[A-Za-z0-9._\/-]/.test(char))
+            .filter(char => !/[A-Za-z0-9._/-]/.test(char))
             .filter((char, index, arr) => arr.indexOf(char) === index); // Remove duplicates
 
         warnings.push(

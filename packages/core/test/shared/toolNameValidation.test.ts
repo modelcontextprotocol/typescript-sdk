@@ -17,14 +17,14 @@ afterEach(() => {
 describe('validateToolName', () => {
     describe('valid tool names', () => {
         test.each`
-            description                    | toolName
-            ${'simple alphanumeric names'} | ${'getUser'}
-            ${'names with underscores'}    | ${'get_user_profile'}
-            ${'names with dashes'}         | ${'user-profile-update'}
-            ${'names with dots'}           | ${'admin.tools.list'}
-            ${'mixed character names'}     | ${'DATA_EXPORT_v2.1'}
-            ${'single character names'}    | ${'a'}
-            ${'64 character names'}        | ${'a'.repeat(64)}
+            description                     | toolName
+            ${'simple alphanumeric names'}  | ${'getUser'}
+            ${'names with underscores'}     | ${'get_user_profile'}
+            ${'names with dashes'}          | ${'user-profile-update'}
+            ${'names with dots'}            | ${'admin.tools.list'}
+            ${'mixed character names'}      | ${'DATA_EXPORT_v2.1'}
+            ${'single character names'}     | ${'a'}
+            ${'64 character names'}         | ${'a'.repeat(64)}
             ${'names with forward slashes'} | ${'user/profile/update'}
         `('should accept $description', ({ toolName }) => {
             const result = validateToolName(toolName);
