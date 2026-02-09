@@ -43,7 +43,7 @@ await server.connect(transport);
 
 See the MCP spec for full transport details: `https://modelcontextprotocol.io/specification/2025-11-25/basic/transports`
 
-### Stateless vs stateful sessions
+#### Stateless vs stateful sessions
 
 Streamable HTTP can run:
 
@@ -64,6 +64,34 @@ await server.connect(transport);
 
 > [!NOTE]
 > For full runnable examples, see [`simpleStatelessStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStatelessStreamableHttp.ts) (stateless) and [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) (stateful with resumability).
+
+#### JSON response mode
+
+If you do not need SSE streaming, set `enableJsonResponse: true`. The server will return plain JSON responses to every POST and reject GET requests with `405`:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#streamableHttp_jsonResponse"
+const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+
+const transport = new NodeStreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    enableJsonResponse: true
+});
+
+await server.connect(transport);
+```
+
+> [!NOTE]
+> For a full runnable example, see [`jsonResponseStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/jsonResponseStreamableHttp.ts).
+
+### stdio
+
+For local, process‑spawned integrations (Claude Desktop, CLI tools), use {@linkcode @modelcontextprotocol/server!server/stdio.StdioServerTransport | StdioServerTransport}:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#stdio_basic"
+const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
 
 ## Running your server
 
@@ -168,6 +196,36 @@ server.registerTool(
 
 > [!NOTE]
 > For a full runnable example with `ResourceLink` outputs, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts).
+
+#### Logging
+
+Use `ctx.mcpReq.log(level, data)` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) inside a tool handler to send structured log messages to the client. The server must declare the `logging` capability:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#logging_capability"
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+```
+
+Then log from any tool callback:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_logging"
+server.registerTool(
+    'fetch-data',
+    {
+        description: 'Fetch data from an API',
+        inputSchema: z.object({ url: z.string() })
+    },
+    async ({ url }, ctx): Promise<CallToolResult> => {
+        await ctx.mcpReq.log('info', `Fetching ${url}`);
+        const res = await fetch(url);
+        await ctx.mcpReq.log('debug', `Response status: ${res.status}`);
+        const text = await res.text();
+        return { content: [{ type: 'text', text }] };
+    }
+);
+```
+
+> [!NOTE]
+> For logging in a full server, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) and [`jsonResponseStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/jsonResponseStreamableHttp.ts).
 
 ### Resources
 
@@ -287,9 +345,18 @@ server.registerPrompt(
 
 For client-side completion usage, see the [Client guide](client.md).
 
-## Multi‑node deployment patterns
+## More server features
 
-The SDK supports multi‑node deployments using Streamable HTTP. The high‑level patterns and diagrams live with the runnable server examples:
+The sections above cover the essentials. The SDK supports several additional capabilities — each is demonstrated in the runnable examples and covered in more detail in the linked references.
 
-- [`examples/server/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/README.md#multi-node-deployment-patterns)
-
+| Feature | Description | Reference |
+|---------|-------------|-----------|
+| Web Standard transport | Deploy on Cloudflare Workers, Deno, or Bun | [`honoWebStandardStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/honoWebStandardStreamableHttp.ts) |
+| Session management | Per-session transport routing, initialization, and cleanup | [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) |
+| Resumability | Replay missed SSE events via an event store | [`inMemoryEventStore.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/inMemoryEventStore.ts) |
+| CORS | Expose MCP headers (`mcp-session-id`, etc.) for browser clients | [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) |
+| Tool annotations | Hint whether tools are read-only, destructive, etc. | [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) |
+| Elicitation | Request user input (forms or URLs) during tool execution | [Capabilities guide](capabilities.md#elicitation), [`elicitationFormExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/elicitationFormExample.ts) |
+| Sampling | Request LLM completions from the connected client | [Capabilities guide](capabilities.md#sampling), [`toolWithSampleServer.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/toolWithSampleServer.ts) |
+| Tasks (experimental) | Long-running operations with polling and resumption | [Capabilities guide](capabilities.md#task-based-execution-experimental), [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) |
+| Multi‑node deployment | Stateless, persistent‑storage, and distributed routing patterns | [`examples/server/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/README.md#multi-node-deployment-patterns) |

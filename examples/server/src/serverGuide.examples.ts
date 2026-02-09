@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, StdioServerTransport } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
 // ---------------------------------------------------------------------------
@@ -179,6 +179,35 @@ function registerPrompt_completion(server: McpServer) {
 }
 
 // ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+/** Example: Server with logging capability + tool that logs progress messages. */
+function registerTool_logging() {
+    //#region logging_capability
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+    //#endregion logging_capability
+
+    //#region registerTool_logging
+    server.registerTool(
+        'fetch-data',
+        {
+            description: 'Fetch data from an API',
+            inputSchema: z.object({ url: z.string() })
+        },
+        async ({ url }, ctx): Promise<CallToolResult> => {
+            await ctx.mcpReq.log('info', `Fetching ${url}`);
+            const res = await fetch(url);
+            await ctx.mcpReq.log('debug', `Response status: ${res.status}`);
+            const text = await res.text();
+            return { content: [{ type: 'text', text }] };
+        }
+    );
+    //#endregion registerTool_logging
+    return server;
+}
+
+// ---------------------------------------------------------------------------
 // Transports
 // ---------------------------------------------------------------------------
 
@@ -206,6 +235,29 @@ async function streamableHttp_stateless() {
 
     await server.connect(transport);
     //#endregion streamableHttp_stateless
+}
+
+/** Example: Streamable HTTP with JSON response mode (no SSE). */
+async function streamableHttp_jsonResponse() {
+    //#region streamableHttp_jsonResponse
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+
+    const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true
+    });
+
+    await server.connect(transport);
+    //#endregion streamableHttp_jsonResponse
+}
+
+/** Example: stdio transport for local process-spawned integrations. */
+async function stdio_basic() {
+    //#region stdio_basic
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    //#endregion stdio_basic
 }
 
 // ---------------------------------------------------------------------------
@@ -241,11 +293,14 @@ function dnsRebinding_allowedHosts() {
 // Suppress unused-function warnings (functions exist solely for type-checking)
 void registerTool_basic;
 void registerTool_resourceLink;
+void registerTool_logging;
 void registerResource_static;
 void registerResource_template;
 void registerPrompt_basic;
 void registerPrompt_completion;
 void streamableHttp_stateful;
 void streamableHttp_stateless;
+void streamableHttp_jsonResponse;
+void stdio_basic;
 void dnsRebinding_basic;
 void dnsRebinding_allowedHosts;
