@@ -150,7 +150,7 @@ export type RequestOptions = {
     /**
      * If true, receiving a progress notification will reset the request timeout.
      * This is useful for long-running operations that send periodic progress updates.
-     * Default: false
+     * Default: true
      */
     resetTimeoutOnProgress?: boolean;
 
@@ -1276,7 +1276,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
-            this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
+            this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? true);
 
             // Queue request if related to a task
             const relatedTaskId = relatedTask?.taskId;
