@@ -285,13 +285,7 @@ server.registerPrompt(
 );
 ```
 
-On the client side, you use `client.complete()` with a reference to the prompt or resource and the partially‑typed argument. See the MCP spec sections on prompts and resources for complete details, and [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts) for client‑side usage patterns.
-
-### Display names and metadata
-
-Tools, resources and prompts support a `title` field for human‑readable names. Older APIs can also attach `annotations.title`. To compute the correct display name on the client, use:
-
-- `getDisplayName` from `@modelcontextprotocol/client`
+For client-side completion usage, see the [Client guide](client.md).
 
 ## Multi‑node deployment patterns
 
