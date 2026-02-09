@@ -6,7 +6,7 @@ title: Server
 
 This SDK lets you build MCP servers in TypeScript and connect them to different transports. For most use cases you will use `McpServer` from `@modelcontextprotocol/server` and choose one of:
 
-- **Streamable HTTP** (recommended for remote servers)
+- **Streamable HTTP** (for remote servers)
 - **stdio** (for local, process‑spawned integrations)
 
 For a complete, runnable example server, see:
@@ -19,7 +19,7 @@ For a complete, runnable example server, see:
 
 ### Streamable HTTP
 
-Streamable HTTP is the modern, fully featured transport. It supports:
+Streamable HTTP is the HTTP‑based transport. It supports:
 
 - Request/response over HTTP POST
 - Server‑to‑client notifications over SSE (when enabled)
@@ -64,12 +64,6 @@ await server.connect(transport);
 
 > [!NOTE]
 > For full runnable examples, see [`simpleStatelessStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStatelessStreamableHttp.ts) (stateless) and [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) (stateful with resumability).
-
-### Deprecated HTTP + SSE
-
-The older HTTP+SSE server transport (protocol version 2024‑11‑05) has been removed from the SDK. New implementations should use Streamable HTTP.
-
-Clients can still connect to legacy SSE servers using `SSEClientTransport` from `@modelcontextprotocol/client`.
 
 ## Running your server
 
@@ -305,10 +299,3 @@ The SDK supports multi‑node deployments using Streamable HTTP. The high‑leve
 
 - [`examples/server/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/README.md#multi-node-deployment-patterns)
 
-## Backwards compatibility
-
-To handle both modern and legacy clients, use a client that falls back from Streamable HTTP to SSE:
-
-- [`streamableHttpWithSseFallbackClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/streamableHttpWithSseFallbackClient.ts)
-
-For the detailed protocol rules, see the "Backwards compatibility" section of the MCP spec.
