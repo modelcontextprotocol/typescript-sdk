@@ -54,6 +54,14 @@ import { Server } from './server.js';
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
+ *
+ * @example
+ * ```ts source="./mcp.examples.ts#McpServer_basicUsage"
+ * const server = new McpServer({
+ *     name: 'my-server',
+ *     version: '1.0.0'
+ * });
+ * ```
  */
 export class McpServer {
     /**
@@ -93,6 +101,13 @@ export class McpServer {
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
      * The `server` object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_connect_stdio"
+     * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+     * const transport = new StdioServerTransport();
+     * await server.connect(transport);
+     * ```
      */
     async connect(transport: Transport): Promise<void> {
         return await this.server.connect(transport);
@@ -549,6 +564,21 @@ export class McpServer {
     /**
      * Registers a resource with a config object and callback.
      * For static resources, use a URI string. For dynamic resources, use a {@linkcode ResourceTemplate}.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_registerResource_static"
+     * server.registerResource(
+     *     'config',
+     *     'config://app',
+     *     {
+     *         title: 'Application Config',
+     *         mimeType: 'text/plain'
+     *     },
+     *     async uri => ({
+     *         contents: [{ uri: uri.href, text: 'App configuration here' }]
+     *     })
+     * );
+     * ```
      */
     registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
     registerResource(
@@ -812,6 +842,29 @@ export class McpServer {
 
     /**
      * Registers a tool with a config object and callback.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_registerTool_basic"
+     * server.registerTool(
+     *     'calculate-bmi',
+     *     {
+     *         title: 'BMI Calculator',
+     *         description: 'Calculate Body Mass Index',
+     *         inputSchema: z.object({
+     *             weightKg: z.number(),
+     *             heightM: z.number()
+     *         }),
+     *         outputSchema: z.object({ bmi: z.number() })
+     *     },
+     *     async ({ weightKg, heightM }) => {
+     *         const output = { bmi: weightKg / (heightM * heightM) };
+     *         return {
+     *             content: [{ type: 'text', text: JSON.stringify(output) }],
+     *             structuredContent: output
+     *         };
+     *     }
+     * );
+     * ```
      */
     registerTool<OutputArgs extends AnySchema, InputArgs extends AnySchema | undefined = undefined>(
         name: string,
@@ -846,6 +899,29 @@ export class McpServer {
 
     /**
      * Registers a prompt with a config object and callback.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_registerPrompt_basic"
+     * server.registerPrompt(
+     *     'review-code',
+     *     {
+     *         title: 'Code Review',
+     *         description: 'Review code for best practices',
+     *         argsSchema: z.object({ code: z.string() })
+     *     },
+     *     ({ code }) => ({
+     *         messages: [
+     *             {
+     *                 role: 'user' as const,
+     *                 content: {
+     *                     type: 'text' as const,
+     *                     text: `Please review this code:\n\n${code}`
+     *                 }
+     *             }
+     *         ]
+     *     })
+     * );
+     * ```
      */
     registerPrompt<Args extends AnySchema>(
         name: string,
@@ -890,6 +966,14 @@ export class McpServer {
      * @see {@linkcode LoggingMessageNotification}
      * @param params
      * @param sessionId Optional for stateless transports and backward compatibility.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_sendLoggingMessage_basic"
+     * await server.sendLoggingMessage({
+     *     level: 'info',
+     *     data: 'Processing complete'
+     * });
+     * ```
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         return this.server.sendLoggingMessage(params, sessionId);
