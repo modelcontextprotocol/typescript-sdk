@@ -15,14 +15,15 @@ afterEach(() => {
 describe('validateToolName', () => {
     describe('valid tool names', () => {
         test.each`
-            description                    | toolName
-            ${'simple alphanumeric names'} | ${'getUser'}
-            ${'names with underscores'}    | ${'get_user_profile'}
-            ${'names with dashes'}         | ${'user-profile-update'}
-            ${'names with dots'}           | ${'admin.tools.list'}
-            ${'mixed character names'}     | ${'DATA_EXPORT_v2.1'}
-            ${'single character names'}    | ${'a'}
-            ${'128 character names'}       | ${'a'.repeat(128)}
+            description                     | toolName
+            ${'simple alphanumeric names'}  | ${'getUser'}
+            ${'names with underscores'}     | ${'get_user_profile'}
+            ${'names with dashes'}          | ${'user-profile-update'}
+            ${'names with dots'}            | ${'admin.tools.list'}
+            ${'mixed character names'}      | ${'DATA_EXPORT_v2.1'}
+            ${'single character names'}     | ${'a'}
+            ${'64 character names'}         | ${'a'.repeat(64)}
+            ${'names with forward slashes'} | ${'user/profile/update'}
         `('should accept $description', ({ toolName }) => {
             const result = validateToolName(toolName);
             expect(result.isValid).toBe(true);
@@ -34,10 +35,9 @@ describe('validateToolName', () => {
         test.each`
             description                            | toolName                  | expectedWarning
             ${'empty names'}                       | ${''}                     | ${'Tool name cannot be empty'}
-            ${'names longer than 128 characters'}  | ${'a'.repeat(129)}        | ${'Tool name exceeds maximum length of 128 characters (current: 129)'}
+            ${'names longer than 64 characters'}   | ${'a'.repeat(65)}         | ${'Tool name exceeds maximum length of 64 characters (current: 65)'}
             ${'names with spaces'}                 | ${'get user profile'}     | ${'Tool name contains invalid characters: " "'}
             ${'names with commas'}                 | ${'get,user,profile'}     | ${'Tool name contains invalid characters: ","'}
-            ${'names with forward slashes'}        | ${'user/profile/update'}  | ${'Tool name contains invalid characters: "/"'}
             ${'names with other special chars'}    | ${'user@domain.com'}      | ${'Tool name contains invalid characters: "@"'}
             ${'names with multiple invalid chars'} | ${'user name@domain,com'} | ${'Tool name contains invalid characters: " ", "@", ","'}
             ${'names with unicode characters'}     | ${'user-ñame'}            | ${'Tool name contains invalid characters: "ñ"'}
@@ -94,7 +94,7 @@ describe('validateAndWarnToolName', () => {
         ${'completely valid names'}       | ${'get-user-profile'} | ${true}        | ${false}
         ${'invalid names with spaces'}    | ${'get user profile'} | ${false}       | ${true}
         ${'empty names'}                  | ${''}                 | ${false}       | ${true}
-        ${'names exceeding length limit'} | ${'a'.repeat(129)}    | ${false}       | ${true}
+        ${'names exceeding length limit'} | ${'a'.repeat(65)}     | ${false}       | ${true}
     `('should handle $description', ({ toolName, expectedResult, shouldWarn }) => {
         const result = validateAndWarnToolName(toolName);
         expect(result).toBe(expectedResult);
@@ -118,7 +118,7 @@ describe('edge cases and robustness', () => {
         description                               | toolName          | shouldBeValid | expectedWarning
         ${'names with only dots'}                 | ${'...'}          | ${true}       | ${'Tool name starts or ends with a dot, which may cause parsing issues in some contexts'}
         ${'names with only dashes'}               | ${'---'}          | ${true}       | ${'Tool name starts or ends with a dash, which may cause parsing issues in some contexts'}
-        ${'names with only forward slashes'}      | ${'///'}          | ${false}      | ${'Tool name contains invalid characters: "/"'}
+        ${'names with only forward slashes'}      | ${'///'}          | ${true}       | ${'Tool name starts or ends with a forward slash, which may cause parsing issues in some contexts'}
         ${'names with mixed valid/invalid chars'} | ${'user@name123'} | ${false}      | ${'Tool name contains invalid characters: "@"'}
     `('should handle $description', ({ toolName, shouldBeValid, expectedWarning }) => {
         const result = validateToolName(toolName);
