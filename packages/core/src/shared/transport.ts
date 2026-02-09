@@ -66,7 +66,7 @@ export type TransportSendOptions = {
      *
      * This allows clients to persist the latest token for potential reconnection.
      */
-    onresumptiontoken?: (token: string) => void;
+    onresumptiontoken?: ((token: string) => void) | undefined;
 };
 /**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.
@@ -98,14 +98,14 @@ export interface Transport {
      *
      * This should be invoked when close() is called as well.
      */
-    onclose?: () => void;
+    onclose?: (() => void) | undefined;
 
     /**
      * Callback for when an error occurs.
      *
      * Note that errors are not necessarily fatal; they are used for reporting any kind of exceptional condition out of band.
      */
-    onerror?: (error: Error) => void;
+    onerror?: ((error: Error) => void) | undefined;
 
     /**
      * Callback for when a message (request or response) is received over the connection.
@@ -114,21 +114,21 @@ export interface Transport {
      *
      * The requestInfo can be used to get the original request information (headers, etc.)
      */
-    onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
+    onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
 
     /**
      * The session ID generated for this connection.
      */
-    sessionId?: string;
+    sessionId?: string | undefined;
 
     /**
      * Sets the protocol version used for the connection (called when the initialize response is received).
      */
-    setProtocolVersion?: (version: string) => void;
+    setProtocolVersion?: ((version: string) => void) | undefined;
 
     /**
      * Sets the supported protocol versions for header validation (called during connect).
      * This allows the server to pass its supported versions to the transport.
      */
-    setSupportedProtocolVersions?: (versions: string[]) => void;
+    setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
 }
