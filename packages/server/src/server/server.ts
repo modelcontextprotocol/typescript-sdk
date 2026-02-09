@@ -115,16 +115,7 @@ export class Server extends Protocol<ServerContext> {
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler('logging/setLevel', async (request, ctx) => {
-                const transportSessionId: string | undefined =
-                    ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
-                const { level } = request.params;
-                const parseResult = parseSchema(LoggingLevelSchema, level);
-                if (parseResult.success) {
-                    this._loggingLevels.set(transportSessionId, parseResult.data);
-                }
-                return {};
-            });
+            this.registerLoggingHandler();
         }
     }
 
@@ -179,6 +170,27 @@ export class Server extends Protocol<ServerContext> {
         return currentLevel ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)! : false;
     };
 
+    private _loggingHandlerRegistered = false;
+
+    private registerLoggingHandler(): void {
+        if (this._loggingHandlerRegistered) {
+            return;
+        }
+
+        this.setRequestHandler('logging/setLevel', async (request, ctx) => {
+            const transportSessionId: string | undefined =
+                ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
+            const { level } = request.params;
+            const parseResult = parseSchema(LoggingLevelSchema, level);
+            if (parseResult.success) {
+                this._loggingLevels.set(transportSessionId, parseResult.data);
+            }
+            return {};
+        });
+
+        this._loggingHandlerRegistered = true;
+    }
+
     /**
      * Registers new capabilities. This can only be called before connecting to a transport.
      *
@@ -189,6 +201,10 @@ export class Server extends Protocol<ServerContext> {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+
+        if (this._capabilities.logging) {
+            this.registerLoggingHandler();
+        }
     }
 
     /**
