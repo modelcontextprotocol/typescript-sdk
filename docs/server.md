@@ -4,7 +4,7 @@ title: Server
 
 ## Server overview
 
-This SDK lets you build MCP servers in TypeScript and connect them to different transports. For most use cases you will use `McpServer` from `@modelcontextprotocol/server` and choose one of:
+This SDK lets you build MCP servers in TypeScript and connect them to different transports. For most use cases you will use {@linkcode @modelcontextprotocol/server!server/mcp.McpServer | McpServer} from `@modelcontextprotocol/server` and choose one of:
 
 - **Streamable HTTP** (for remote servers)
 - **stdio** (for local, process‑spawned integrations)
@@ -108,7 +108,7 @@ const app = createMcpExpressApp({
 
 Tools let MCP clients ask your server to take actions. They are usually the main way that LLMs call into your application.
 
-A typical registration with `registerTool`:
+A typical registration with {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#registerTool | registerTool}:
 
 ```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_basic"
 server.registerTool(
@@ -135,7 +135,7 @@ server.registerTool(
 > [!NOTE]
 > For full runnable examples, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) and [`toolWithSampleServer.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/toolWithSampleServer.ts).
 
-#### ResourceLink outputs
+#### `ResourceLink` outputs
 
 Tools can return `resource_link` content items to reference large resources without embedding them directly, allowing clients to fetch only what they need:
 
@@ -190,7 +190,7 @@ server.registerResource(
 );
 ```
 
-Dynamic resources use `ResourceTemplate` and can support completions on path parameters:
+Dynamic resources use {@linkcode @modelcontextprotocol/server!server/mcp.ResourceTemplate | ResourceTemplate} and can support completions on path parameters:
 
 ```ts source="../examples/server/src/serverGuide.examples.ts#registerResource_template"
 server.registerResource(
@@ -257,7 +257,7 @@ server.registerPrompt(
 
 ### Completions
 
-Both prompts and resources can support argument completions. Wrap a field in the `argsSchema` with `completable()` to provide autocompletion suggestions:
+Both prompts and resources can support argument completions. Wrap a field in the `argsSchema` with {@linkcode @modelcontextprotocol/server!server/completable.completable | completable()} to provide autocompletion suggestions:
 
 ```ts source="../examples/server/src/serverGuide.examples.ts#registerPrompt_completion"
 server.registerPrompt(
