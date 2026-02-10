@@ -113,9 +113,11 @@ function createMcpServer() {
     // ===== TOOLS =====
 
     // Simple text tool
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_simple_text',
-        'Tests simple text content response',
+        {
+            description: 'Tests simple text content response'
+        },
         async (): Promise<CallToolResult> => {
             return {
                 content: [{ type: 'text', text: 'This is a simple text response for testing.' }]
@@ -124,9 +126,11 @@ function createMcpServer() {
     );
 
     // Image content tool
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_image_content',
-        'Tests image content response',
+        {
+            description: 'Tests image content response'
+        },
         async (): Promise<CallToolResult> => {
             return {
                 content: [{ type: 'image', data: TEST_IMAGE_BASE64, mimeType: 'image/png' }]
@@ -135,9 +139,11 @@ function createMcpServer() {
     );
 
     // Audio content tool
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_audio_content',
-        'Tests audio content response',
+        {
+            description: 'Tests audio content response'
+        },
         async (): Promise<CallToolResult> => {
             return {
                 content: [{ type: 'audio', data: TEST_AUDIO_BASE64, mimeType: 'audio/wav' }]
@@ -146,9 +152,11 @@ function createMcpServer() {
     );
 
     // Embedded resource tool
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_embedded_resource',
-        'Tests embedded resource content response',
+        {
+            description: 'Tests embedded resource content response'
+        },
         async (): Promise<CallToolResult> => {
             return {
                 content: [
@@ -166,9 +174,11 @@ function createMcpServer() {
     );
 
     // Multiple content types tool
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_multiple_content_types',
-        'Tests response with multiple content types (text, image, resource)',
+        {
+            description: 'Tests response with multiple content types (text, image, resource)'
+        },
         async (): Promise<CallToolResult> => {
             return {
                 content: [
@@ -188,11 +198,13 @@ function createMcpServer() {
     );
 
     // Tool with logging
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_tool_with_logging',
-        'Tests tool that emits log messages during execution',
-        {},
-        async (_args: unknown, extra): Promise<CallToolResult> => {
+        {
+            description: 'Tests tool that emits log messages during execution',
+            inputSchema: z.object({})
+        },
+        async (_args, extra): Promise<CallToolResult> => {
             await extra.sendNotification({
                 method: 'notifications/message',
                 params: {
@@ -225,11 +237,13 @@ function createMcpServer() {
     );
 
     // Tool with progress
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_tool_with_progress',
-        'Tests tool that reports progress notifications',
-        {},
-        async (_args: unknown, extra): Promise<CallToolResult> => {
+        {
+            description: 'Tests tool that reports progress notifications',
+            inputSchema: z.object({})
+        },
+        async (_args, extra): Promise<CallToolResult> => {
             const progressToken = extra._meta?.progressToken ?? 0;
             console.log('Progress token:', progressToken);
             await extra.sendNotification({
@@ -271,20 +285,25 @@ function createMcpServer() {
     );
 
     // Error handling tool
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_error_handling',
-        'Tests error response handling',
+        {
+            description: 'Tests error response handling'
+        },
         async (): Promise<CallToolResult> => {
             throw new Error('This tool intentionally returns an error for testing');
         }
     );
 
     // SEP-1699: Reconnection test tool - closes SSE stream mid-call to test client reconnection
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_reconnection',
-        'Tests SSE stream disconnection and client reconnection (SEP-1699)',
-        {},
-        async (_args: unknown, extra): Promise<CallToolResult> => {
+        {
+            description:
+                'Tests SSE stream disconnection and client reconnection (SEP-1699). Server will close the stream mid-call and send the result after client reconnects.',
+            inputSchema: z.object({})
+        },
+        async (_args, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
             console.log(`[${extra.sessionId}] Starting test_reconnection tool...`);
@@ -314,10 +333,14 @@ function createMcpServer() {
     );
 
     // Sampling tool - requests LLM completion from client
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_sampling',
-        'Tests server-initiated sampling (LLM completion request)',
-        { prompt: z.string().describe('The prompt to send to the LLM') },
+        {
+            description: 'Tests server-initiated sampling (LLM completion request)',
+            inputSchema: z.object({
+                prompt: z.string().describe('The prompt to send to the LLM')
+            })
+        },
         async (args: { prompt: string }, extra): Promise<CallToolResult> => {
             try {
                 // Request sampling from client
@@ -364,10 +387,14 @@ function createMcpServer() {
     );
 
     // Elicitation tool - requests user input from client
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_elicitation',
-        'Tests server-initiated elicitation (user input request)',
-        { message: z.string().describe('The message to show the user') },
+        {
+            description: 'Tests server-initiated elicitation (user input request)',
+            inputSchema: z.object({
+                message: z.string().describe('The message to show the user')
+            })
+        },
         async (args: { message: string }, extra): Promise<CallToolResult> => {
             try {
                 // Request user input from client
@@ -414,11 +441,13 @@ function createMcpServer() {
     );
 
     // SEP-1034: Elicitation with default values for all primitive types
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_elicitation_sep1034_defaults',
-        'Tests elicitation with default values per SEP-1034',
-        {},
-        async (_args: unknown, extra): Promise<CallToolResult> => {
+        {
+            description: 'Tests elicitation with default values per SEP-1034',
+            inputSchema: z.object({})
+        },
+        async (_args, extra): Promise<CallToolResult> => {
             try {
                 const result = await extra.sendRequest(
                     {
@@ -485,11 +514,13 @@ function createMcpServer() {
     );
 
     // SEP-1330: Elicitation with enum schema improvements
-    mcpServer.tool(
+    mcpServer.registerTool(
         'test_elicitation_sep1330_enums',
-        'Tests elicitation with enum schema improvements per SEP-1330',
-        {},
-        async (_args: unknown, extra): Promise<CallToolResult> => {
+        {
+            description: 'Tests elicitation with enum schema improvements per SEP-1330',
+            inputSchema: z.object({})
+        },
+        async (_args, extra): Promise<CallToolResult> => {
             try {
                 const result = await extra.sendRequest(
                     {
@@ -573,17 +604,19 @@ function createMcpServer() {
     );
 
     // SEP-1613: JSON Schema 2020-12 conformance test tool
-    mcpServer.tool(
+    mcpServer.registerTool(
         'json_schema_2020_12_tool',
-        'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613)',
         {
-            name: z.string().optional(),
-            address: z
-                .object({
-                    street: z.string().optional(),
-                    city: z.string().optional()
-                })
-                .optional()
+            description: 'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613)',
+            inputSchema: z.object({
+                name: z.string().optional(),
+                address: z
+                    .object({
+                        street: z.string().optional(),
+                        city: z.string().optional()
+                    })
+                    .optional()
+            })
         },
         async (args: { name?: string; address?: { street?: string; city?: string } }): Promise<CallToolResult> => {
             return {
@@ -600,7 +633,7 @@ function createMcpServer() {
     // ===== RESOURCES =====
 
     // Static text resource
-    mcpServer.resource(
+    mcpServer.registerResource(
         'static-text',
         'test://static-text',
         {
@@ -622,7 +655,7 @@ function createMcpServer() {
     );
 
     // Static binary resource
-    mcpServer.resource(
+    mcpServer.registerResource(
         'static-binary',
         'test://static-binary',
         {
@@ -644,7 +677,7 @@ function createMcpServer() {
     );
 
     // Resource template
-    mcpServer.resource(
+    mcpServer.registerResource(
         'template',
         new ResourceTemplate('test://template/{id}/data', { list: undefined }),
         {
@@ -671,7 +704,7 @@ function createMcpServer() {
     );
 
     // Watched resource
-    mcpServer.resource(
+    mcpServer.registerResource(
         'watched-resource',
         'test://watched-resource',
         {
@@ -710,9 +743,12 @@ function createMcpServer() {
     // ===== PROMPTS =====
 
     // Simple prompt
-    mcpServer.prompt(
+    mcpServer.registerPrompt(
         'test_simple_prompt',
-        'A simple prompt without arguments',
+        {
+            title: 'Simple Test Prompt',
+            description: 'A simple prompt without arguments'
+        },
         async (): Promise<GetPromptResult> => {
             return {
                 messages: [
@@ -729,12 +765,15 @@ function createMcpServer() {
     );
 
     // Prompt with arguments
-    mcpServer.prompt(
+    mcpServer.registerPrompt(
         'test_prompt_with_arguments',
-        'A prompt with required arguments',
         {
-            arg1: z.string().describe('First test argument'),
-            arg2: z.string().describe('Second test argument')
+            title: 'Prompt With Arguments',
+            description: 'A prompt with required arguments',
+            argsSchema: z.object({
+                arg1: z.string().describe('First test argument'),
+                arg2: z.string().describe('Second test argument')
+            })
         },
         async (args: { arg1: string; arg2: string }): Promise<GetPromptResult> => {
             return {
@@ -752,11 +791,14 @@ function createMcpServer() {
     );
 
     // Prompt with embedded resource
-    mcpServer.prompt(
+    mcpServer.registerPrompt(
         'test_prompt_with_embedded_resource',
-        'A prompt that includes an embedded resource',
         {
-            resourceUri: z.string().describe('URI of the resource to embed')
+            title: 'Prompt With Embedded Resource',
+            description: 'A prompt that includes an embedded resource',
+            argsSchema: z.object({
+                resourceUri: z.string().describe('URI of the resource to embed')
+            })
         },
         async (args: { resourceUri: string }): Promise<GetPromptResult> => {
             return {
@@ -785,9 +827,12 @@ function createMcpServer() {
     );
 
     // Prompt with image
-    mcpServer.prompt(
+    mcpServer.registerPrompt(
         'test_prompt_with_image',
-        'A prompt that includes image content',
+        {
+            title: 'Prompt With Image',
+            description: 'A prompt that includes image content'
+        },
         async (): Promise<GetPromptResult> => {
             return {
                 messages: [

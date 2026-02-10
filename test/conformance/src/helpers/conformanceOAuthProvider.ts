@@ -11,6 +11,7 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
     private _tokens?: OAuthTokens;
     private _codeVerifier?: string;
     private _authCode?: string;
+    private _authCodePromise?: Promise<string>;
 
     constructor(
         private readonly _redirectUrl: string | URL,

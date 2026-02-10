@@ -6,11 +6,11 @@
     "test:server": "./scripts/run-server-conformance.sh",
     "test:server:all": "./scripts/run-server-conformance.sh --suite all",
     "test:server:run": "npx tsx ./src/everythingServer.ts",
-    "test:client": "npx @modelcontextprotocol/conformance client --command 'npx tsx ./src/everythingClient.ts' --suite core",
+    "test:client": "npx @modelcontextprotocol/conformance client --command 'npx tsx ./src/everythingClient.ts'",
     "test:client:all": "npx @modelcontextprotocol/conformance client --command 'npx tsx ./src/everythingClient.ts' --suite all"
   },
   "devDependencies": {
-    "@modelcontextprotocol/conformance": "^0.1.13",
+    "@modelcontextprotocol/conformance": "0.1.10",
     "tsx": "^4.19.4"
   }
 }

@@ -37,11 +37,6 @@ const ClientConformanceContextSchema = z.discriminatedUnion('name', [
         name: z.literal('auth/client-credentials-basic'),
         client_id: z.string(),
         client_secret: z.string()
-    }),
-    z.object({
-        name: z.literal('auth/pre-registration'),
-        client_id: z.string(),
-        client_secret: z.string()
     })
 ]);
 
@@ -165,8 +160,7 @@ registerScenarios(
         'auth/scope-retry-limit',
         'auth/token-endpoint-auth-basic',
         'auth/token-endpoint-auth-post',
-        'auth/token-endpoint-auth-none',
-        'auth/resource-mismatch'
+        'auth/token-endpoint-auth-none'
     ],
     runAuthClient
 );
@@ -233,40 +227,6 @@ async function runClientCredentialsBasic(serverUrl: string): Promise<void> {
 }
 
 registerScenario('auth/client-credentials-basic', runClientCredentialsBasic);
-
-// ============================================================================
-// Pre-registration scenario
-// ============================================================================
-
-async function runPreRegistrationClient(serverUrl: string): Promise<void> {
-    const ctx = parseContext();
-    if (ctx.name !== 'auth/pre-registration') {
-        throw new Error(`Expected pre-registration context, got ${ctx.name}`);
-    }
-
-    // Use ClientCredentialsProvider with pre-registered client_id and client_secret
-    const provider = new ClientCredentialsProvider({
-        clientId: ctx.client_id,
-        clientSecret: ctx.client_secret
-    });
-
-    const client = new Client({ name: 'conformance-pre-registration', version: '1.0.0' }, { capabilities: {} });
-
-    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
-        authProvider: provider
-    });
-
-    await client.connect(transport);
-    logger.debug('Successfully connected with pre-registered credentials');
-
-    await client.listTools();
-    logger.debug('Successfully listed tools');
-
-    await transport.close();
-    logger.debug('Connection closed successfully');
-}
-
-registerScenario('auth/pre-registration', runPreRegistrationClient);
 
 // ============================================================================
 // Elicitation defaults scenario
