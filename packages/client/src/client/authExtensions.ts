@@ -13,9 +13,11 @@ import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 /**
  * Helper to produce a private_key_jwt client authentication function.
  *
- * Usage:
- *   const addClientAuth = createPrivateKeyJwtAuth({ issuer, subject, privateKey, alg, audience? });
- *   // pass addClientAuth as provider.addClientAuthentication implementation
+ * @example
+ * ```typescript
+ * const addClientAuth = createPrivateKeyJwtAuth({ issuer, subject, privateKey, alg, audience? });
+ * // pass addClientAuth as provider.addClientAuthentication implementation
+ * ```
  */
 export function createPrivateKeyJwtAuth(options: {
     issuer: string;
@@ -114,6 +116,7 @@ export interface ClientCredentialsProviderOptions {
  * the client authenticates using a client_id and client_secret.
  *
  * @example
+ * ```typescript
  * const provider = new ClientCredentialsProvider({
  *   clientId: 'my-client',
  *   clientSecret: 'my-secret'
@@ -122,6 +125,7 @@ export interface ClientCredentialsProviderOptions {
  * const transport = new StreamableHTTPClientTransport(serverUrl, {
  *   authProvider: provider
  * });
+ * ```
  */
 export class ClientCredentialsProvider implements OAuthClientProvider {
     private _tokens?: OAuthTokens;
@@ -223,6 +227,7 @@ export interface PrivateKeyJwtProviderOptions {
  * ({@link https://datatracker.ietf.org/doc/html/rfc7523#section-2.2 | RFC 7523 Section 2.2}).
  *
  * @example
+ * ```typescript
  * const provider = new PrivateKeyJwtProvider({
  *   clientId: 'my-client',
  *   privateKey: pemEncodedPrivateKey,
@@ -232,6 +237,7 @@ export interface PrivateKeyJwtProviderOptions {
  * const transport = new StreamableHTTPClientTransport(serverUrl, {
  *   authProvider: provider
  * });
+ * ```
  */
 export class PrivateKeyJwtProvider implements OAuthClientProvider {
     private _tokens?: OAuthTokens;
