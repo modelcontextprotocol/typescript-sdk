@@ -783,6 +783,96 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: listChanged capability should default to true when not specified
+         */
+        test('should default tools.listChanged to true when not explicitly set', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(true);
+        });
+
+        /***
+         * Test: listChanged capability should respect explicit false setting
+         */
+        test('should respect tools.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(false);
+        });
+
+        /***
+         * Test: resources.listChanged should respect explicit false setting
+         */
+        test('should respect resources.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { resources: { listChanged: false } } }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerResource('test://resource', 'Test Resource', async () => ({
+                contents: [{ uri: 'test://resource', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.resources?.listChanged).toBe(false);
+        });
+
+        /***
+         * Test: prompts.listChanged should respect explicit false setting
+         */
+        test('should respect prompts.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { prompts: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt('test-prompt', async () => ({
+                messages: [{ role: 'assistant', content: { type: 'text', text: 'Test' } }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.prompts?.listChanged).toBe(false);
+        });
+
+        /***
          * Test: Tool Registration with Parameters
          */
         test('should register tool with params', async () => {
