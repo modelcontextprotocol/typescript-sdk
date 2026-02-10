@@ -810,10 +810,7 @@ describe('Zod v4', () => {
          * Test: listChanged capability should respect explicit false setting
          */
         test('should respect tools.listChanged: false when explicitly set', async () => {
-            const mcpServer = new McpServer(
-                { name: 'test server', version: '1.0' },
-                { capabilities: { tools: { listChanged: false } } }
-            );
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: { listChanged: false } } });
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -858,10 +855,7 @@ describe('Zod v4', () => {
          * Test: prompts.listChanged should respect explicit false setting
          */
         test('should respect prompts.listChanged: false when explicitly set', async () => {
-            const mcpServer = new McpServer(
-                { name: 'test server', version: '1.0' },
-                { capabilities: { prompts: { listChanged: false } } }
-            );
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { prompts: { listChanged: false } } });
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
