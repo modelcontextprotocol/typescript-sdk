@@ -322,7 +322,6 @@ function createMcpServer() {
     );
 
     // Sampling tool - requests LLM completion from client
-    // @ts-expect-error - zod v3 type recursion limit with sendRequest in tool handler
     mcpServer.tool(
         'test_sampling',
         'Tests server-initiated sampling (LLM completion request)',
@@ -597,7 +596,6 @@ function createMcpServer() {
             name: z.string().optional(),
             address: addressSchema.optional()
         },
-        // @ts-expect-error - zod v3 type recursion limit with nested object schemas
         async (args: { name?: string; address?: { street?: string; city?: string } }): Promise<CallToolResult> => {
             return {
                 content: [
