@@ -25,7 +25,6 @@ jobs:
                   cache: npm
             - run: npm ci
             - run: npm run build
-            - run: cd test/conformance && npm install
             - run: npm run test:conformance:client:all
 
     server-conformance:
@@ -38,5 +37,4 @@ jobs:
                   cache: npm
             - run: npm ci
             - run: npm run build
-            - run: cd test/conformance && npm install
             - run: npm run test:conformance:server

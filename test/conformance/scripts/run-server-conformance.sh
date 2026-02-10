@@ -7,13 +7,13 @@ set -e
 PORT="${PORT:-3000}"
 SERVER_URL="http://localhost:${PORT}/mcp"
 
-# Navigate to the repo root
+# Navigate to repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/.."
+cd "$SCRIPT_DIR/../../.."
 
 # Start the server in the background
 echo "Starting conformance test server on port ${PORT}..."
-npx tsx ./src/everythingServer.ts &
+npx tsx test/conformance/src/everythingServer.ts &
 SERVER_PID=$!
 
 # Function to cleanup on exit
