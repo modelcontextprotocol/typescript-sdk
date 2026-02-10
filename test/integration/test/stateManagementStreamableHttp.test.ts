@@ -352,6 +352,52 @@ describe('Zod v4', () => {
                 // Clean up
                 await transport.close();
             });
+
+            it('should support server-initiated roots/list request', async () => {
+                // This test reproduces GitHub issue #1167
+                // https://github.com/modelcontextprotocol/typescript-sdk/issues/1167
+                //
+                // The bug: server.listRoots() hangs when using HTTP transport because:
+                // 1. Client tries to open GET SSE stream before initialization
+                // 2. Server rejects with 400 "Server not initialized"
+                // 3. Client never retries opening SSE stream after initialization
+                // 4. Server's send() silently returns when no SSE stream exists
+                // 5. listRoots() promise never resolves
+
+                // Create client with roots capability
+                const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { roots: { listChanged: true } } });
+
+                // Register handler for roots/list requests from server
+                client.setRequestHandler('roots/list', async () => {
+                    return {
+                        roots: [{ uri: 'file:///home/user/project', name: 'Test Project' }]
+                    };
+                });
+
+                const transport = new StreamableHTTPClientTransport(baseUrl);
+                await client.connect(transport);
+
+                // Verify client has session ID (stateful mode)
+                expect(transport.sessionId).toBeDefined();
+
+                // Now try to call listRoots from the server
+                const rootsPromise = mcpServer.server.listRoots();
+
+                // Use a short timeout to detect the hang
+                const timeoutPromise = new Promise<never>((_, reject) => {
+                    setTimeout(() => reject(new Error('listRoots() timed out - SSE stream not working')), 2000);
+                });
+
+                const result = await Promise.race([rootsPromise, timeoutPromise]);
+
+                expect(result.roots).toHaveLength(1);
+                expect(result.roots[0]).toEqual({
+                    uri: 'file:///home/user/project',
+                    name: 'Test Project'
+                });
+
+                await transport.close();
+            });
         });
     });
 });
