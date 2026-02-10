@@ -12,16 +12,11 @@
  * consolidating all the individual test clients into one.
  */
 
-import {
-    Client,
-    StreamableHTTPClientTransport,
-    ElicitRequestSchema,
-    ClientCredentialsProvider,
-    PrivateKeyJwtProvider
-} from '@modelcontextprotocol/client';
-import { z } from 'zod';
-import { withOAuthRetry, handle401 } from './helpers/withOAuthRetry.js';
+import { Client, ClientCredentialsProvider, PrivateKeyJwtProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import * as z from 'zod/v4';
+
 import { logger } from './helpers/logger.js';
+import { handle401, withOAuthRetry } from './helpers/withOAuthRetry.js';
 
 /**
  * Fixed client metadata URL for CIMD conformance tests.
@@ -265,7 +260,7 @@ async function runElicitationDefaultsClient(serverUrl: string): Promise<void> {
 
     // Register elicitation handler that returns empty content
     // The SDK should fill in defaults for all omitted fields
-    client.setRequestHandler(ElicitRequestSchema, async request => {
+    client.setRequestHandler('elicitation/create', async request => {
         logger.debug('Received elicitation request:', JSON.stringify(request.params, null, 2));
         logger.debug('Accepting with empty content - SDK should apply defaults');
 
@@ -359,7 +354,7 @@ async function main(): Promise<void> {
         logger.error('Usage: MCP_CONFORMANCE_SCENARIO=<scenario> everything-client <server-url>');
         logger.error('\nThe MCP_CONFORMANCE_SCENARIO env var is set automatically by the conformance runner.');
         logger.error('\nAvailable scenarios:');
-        for (const name of Object.keys(scenarioHandlers).sort()) {
+        for (const name of Object.keys(scenarioHandlers).toSorted()) {
             logger.error(`  - ${name}`);
         }
         process.exit(1);
@@ -369,7 +364,7 @@ async function main(): Promise<void> {
     if (!handler) {
         logger.error(`Unknown scenario: ${scenarioName}`);
         logger.error('\nAvailable scenarios:');
-        for (const name of Object.keys(scenarioHandlers).sort()) {
+        for (const name of Object.keys(scenarioHandlers).toSorted()) {
             logger.error(`  - ${name}`);
         }
         process.exit(1);
@@ -384,7 +379,9 @@ async function main(): Promise<void> {
     }
 }
 
-main().catch(error => {
-    logger.error('Unhandled error:', error);
+try {
+    await main();
+} catch (error) {
+    logger.error('Error:', error);
     process.exit(1);
-});
+}

@@ -7,7 +7,7 @@
  * Key features:
  * - Configures `retryInterval` to tell clients how long to wait before reconnecting
  * - Uses `eventStore` to persist events for replay after reconnection
- * - Uses `extra.closeSSEStream()` callback to gracefully disconnect clients mid-operation
+ * - Uses `ctx.http?.closeSSE()` callback to gracefully disconnect clients mid-operation
  *
  * Run with: pnpm tsx src/ssePollingExample.ts
  * Test with: curl or the MCP Inspector
@@ -40,60 +40,36 @@ server.registerTool(
     {
         description: 'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.'
     },
-    async (extra): Promise<CallToolResult> => {
+    async (ctx): Promise<CallToolResult> => {
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-        console.log(`[${extra.sessionId}] Starting long-task...`);
+        console.log(`[${ctx.sessionId}] Starting long-task...`);
 
         // Send first progress notification
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 25% - Starting work...'
-            },
-            extra.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 25% - Starting work...');
         await sleep(1000);
 
         // Send second progress notification
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 50% - Halfway there...'
-            },
-            extra.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 50% - Halfway there...');
         await sleep(1000);
 
         // Server decides to disconnect the client to free resources
         // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
-        // Use extra.closeSSEStream callback - available when eventStore is configured
-        if (extra.closeSSEStream) {
-            console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-            extra.closeSSEStream();
+        // Use ctx.http?.closeSSE callback - available when eventStore is configured
+        if (ctx.http?.closeSSE) {
+            console.log(`[${ctx.sessionId}] Closing SSE stream to trigger client polling...`);
+            ctx.http?.closeSSE();
         }
 
         // Continue processing while client is disconnected
         // Events are stored in eventStore and will be replayed on reconnect
         await sleep(500);
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 75% - Almost done (sent while client disconnected)...'
-            },
-            extra.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 75% - Almost done (sent while client disconnected)...');
 
         await sleep(500);
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 100% - Complete!'
-            },
-            extra.sessionId
-        );
+        await ctx.mcpReq.log('info', 'Progress: 100% - Complete!');
 
-        console.log(`[${extra.sessionId}] Task complete`);
+        console.log(`[${ctx.sessionId}] Task complete`);
 
         return {
             content: [

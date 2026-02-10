@@ -12,10 +12,10 @@ import {
     ListToolsResultSchema,
     McpServer
 } from '@modelcontextprotocol/server';
-import type { ZNamespace, ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
-async function setupServer(withSessionManagement: boolean, z: ZNamespace) {
+async function setupServer(withSessionManagement: boolean) {
     const server: Server = createServer();
     const mcpServer = new McpServer(
         { name: 'test-server', version: '1.0.0' },
@@ -55,9 +55,9 @@ async function setupServer(withSessionManagement: boolean, z: ZNamespace) {
         'greet',
         {
             description: 'A simple greeting tool',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet').default('World')
-            }
+            })
         },
         async ({ name }) => {
             return {
@@ -85,8 +85,7 @@ async function setupServer(withSessionManagement: boolean, z: ZNamespace) {
     return { server, mcpServer, serverTransport, baseUrl };
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
+describe('Zod v4', () => {
     describe('Streamable HTTP Transport Session Management', () => {
         // Function to set up the server with optional session management
         describe('Stateless Mode', () => {
@@ -96,7 +95,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let baseUrl: URL;
 
             beforeEach(async () => {
-                const setup = await setupServer(false, z);
+                const setup = await setupServer(false);
                 server = setup.server;
                 mcpServer = setup.mcpServer;
                 serverTransport = setup.serverTransport;
@@ -260,7 +259,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let baseUrl: URL;
 
             beforeEach(async () => {
-                const setup = await setupServer(true, z);
+                const setup = await setupServer(true);
                 server = setup.server;
                 mcpServer = setup.mcpServer;
                 serverTransport = setup.serverTransport;

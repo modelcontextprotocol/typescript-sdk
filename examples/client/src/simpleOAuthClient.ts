@@ -368,7 +368,6 @@ class InteractiveOAuthClient {
                     name: toolName,
                     arguments: toolArgs
                 },
-                CallToolResultSchema,
                 {
                     task: {
                         taskId: `task-${Date.now()}`,

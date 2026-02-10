@@ -9,18 +9,14 @@ import type {
     AnyObjectSchema,
     CallToolRequest,
     CancelTaskResult,
-    ClientRequest,
-    CompatibilityCallToolResultSchema,
     GetTaskResult,
     ListTasksResult,
-    Notification,
     Request,
     RequestOptions,
     ResponseMessage,
-    Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -28,9 +24,9 @@ import type { Client } from '../../client/client.js';
  * Internal interface for accessing Client's private methods.
  * @internal
  */
-interface ClientInternal<RequestT extends Request> {
+interface ClientInternal {
     requestStream<T extends AnyObjectSchema>(
-        request: ClientRequest | RequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void>;
@@ -49,12 +45,8 @@ interface ClientInternal<RequestT extends Request> {
  *
  * @experimental
  */
-export class ExperimentalClientTasks<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> {
-    constructor(private readonly _client: Client<RequestT, NotificationT, ResultT>) {}
+export class ExperimentalClientTasks {
+    constructor(private readonly _client: Client) {}
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
@@ -92,13 +84,12 @@ export class ExperimentalClientTasks<
      *
      * @experimental
      */
-    async *callToolStream<T extends typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema>(
+    async *callToolStream(
         params: CallToolRequest['params'],
-        resultSchema: T = CallToolResultSchema as T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<typeof CallToolResultSchema>>, void, void> {
         // Access Client's internal methods
-        const clientInternal = this._client as unknown as ClientInternal<RequestT>;
+        const clientInternal = this._client as unknown as ClientInternal;
 
         // Add task creation parameters if server supports it and not explicitly provided
         const optionsWithTask = {
@@ -108,7 +99,7 @@ export class ExperimentalClientTasks<
             task: options?.task ?? (clientInternal.isToolTask(params.name) ? {} : undefined)
         };
 
-        const stream = clientInternal.requestStream({ method: 'tools/call', params }, resultSchema, optionsWithTask);
+        const stream = clientInternal.requestStream({ method: 'tools/call', params }, CallToolResultSchema, optionsWithTask);
 
         // Get the validator for this tool (if it has an output schema)
         const validator = clientInternal.getToolOutputValidator(params.name);
@@ -123,8 +114,8 @@ export class ExperimentalClientTasks<
                 if (!result.structuredContent && !result.isError) {
                     yield {
                         type: 'error',
-                        error: new McpError(
-                            ErrorCode.InvalidRequest,
+                        error: new ProtocolError(
+                            ProtocolErrorCode.InvalidRequest,
                             `Tool ${params.name} has an output schema but did not return structured content`
                         )
                     };
@@ -140,22 +131,22 @@ export class ExperimentalClientTasks<
                         if (!validationResult.valid) {
                             yield {
                                 type: 'error',
-                                error: new McpError(
-                                    ErrorCode.InvalidParams,
+                                error: new ProtocolError(
+                                    ProtocolErrorCode.InvalidParams,
                                     `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
                                 )
                             };
                             return;
                         }
                     } catch (error) {
-                        if (error instanceof McpError) {
+                        if (error instanceof ProtocolError) {
                             yield { type: 'error', error };
                             return;
                         }
                         yield {
                             type: 'error',
-                            error: new McpError(
-                                ErrorCode.InvalidParams,
+                            error: new ProtocolError(
+                                ProtocolErrorCode.InvalidParams,
                                 `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
                             )
                         };
@@ -257,14 +248,14 @@ export class ExperimentalClientTasks<
      * @experimental
      */
     requestStream<T extends AnyObjectSchema>(
-        request: ClientRequest | RequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         // Delegate to the client's underlying Protocol method
         type ClientWithRequestStream = {
             requestStream<U extends AnyObjectSchema>(
-                request: ClientRequest | RequestT,
+                request: Request,
                 resultSchema: U,
                 options?: RequestOptions
             ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;

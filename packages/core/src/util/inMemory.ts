@@ -1,3 +1,4 @@
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { Transport } from '../shared/transport.js';
 import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/types.js';
 
@@ -50,7 +51,7 @@ export class InMemoryTransport implements Transport {
      */
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId; authInfo?: AuthInfo }): Promise<void> {
         if (!this._otherTransport) {
-            throw new Error('Not connected');
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
         if (this._otherTransport.onmessage) {

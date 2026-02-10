@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
@@ -212,7 +212,12 @@ describe('StreamableHTTPClientTransport', () => {
         const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
-        await expect(transport.send(message)).rejects.toThrow('Streamable HTTP error: Error POSTing to endpoint: Session not found');
+        await expect(transport.send(message)).rejects.toThrow(
+            new SdkError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
+                status: 404,
+                text: 'Session not found'
+            })
+        );
         expect(errorSpy).toHaveBeenCalled();
     });
 
@@ -1050,7 +1055,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
-    it('invalidates all credentials on InvalidClientError during auth', async () => {
+    it('invalidates all credentials on OAuthErrorCode.InvalidClient during auth', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -1092,9 +1097,11 @@ describe('StreamableHTTPClientTransport', () => {
                     code_challenge_methods_supported: ['S256']
                 })
             })
-            // Token refresh fails with InvalidClientError
+            // Token refresh fails with OAuthErrorCode.InvalidClient
             .mockResolvedValueOnce(
-                Response.json(new InvalidClientError('Client authentication failed').toResponseObject(), { status: 400 })
+                Response.json(new OAuthError(OAuthErrorCode.InvalidClient, 'Client authentication failed').toResponseObject(), {
+                    status: 400
+                })
             )
             // Fallback should fail to complete the flow
             .mockResolvedValue({
@@ -1107,7 +1114,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message).catch(() => {});
     });
 
-    it('invalidates all credentials on UnauthorizedClientError during auth', async () => {
+    it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during auth', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -1149,8 +1156,12 @@ describe('StreamableHTTPClientTransport', () => {
                     code_challenge_methods_supported: ['S256']
                 })
             })
-            // Token refresh fails with UnauthorizedClientError
-            .mockResolvedValueOnce(Response.json(new UnauthorizedClientError('Client not authorized').toResponseObject(), { status: 400 }))
+            // Token refresh fails with OAuthErrorCode.UnauthorizedClient
+            .mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.UnauthorizedClient, 'Client not authorized').toResponseObject(), {
+                    status: 400
+                })
+            )
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
@@ -1165,7 +1176,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message).catch(() => {});
     });
 
-    it('invalidates tokens on InvalidGrantError during auth', async () => {
+    it('invalidates tokens on OAuthErrorCode.InvalidGrant during auth', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -1207,8 +1218,10 @@ describe('StreamableHTTPClientTransport', () => {
                     code_challenge_methods_supported: ['S256']
                 })
             })
-            // Token refresh fails with InvalidGrantError
-            .mockResolvedValueOnce(Response.json(new InvalidGrantError('Invalid refresh token').toResponseObject(), { status: 400 }))
+            // Token refresh fails with OAuthErrorCode.InvalidGrant
+            .mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.InvalidGrant, 'Invalid refresh token').toResponseObject(), { status: 400 })
+            )
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
@@ -1218,7 +1231,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-        // Behavior for InvalidGrantError during auth is covered in dedicated OAuth
+        // Behavior for OAuthErrorCode.InvalidGrant during auth is covered in dedicated OAuth
         // unit tests and SSE transport tests. Here we just assert that the call
         // path completes without unhandled rejections.
         await transport.send(message).catch(() => {});
@@ -1255,9 +1268,11 @@ describe('StreamableHTTPClientTransport', () => {
                         code_challenge_methods_supported: ['S256']
                     })
                 })
-                // Token refresh fails with InvalidClientError
+                // Token refresh fails with OAuthErrorCode.InvalidClient
                 .mockResolvedValueOnce(
-                    Response.json(new InvalidClientError('Client authentication failed').toResponseObject(), { status: 400 })
+                    Response.json(new OAuthError(OAuthErrorCode.InvalidClient, 'Client authentication failed').toResponseObject(), {
+                        status: 400
+                    })
                 )
                 // Fallback should fail to complete the flow
                 .mockResolvedValue({

@@ -125,4 +125,10 @@ export interface Transport {
      * Sets the protocol version used for the connection (called when the initialize response is received).
      */
     setProtocolVersion?: (version: string) => void;
+
+    /**
+     * Sets the supported protocol versions for header validation (called during connect).
+     * This allows the server to pass its supported versions to the transport.
+     */
+    setSupportedProtocolVersions?: (versions: string[]) => void;
 }

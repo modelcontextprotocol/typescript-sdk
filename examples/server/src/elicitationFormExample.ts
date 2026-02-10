@@ -33,8 +33,7 @@ const mcpServer = new McpServer(
 mcpServer.registerTool(
     'register_user',
     {
-        description: 'Register a new user account by collecting their information',
-        inputSchema: {}
+        description: 'Register a new user account by collecting their information'
     },
     async () => {
         try {
@@ -132,8 +131,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
     'create_event',
     {
-        description: 'Create a calendar event by collecting event details',
-        inputSchema: {}
+        description: 'Create a calendar event by collecting event details'
     },
     async () => {
         try {
@@ -237,8 +235,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
     'update_shipping_address',
     {
-        description: 'Update shipping address with validation',
-        inputSchema: {}
+        description: 'Update shipping address with validation'
     },
     async () => {
         try {

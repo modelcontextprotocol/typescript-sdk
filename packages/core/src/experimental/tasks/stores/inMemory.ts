@@ -1,11 +1,7 @@
 /**
  * In-memory implementations of TaskStore and TaskMessageQueue.
- * WARNING: These APIs are experimental and may change without notice.
- *
  * @experimental
  */
-
-import { randomBytes } from 'node:crypto';
 
 import type { Request, RequestId, Result, Task } from '../../../types/types.js';
 import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../interfaces.js';
@@ -15,18 +11,13 @@ interface StoredTask {
     task: Task;
     request: Request;
     requestId: RequestId;
+    sessionId?: string;
     result?: Result;
 }
 
 /**
- * A simple in-memory implementation of TaskStore for demonstration purposes.
- *
- * This implementation stores all tasks in memory and provides automatic cleanup
- * based on the ttl duration specified in the task creation parameters.
- *
- * Note: This is not suitable for production use as all data is lost on restart.
- * For production, consider implementing TaskStore with a database or distributed cache.
- *
+ * In-memory TaskStore implementation for development and testing.
+ * For production, use a database or distributed cache.
  * @experimental
  */
 export class InMemoryTaskStore implements TaskStore {
@@ -34,14 +25,13 @@ export class InMemoryTaskStore implements TaskStore {
     private cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     /**
-     * Generates a unique task ID.
-     * Uses 16 bytes of random data encoded as hex (32 characters).
+     * Generates a unique task ID using Web Crypto API.
      */
     private generateTaskId(): string {
-        return randomBytes(16).toString('hex');
+        return crypto.randomUUID().replaceAll('-', '');
     }
 
-    async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
+    async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task> {
         // Generate a unique task ID
         const taskId = this.generateTaskId();
 
@@ -66,7 +56,8 @@ export class InMemoryTaskStore implements TaskStore {
         this.tasks.set(taskId, {
             task,
             request,
-            requestId
+            requestId,
+            sessionId
         });
 
         // Schedule cleanup if ttl is specified
@@ -83,13 +74,30 @@ export class InMemoryTaskStore implements TaskStore {
         return task;
     }
 
-    async getTask(taskId: string, _sessionId?: string): Promise<Task | null> {
+    /**
+     * Retrieves a stored task, enforcing session ownership when a sessionId is provided.
+     * Returns undefined if the task does not exist or belongs to a different session.
+     */
+    private getStoredTask(taskId: string, sessionId?: string): StoredTask | undefined {
         const stored = this.tasks.get(taskId);
+        if (!stored) {
+            return undefined;
+        }
+        // Enforce session isolation: if a sessionId is provided and the task
+        // was created with a sessionId, they must match.
+        if (sessionId !== undefined && stored.sessionId !== undefined && stored.sessionId !== sessionId) {
+            return undefined;
+        }
+        return stored;
+    }
+
+    async getTask(taskId: string, sessionId?: string): Promise<Task | null> {
+        const stored = this.getStoredTask(taskId, sessionId);
         return stored ? { ...stored.task } : null;
     }
 
-    async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, _sessionId?: string): Promise<void> {
-        const stored = this.tasks.get(taskId);
+    async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, sessionId?: string): Promise<void> {
+        const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
@@ -121,8 +129,8 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
-    async getTaskResult(taskId: string, _sessionId?: string): Promise<Result> {
-        const stored = this.tasks.get(taskId);
+    async getTaskResult(taskId: string, sessionId?: string): Promise<Result> {
+        const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
@@ -134,8 +142,8 @@ export class InMemoryTaskStore implements TaskStore {
         return stored.result;
     }
 
-    async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, _sessionId?: string): Promise<void> {
-        const stored = this.tasks.get(taskId);
+    async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, sessionId?: string): Promise<void> {
+        const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
@@ -170,13 +178,22 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
-    async listTasks(cursor?: string, _sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
+    async listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
         const PAGE_SIZE = 10;
-        const allTaskIds = [...this.tasks.keys()];
+
+        // Filter tasks by session ownership before pagination
+        const filteredTaskIds = [...this.tasks.entries()]
+            .filter(([, stored]) => {
+                if (sessionId === undefined || stored.sessionId === undefined) {
+                    return true;
+                }
+                return stored.sessionId === sessionId;
+            })
+            .map(([taskId]) => taskId);
 
         let startIndex = 0;
         if (cursor) {
-            const cursorIndex = allTaskIds.indexOf(cursor);
+            const cursorIndex = filteredTaskIds.indexOf(cursor);
             if (cursorIndex === -1) {
                 // Invalid cursor - throw error
                 throw new Error(`Invalid cursor: ${cursor}`);
@@ -185,13 +202,13 @@ export class InMemoryTaskStore implements TaskStore {
             }
         }
 
-        const pageTaskIds = allTaskIds.slice(startIndex, startIndex + PAGE_SIZE);
+        const pageTaskIds = filteredTaskIds.slice(startIndex, startIndex + PAGE_SIZE);
         const tasks = pageTaskIds.map(taskId => {
             const stored = this.tasks.get(taskId)!;
             return { ...stored.task };
         });
 
-        const nextCursor = startIndex + PAGE_SIZE < allTaskIds.length ? pageTaskIds.at(-1) : undefined;
+        const nextCursor = startIndex + PAGE_SIZE < filteredTaskIds.length ? pageTaskIds.at(-1) : undefined;
 
         return { tasks, nextCursor };
     }
@@ -216,14 +233,8 @@ export class InMemoryTaskStore implements TaskStore {
 }
 
 /**
- * A simple in-memory implementation of TaskMessageQueue for demonstration purposes.
- *
- * This implementation stores messages in memory, organized by task ID and optional session ID.
- * Messages are stored in FIFO queues per task.
- *
- * Note: This is not suitable for production use in distributed systems.
- * For production, consider implementing TaskMessageQueue with Redis or other distributed queues.
- *
+ * In-memory TaskMessageQueue implementation for development and testing.
+ * For production, use Redis or another distributed queue.
  * @experimental
  */
 export class InMemoryTaskMessageQueue implements TaskMessageQueue {

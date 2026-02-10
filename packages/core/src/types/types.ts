@@ -216,13 +216,10 @@ export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultR
     JSONRPCResultResponseSchema.safeParse(value).success;
 
 /**
- * Error codes defined by the JSON-RPC specification.
+ * Error codes for protocol errors that cross the wire as JSON-RPC error responses.
+ * These follow the JSON-RPC specification and MCP-specific extensions.
  */
-export enum ErrorCode {
-    // SDK error codes
-    ConnectionClosed = -32_000,
-    RequestTimeout = -32_001,
-
+export enum ProtocolErrorCode {
     // Standard JSON-RPC error codes
     ParseError = -32_700,
     InvalidRequest = -32_600,
@@ -2302,30 +2299,34 @@ export const ServerResultSchema = z.union([
     CreateTaskResultSchema
 ]);
 
-export class McpError extends Error {
+/**
+ * Protocol errors are JSON-RPC errors that cross the wire as error responses.
+ * They use numeric error codes from the ProtocolErrorCode enum.
+ */
+export class ProtocolError extends Error {
     constructor(
         public readonly code: number,
         message: string,
         public readonly data?: unknown
     ) {
         super(`MCP error ${code}: ${message}`);
-        this.name = 'McpError';
+        this.name = 'ProtocolError';
     }
 
     /**
      * Factory method to create the appropriate error type based on the error code and data
      */
-    static fromError(code: number, message: string, data?: unknown): McpError {
+    static fromError(code: number, message: string, data?: unknown): ProtocolError {
         // Check for specific error types
-        if (code === ErrorCode.UrlElicitationRequired && data) {
+        if (code === ProtocolErrorCode.UrlElicitationRequired && data) {
             const errorData = data as { elicitations?: unknown[] };
             if (errorData.elicitations) {
                 return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], message);
             }
         }
 
-        // Default to generic McpError
-        return new McpError(code, message, data);
+        // Default to generic ProtocolError
+        return new ProtocolError(code, message, data);
     }
 }
 
@@ -2333,9 +2334,9 @@ export class McpError extends Error {
  * Specialized error type when a tool requires a URL mode elicitation.
  * This makes it nicer for the client to handle since there is specific data to work with instead of just a code to check against.
  */
-export class UrlElicitationRequiredError extends McpError {
+export class UrlElicitationRequiredError extends ProtocolError {
     constructor(elicitations: ElicitRequestURLParams[], message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`) {
-        super(ErrorCode.UrlElicitationRequired, message, {
+        super(ProtocolErrorCode.UrlElicitationRequired, message, {
             elicitations: elicitations
         });
     }
@@ -2605,3 +2606,78 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Protocol type maps */
+type MethodToTypeMap<U> = {
+    [T in U as T extends { method: infer M extends string } ? M : never]: T;
+};
+export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
+export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
+export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
+export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+export type ResultTypeMap = {
+    ping: EmptyResult;
+    initialize: InitializeResult;
+    'completion/complete': CompleteResult;
+    'logging/setLevel': EmptyResult;
+    'prompts/get': GetPromptResult;
+    'prompts/list': ListPromptsResult;
+    'resources/list': ListResourcesResult;
+    'resources/templates/list': ListResourceTemplatesResult;
+    'resources/read': ReadResourceResult;
+    'resources/subscribe': EmptyResult;
+    'resources/unsubscribe': EmptyResult;
+    'tools/call': CallToolResult | CreateTaskResult;
+    'tools/list': ListToolsResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
+    'elicitation/create': ElicitResult;
+    'roots/list': ListRootsResult;
+    'tasks/get': GetTaskResult;
+    'tasks/result': Result;
+    'tasks/list': ListTasksResult;
+    'tasks/cancel': CancelTaskResult;
+};
+
+/* Runtime schema lookup */
+type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
+type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
+
+function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
+    const map: Record<string, T> = {};
+    for (const schema of schemas) {
+        const method = schema.shape.method.value;
+        map[method] = schema;
+    }
+    return map;
+}
+
+const requestSchemas = buildSchemaMap([...ClientRequestSchema.options, ...ServerRequestSchema.options] as const) as Record<
+    RequestMethod,
+    RequestSchemaType
+>;
+const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options, ...ServerNotificationSchema.options] as const) as Record<
+    NotificationMethod,
+    NotificationSchemaType
+>;
+
+/**
+ * Gets the Zod schema for a given request method.
+ * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
+ * to use schema.parse() without needing additional type assertions.
+ *
+ * Note: The internal cast is necessary because TypeScript can't correlate the
+ * Record-based schema lookup with the MethodToTypeMap-based RequestTypeMap
+ * when M is a generic type parameter. Both compute to the same type at
+ * instantiation, but TypeScript can't prove this statically.
+ */
+export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> {
+    return requestSchemas[method] as unknown as z.ZodType<RequestTypeMap[M]>;
+}
+
+/**
+ * Gets the Zod schema for a given notification method.
+ * @see getRequestSchema for explanation of the internal type assertion.
+ */
+export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]> {
+    return notificationSchemas[method] as unknown as z.ZodType<NotificationTypeMap[M]>;
+}

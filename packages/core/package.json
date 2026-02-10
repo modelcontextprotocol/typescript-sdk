@@ -37,8 +37,7 @@
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",
         "json-schema-typed": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared",
-        "zod-to-json-schema": "catalog:runtimeShared"
+        "zod": "catalog:runtimeShared"
     },
     "peerDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
