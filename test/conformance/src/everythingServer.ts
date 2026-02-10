@@ -121,57 +121,41 @@ function createMcpServer() {
     // ===== TOOLS =====
 
     // Simple text tool
-    mcpServer.tool(
-        'test_simple_text',
-        'Tests simple text content response',
-        async (): Promise<CallToolResult> => {
-            return {
-                content: [{ type: 'text', text: 'This is a simple text response for testing.' }]
-            };
-        }
-    );
+    mcpServer.tool('test_simple_text', 'Tests simple text content response', async (): Promise<CallToolResult> => {
+        return {
+            content: [{ type: 'text', text: 'This is a simple text response for testing.' }]
+        };
+    });
 
     // Image content tool
-    mcpServer.tool(
-        'test_image_content',
-        'Tests image content response',
-        async (): Promise<CallToolResult> => {
-            return {
-                content: [{ type: 'image', data: TEST_IMAGE_BASE64, mimeType: 'image/png' }]
-            };
-        }
-    );
+    mcpServer.tool('test_image_content', 'Tests image content response', async (): Promise<CallToolResult> => {
+        return {
+            content: [{ type: 'image', data: TEST_IMAGE_BASE64, mimeType: 'image/png' }]
+        };
+    });
 
     // Audio content tool
-    mcpServer.tool(
-        'test_audio_content',
-        'Tests audio content response',
-        async (): Promise<CallToolResult> => {
-            return {
-                content: [{ type: 'audio', data: TEST_AUDIO_BASE64, mimeType: 'audio/wav' }]
-            };
-        }
-    );
+    mcpServer.tool('test_audio_content', 'Tests audio content response', async (): Promise<CallToolResult> => {
+        return {
+            content: [{ type: 'audio', data: TEST_AUDIO_BASE64, mimeType: 'audio/wav' }]
+        };
+    });
 
     // Embedded resource tool
-    mcpServer.tool(
-        'test_embedded_resource',
-        'Tests embedded resource content response',
-        async (): Promise<CallToolResult> => {
-            return {
-                content: [
-                    {
-                        type: 'resource',
-                        resource: {
-                            uri: 'test://embedded-resource',
-                            mimeType: 'text/plain',
-                            text: 'This is an embedded resource content.'
-                        }
+    mcpServer.tool('test_embedded_resource', 'Tests embedded resource content response', async (): Promise<CallToolResult> => {
+        return {
+            content: [
+                {
+                    type: 'resource',
+                    resource: {
+                        uri: 'test://embedded-resource',
+                        mimeType: 'text/plain',
+                        text: 'This is an embedded resource content.'
                     }
-                ]
-            };
-        }
-    );
+                }
+            ]
+        };
+    });
 
     // Multiple content types tool
     mcpServer.tool(
@@ -279,13 +263,9 @@ function createMcpServer() {
     );
 
     // Error handling tool
-    mcpServer.tool(
-        'test_error_handling',
-        'Tests error response handling',
-        async (): Promise<CallToolResult> => {
-            throw new Error('This tool intentionally returns an error for testing');
-        }
-    );
+    mcpServer.tool('test_error_handling', 'Tests error response handling', async (): Promise<CallToolResult> => {
+        throw new Error('This tool intentionally returns an error for testing');
+    });
 
     // SEP-1699: Reconnection test tool - closes SSE stream mid-call to test client reconnection
     mcpServer.tool(
@@ -704,14 +684,14 @@ function createMcpServer() {
     );
 
     // Subscribe/Unsubscribe handlers
-    mcpServer.server.setRequestHandler(SubscribeRequestSchema, async (request) => {
+    mcpServer.server.setRequestHandler(SubscribeRequestSchema, async request => {
         const uri = request.params.uri;
         resourceSubscriptions.add(uri);
         sendLog('info', `Subscribed to resource: ${uri}`);
         return {};
     });
 
-    mcpServer.server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+    mcpServer.server.setRequestHandler(UnsubscribeRequestSchema, async request => {
         const uri = request.params.uri;
         resourceSubscriptions.delete(uri);
         sendLog('info', `Unsubscribed from resource: ${uri}`);
@@ -721,23 +701,19 @@ function createMcpServer() {
     // ===== PROMPTS =====
 
     // Simple prompt
-    mcpServer.prompt(
-        'test_simple_prompt',
-        'A simple prompt without arguments',
-        async (): Promise<GetPromptResult> => {
-            return {
-                messages: [
-                    {
-                        role: 'user',
-                        content: {
-                            type: 'text',
-                            text: 'This is a simple prompt for testing.'
-                        }
+    mcpServer.prompt('test_simple_prompt', 'A simple prompt without arguments', async (): Promise<GetPromptResult> => {
+        return {
+            messages: [
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: 'This is a simple prompt for testing.'
                     }
-                ]
-            };
-        }
-    );
+                }
+            ]
+        };
+    });
 
     // Prompt with arguments
     mcpServer.prompt(
@@ -796,32 +772,28 @@ function createMcpServer() {
     );
 
     // Prompt with image
-    mcpServer.prompt(
-        'test_prompt_with_image',
-        'A prompt that includes image content',
-        async (): Promise<GetPromptResult> => {
-            return {
-                messages: [
-                    {
-                        role: 'user',
-                        content: {
-                            type: 'image',
-                            data: TEST_IMAGE_BASE64,
-                            mimeType: 'image/png'
-                        }
-                    },
-                    {
-                        role: 'user',
-                        content: { type: 'text', text: 'Please analyze the image above.' }
+    mcpServer.prompt('test_prompt_with_image', 'A prompt that includes image content', async (): Promise<GetPromptResult> => {
+        return {
+            messages: [
+                {
+                    role: 'user',
+                    content: {
+                        type: 'image',
+                        data: TEST_IMAGE_BASE64,
+                        mimeType: 'image/png'
                     }
-                ]
-            };
-        }
-    );
+                },
+                {
+                    role: 'user',
+                    content: { type: 'text', text: 'Please analyze the image above.' }
+                }
+            ]
+        };
+    });
 
     // ===== LOGGING =====
 
-    mcpServer.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+    mcpServer.server.setRequestHandler(SetLevelRequestSchema, async request => {
         const level = request.params.level;
         sendLog('info', `Log level set to: ${level}`);
         return {};
