@@ -22,6 +22,7 @@ import {
     SubscribeRequestSchema,
     UnsubscribeRequestSchema
 } from '../../../src/types.js';
+import { localhostHostValidation } from '../../../src/server/middleware/hostHeaderValidation.js';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -818,6 +819,7 @@ function createMcpServer() {
 
 const app = express();
 app.use(express.json());
+app.use(localhostHostValidation());
 
 // Configure CORS to expose Mcp-Session-Id header for browser-based clients
 app.use(

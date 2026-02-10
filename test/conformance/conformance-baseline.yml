@@ -12,9 +12,3 @@
 client:
     - tools_call
     - auth/pre-registration
-
-# dns-rebinding-protection: partial failure in CI — 1 of 2 checks
-# fails due to GitHub Actions environment differences with localhost
-# binding. Passes locally.
-server:
-    - dns-rebinding-protection
