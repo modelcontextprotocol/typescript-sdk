@@ -53,8 +53,10 @@ export async function createInMemoryTaskEnvironment(options?: {
                     }
                 }
             },
-            taskStore,
-            taskMessageQueue: new InMemoryTaskMessageQueue()
+            tasks: {
+                taskStore,
+                taskMessageQueue: new InMemoryTaskMessageQueue()
+            }
         }
     );
 
