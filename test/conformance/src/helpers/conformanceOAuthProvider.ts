@@ -1,10 +1,10 @@
+import type { OAuthClientProvider } from '../../../../src/client/auth.js';
 import type {
     OAuthClientInformation,
     OAuthClientInformationFull,
     OAuthClientMetadata,
-    OAuthClientProvider,
     OAuthTokens
-} from '../../../../src/client/auth.js';
+} from '../../../../src/shared/auth.js';
 
 export class ConformanceOAuthProvider implements OAuthClientProvider {
     private _clientInformation?: OAuthClientInformationFull;

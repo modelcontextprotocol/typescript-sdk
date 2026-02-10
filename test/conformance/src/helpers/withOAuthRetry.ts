@@ -1,4 +1,5 @@
-import type { FetchLike, Middleware } from '../../../../src/client/middleware.js';
+import type { FetchLike } from '../../../../src/shared/transport.js';
+import type { Middleware } from '../../../../src/client/middleware.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from '../../../../src/client/auth.js';
 
 import { ConformanceOAuthProvider } from './conformanceOAuthProvider.js';
