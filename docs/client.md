@@ -2,7 +2,7 @@
 title: Client
 ---
 
-## Client overview
+# Client overview
 
 This guide covers SDK usage for building MCP clients in TypeScript. For protocol-level details and message formats, see the [MCP specification](https://modelcontextprotocol.io/specification/latest/).
 
@@ -318,7 +318,7 @@ client.setRequestHandler('elicitation/create', async request => {
 ```
 
 > [!NOTE]
-> For a full form‑based elicitation handler with AJV validation, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts). For URL elicitation mode, see [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/elicitationUrlExample.ts) and the [Capabilities guide](capabilities.md#elicitation).
+> For a full form‑based elicitation handler with AJV validation, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts). For URL elicitation mode (`mode: 'url'`), see [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/elicitationUrlExample.ts).
 >
 > For protocol details, see [Elicitation](https://modelcontextprotocol.io/specification/latest/client/elicitation) in the MCP specification.
 
@@ -367,6 +367,19 @@ console.log(result);
 > [!NOTE]
 > For an end‑to‑end example of server‑initiated SSE disconnection and automatic client reconnection with event replay, see [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/ssePollingClient.ts).
 
+## Tasks (experimental)
+
+Task-based execution enables "call-now, fetch-later" patterns for long-running operations. Instead of returning a result immediately, a tool creates a task that can be polled or resumed later. To use tasks:
+
+- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#callToolStream | client.experimental.tasks.callToolStream(...)} to start a tool call that may create a task and emit status updates over time.
+- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTask | client.experimental.tasks.getTask(...)} and {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTaskResult | getTaskResult(...)} to check status and fetch results after reconnecting.
+
+> [!NOTE]
+> For a full runnable example, see [`simpleTaskInteractiveClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTaskInteractiveClient.ts).
+
+> [!WARNING]
+> The tasks API is experimental and may change without notice.
+
 ## More client features
 
 The sections above cover the essentials. The table below links to additional capabilities.
@@ -377,4 +390,3 @@ The sections above cover the essentials. The table below links to additional cap
 | SSE disconnect / reconnection | Server‑initiated SSE disconnect with automatic reconnection and event replay | [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/ssePollingClient.ts) |
 | Multiple clients | Independent client lifecycles to the same server | [`multipleClientsParallel.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/multipleClientsParallel.ts) |
 | URL elicitation | Handle sensitive data collection via browser | [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/elicitationUrlExample.ts) |
-| Tasks (experimental) | Long‑running tool calls with status streaming | [`simpleTaskInteractiveClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTaskInteractiveClient.ts), [Capabilities guide](capabilities.md#task-based-execution-experimental) |
