@@ -1,5 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- ToolAnnotations used in JSDoc {@link}
-import type { BaseMetadata, ToolAnnotations } from '../types/types.js';
+import type { BaseMetadata } from '../types/types.js';
 
 /**
  * Utilities for working with {@linkcode BaseMetadata} objects.
@@ -7,7 +6,7 @@ import type { BaseMetadata, ToolAnnotations } from '../types/types.js';
 
 /**
  * Gets the display name for an object with {@linkcode BaseMetadata}.
- * For tools, the precedence is: `title` → {@linkcode ToolAnnotations | annotations}.`title` → `name`
+ * For tools, the precedence is: `title` → {@linkcode index.ToolAnnotations | annotations}.`title` → `name`
  * For other objects: `title` → `name`
  * This implements the spec requirement: "if no title is provided, name should be used for display purposes"
  */

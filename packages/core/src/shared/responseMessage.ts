@@ -1,6 +1,4 @@
 import type { Result, Task } from '../types/types.js';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Used in JSDoc {@link}
-import type { RequestOptions } from './protocol.js';
 
 /**
  * Base message type
@@ -43,7 +41,7 @@ export interface ErrorMessage extends BaseResponseMessage {
 
 /**
  * Union type representing all possible messages that can be yielded during request processing.
- * Note: Progress notifications are handled through the existing {@linkcode RequestOptions | onprogress} callback mechanism.
+ * Note: Progress notifications are handled through the existing {@linkcode index.RequestOptions | onprogress} callback mechanism.
  * Side-channeled messages (server requests/notifications) are handled through registered handlers.
  */
 export type ResponseMessage<T extends Result> = TaskStatusMessage | TaskCreatedMessage | ResultMessage<T> | ErrorMessage;

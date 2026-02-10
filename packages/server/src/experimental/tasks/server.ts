@@ -17,8 +17,6 @@ import type {
     SchemaOutput
 } from '@modelcontextprotocol/core';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- McpServer used in JSDoc {@link}
-import type { McpServer } from '../../server/mcp.js';
 import type { Server } from '../../server/server.js';
 
 /**
@@ -29,7 +27,7 @@ import type { Server } from '../../server/server.js';
  * const stream = server.experimental.tasks.requestStream(request, schema, options);
  * ```
  *
- * For high-level server usage with task-based tools, use {@linkcode McpServer}.experimental.tasks instead.
+ * For high-level server usage with task-based tools, use {@linkcode index.McpServer | McpServer}.experimental.tasks instead.
  *
  * @experimental
  */
