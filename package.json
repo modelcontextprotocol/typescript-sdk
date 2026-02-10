@@ -83,7 +83,12 @@
         "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "client": "tsx scripts/cli.ts client",
+        "test:conformance:server": "cd test/conformance && npm run test:server",
+        "test:conformance:server:all": "cd test/conformance && npm run test:server:all",
+        "test:conformance:server:run": "cd test/conformance && npm run test:server:run",
+        "test:conformance:client": "cd test/conformance && npm run test:client",
+        "test:conformance:client:all": "cd test/conformance && npm run test:client:all"
     },
     "dependencies": {
         "@hono/node-server": "^1.19.9",
