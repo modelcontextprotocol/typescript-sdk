@@ -32,7 +32,7 @@
         "prepack:all": "pnpm -r prepack",
         "lint:all": "pnpm sync:snippets --check && pnpm -r lint",
         "lint:fix:all": "pnpm sync:snippets && pnpm -r lint:fix",
-        "check:all": "pnpm -r typecheck && pnpm -r lint",
+        "check:all": "pnpm -r typecheck && pnpm -r lint && pnpm run docs:check",
         "test:all": "pnpm -r test",
         "test:conformance:client": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client",
         "test:conformance:client:all": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client:all",
