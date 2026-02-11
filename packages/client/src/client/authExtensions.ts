@@ -13,9 +13,11 @@ import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 /**
  * Helper to produce a private_key_jwt client authentication function.
  *
- * Usage:
- *   const addClientAuth = createPrivateKeyJwtAuth({ issuer, subject, privateKey, alg, audience? });
- *   // pass addClientAuth as provider.addClientAuthentication implementation
+ * @example
+ * ```typescript
+ * const addClientAuth = createPrivateKeyJwtAuth({ issuer, subject, privateKey, alg, audience? });
+ * // pass addClientAuth as provider.addClientAuthentication implementation
+ * ```
  */
 export function createPrivateKeyJwtAuth(options: {
     issuer: string;
@@ -30,7 +32,7 @@ export function createPrivateKeyJwtAuth(options: {
         // Lazy import to avoid heavy dependency unless used
         if (globalThis.crypto === undefined) {
             throw new TypeError(
-                'crypto is not available, please ensure you add have Web Crypto API support for older Node.js versions (see https://github.com/modelcontextprotocol/typescript-sdk#nodejs-web-crypto-globalthiscrypto-compatibility)'
+                'crypto is not available, please ensure you have Web Crypto API support for older Node.js versions (see https://github.com/modelcontextprotocol/typescript-sdk#nodejs-web-crypto-globalthiscrypto-compatibility)'
             );
         }
 
@@ -114,6 +116,7 @@ export interface ClientCredentialsProviderOptions {
  * the client authenticates using a client_id and client_secret.
  *
  * @example
+ * ```typescript
  * const provider = new ClientCredentialsProvider({
  *   clientId: 'my-client',
  *   clientSecret: 'my-secret'
@@ -122,6 +125,7 @@ export interface ClientCredentialsProviderOptions {
  * const transport = new StreamableHTTPClientTransport(serverUrl, {
  *   authProvider: provider
  * });
+ * ```
  */
 export class ClientCredentialsProvider implements OAuthClientProvider {
     private _tokens?: OAuthTokens;
@@ -219,9 +223,11 @@ export interface PrivateKeyJwtProviderOptions {
  * OAuth provider for client_credentials grant with private_key_jwt authentication.
  *
  * This provider is designed for machine-to-machine authentication where
- * the client authenticates using a signed JWT assertion (RFC 7523 Section 2.2).
+ * the client authenticates using a signed JWT assertion
+ * ({@link https://datatracker.ietf.org/doc/html/rfc7523#section-2.2 | RFC 7523 Section 2.2}).
  *
  * @example
+ * ```typescript
  * const provider = new PrivateKeyJwtProvider({
  *   clientId: 'my-client',
  *   privateKey: pemEncodedPrivateKey,
@@ -231,6 +237,7 @@ export interface PrivateKeyJwtProviderOptions {
  * const transport = new StreamableHTTPClientTransport(serverUrl, {
  *   authProvider: provider
  * });
+ * ```
  */
 export class PrivateKeyJwtProvider implements OAuthClientProvider {
     private _tokens?: OAuthTokens;

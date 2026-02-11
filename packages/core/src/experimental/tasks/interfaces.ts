@@ -97,6 +97,7 @@ export interface QueuedError extends BaseQueuedMessage {
  * All methods are async to support external storage implementations.
  * All data in QueuedMessage must be JSON-serializable.
  *
+ * @see {@linkcode InMemoryTaskMessageQueue} for a reference implementation
  * @experimental
  */
 export interface TaskMessageQueue {
@@ -157,6 +158,7 @@ export interface CreateTaskOptions {
  * Similar to Transport, this allows pluggable task storage implementations
  * (in-memory, database, distributed cache, etc.).
  *
+ * @see {@linkcode InMemoryTaskStore} for a reference implementation
  * @experimental
  */
 export interface TaskStore {
