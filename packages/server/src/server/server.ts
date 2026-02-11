@@ -634,10 +634,10 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * Sends a logging message to the client, if connected.
-     * Note: You only need to send the parameters object, not the entire JSON RPC message
+     * Note: You only need to send the parameters object, not the entire JSON-RPC message.
      * @see LoggingMessageNotification
      * @param params
-     * @param sessionId optional for stateless and backward compatibility
+     * @param sessionId Optional for stateless transports and backward compatibility.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
