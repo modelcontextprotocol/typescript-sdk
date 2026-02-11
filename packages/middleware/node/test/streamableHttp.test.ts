@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createServer as netCreateServer } from 'node:net';
+import { gunzipSync } from 'node:zlib';
 
 import type {
     AuthInfo,
@@ -45,6 +46,7 @@ interface TestServerConfig {
     onsessioninitialized?: (sessionId: string) => void | Promise<void>;
     onsessionclosed?: (sessionId: string) => void | Promise<void>;
     retryInterval?: number;
+    compressResponses?: boolean;
 }
 
 /**
@@ -148,6 +150,53 @@ function expectErrorResponse(
         expect((data as { error: { data?: string } }).error.data).toBeDefined();
     }
 }
+
+/**
+ * Helper to make a raw HTTP request that does NOT auto-decompress.
+ * Returns the raw response headers and body bytes, so we can verify
+ * Content-Encoding and gzip bytes on the wire.
+ */
+function rawHttpRequest(
+    url: URL,
+    options: {
+        method: string;
+        headers: Record<string, string>;
+        body?: string | Buffer;
+    }
+): Promise<{ statusCode: number; headers: Record<string, string>; body: Buffer }> {
+    return new Promise((resolve, reject) => {
+        const req = httpRequest(
+            {
+                hostname: url.hostname,
+                port: url.port,
+                path: url.pathname,
+                method: options.method,
+                headers: options.headers
+            },
+            res => {
+                const chunks: Buffer[] = [];
+                res.on('data', chunk => chunks.push(chunk));
+                res.on('end', () => {
+                    const headersRecord: Record<string, string> = {};
+                    for (const [key, value] of Object.entries(res.headers)) {
+                        if (typeof value === 'string') headersRecord[key] = value;
+                        else if (Array.isArray(value)) headersRecord[key] = value.join(', ');
+                    }
+                    resolve({
+                        statusCode: res.statusCode!,
+                        headers: headersRecord,
+                        body: Buffer.concat(chunks)
+                    });
+                });
+                res.on('error', reject);
+            }
+        );
+        req.on('error', reject);
+        if (options.body) req.write(options.body);
+        req.end();
+    });
+}
+
 describe('Zod v4', () => {
     /**
      * Helper to create and start test HTTP server with MCP setup
@@ -178,7 +227,8 @@ describe('Zod v4', () => {
             eventStore: config.eventStore,
             onsessioninitialized: config.onsessioninitialized,
             onsessionclosed: config.onsessionclosed,
-            retryInterval: config.retryInterval
+            retryInterval: config.retryInterval,
+            compressResponses: config.compressResponses
         });
 
         await mcpServer.connect(transport);
@@ -3014,6 +3064,436 @@ describe('NodeStreamableHTTPServerTransport global Response preservation', () =>
             await transport.close();
             httpServer.close();
         }
+    });
+});
+
+/**
+ * Standalone helper to create a compressed test server (does not depend on scoped createTestServer)
+ */
+async function createCompressedTestServer(options?: { enableJsonResponse?: boolean }): Promise<{
+    server: Server;
+    transport: NodeStreamableHTTPServerTransport;
+    mcpServer: McpServer;
+    baseUrl: URL;
+}> {
+    const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+    mcpServer.registerTool(
+        'greet',
+        {
+            description: 'A simple greeting tool',
+            inputSchema: z.object({ name: z.string().describe('Name to greet') })
+        },
+        async ({ name }): Promise<CallToolResult> => {
+            return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+        }
+    );
+
+    const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: options?.enableJsonResponse ?? false,
+        compressResponses: true
+    });
+
+    await mcpServer.connect(transport);
+
+    const server = createServer(async (req, res) => {
+        try {
+            await transport.handleRequest(req, res);
+        } catch (error) {
+            console.error('Error handling request:', error);
+            if (!res.headersSent) res.writeHead(500).end();
+        }
+    });
+
+    const baseUrl = await listenOnRandomPort(server);
+
+    return { server, transport, mcpServer, baseUrl };
+}
+
+describe('Response Compression (E2E over real HTTP)', () => {
+    let server: Server;
+    let mcpServer: McpServer;
+    let transport: NodeStreamableHTTPServerTransport;
+    let baseUrl: URL;
+
+    beforeEach(async () => {
+        const result = await createCompressedTestServer();
+        server = result.server;
+        transport = result.transport;
+        mcpServer = result.mcpServer;
+        baseUrl = result.baseUrl;
+    });
+
+    afterEach(async () => {
+        await transport.close();
+        server.close();
+    });
+
+    async function initializeAndGetSessionId(): Promise<string> {
+        const response = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        expect(response.status).toBe(200);
+        const sessionId = response.headers.get('mcp-session-id');
+        expect(sessionId).toBeDefined();
+        // Consume the body so the connection is released
+        await response.text();
+        return sessionId as string;
+    }
+
+    it('should return Content-Encoding: gzip header on compressed SSE response', async () => {
+        // Use raw HTTP to see actual headers and compressed bytes
+        const initRes = await rawHttpRequest(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'Accept-Encoding': 'gzip'
+            },
+            body: JSON.stringify(TEST_MESSAGES.initialize)
+        });
+
+        expect(initRes.statusCode).toBe(200);
+        expect(initRes.headers['content-encoding']).toBe('gzip');
+        expect(initRes.headers['vary']).toContain('Accept-Encoding');
+
+        // The raw body should be gzip-encoded (starts with gzip magic bytes 0x1f 0x8b)
+        expect(initRes.body[0]).toBe(0x1f);
+        expect(initRes.body[1]).toBe(0x8b);
+
+        // Decompress and verify it's valid SSE content
+        const decompressed = gunzipSync(initRes.body).toString('utf-8');
+        expect(decompressed).toContain('event:');
+        expect(decompressed).toContain('data:');
+        // Should contain a valid JSON-RPC result for the initialize request
+        expect(decompressed).toContain('"jsonrpc"');
+        expect(decompressed).toContain('"result"');
+    });
+
+    it('should send multiple SSE events compressed as gzip over the wire', async () => {
+        const sessionId = await initializeAndGetSessionId();
+
+        // Send a batch of multiple requests in a single POST
+        // Each request produces its own SSE response event on the same stream
+        const batchMessages: JSONRPCMessage[] = [
+            {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'greet', arguments: { name: 'Alice' } },
+                id: 'batch-1'
+            },
+            {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'greet', arguments: { name: 'Bob' } },
+                id: 'batch-2'
+            },
+            {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'greet', arguments: { name: 'Charlie' } },
+                id: 'batch-3'
+            }
+        ];
+
+        const res = await rawHttpRequest(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'Accept-Encoding': 'gzip',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-11-25'
+            },
+            body: JSON.stringify(batchMessages)
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['content-encoding']).toBe('gzip');
+
+        // Raw bytes should be gzip (magic bytes)
+        expect(res.body[0]).toBe(0x1f);
+        expect(res.body[1]).toBe(0x8b);
+
+        // Decompress and verify multiple SSE events
+        const decompressed = gunzipSync(res.body).toString('utf-8');
+
+        // Should contain all three tool results
+        expect(decompressed).toContain('Hello, Alice!');
+        expect(decompressed).toContain('Hello, Bob!');
+        expect(decompressed).toContain('Hello, Charlie!');
+
+        // Each result should be a separate SSE event with event/data format
+        const eventBlocks = decompressed.split('\n\n').filter(block => block.includes('event:'));
+        // 3 tool result events (+ possibly a priming event)
+        expect(eventBlocks.length).toBeGreaterThanOrEqual(3);
+
+        // Verify all three request IDs appear in the response
+        expect(decompressed).toContain('"batch-1"');
+        expect(decompressed).toContain('"batch-2"');
+        expect(decompressed).toContain('"batch-3"');
+    });
+
+    it('should NOT compress when Accept-Encoding does not include gzip or deflate', async () => {
+        const res = await rawHttpRequest(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'Accept-Encoding': 'identity'
+            },
+            body: JSON.stringify(TEST_MESSAGES.initialize)
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['content-encoding']).toBeUndefined();
+
+        // Body should be plaintext SSE, not gzip
+        const text = res.body.toString('utf-8');
+        expect(text).toContain('event:');
+        expect(text).toContain('data:');
+    });
+
+    it('should decompress gzip-compressed request bodies', async () => {
+        const sessionId = await initializeAndGetSessionId();
+
+        const toolCallMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+                name: 'greet',
+                arguments: { name: 'CompressedUser' }
+            },
+            id: 'compressed-req-1'
+        };
+
+        // Compress the request body with gzip using CompressionStream
+        const jsonBody = JSON.stringify(toolCallMessage);
+        const encoder = new TextEncoder();
+        const input = encoder.encode(jsonBody);
+        const cs = new CompressionStream('gzip');
+        const writer = cs.writable.getWriter();
+        void writer.write(input).then(() => writer.close());
+        const reader = cs.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+        }
+        const compressedBody = Buffer.concat(chunks);
+
+        // Send compressed request via raw HTTP
+        const res = await rawHttpRequest(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Encoding': 'gzip',
+                Accept: 'application/json, text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-11-25'
+            },
+            body: compressedBody
+        });
+
+        expect(res.statusCode).toBe(200);
+
+        // The response body might or might not be compressed (no Accept-Encoding: gzip sent)
+        // The key assertion: the server successfully decompressed the request and executed the tool
+        const body = res.body.toString('utf-8');
+        expect(body).toContain('Hello, CompressedUser!');
+    });
+
+    it('should handle both compressed request and compressed response simultaneously', async () => {
+        const sessionId = await initializeAndGetSessionId();
+
+        const toolCallMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+                name: 'greet',
+                arguments: { name: 'RoundTrip' }
+            },
+            id: 'roundtrip-1'
+        };
+
+        // Compress request body
+        const jsonBody = JSON.stringify(toolCallMessage);
+        const input = new TextEncoder().encode(jsonBody);
+        const cs = new CompressionStream('gzip');
+        const writer = cs.writable.getWriter();
+        void writer.write(input).then(() => writer.close());
+        const reader = cs.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+        }
+        const compressedBody = Buffer.concat(chunks);
+
+        // Send compressed request AND ask for compressed response
+        const res = await rawHttpRequest(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Encoding': 'gzip',
+                'Accept-Encoding': 'gzip',
+                Accept: 'application/json, text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-11-25'
+            },
+            body: compressedBody
+        });
+
+        expect(res.statusCode).toBe(200);
+        // Response should be gzip-compressed
+        expect(res.headers['content-encoding']).toBe('gzip');
+        expect(res.body[0]).toBe(0x1f);
+        expect(res.body[1]).toBe(0x8b);
+
+        // Decompress and verify the tool result
+        const decompressed = gunzipSync(res.body).toString('utf-8');
+        expect(decompressed).toContain('Hello, RoundTrip!');
+    });
+
+    it('should compress GET SSE streams', async () => {
+        const sessionId = await initializeAndGetSessionId();
+
+        // Use a Promise to collect data from the SSE stream
+        const dataPromise = new Promise<{ headers: Record<string, string>; body: Buffer }>((resolve, reject) => {
+            const req = httpRequest(
+                {
+                    hostname: baseUrl.hostname,
+                    port: baseUrl.port,
+                    path: baseUrl.pathname,
+                    method: 'GET',
+                    headers: {
+                        Accept: 'text/event-stream',
+                        'Accept-Encoding': 'gzip',
+                        'mcp-session-id': sessionId,
+                        'mcp-protocol-version': '2025-11-25'
+                    }
+                },
+                res => {
+                    const chunks: Buffer[] = [];
+                    const headersRecord: Record<string, string> = {};
+                    for (const [key, value] of Object.entries(res.headers)) {
+                        if (typeof value === 'string') headersRecord[key] = value;
+                        else if (Array.isArray(value)) headersRecord[key] = value.join(', ');
+                    }
+
+                    // Resolve after we've collected some data
+                    let resolved = false;
+                    res.on('data', chunk => {
+                        chunks.push(chunk);
+                        // Once we get data, wait briefly then resolve
+                        if (!resolved) {
+                            resolved = true;
+                            // Give it a moment to receive more data
+                            setTimeout(() => {
+                                req.destroy();
+                                resolve({
+                                    headers: headersRecord,
+                                    body: Buffer.concat(chunks)
+                                });
+                            }, 200);
+                        }
+                    });
+                    res.on('error', () => {
+                        // Ignore errors from destroying the request
+                        if (resolved) return;
+                        reject(new Error('Stream error'));
+                    });
+                }
+            );
+            req.on('error', () => {
+                // Ignore errors from destroying the request
+            });
+            req.end();
+
+            // After the request is sent, trigger a server notification
+            setTimeout(async () => {
+                try {
+                    await mcpServer.server.sendLoggingMessage({
+                        level: 'info',
+                        data: 'Compressed SSE notification'
+                    });
+                } catch {
+                    // Server may be closing
+                }
+            }, 100);
+        });
+
+        const result = await dataPromise;
+        expect(result.headers['content-encoding']).toBe('gzip');
+    });
+
+    it('should transparently decompress for normal fetch clients', async () => {
+        // Normal fetch() auto-decompresses, so the client should see normal SSE
+        const response = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream'
+                // fetch automatically sends Accept-Encoding: gzip
+            },
+            body: JSON.stringify(TEST_MESSAGES.initialize)
+        });
+
+        expect(response.status).toBe(200);
+
+        // fetch auto-decompresses, so we get plaintext SSE
+        const text = await response.text();
+        expect(text).toContain('event:');
+        expect(text).toContain('data:');
+        expect(text).toContain('"result"');
+    });
+});
+
+describe('Response Compression with JSON mode (E2E over real HTTP)', () => {
+    let server: Server;
+    let transport: NodeStreamableHTTPServerTransport;
+    let baseUrl: URL;
+
+    beforeEach(async () => {
+        const result = await createCompressedTestServer({ enableJsonResponse: true });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+    });
+
+    afterEach(async () => {
+        await transport.close();
+        server.close();
+    });
+
+    it('should compress JSON responses when Accept-Encoding: gzip is present', async () => {
+        const res = await rawHttpRequest(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'Accept-Encoding': 'gzip'
+            },
+            body: JSON.stringify(TEST_MESSAGES.initialize)
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['content-encoding']).toBe('gzip');
+
+        // Raw bytes should be gzip
+        expect(res.body[0]).toBe(0x1f);
+        expect(res.body[1]).toBe(0x8b);
+
+        // Decompress and verify it's valid JSON
+        const decompressed = gunzipSync(res.body).toString('utf-8');
+        const parsed = JSON.parse(decompressed);
+        expect(parsed).toMatchObject({
+            jsonrpc: '2.0',
+            result: expect.objectContaining({
+                protocolVersion: expect.any(String)
+            })
+        });
     });
 });
 

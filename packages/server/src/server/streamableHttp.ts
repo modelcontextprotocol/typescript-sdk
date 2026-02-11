@@ -152,6 +152,20 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default SUPPORTED_PROTOCOL_VERSIONS
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Enable response compression using standard HTTP content encoding.
+     *
+     * When enabled, the transport will negotiate compression with clients via
+     * the Accept-Encoding / Content-Encoding headers and compress responses
+     * using gzip or deflate.
+     *
+     * Uses the Web Standard CompressionStream API, available in Node.js 18+,
+     * Deno, Bun, and Cloudflare Workers.
+     *
+     * @default false
+     */
+    compressResponses?: boolean;
 }
 
 /**
@@ -231,6 +245,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _compressResponses: boolean;
 
     sessionId?: string;
     onclose?: () => void;
@@ -248,6 +263,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._compressResponses = options.compressResponses ?? false;
     }
 
     /**
@@ -299,6 +315,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Parses the request body, handling Content-Encoding (gzip/deflate) if present.
+     * Uses DecompressionStream for compressed bodies, falls back to req.json() for plain bodies.
+     */
+    private async _parseRequestBody(req: Request): Promise<unknown> {
+        const contentEncoding = req.headers.get('content-encoding');
+        if ((contentEncoding === 'gzip' || contentEncoding === 'deflate') && typeof DecompressionStream !== 'undefined' && req.body) {
+            const decompressed = req.body.pipeThrough(new DecompressionStream(contentEncoding));
+            const text = await new Response(decompressed).text();
+            return JSON.parse(text);
+        }
+        return req.json();
+    }
+
+    /**
      * Validates request headers for DNS rebinding protection.
      * @returns Error response if validation fails, undefined if validation passes.
      */
@@ -332,6 +362,41 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Negotiates content encoding based on the Accept-Encoding header.
+     * Returns the best supported encoding or null if compression should not be applied.
+     */
+    private _negotiateEncoding(req: Request): 'gzip' | 'deflate' | null {
+        if (!this._compressResponses) return null;
+        if (typeof CompressionStream === 'undefined') return null;
+
+        const acceptEncoding = req.headers.get('accept-encoding') ?? '';
+        if (acceptEncoding.includes('gzip')) return 'gzip';
+        if (acceptEncoding.includes('deflate')) return 'deflate';
+        return null;
+    }
+
+    /**
+     * Compresses a Response body using the specified encoding.
+     * Pipes the response body through a CompressionStream and sets appropriate headers.
+     */
+    private _compressResponse(response: Response, encoding: 'gzip' | 'deflate'): Response {
+        const body = response.body;
+        if (!body) return response;
+
+        const compressed = body.pipeThrough(new CompressionStream(encoding));
+        const headers = new Headers(response.headers);
+        headers.set('Content-Encoding', encoding);
+        headers.set('Vary', 'Accept-Encoding');
+        headers.delete('Content-Length');
+
+        return new Response(compressed, {
+            status: response.status,
+            statusText: response.statusText,
+            headers
+        });
+    }
+
+    /**
      * Handles an incoming HTTP request, whether GET, POST, or DELETE
      * Returns a Response object (Web Standard)
      */
@@ -342,20 +407,34 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return validationError;
         }
 
+        const encoding = this._negotiateEncoding(req);
+
+        let response: Response;
         switch (req.method) {
             case 'POST': {
-                return this.handlePostRequest(req, options);
+                response = await this.handlePostRequest(req, options);
+                break;
             }
             case 'GET': {
-                return this.handleGetRequest(req);
+                response = await this.handleGetRequest(req);
+                break;
             }
             case 'DELETE': {
-                return this.handleDeleteRequest(req);
+                response = await this.handleDeleteRequest(req);
+                break;
             }
             default: {
-                return this.handleUnsupportedRequest();
+                response = this.handleUnsupportedRequest();
+                break;
             }
         }
+
+        // Apply compression to successful responses with a body
+        if (encoding && response.body && response.ok) {
+            return this._compressResponse(response, encoding);
+        }
+
+        return response;
     }
 
     /**
@@ -626,7 +705,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let rawMessage;
             if (options?.parsedBody === undefined) {
                 try {
-                    rawMessage = await req.json();
+                    rawMessage = await this._parseRequestBody(req);
                 } catch {
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }

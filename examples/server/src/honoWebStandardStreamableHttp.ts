@@ -35,8 +35,10 @@ server.registerTool(
     }
 );
 
-// Create a stateless transport (no options = no session management)
-const transport = new WebStandardStreamableHTTPServerTransport();
+// Create a stateless transport with compression (no session management)
+const transport = new WebStandardStreamableHTTPServerTransport({
+    compressResponses: true
+});
 
 // Create the Hono app
 const app = new Hono();

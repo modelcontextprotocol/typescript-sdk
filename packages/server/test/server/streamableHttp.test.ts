@@ -765,4 +765,565 @@ describe('Zod v4', () => {
             await expect(transport.start()).rejects.toThrow('Transport already started');
         });
     });
+
+    describe('HTTPServerTransport - Response Compression', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+        let sessionId: string;
+
+        /**
+         * Helper to create a request with Accept-Encoding header
+         */
+        function createCompressedRequest(
+            method: string,
+            body?: JSONRPCMessage | JSONRPCMessage[],
+            options?: {
+                sessionId?: string;
+                accept?: string;
+                acceptEncoding?: string;
+            }
+        ): Request {
+            const headers: Record<string, string> = {};
+
+            if (options?.accept) {
+                headers['Accept'] = options.accept;
+            } else if (method === 'POST') {
+                headers['Accept'] = 'application/json, text/event-stream';
+            } else if (method === 'GET') {
+                headers['Accept'] = 'text/event-stream';
+            }
+
+            if (body) {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            if (options?.sessionId) {
+                headers['mcp-session-id'] = options.sessionId;
+                headers['mcp-protocol-version'] = '2025-11-25';
+            }
+
+            if (options?.acceptEncoding) {
+                headers['Accept-Encoding'] = options.acceptEncoding;
+            }
+
+            return new Request('http://localhost/mcp', {
+                method,
+                headers,
+                body: body ? JSON.stringify(body) : undefined
+            });
+        }
+
+        /**
+         * Helper to decompress a response body using DecompressionStream
+         */
+        async function decompressResponse(response: Response, encoding: 'gzip' | 'deflate'): Promise<string> {
+            const body = response.body!;
+            const decompressed = body.pipeThrough(new DecompressionStream(encoding));
+            const reader = decompressed.getReader();
+            const chunks: Uint8Array[] = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                result.set(chunk, offset);
+                offset += chunk.length;
+            }
+            return new TextDecoder().decode(result);
+        }
+
+        beforeEach(async () => {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.registerTool(
+                'greet',
+                {
+                    description: 'A simple greeting tool',
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
+                },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                compressResponses: true
+            });
+
+            await mcpServer.connect(transport);
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        async function initializeServer(acceptEncoding?: string): Promise<string> {
+            const request = createCompressedRequest('POST', TEST_MESSAGES.initialize, { acceptEncoding });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            const newSessionId = response.headers.get('mcp-session-id');
+            expect(newSessionId).toBeDefined();
+            return newSessionId as string;
+        }
+
+        it('should compress SSE responses with gzip when client supports it', async () => {
+            sessionId = await initializeServer('gzip');
+
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId,
+                acceptEncoding: 'gzip'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBe('gzip');
+            expect(response.headers.get('vary')).toBe('Accept-Encoding');
+
+            const text = await decompressResponse(response, 'gzip');
+            const eventData = parseSSEData(text);
+
+            expect(eventData).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.arrayContaining([expect.objectContaining({ name: 'greet' })])
+                }),
+                id: 'tools-1'
+            });
+        });
+
+        it('should compress SSE responses with deflate when client supports it', async () => {
+            sessionId = await initializeServer('deflate');
+
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId,
+                acceptEncoding: 'deflate'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBe('deflate');
+
+            const text = await decompressResponse(response, 'deflate');
+            const eventData = parseSSEData(text);
+
+            expect(eventData).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.any(Array)
+                }),
+                id: 'tools-1'
+            });
+        });
+
+        it('should prefer gzip over deflate', async () => {
+            sessionId = await initializeServer('gzip, deflate');
+
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId,
+                acceptEncoding: 'gzip, deflate'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.headers.get('content-encoding')).toBe('gzip');
+        });
+
+        it('should not compress when client does not send Accept-Encoding', async () => {
+            sessionId = await initializeServer();
+
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, { sessionId });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBeNull();
+        });
+
+        it('should not compress when client only supports unsupported encodings', async () => {
+            sessionId = await initializeServer('br');
+
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId,
+                acceptEncoding: 'br'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBeNull();
+        });
+
+        it('should not compress error responses', async () => {
+            // Send a request without initialization (should get error)
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, {
+                acceptEncoding: 'gzip'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(response.headers.get('content-encoding')).toBeNull();
+        });
+
+        it('should compress GET SSE streams', async () => {
+            sessionId = await initializeServer('gzip');
+
+            const request = createCompressedRequest('GET', undefined, {
+                sessionId,
+                acceptEncoding: 'gzip'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBe('gzip');
+            expect(response.headers.get('vary')).toBe('Accept-Encoding');
+        });
+    });
+
+    describe('HTTPServerTransport - Response Compression (JSON Mode)', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+        let sessionId: string;
+
+        function createCompressedRequest(
+            method: string,
+            body?: JSONRPCMessage | JSONRPCMessage[],
+            options?: {
+                sessionId?: string;
+                acceptEncoding?: string;
+            }
+        ): Request {
+            const headers: Record<string, string> = {
+                Accept: 'application/json, text/event-stream'
+            };
+
+            if (body) {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            if (options?.sessionId) {
+                headers['mcp-session-id'] = options.sessionId;
+                headers['mcp-protocol-version'] = '2025-11-25';
+            }
+
+            if (options?.acceptEncoding) {
+                headers['Accept-Encoding'] = options.acceptEncoding;
+            }
+
+            return new Request('http://localhost/mcp', {
+                method,
+                headers,
+                body: body ? JSON.stringify(body) : undefined
+            });
+        }
+
+        async function decompressResponse(response: Response, encoding: 'gzip' | 'deflate'): Promise<string> {
+            const body = response.body!;
+            const decompressed = body.pipeThrough(new DecompressionStream(encoding));
+            const reader = decompressed.getReader();
+            const chunks: Uint8Array[] = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                result.set(chunk, offset);
+                offset += chunk.length;
+            }
+            return new TextDecoder().decode(result);
+        }
+
+        beforeEach(async () => {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.registerTool(
+                'greet',
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                enableJsonResponse: true,
+                compressResponses: true
+            });
+
+            await mcpServer.connect(transport);
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        async function initializeServer(acceptEncoding?: string): Promise<string> {
+            const request = createCompressedRequest('POST', TEST_MESSAGES.initialize, { acceptEncoding });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            const newSessionId = response.headers.get('mcp-session-id');
+            expect(newSessionId).toBeDefined();
+            return newSessionId as string;
+        }
+
+        it('should compress JSON responses with gzip', async () => {
+            sessionId = await initializeServer('gzip');
+
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId,
+                acceptEncoding: 'gzip'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBe('gzip');
+            expect(response.headers.get('vary')).toBe('Accept-Encoding');
+
+            const text = await decompressResponse(response, 'gzip');
+            const data = JSON.parse(text);
+
+            expect(data).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.any(Array)
+                }),
+                id: 'tools-1'
+            });
+        });
+
+        it('should not compress JSON responses when client does not support it', async () => {
+            sessionId = await initializeServer();
+
+            const request = createCompressedRequest('POST', TEST_MESSAGES.toolsList, { sessionId });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBeNull();
+            expect(response.headers.get('content-type')).toBe('application/json');
+
+            const data = await response.json();
+            expect(data).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.any(Array)
+                }),
+                id: 'tools-1'
+            });
+        });
+    });
+
+    describe('HTTPServerTransport - Request Body Decompression', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+        let sessionId: string;
+
+        /**
+         * Helper to compress a string body using gzip via CompressionStream
+         */
+        async function compressBody(body: string): Promise<Uint8Array> {
+            const encoder = new TextEncoder();
+            const input = encoder.encode(body);
+            const cs = new CompressionStream('gzip');
+            const writer = cs.writable.getWriter();
+            void writer.write(input).then(() => writer.close());
+            const reader = cs.readable.getReader();
+            const chunks: Uint8Array[] = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                result.set(chunk, offset);
+                offset += chunk.length;
+            }
+            return result;
+        }
+
+        beforeEach(async () => {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.registerTool(
+                'greet',
+                {
+                    description: 'A simple greeting tool',
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
+                },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+
+            await mcpServer.connect(transport);
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        async function initializeServer(): Promise<string> {
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            const newSessionId = response.headers.get('mcp-session-id');
+            expect(newSessionId).toBeDefined();
+            return newSessionId as string;
+        }
+
+        it('should decompress gzip-encoded request body', async () => {
+            sessionId = await initializeServer();
+
+            const compressedBody = await compressBody(JSON.stringify(TEST_MESSAGES.toolsList));
+
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json',
+                    'Content-Encoding': 'gzip',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: compressedBody
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+
+            const text = await readSSEEvent(response);
+            const eventData = parseSSEData(text);
+
+            expect(eventData).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.arrayContaining([expect.objectContaining({ name: 'greet' })])
+                }),
+                id: 'tools-1'
+            });
+        });
+
+        it('should decompress deflate-encoded request body', async () => {
+            sessionId = await initializeServer();
+
+            // Compress with deflate
+            const input = new TextEncoder().encode(JSON.stringify(TEST_MESSAGES.toolsList));
+            const cs = new CompressionStream('deflate');
+            const writer = cs.writable.getWriter();
+            void writer.write(input).then(() => writer.close());
+            const reader = cs.readable.getReader();
+            const chunks: Uint8Array[] = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const compressedBody = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                compressedBody.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json',
+                    'Content-Encoding': 'deflate',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: compressedBody
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+
+            const text = await readSSEEvent(response);
+            const eventData = parseSSEData(text);
+
+            expect(eventData).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.any(Array)
+                }),
+                id: 'tools-1'
+            });
+        });
+
+        it('should handle uncompressed request body normally', async () => {
+            sessionId = await initializeServer();
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, { sessionId });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+
+            const text = await readSSEEvent(response);
+            const eventData = parseSSEData(text);
+
+            expect(eventData).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.any(Array)
+                }),
+                id: 'tools-1'
+            });
+        });
+    });
+
+    describe('HTTPServerTransport - Compression Disabled', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+
+        beforeEach(async () => {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                compressResponses: false
+            });
+
+            await mcpServer.connect(transport);
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        it('should not compress when compressResponses is false even with Accept-Encoding', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json',
+                    'Accept-Encoding': 'gzip, deflate'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-encoding')).toBeNull();
+        });
+    });
 });
