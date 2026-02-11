@@ -1187,7 +1187,7 @@ export const ImageContentSchema = z.object({
 });
 
 /**
- * An Audio provided to or from an LLM.
+ * Audio content provided to or from an LLM.
  */
 export const AudioContentSchema = z.object({
     type: z.literal('audio'),
@@ -1340,7 +1340,7 @@ export const ToolAnnotationsSchema = z.object({
 
     /**
      * If true, calling the tool repeatedly with the same arguments
-     * will have no additional effect on the its environment.
+     * will have no additional effect on its environment.
      *
      * (This property is meaningful only when `readOnlyHint == false`)
      *
@@ -2067,7 +2067,7 @@ export const ElicitResultSchema = ResultSchema.extend({
     /**
      * The user action in response to the elicitation.
      * - "accept": User submitted the form/confirmed the action
-     * - "decline": User explicitly decline the action
+     * - "decline": User explicitly declined the action
      * - "cancel": User dismissed without making an explicit choice
      */
     action: z.enum(['accept', 'decline', 'cancel']),
