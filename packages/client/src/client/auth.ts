@@ -60,7 +60,7 @@ export interface OAuthClientProvider {
     get clientMetadata(): OAuthClientMetadata;
 
     /**
-     * Returns a OAuth2 state parameter.
+     * Returns an OAuth2 state parameter.
      */
     state?(): string | Promise<string>;
 
@@ -654,7 +654,8 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 }
 
 /**
- * Looks up RFC 9728 OAuth 2.0 Protected Resource Metadata.
+ * Looks up {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728}
+ * OAuth 2.0 Protected Resource Metadata.
  *
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
@@ -872,8 +873,11 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
 }
 
 /**
- * Discovers authorization server metadata with support for RFC 8414 OAuth 2.0 Authorization Server Metadata
- * and OpenID Connect Discovery 1.0 specifications.
+ * Discovers authorization server metadata with support for
+ * {@link https://datatracker.ietf.org/doc/html/rfc8414 | RFC 8414} OAuth 2.0
+ * Authorization Server Metadata and
+ * {@link https://openid.net/specs/openid-connect-discovery-1_0.html | OpenID Connect Discovery 1.0}
+ * specifications.
  *
  * This function implements a fallback strategy for authorization server discovery:
  * 1. Attempts RFC 8414 OAuth metadata discovery first
@@ -1206,6 +1210,7 @@ export async function refreshAuthorization(
  * @throws {Error} When provider doesn't implement prepareTokenRequest or token fetch fails
  *
  * @example
+ * ```typescript
  * // Provider for client_credentials:
  * class MyProvider implements OAuthClientProvider {
  *   prepareTokenRequest(scope) {
@@ -1217,6 +1222,7 @@ export async function refreshAuthorization(
  * }
  *
  * const tokens = await fetchToken(provider, authServerUrl, { metadata });
+ * ```
  */
 export async function fetchToken(
     provider: OAuthClientProvider,
@@ -1267,7 +1273,8 @@ export async function fetchToken(
 }
 
 /**
- * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
+ * Performs OAuth 2.0 Dynamic Client Registration according to
+ * {@link https://datatracker.ietf.org/doc/html/rfc7591 | RFC 7591}.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,

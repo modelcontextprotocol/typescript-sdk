@@ -71,7 +71,8 @@ export const OAuthMetadataSchema = z.looseObject({
 
 /**
  * OpenID Connect Discovery 1.0 Provider Metadata
- * see: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
+ *
+ * @see https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
  */
 export const OpenIdProviderMetadataSchema = z.looseObject({
     issuer: z.string(),
@@ -148,7 +149,7 @@ export const OAuthErrorResponseSchema = z.object({
 });
 
 /**
- * Optional version of SafeUrlSchema that allows empty string for retrocompatibility on tos_uri and logo_uri
+ * Optional version of SafeUrlSchema that allows empty string for backward compatibility on tos_uri and logo_uri
  */
 // eslint-disable-next-line unicorn/no-useless-undefined
 export const OptionalSafeUrlSchema = SafeUrlSchema.optional().or(z.literal('').transform(() => undefined));

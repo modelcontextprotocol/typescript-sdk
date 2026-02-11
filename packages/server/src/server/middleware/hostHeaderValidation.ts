@@ -44,7 +44,9 @@ export function localhostAllowedHostnames(): string[] {
 /**
  * Web-standard Request helper for DNS rebinding protection.
  * @example
+ * ```typescript
  * const result = validateHostHeader(req.headers.get('host'), ['localhost'])
+ * ```
  */
 export function hostHeaderValidationResponse(req: Request, allowedHostnames: string[]): Response | undefined {
     const result = validateHostHeader(req.headers.get('host'), allowedHostnames);
