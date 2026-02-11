@@ -379,6 +379,38 @@ export async function auth(
     }
 }
 
+/**
+ * Selects scopes per the MCP spec and augment for refresh token support.
+ */
+export function determineScope(options: {
+    requestedScope?: string;
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+    authServerMetadata?: AuthorizationServerMetadata;
+    clientMetadata: OAuthClientMetadata;
+}): string | undefined {
+    const { requestedScope, resourceMetadata, authServerMetadata, clientMetadata } = options;
+
+    // Scope selection priority (MCP spec):
+    //   1. WWW-Authenticate header scope
+    //   2. PRM scopes_supported
+    //   3. clientMetadata.scope (SDK fallback)
+    //   4. Omit scope parameter
+    let effectiveScope = requestedScope || resourceMetadata?.scopes_supported?.join(' ') || clientMetadata.scope;
+
+    // SEP-2207: Append offline_access when the AS advertises it
+    // and the client supports the refresh_token grant.
+    if (
+        effectiveScope &&
+        authServerMetadata?.scopes_supported?.includes('offline_access') &&
+        !effectiveScope.split(' ').includes('offline_access') &&
+        clientMetadata.grant_types?.includes('refresh_token')
+    ) {
+        effectiveScope = `${effectiveScope} offline_access`;
+    }
+
+    return effectiveScope;
+}
+
 async function authInternal(
     provider: OAuthClientProvider,
     {
@@ -509,13 +541,21 @@ async function authInternal(
 
     const state = provider.state ? await provider.state() : undefined;
 
+    // Determine scope per MCP Scope Selection Strategy + SEP-2207
+    const effectiveScope = determineScope({
+        requestedScope: scope,
+        resourceMetadata,
+        authServerMetadata: metadata,
+        clientMetadata: provider.clientMetadata
+    });
+
     // Start new authorization flow
     const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
         metadata,
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
+        scope: effectiveScope,
         resource
     });
 
