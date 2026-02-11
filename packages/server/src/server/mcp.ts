@@ -53,11 +53,11 @@ import { Server } from './server.js';
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
- * Server instance available via the `server` property.
+ * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
  */
 export class McpServer {
     /**
-     * The underlying Server instance, useful for advanced operations like sending notifications.
+     * The underlying {@linkcode Server} instance, useful for advanced operations like sending notifications.
      */
     public readonly server: Server;
 
@@ -92,7 +92,7 @@ export class McpServer {
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
-     * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
+     * The `server` object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
         return await this.server.connect(transport);
@@ -297,7 +297,7 @@ export class McpServer {
     }
 
     /**
-     * Handles automatic task polling for tools with taskSupport 'optional'.
+     * Handles automatic task polling for tools with `taskSupport` `'optional'`.
      */
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
@@ -548,7 +548,7 @@ export class McpServer {
 
     /**
      * Registers a resource with a config object and callback.
-     * For static resources, use a URI string. For dynamic resources, use a ResourceTemplate.
+     * For static resources, use a URI string. For dynamic resources, use a {@linkcode ResourceTemplate}.
      */
     registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
     registerResource(
@@ -878,7 +878,7 @@ export class McpServer {
 
     /**
      * Checks if the server is connected to a transport.
-     * @returns True if the server is connected
+     * @returns `true` if the server is connected
      */
     isConnected() {
         return this.server.transport !== undefined;
@@ -887,7 +887,7 @@ export class McpServer {
     /**
      * Sends a logging message to the client, if connected.
      * Note: You only need to send the parameters object, not the entire JSON-RPC message.
-     * @see LoggingMessageNotification
+     * @see {@linkcode LoggingMessageNotification}
      * @param params
      * @param sessionId Optional for stateless transports and backward compatibility.
      */
@@ -985,7 +985,7 @@ export type BaseToolCallback<ResultT extends Result, Ctx extends ServerContext, 
     : (ctx: Ctx) => ResultT | Promise<ResultT>;
 
 /**
- * Callback for a tool handler registered with Server.tool().
+ * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
 export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
 
@@ -1029,8 +1029,8 @@ export type RegisteredTool = {
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
- * When inputSchema is defined, the handler is called with (args, ctx).
- * When inputSchema is undefined, the handler is called with just (ctx).
+ * When `inputSchema` is defined, the handler is called with `(args, ctx)`.
+ * When `inputSchema` is undefined, the handler is called with just `(ctx)`.
  */
 function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyToolHandler<AnySchema | undefined>): ToolExecutor {
     const isTaskHandler = 'createTask' in handler;

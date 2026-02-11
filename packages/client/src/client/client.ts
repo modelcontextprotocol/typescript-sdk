@@ -68,7 +68,7 @@ import {
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 
 /**
- * Elicitation default application helper. Applies defaults to the data based on the schema.
+ * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
  *
  * @param schema - The schema to apply defaults to.
  * @param data - The data to apply defaults to.
@@ -153,7 +153,7 @@ export type ClientOptions = ProtocolOptions & {
      * The validator is used to validate structured content returned by tools
      * against their declared output schemas.
      *
-     * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
+     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 
@@ -189,7 +189,7 @@ export type ClientOptions = ProtocolOptions & {
 /**
  * An MCP client on top of a pluggable transport.
  *
- * The client will automatically begin the initialization flow with the server when connect() is called.
+ * The client will automatically begin the initialization flow with the server when {@linkcode connect} is called.
  *
  */
 export class Client extends Protocol<ClientContext> {
@@ -713,9 +713,9 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an outputSchema.
+     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an `outputSchema`.
      *
-     * For task-based execution with streaming behavior, use client.experimental.tasks.callToolStream() instead.
+     * For task-based execution with streaming behavior, use {@linkcode ExperimentalClientTasks.callToolStream | client.experimental.tasks.callToolStream()} instead.
      */
     async callTool(
         params: CallToolRequest['params'],
@@ -780,7 +780,7 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Check if a tool requires task-based execution.
-     * Unlike isToolTask which includes 'optional' tools, this only checks for 'required'.
+     * Unlike {@linkcode isToolTask} which includes `'optional'` tools, this only checks for `'required'`.
      */
     private isToolTaskRequired(toolName: string): boolean {
         return this._cachedRequiredTaskTools.has(toolName);
@@ -788,7 +788,7 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Cache validators for tool output schemas.
-     * Called after listTools() to pre-compile validators for better performance.
+     * Called after {@linkcode listTools | listTools()} to pre-compile validators for better performance.
      */
     private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();

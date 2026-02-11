@@ -21,7 +21,7 @@ import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelco
 import type { Client } from '../../client/client.js';
 
 /**
- * Internal interface for accessing Client's private methods.
+ * Internal interface for accessing {@linkcode Client}'s private methods.
  * @internal
  */
 interface ClientInternal {
@@ -50,11 +50,11 @@ export class ExperimentalClientTasks {
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to tool execution, allowing you to
      * observe intermediate task status updates for long-running tool calls.
-     * Automatically validates structured output if the tool has an outputSchema.
+     * Automatically validates structured output if the tool has an `outputSchema`.
      *
      * @example
      * ```typescript
@@ -78,9 +78,9 @@ export class ExperimentalClientTasks {
      * ```
      *
      * @param params - Tool call parameters (name and arguments)
-     * @param resultSchema - Zod schema for validating the result (defaults to CallToolResultSchema)
+     * @param resultSchema - Zod schema for validating the result (defaults to {@linkcode CallToolResultSchema})
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
@@ -235,7 +235,7 @@ export class ExperimentalClientTasks {
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.
@@ -243,7 +243,7 @@ export class ExperimentalClientTasks {
      * @param request - The request to send
      * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */

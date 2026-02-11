@@ -1,6 +1,6 @@
 /**
  * Error codes for SDK errors (local errors that never cross the wire).
- * Unlike ProtocolErrorCode which uses numeric JSON-RPC codes, SdkErrorCode uses
+ * Unlike {@linkcode ProtocolErrorCode} which uses numeric JSON-RPC codes, `SdkErrorCode` uses
  * descriptive string values for better developer experience.
  *
  * These errors are thrown locally by the SDK and are never serialized as
@@ -38,7 +38,7 @@ export enum SdkErrorCode {
 
 /**
  * SDK errors are local errors that never cross the wire.
- * They are distinct from ProtocolError which represents JSON-RPC protocol errors
+ * They are distinct from {@linkcode ProtocolError} which represents JSON-RPC protocol errors
  * that are serialized and sent as error responses.
  *
  * @example

@@ -39,8 +39,8 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      * Create a validator
      *
      * @param options - Configuration options
-     * @param options.shortcircuit - If true, stop validation after first error (default: true)
-     * @param options.draft - JSON Schema draft version to use (default: '2020-12')
+     * @param options.shortcircuit - If `true`, stop validation after first error (default: `true`)
+     * @param options.draft - JSON Schema draft version to use (default: `'2020-12'`)
      */
     constructor(options?: { shortcircuit?: boolean; draft?: CfWorkerSchemaDraft }) {
         this.shortcircuit = options?.shortcircuit ?? true;

@@ -1,5 +1,5 @@
 /**
- * Experimental McpServer task features for MCP SDK.
+ * Experimental {@linkcode McpServer} task features for MCP SDK.
  * WARNING: These APIs are experimental and may change without notice.
  *
  * @experimental
@@ -11,7 +11,7 @@ import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp
 import type { ToolTaskHandler } from './interfaces.js';
 
 /**
- * Internal interface for accessing McpServer's private _createRegisteredTool method.
+ * Internal interface for accessing {@linkcode McpServer}'s private _createRegisteredTool method.
  * @internal
  */
 interface McpServerInternal {
@@ -29,7 +29,7 @@ interface McpServerInternal {
 }
 
 /**
- * Experimental task features for McpServer.
+ * Experimental task features for {@linkcode McpServer}.
  *
  * Access via `server.experimental.tasks`:
  * ```typescript
@@ -45,7 +45,7 @@ export class ExperimentalMcpServerTasks {
      * Registers a task-based tool with a config object and handler.
      *
      * Task-based tools support long-running operations that can be polled for status
-     * and results. The handler must implement `createTask`, `getTask`, and `getTaskResult`
+     * and results. The handler must implement {@linkcode ToolTaskHandler.createTask | createTask}, {@linkcode ToolTaskHandler.getTask | getTask}, and {@linkcode ToolTaskHandler.getTaskResult | getTaskResult}
      * methods.
      *
      * @example
@@ -71,8 +71,8 @@ export class ExperimentalMcpServerTasks {
      *
      * @param name - The tool name
      * @param config - Tool configuration (description, schemas, etc.)
-     * @param handler - Task handler with createTask, getTask, getTaskResult methods
-     * @returns RegisteredTool for managing the tool's lifecycle
+     * @param handler - Task handler with {@linkcode ToolTaskHandler.createTask | createTask}, {@linkcode ToolTaskHandler.getTask | getTask}, {@linkcode ToolTaskHandler.getTaskResult | getTaskResult} methods
+     * @returns {@linkcode server/mcp.RegisteredTool | RegisteredTool} for managing the tool's lifecycle
      *
      * @experimental
      */

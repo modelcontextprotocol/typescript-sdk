@@ -13,19 +13,19 @@ export type Middleware = (next: FetchLike) => FetchLike;
  * Creates a fetch wrapper that handles OAuth authentication automatically.
  *
  * This wrapper will:
- * - Add Authorization headers with access tokens
+ * - Add `Authorization` headers with access tokens
  * - Handle 401 responses by attempting re-authentication
  * - Retry the original request after successful auth
- * - Handle OAuth errors appropriately (OAuthErrorCode.InvalidClient, etc.)
+ * - Handle OAuth errors appropriately ({@linkcode index.OAuthErrorCode.InvalidClient | OAuthErrorCode.InvalidClient}, etc.)
  *
- * The baseUrl parameter is optional and defaults to using the domain from the request URL.
- * However, you should explicitly provide baseUrl when:
+ * The `baseUrl` parameter is optional and defaults to using the domain from the request URL.
+ * However, you should explicitly provide `baseUrl` when:
  * - Making requests to multiple subdomains (e.g., api.example.com, cdn.example.com)
  * - Using API paths that differ from OAuth discovery paths (e.g., requesting /api/v1/data but OAuth is at /)
  * - The OAuth server is on a different domain than your API requests
  * - You want to ensure consistent OAuth behavior regardless of request URLs
  *
- * For MCP transports, set baseUrl to the same URL you pass to the transport constructor.
+ * For MCP transports, set `baseUrl` to the same URL you pass to the transport constructor.
  *
  * Note: This wrapper is designed for general-purpose fetch operations.
  * MCP transports (SSE and StreamableHTTP) already have built-in OAuth handling
@@ -133,7 +133,7 @@ export type LoggingOptions = {
 
     /**
      * Status level filter - only log requests with status >= this value
-     * Set to 0 to log all requests, 400 to log only errors
+     * Set to `0` to log all requests, `400` to log only errors
      * @default 0
      */
     statusLevel?: number;
@@ -145,7 +145,7 @@ export type LoggingOptions = {
  * When called without arguments `withLogging()`, it uses the default logger that:
  * - Logs successful requests (2xx) to `console.log`
  * - Logs error responses (4xx/5xx) and network errors to `console.error`
- * - Logs all requests regardless of status (statusLevel: 0)
+ * - Logs all requests regardless of status (`statusLevel: 0`)
  * - Does not include request or response headers in logs
  * - Measures and displays request duration in milliseconds
  *

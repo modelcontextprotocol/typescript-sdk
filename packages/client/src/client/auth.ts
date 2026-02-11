@@ -44,8 +44,8 @@ export type AddClientAuthentication = (
 export interface OAuthClientProvider {
     /**
      * The URL to redirect the user agent to after authorization.
-     * Return undefined for non-interactive flows that don't require user interaction
-     * (e.g., client_credentials, jwt-bearer).
+     * Return `undefined` for non-interactive flows that don't require user interaction
+     * (e.g., `client_credentials`, `jwt-bearer`).
      */
     get redirectUrl(): string | URL | undefined;
 
@@ -74,7 +74,7 @@ export interface OAuthClientProvider {
     /**
      * If implemented, this permits the OAuth client to dynamically register with
      * the server. Client information saved this way should later be read via
-     * `clientInformation()`.
+     * {@linkcode OAuthClientProvider.clientInformation | clientInformation()}.
      *
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
@@ -154,11 +154,11 @@ export interface OAuthClientProvider {
      * any grant-specific parameters needed for the token exchange.
      *
      * If not implemented, the default behavior depends on the flow:
-     * - For authorization code flow: uses code, code_verifier, and redirect_uri
-     * - For client_credentials: detected via grant_types in clientMetadata
+     * - For authorization code flow: uses `code`, `code_verifier`, and `redirect_uri`
+     * - For `client_credentials`: detected via `grant_types` in {@linkcode OAuthClientProvider.clientMetadata | clientMetadata}
      *
      * @param scope - Optional scope to request
-     * @returns Grant type and parameters, or undefined to use default behavior
+     * @returns Grant type and parameters, or `undefined` to use default behavior
      *
      * @example
      * // For client_credentials grant:
@@ -206,9 +206,9 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
  * Determines the best client authentication method to use based on server support and client configuration.
  *
  * Priority order (highest to lowest):
- * 1. client_secret_basic (if client secret is available)
- * 2. client_secret_post (if client secret is available)
- * 3. none (for public clients)
+ * 1. `client_secret_basic` (if client secret is available)
+ * 2. `client_secret_post` (if client secret is available)
+ * 3. `none` (for public clients)
  *
  * @param clientInformation - OAuth client information containing credentials
  * @param supportedMethods - Authentication methods supported by the authorization server
@@ -253,9 +253,9 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * Applies client authentication to the request based on the specified method.
  *
  * Implements OAuth 2.1 client authentication methods:
- * - client_secret_basic: HTTP Basic authentication (RFC 6749 Section 2.3.1)
- * - client_secret_post: Credentials in request body (RFC 6749 Section 2.3.1)
- * - none: Public client authentication (RFC 6749 Section 2.1)
+ * - `client_secret_basic`: HTTP Basic authentication (RFC 6749 Section 2.3.1)
+ * - `client_secret_post`: Credentials in request body (RFC 6749 Section 2.3.1)
+ * - `none`: Public client authentication (RFC 6749 Section 2.1)
  *
  * @param method - The authentication method to use
  * @param clientInformation - OAuth client information containing credentials
@@ -323,12 +323,12 @@ function applyPublicAuth(clientId: string, params: URLSearchParams): void {
  * Parses an OAuth error response from a string or Response object.
  *
  * If the input is a standard OAuth2.0 error response, it will be parsed according to the spec
- * and an OAuthError will be returned with the appropriate error code.
- * If parsing fails, it falls back to a generic ServerError that includes
+ * and an {@linkcode OAuthError} will be returned with the appropriate error code.
+ * If parsing fails, it falls back to a generic {@linkcode OAuthErrorCode.ServerError | ServerError} that includes
  * the response status (if available) and original content.
  *
  * @param input - A Response object or string containing the error response
- * @returns A Promise that resolves to an OAuthError instance
+ * @returns A Promise that resolves to an {@linkcode OAuthError} instance
  */
 export async function parseErrorResponse(input: Response | string): Promise<OAuthError> {
     const statusCode = input instanceof Response ? input.status : undefined;
@@ -526,7 +526,7 @@ async function authInternal(
 
 /**
  * SEP-991: URL-based Client IDs
- * Validate that the client_id is a valid URL with https scheme
+ * Validate that the `client_id` is a valid URL with `https` scheme
  */
 export function isHttpsUrl(value?: string): boolean {
     if (!value) return false;
@@ -564,7 +564,7 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract resource_metadata, scope, and error from WWW-Authenticate header.
+ * Extract `resource_metadata`, `scope`, and `error` from `WWW-Authenticate` header.
  */
 export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -599,10 +599,10 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
 }
 
 /**
- * Extracts a specific field's value from the WWW-Authenticate header string.
+ * Extracts a specific field's value from the `WWW-Authenticate` header string.
  *
  * @param response The HTTP response object containing the headers.
- * @param fieldName The name of the field to extract (e.g., "realm", "nonce").
+ * @param fieldName The name of the field to extract (e.g., `"realm"`, `"nonce"`).
  * @returns The field value
  */
 function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
@@ -626,8 +626,8 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
 }
 
 /**
- * Extract resource_metadata from response header.
- * @deprecated Use `extractWWWAuthenticateParams` instead.
+ * Extract `resource_metadata` from response header.
+ * @deprecated Use {@linkcode extractWWWAuthenticateParams} instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -770,7 +770,7 @@ async function discoverMetadataWithFallback(
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
  *
- * @deprecated This function is deprecated in favor of `discoverAuthorizationServerMetadata`.
+ * @deprecated This function is deprecated in favor of {@linkcode discoverAuthorizationServerMetadata}.
  */
 export async function discoverOAuthMetadata(
     issuer: string | URL,
@@ -888,7 +888,7 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  *                                 metadata was not found.
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use, defaults to LATEST_PROTOCOL_VERSION
+ * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
  */
 export async function discoverAuthorizationServerMetadata(
@@ -1016,13 +1016,13 @@ export async function startAuthorization(
 /**
  * Prepares token request parameters for an authorization code exchange.
  *
- * This is the default implementation used by fetchToken when the provider
- * doesn't implement prepareTokenRequest.
+ * This is the default implementation used by {@linkcode fetchToken} when the provider
+ * doesn't implement {@linkcode OAuthClientProvider.prepareTokenRequest | prepareTokenRequest}.
  *
  * @param authorizationCode - The authorization code received from the authorization endpoint
  * @param codeVerifier - The PKCE code verifier
  * @param redirectUri - The redirect URI used in the authorization request
- * @returns URLSearchParams for the authorization_code grant
+ * @returns URLSearchParams for the `authorization_code` grant
  */
 export function prepareAuthorizationCodeRequest(
     authorizationCode: string,
@@ -1039,7 +1039,7 @@ export function prepareAuthorizationCodeRequest(
 
 /**
  * Internal helper to execute a token request with the given parameters.
- * Used by exchangeAuthorization, refreshAuthorization, and fetchToken.
+ * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
 async function executeTokenRequest(
     authorizationServerUrl: string | URL,
@@ -1157,7 +1157,7 @@ export async function exchangeAuthorization(
  *
  * @param authorizationServerUrl - The authorization server's base URL
  * @param options - Configuration object containing client info, refresh token, etc.
- * @returns Promise resolving to OAuth tokens (preserves original refresh_token if not replaced)
+ * @returns Promise resolving to OAuth tokens (preserves original `refresh_token` if not replaced)
  * @throws {Error} When token refresh fails or authentication is invalid
  */
 export async function refreshAuthorization(
@@ -1197,17 +1197,17 @@ export async function refreshAuthorization(
 }
 
 /**
- * Unified token fetching that works with any grant type via provider.prepareTokenRequest().
+ * Unified token fetching that works with any grant type via {@linkcode OAuthClientProvider.prepareTokenRequest | prepareTokenRequest()}.
  *
  * This function provides a single entry point for obtaining tokens regardless of the
- * OAuth grant type. The provider's prepareTokenRequest() method determines which grant
+ * OAuth grant type. The provider's `prepareTokenRequest()` method determines which grant
  * to use and supplies the grant-specific parameters.
  *
- * @param provider - OAuth client provider that implements prepareTokenRequest()
+ * @param provider - OAuth client provider that implements `prepareTokenRequest()`
  * @param authorizationServerUrl - The authorization server's base URL
  * @param options - Configuration for the token request
  * @returns Promise resolving to OAuth tokens
- * @throws {Error} When provider doesn't implement prepareTokenRequest or token fetch fails
+ * @throws {Error} When provider doesn't implement `prepareTokenRequest` or token fetch fails
  *
  * @example
  * ```typescript
@@ -1235,7 +1235,7 @@ export async function fetchToken(
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: URL;
-        /** Authorization code for the default authorization_code grant flow */
+        /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         fetchFn?: FetchLike;
     } = {}

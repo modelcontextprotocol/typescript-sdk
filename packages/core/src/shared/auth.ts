@@ -1,7 +1,7 @@
 import * as z from 'zod/v4';
 
 /**
- * Reusable URL validation that disallows javascript: scheme
+ * Reusable URL validation that disallows `javascript:` scheme
  */
 export const SafeUrlSchema = z
     .url()
@@ -149,7 +149,7 @@ export const OAuthErrorResponseSchema = z.object({
 });
 
 /**
- * Optional version of SafeUrlSchema that allows empty string for backward compatibility on tos_uri and logo_uri
+ * Optional version of {@linkcode SafeUrlSchema} that allows empty string for backward compatibility on `tos_uri` and `logo_uri`
  */
 // eslint-disable-next-line unicorn/no-useless-undefined
 export const OptionalSafeUrlSchema = SafeUrlSchema.optional().or(z.literal('').transform(() => undefined));

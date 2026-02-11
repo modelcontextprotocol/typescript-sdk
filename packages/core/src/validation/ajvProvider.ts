@@ -67,7 +67,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      * Create a validator for the given JSON Schema
      *
      * The validator is compiled once and can be reused multiple times.
-     * If the schema has an $id, it will be cached by AJV automatically.
+     * If the schema has an `$id`, it will be cached by AJV automatically.
      *
      * @param schema - Standard JSON Schema object
      * @returns A validator function that validates input data

@@ -1,7 +1,7 @@
 /**
  * OAuth provider extensions for specialized authentication flows.
  *
- * This module provides ready-to-use OAuthClientProvider implementations
+ * This module provides ready-to-use {@linkcode OAuthClientProvider} implementations
  * for common machine-to-machine authentication scenarios.
  */
 
@@ -11,7 +11,7 @@ import type { CryptoKey, JWK } from 'jose';
 import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 
 /**
- * Helper to produce a private_key_jwt client authentication function.
+ * Helper to produce a `private_key_jwt` client authentication function.
  *
  * @example
  * ```typescript
@@ -90,16 +90,16 @@ export function createPrivateKeyJwtAuth(options: {
 }
 
 /**
- * Options for creating a ClientCredentialsProvider.
+ * Options for creating a {@linkcode ClientCredentialsProvider}.
  */
 export interface ClientCredentialsProviderOptions {
     /**
-     * The client_id for this OAuth client.
+     * The `client_id` for this OAuth client.
      */
     clientId: string;
 
     /**
-     * The client_secret for client_secret_basic authentication.
+     * The `client_secret` for `client_secret_basic` authentication.
      */
     clientSecret: string;
 
@@ -110,10 +110,10 @@ export interface ClientCredentialsProviderOptions {
 }
 
 /**
- * OAuth provider for client_credentials grant with client_secret_basic authentication.
+ * OAuth provider for `client_credentials` grant with `client_secret_basic` authentication.
  *
  * This provider is designed for machine-to-machine authentication where
- * the client authenticates using a client_id and client_secret.
+ * the client authenticates using a `client_id` and `client_secret`.
  *
  * @example
  * ```typescript
@@ -189,11 +189,11 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
 }
 
 /**
- * Options for creating a PrivateKeyJwtProvider.
+ * Options for creating a {@linkcode PrivateKeyJwtProvider}.
  */
 export interface PrivateKeyJwtProviderOptions {
     /**
-     * The client_id for this OAuth client.
+     * The `client_id` for this OAuth client.
      */
     clientId: string;
 
@@ -220,7 +220,7 @@ export interface PrivateKeyJwtProviderOptions {
 }
 
 /**
- * OAuth provider for client_credentials grant with private_key_jwt authentication.
+ * OAuth provider for `client_credentials` grant with `private_key_jwt` authentication.
  *
  * This provider is designed for machine-to-machine authentication where
  * the client authenticates using a signed JWT assertion
@@ -308,11 +308,11 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
 }
 
 /**
- * Options for creating a StaticPrivateKeyJwtProvider.
+ * Options for creating a {@linkcode StaticPrivateKeyJwtProvider}.
  */
 export interface StaticPrivateKeyJwtProviderOptions {
     /**
-     * The client_id for this OAuth client.
+     * The `client_id` for this OAuth client.
      */
     clientId: string;
 
@@ -320,7 +320,7 @@ export interface StaticPrivateKeyJwtProviderOptions {
      * A pre-built JWT client assertion to use for authentication.
      *
      * This token should already contain the appropriate claims
-     * (iss, sub, aud, exp, etc.) and be signed by the client's key.
+     * (`iss`, `sub`, `aud`, `exp`, etc.) and be signed by the client's key.
      */
     jwtBearerAssertion: string;
 
@@ -331,9 +331,9 @@ export interface StaticPrivateKeyJwtProviderOptions {
 }
 
 /**
- * OAuth provider for client_credentials grant with a static private_key_jwt assertion.
+ * OAuth provider for `client_credentials` grant with a static `private_key_jwt` assertion.
  *
- * This provider mirrors {@link PrivateKeyJwtProvider} but instead of constructing and
+ * This provider mirrors {@linkcode PrivateKeyJwtProvider} but instead of constructing and
  * signing a JWT on each request, it accepts a pre-built JWT assertion string and
  * uses it directly for authentication.
  */
