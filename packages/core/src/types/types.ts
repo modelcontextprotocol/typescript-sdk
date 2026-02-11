@@ -2629,8 +2629,8 @@ export type ResultTypeMap = {
     'resources/unsubscribe': EmptyResult;
     'tools/call': CallToolResult | CreateTaskResult;
     'tools/list': ListToolsResult;
-    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
-    'elicitation/create': ElicitResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
+    'elicitation/create': ElicitResult | CreateTaskResult;
     'roots/list': ListRootsResult;
     'tasks/get': GetTaskResult;
     'tasks/result': Result;
