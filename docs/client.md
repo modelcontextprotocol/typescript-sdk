@@ -4,6 +4,8 @@ title: Client
 
 ## Client overview
 
+This guide covers SDK usage for building MCP clients in TypeScript. For protocol-level details and message formats, see the [MCP specification](https://modelcontextprotocol.io/specification/latest/).
+
 The SDK provides a {@linkcode @modelcontextprotocol/client!client/client.Client | Client} class from `@modelcontextprotocol/client` that connects to MCP servers over different transports:
 
 - **Streamable HTTP** – for remote HTTP servers.
@@ -115,6 +117,8 @@ For user‑facing applications, implement the `OAuthClientProvider` interface to
 
 > [!NOTE]
 > For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClient.ts) and [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClientProvider.ts).
+>
+> For protocol details, see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification.
 
 ## Using server features
 
@@ -141,6 +145,9 @@ const result = await client.callTool({
 console.log(result.content);
 ```
 
+> [!NOTE]
+> See [Tools](https://modelcontextprotocol.io/specification/latest/server/tools) in the MCP specification for the full protocol details.
+
 ### Resources
 
 Use {@linkcode @modelcontextprotocol/client!client/client.Client#listResources | listResources()} and {@linkcode @modelcontextprotocol/client!client/client.Client#readResource | readResource()} to discover and read server‑provided data:
@@ -157,6 +164,9 @@ for (const item of contents) {
     console.log(item);
 }
 ```
+
+> [!NOTE]
+> See [Resources](https://modelcontextprotocol.io/specification/latest/server/resources) in the MCP specification for the full protocol details.
 
 ### Prompts
 
@@ -175,6 +185,9 @@ const { messages } = await client.getPrompt({
 });
 console.log(messages);
 ```
+
+> [!NOTE]
+> See [Prompts](https://modelcontextprotocol.io/specification/latest/server/prompts) in the MCP specification for the full protocol details.
 
 ### Completions
 
@@ -283,6 +296,9 @@ client.setRequestHandler('sampling/createMessage', async request => {
 });
 ```
 
+> [!NOTE]
+> See [Sampling](https://modelcontextprotocol.io/specification/latest/client/sampling) in the MCP specification for the full protocol details.
+
 ### Elicitation
 
 When a server calls `server.elicitInput(...)`, the request arrives at the client as an `elicitation/create` request. The client should present the form to the user and return the collected data, or `{ action: 'decline' }`:
@@ -303,6 +319,8 @@ client.setRequestHandler('elicitation/create', async request => {
 
 > [!NOTE]
 > For a full form‑based elicitation handler with AJV validation, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts). For URL elicitation mode, see [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/elicitationUrlExample.ts) and the [Capabilities guide](capabilities.md#elicitation).
+>
+> For protocol details, see [Elicitation](https://modelcontextprotocol.io/specification/latest/client/elicitation) in the MCP specification.
 
 ## Advanced patterns
 
