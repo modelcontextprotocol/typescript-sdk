@@ -123,7 +123,7 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "^4.1.1",
-        "@modelcontextprotocol/conformance": "0.1.11",
+        "@modelcontextprotocol/conformance": "^0.1.11",
         "@eslint/js": "^9.39.1",
         "@types/content-type": "^1.1.8",
         "@types/cors": "^2.8.17",
