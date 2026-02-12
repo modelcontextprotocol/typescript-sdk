@@ -10,6 +10,7 @@ import {
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
+    discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
     isHttpsUrl,
@@ -892,6 +893,297 @@ describe('OAuth Authorization', () => {
 
             // Verify that all discovery URLs were attempted
             expect(mockFetch).toHaveBeenCalledTimes(6); // 3 URLs × 2 attempts each (with and without headers)
+        });
+    });
+
+    describe('discoverOAuthServerInfo', () => {
+        const validResourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: ['https://auth.example.com']
+        };
+
+        const validAuthMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+            response_types_supported: ['code']
+        };
+
+        it('returns auth server from RFC 9728 protected resource metadata', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://auth.example.com');
+            expect(result.resourceMetadata).toEqual(validResourceMetadata);
+            expect(result.authorizationServerMetadata).toEqual(validAuthMetadata);
+        });
+
+        it('falls back to server URL when RFC 9728 is not supported', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                // RFC 9728 returns 404
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            ...validAuthMetadata,
+                            issuer: 'https://resource.example.com'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            // Should fall back to server URL origin
+            expect(result.authorizationServerUrl).toEqual(new URL('/', 'https://resource.example.com'));
+            expect(result.resourceMetadata).toBeUndefined();
+            expect(result.authorizationServerMetadata).toBeDefined();
+        });
+
+        it('returns undefined metadata when auth server metadata discovery fails', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                // All auth server metadata endpoints return 404
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    text: async () => 'Not found'
+                });
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://auth.example.com');
+            expect(result.resourceMetadata).toEqual(validResourceMetadata);
+            expect(result.authorizationServerMetadata).toBeUndefined();
+        });
+
+        it('passes custom fetchFn through to discovery functions', async () => {
+            const customFetch = vi.fn().mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await discoverOAuthServerInfo('https://resource.example.com', {
+                fetchFn: customFetch as unknown as typeof fetch
+            });
+
+            // Verify the custom fetch was used for both discovery calls
+            expect(customFetch).toHaveBeenCalled();
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('auth with provider authorization server URL caching', () => {
+        const validResourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: ['https://auth.example.com']
+        };
+
+        const validAuthMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+
+        function createMockProvider(overrides: Partial<OAuthClientProvider> = {}): OAuthClientProvider {
+            return {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'test-client-id',
+                    client_secret: 'test-client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                ...overrides
+            };
+        }
+
+        beforeEach(() => {
+            vi.clearAllMocks();
+        });
+
+        it('calls saveAuthorizationServerUrl after discovery when provider implements it', async () => {
+            const saveAuthorizationServerUrl = vi.fn();
+            const provider = createMockProvider({ saveAuthorizationServerUrl });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            expect(saveAuthorizationServerUrl).toHaveBeenCalledWith('https://auth.example.com');
+        });
+
+        it('skips RFC 9728 discovery when provider returns cached authorization server URL', async () => {
+            const provider = createMockProvider({
+                authorizationServerUrl: vi.fn().mockResolvedValue('https://auth.example.com'),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            // Should NOT have called the protected resource metadata endpoint
+            const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
+            expect(prmCalls).toHaveLength(0);
+        });
+
+        it('works normally when provider does not implement caching methods', async () => {
+            const provider = createMockProvider();
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            // Should not throw when caching methods are not implemented
+            await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            // Should have done full discovery (called PRM endpoint)
+            const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
+            expect(prmCalls.length).toBeGreaterThan(0);
         });
     });
 

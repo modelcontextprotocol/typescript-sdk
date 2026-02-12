@@ -183,6 +183,23 @@ export interface OAuthClientProvider {
      * }
      */
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
+
+    /**
+     * Saves the authorization server URL discovered during the OAuth flow.
+     *
+     * Called by {@linkcode auth} after RFC 9728 discovery so providers can persist the
+     * URL for later use in operations like token refresh or revocation, avoiding
+     * redundant discovery requests.
+     */
+    saveAuthorizationServerUrl?(url: string | URL): void | Promise<void>;
+
+    /**
+     * Returns a previously saved authorization server URL, or `undefined` if none is cached.
+     *
+     * When available, {@linkcode auth} skips RFC 9728 protected resource metadata
+     * discovery and uses this URL directly, reducing latency on subsequent calls.
+     */
+    authorizationServerUrl?(): string | URL | undefined | Promise<string | URL | undefined>;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -395,31 +412,29 @@ async function authInternal(
         fetchFn?: FetchLike;
     }
 ): Promise<AuthResult> {
+    // Check if the provider has a cached authorization server URL to skip discovery
+    const cachedAuthServerUrl = await provider.authorizationServerUrl?.();
+
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
-    let authorizationServerUrl: string | URL | undefined;
+    let authorizationServerUrl: string | URL;
+    let metadata: AuthorizationServerMetadata | undefined;
 
-    try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
-        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
-            authorizationServerUrl = resourceMetadata.authorization_servers[0];
-        }
-    } catch {
-        // Ignore errors and fall back to /.well-known/oauth-authorization-server
-    }
+    if (cachedAuthServerUrl) {
+        // Use cached URL, skip RFC 9728 discovery
+        authorizationServerUrl = cachedAuthServerUrl;
+        metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn });
+    } else {
+        // Full discovery via RFC 9728
+        const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl, fetchFn });
+        authorizationServerUrl = serverInfo.authorizationServerUrl;
+        metadata = serverInfo.authorizationServerMetadata;
+        resourceMetadata = serverInfo.resourceMetadata;
 
-    /**
-     * If we don't get a valid authorization server metadata from protected resource metadata,
-     * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server base URL acts as the Authorization server.
-     */
-    if (!authorizationServerUrl) {
-        authorizationServerUrl = new URL('/', serverUrl);
+        // Persist the discovered URL for future use
+        await provider.saveAuthorizationServerUrl?.(authorizationServerUrl);
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
-
-    const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
-        fetchFn
-    });
 
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -939,6 +954,87 @@ export async function discoverAuthorizationServerMetadata(
     }
 
     return undefined;
+}
+
+/**
+ * Result of {@linkcode discoverOAuthServerInfo}.
+ */
+export interface OAuthServerInfo {
+    /**
+     * The authorization server URL, either discovered via RFC 9728
+     * or derived from the MCP server URL as a fallback.
+     */
+    authorizationServerUrl: string | URL;
+
+    /**
+     * The authorization server metadata (endpoints, capabilities),
+     * or `undefined` if metadata discovery failed.
+     */
+    authorizationServerMetadata?: AuthorizationServerMetadata;
+
+    /**
+     * The OAuth 2.0 Protected Resource Metadata from RFC 9728,
+     * or `undefined` if the server does not support it.
+     */
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+}
+
+/**
+ * Discovers the authorization server for an MCP server following
+ * {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728} (OAuth 2.0 Protected
+ * Resource Metadata), with fallback to treating the server URL as the
+ * authorization server.
+ *
+ * This function combines two discovery steps into one call:
+ * 1. Probes `/.well-known/oauth-protected-resource` on the MCP server to find the
+ *    authorization server URL (RFC 9728).
+ * 2. Fetches authorization server metadata from that URL (RFC 8414 / OpenID Connect Discovery).
+ *
+ * Use this when you need the authorization server metadata for operations outside the
+ * {@linkcode auth} orchestrator, such as token refresh or token revocation.
+ *
+ * @param serverUrl - The MCP resource server URL
+ * @param opts - Optional configuration
+ * @param opts.resourceMetadataUrl - Override URL for the protected resource metadata endpoint
+ * @param opts.fetchFn - Custom fetch function for HTTP requests
+ * @returns Authorization server URL, metadata, and resource metadata (if available)
+ */
+export async function discoverOAuthServerInfo(
+    serverUrl: string | URL,
+    opts?: {
+        resourceMetadataUrl?: URL;
+        fetchFn?: FetchLike;
+    }
+): Promise<OAuthServerInfo> {
+    let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+    let authorizationServerUrl: string | URL | undefined;
+
+    try {
+        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+            serverUrl,
+            { resourceMetadataUrl: opts?.resourceMetadataUrl },
+            opts?.fetchFn
+        );
+        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+            authorizationServerUrl = resourceMetadata.authorization_servers[0];
+        }
+    } catch {
+        // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
+    }
+
+    // If we don't get a valid authorization server from protected resource metadata,
+    // fall back to the legacy MCP spec behavior: MCP server base URL acts as the authorization server
+    if (!authorizationServerUrl) {
+        authorizationServerUrl = new URL('/', serverUrl);
+    }
+
+    const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn: opts?.fetchFn });
+
+    return {
+        authorizationServerUrl,
+        authorizationServerMetadata,
+        resourceMetadata
+    };
 }
 
 /**
