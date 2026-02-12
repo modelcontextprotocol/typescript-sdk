@@ -693,13 +693,25 @@ const mcpPostHandler = async (req: Request, res: Response) => {
 
             await transport.handleRequest(req, res, req.body);
             return; // Already handled
+        } else if (sessionId) {
+            // Session ID provided but not found - per spec, return 404 to signal
+            // client should start a new session
+            res.status(404).json({
+                jsonrpc: '2.0',
+                error: {
+                    code: -32_000,
+                    message: 'Session not found'
+                },
+                id: null
+            });
+            return;
         } else {
-            // Invalid request - no session ID or not initialization request
+            // No session ID and not an initialization request - return 400
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
                     code: -32_000,
-                    message: 'Bad Request: No valid session ID provided'
+                    message: 'Bad Request: Session ID required'
                 },
                 id: null
             });
@@ -734,8 +746,12 @@ if (useOAuth && authMiddleware) {
 // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
 const mcpGetHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Bad Request: Session ID required');
+        return;
+    }
+    if (!transports[sessionId]) {
+        res.status(404).send('Session not found');
         return;
     }
 
@@ -765,8 +781,12 @@ if (useOAuth && authMiddleware) {
 // Handle DELETE requests for session termination (according to MCP spec)
 const mcpDeleteHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Bad Request: Session ID required');
+        return;
+    }
+    if (!transports[sessionId]) {
+        res.status(404).send('Session not found');
         return;
     }
 
