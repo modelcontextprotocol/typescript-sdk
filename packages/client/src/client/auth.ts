@@ -420,9 +420,16 @@ async function authInternal(
     let metadata: AuthorizationServerMetadata | undefined;
 
     if (cachedAuthServerUrl) {
-        // Use cached URL, skip RFC 9728 discovery
+        // Use cached URL, skip auth server URL derivation from RFC 9728
         authorizationServerUrl = cachedAuthServerUrl;
         metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn });
+
+        // Still fetch resource metadata for selectResourceURL (needed for the resource parameter)
+        try {
+            resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
+        } catch {
+            // RFC 9728 not available — selectResourceURL will handle undefined
+        }
     } else {
         // Full discovery via RFC 9728
         const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl, fetchFn });

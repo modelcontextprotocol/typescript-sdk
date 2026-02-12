@@ -1106,7 +1106,7 @@ describe('OAuth Authorization', () => {
             expect(saveAuthorizationServerUrl).toHaveBeenCalledWith('https://auth.example.com');
         });
 
-        it('skips RFC 9728 discovery when provider returns cached authorization server URL', async () => {
+        it('uses cached auth server URL but still fetches resource metadata for resource parameter', async () => {
             const provider = createMockProvider({
                 authorizationServerUrl: vi.fn().mockResolvedValue('https://auth.example.com'),
                 tokens: vi.fn().mockResolvedValue({
@@ -1118,6 +1118,14 @@ describe('OAuth Authorization', () => {
 
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
 
                 if (urlString.includes('/.well-known/oauth-authorization-server')) {
                     return Promise.resolve({
@@ -1148,9 +1156,22 @@ describe('OAuth Authorization', () => {
             });
 
             expect(result).toBe('AUTHORIZED');
-            // Should NOT have called the protected resource metadata endpoint
+
+            // Should use cached auth server URL for auth server metadata discovery
+            const asMdCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-authorization-server'));
+            expect(asMdCalls.length).toBeGreaterThan(0);
+            // The auth server metadata call should target the cached URL, not the resource server
+            expect(asMdCalls[0]![0].toString()).toContain('auth.example.com');
+
+            // Should still fetch resource metadata for the resource parameter
             const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
-            expect(prmCalls).toHaveLength(0);
+            expect(prmCalls.length).toBeGreaterThan(0);
+
+            // Verify the token request includes the resource parameter
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('resource')).toBe('https://resource.example.com/');
         });
 
         it('works normally when provider does not implement caching methods', async () => {
