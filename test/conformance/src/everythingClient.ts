@@ -15,7 +15,9 @@ import { ClientCredentialsProvider, PrivateKeyJwtProvider } from '../../../src/c
 import { ElicitRequestSchema } from '../../../src/types.js';
 import { z } from 'zod';
 
+import { UnauthorizedError } from '../../../src/client/auth.js';
 import { logger } from './helpers/logger.js';
+import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider.js';
 import { handle401, withOAuthRetry } from './helpers/withOAuthRetry.js';
 
 /**
@@ -35,6 +37,11 @@ const ClientConformanceContextSchema = z.discriminatedUnion('name', [
     }),
     z.object({
         name: z.literal('auth/client-credentials-basic'),
+        client_id: z.string(),
+        client_secret: z.string()
+    }),
+    z.object({
+        name: z.literal('auth/pre-registration'),
         client_id: z.string(),
         client_secret: z.string()
     })
@@ -227,6 +234,93 @@ async function runClientCredentialsBasic(serverUrl: string): Promise<void> {
 }
 
 registerScenario('auth/client-credentials-basic', runClientCredentialsBasic);
+
+// ============================================================================
+// Pre-registration scenario (no dynamic client registration)
+// ============================================================================
+
+async function runPreRegistrationClient(serverUrl: string): Promise<void> {
+    const ctx = parseContext();
+    if (ctx.name !== 'auth/pre-registration') {
+        throw new Error(`Expected pre-registration context, got ${ctx.name}`);
+    }
+
+    // Create a provider pre-populated with registered credentials,
+    // so the SDK skips dynamic client registration.
+    const provider = new ConformanceOAuthProvider(
+        'http://localhost:3000/callback',
+        {
+            client_name: 'conformance-pre-registration',
+            redirect_uris: ['http://localhost:3000/callback']
+        }
+    );
+    provider.saveClientInformation({
+        client_id: ctx.client_id,
+        client_secret: ctx.client_secret,
+        redirect_uris: ['http://localhost:3000/callback']
+    });
+
+    const oauthFetch = withOAuthRetry(
+        'conformance-pre-registration',
+        new URL(serverUrl),
+        handle401
+    )(fetch);
+
+    // Replace the provider in the middleware — we need to use our pre-populated one.
+    // withOAuthRetry creates its own provider, so instead we use the provider directly.
+    const client = new Client({ name: 'conformance-pre-registration', version: '1.0.0' }, { capabilities: {} });
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        fetch: createPreRegFetch(provider, serverUrl)
+    });
+
+    await client.connect(transport);
+    logger.debug('Successfully connected with pre-registered credentials');
+
+    await client.listTools();
+    logger.debug('Successfully listed tools');
+
+    await client.callTool({ name: 'test-tool', arguments: {} });
+    logger.debug('Successfully called tool');
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+/**
+ * Creates a fetch wrapper that uses a pre-populated OAuth provider.
+ * Similar to withOAuthRetry but uses the given provider instance directly.
+ */
+function createPreRegFetch(provider: ConformanceOAuthProvider, serverUrl: string): typeof fetch {
+    return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const makeRequest = async (): Promise<Response> => {
+            const headers = new Headers(init?.headers);
+
+            const tokens = await provider.tokens();
+            if (tokens) {
+                headers.set('Authorization', `Bearer ${tokens.access_token}`);
+            }
+
+            return await fetch(input, { ...init, headers });
+        };
+
+        let response = await makeRequest();
+
+        if (response.status === 401 || response.status === 403) {
+            await handle401(response, provider, fetch, serverUrl);
+            response = await makeRequest();
+        }
+
+        if (response.status === 401 || response.status === 403) {
+            const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+            throw new UnauthorizedError(`Authentication failed for ${url}`);
+        }
+
+        return response;
+    };
+}
+
+registerScenario('auth/pre-registration', runPreRegistrationClient);
 
 // ============================================================================
 // Elicitation defaults scenario
