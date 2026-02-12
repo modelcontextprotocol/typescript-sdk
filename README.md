@@ -127,7 +127,7 @@ Next steps:
 ## Documentation
 
 - Local SDK docs:
-    - [docs/server.md](docs/server.md) – building MCP servers, transports, tools/resources/prompts, sampling, elicitation, tasks, and deployment patterns.
+    - [docs/server.md](docs/server.md) – building MCP servers: transports, tools, resources, prompts, server-initiated requests, and deployment
     - [docs/client.md](docs/client.md) – building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
     - [docs/faq.md](docs/faq.md) – frequently asked questions and troubleshooting
 - External references:
