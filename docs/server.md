@@ -180,7 +180,57 @@ server.registerResource(
 );
 ```
 
-Dynamic resources use `ResourceTemplate` and can support completions on path parameters. For full runnable examples of resources:
+#### Resource templates
+
+Dynamic resources use `ResourceTemplate` with URI patterns containing variables. When a client reads a URI matching the pattern, the SDK extracts the variables and passes them to your handler:
+
+```typescript
+import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+server.registerResource(
+    'user-profile',
+    new ResourceTemplate('users://{userId}/profile', { list: undefined }),
+    { title: 'User Profile', mimeType: 'application/json' },
+    async (uri, variables) => ({
+        contents: [{
+            uri: uri.toString(),
+            mimeType: 'application/json',
+            text: JSON.stringify({ userId: variables.userId, name: 'Example User' })
+        }]
+    })
+);
+```
+
+Templates can also provide argument completions — see the [Completions](#completions) section below.
+
+#### Subscribing and unsubscribing
+
+Clients can subscribe to resource changes. When a subscribed resource is updated, the server sends a notification so the client can re-read it:
+
+```typescript
+// Client side: subscribe to a resource
+await client.subscribeResource({ uri: 'config://app' });
+
+// Client side: listen for update notifications
+import { ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+
+client.setNotificationHandler(ResourceUpdatedNotificationSchema, async (notification) => {
+    const { uri } = notification.params;
+    const updated = await client.readResource({ uri });
+    console.log('Resource updated:', updated);
+});
+
+// Client side: unsubscribe when no longer interested
+await client.unsubscribeResource({ uri: 'config://app' });
+```
+
+On the server side, emit update notifications when resources change:
+
+```typescript
+server.sendResourceUpdated(new URL('config://app'));
+```
+
+For full runnable examples of resources:
 
 - [`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts)
 
@@ -297,15 +347,95 @@ client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
 
 ### Completions
 
-Both prompts and resources can support argument completions. On the client side, you use `client.complete()` with a reference to the prompt or resource and the partially‑typed argument.
+Both prompts and resources can support argument completions, providing autocomplete suggestions as users type.
 
-See the MCP spec sections on prompts and resources for complete details, and [`simpleStreamableHttp.ts`](../src/examples/client/simpleStreamableHttp.ts) for client‑side usage patterns.
+#### Resource template completions
+
+Pass `complete` callbacks when creating a `ResourceTemplate`:
+
+```typescript
+import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+server.registerResource(
+    'docs',
+    new ResourceTemplate('docs://{category}/{page}', {
+        list: undefined,
+        complete: {
+            category: () => ['guides', 'api-reference', 'tutorials'],
+            page: (value) => ['getting-started', 'installation', 'configuration']
+        }
+    }),
+    { title: 'Documentation' },
+    async (uri, variables) => ({
+        contents: [{ uri: uri.toString(), text: `Doc: ${variables.category}/${variables.page}` }]
+    })
+);
+```
+
+#### Prompt argument completions
+
+Use the `completable()` wrapper around Zod schemas in prompt argument definitions:
+
+```typescript
+import { completable } from '@modelcontextprotocol/sdk/server/completable.js';
+import { z } from 'zod';
+
+server.registerPrompt(
+    'greet',
+    {
+        description: 'Greet someone',
+        argsSchema: {
+            name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie']),
+            language: completable(z.string(), (value) =>
+                ['en', 'es', 'fr'].filter(l => l.startsWith(value))
+            )
+        }
+    },
+    async ({ name, language }) => ({
+        messages: [{ role: 'user', content: { type: 'text', text: `Hello ${name} in ${language}` } }]
+    })
+);
+```
+
+On the client side, request completions with `client.complete()`.
 
 ### Display names and metadata
 
 Tools, resources and prompts support a `title` field for human‑readable names. Older APIs can also attach `annotations.title`. To compute the correct display name on the client, use:
 
 - `getDisplayName` from `@modelcontextprotocol/sdk/shared/metadataUtils.js`
+
+## Ping
+
+Both clients and servers can send pings to check that the other side is responsive. The SDK handles ping requests automatically — no handler registration is needed:
+
+```typescript
+// Server pings the client
+await server.ping();
+
+// Client pings the server
+await client.ping();
+```
+
+If the remote side does not respond, the ping will throw after the request timeout.
+
+## stdio transport
+
+For local integrations where the client spawns the server as a child process, use stdio transport:
+
+```typescript
+// Server: read from stdin, write to stdout
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+// ... register tools, resources, prompts ...
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
+
+For the client side, see [stdio in the client docs](./client.md#stdio-transport).
 
 ## Logging
 

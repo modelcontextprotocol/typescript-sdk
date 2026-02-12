@@ -40,23 +40,50 @@ Runnable example:
 
 ## Roots
 
-Roots tell the server which directories or URIs the client considers part of its workspace. Declare the `roots` capability when creating a client, and use `sendRootsListChanged()` to notify the server whenever roots change:
+Roots tell the server which directories or URIs the client considers part of its workspace. Declare the `roots` capability and register a handler to respond to `roots/list` requests from the server:
 
 ```typescript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
 const client = new Client(
     { name: 'my-client', version: '1.0' },
-    {
-        capabilities: {
-            roots: { listChanged: true }
-        }
-    }
+    { capabilities: { roots: { listChanged: true } } }
 );
 
-// After connecting, notify the server when roots change
+// Handle roots/list requests from the server
+client.setRequestHandler(ListRootsRequestSchema, async () => ({
+    roots: [
+        { uri: 'file:///home/user/project', name: 'Project Root' },
+        { uri: 'file:///home/user/docs', name: 'Documentation' }
+    ]
+}));
+
+// Notify the server when roots change
 await client.sendRootsListChanged();
 ```
 
-The server can then call `roots/list` to get the updated root list.
+On the server side, request the client's roots with `server.listRoots()`.
+
+## stdio transport
+
+For local integrations where the client spawns the server as a child process, use `StdioClientTransport`:
+
+```typescript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+const transport = new StdioClientTransport({
+    command: 'node',
+    args: ['path/to/server.js'],
+    env: { MY_VAR: 'value' }  // optional
+});
+
+const client = new Client({ name: 'my-client', version: '1.0' });
+await client.connect(transport);
+```
+
+For the server side, see [stdio in the server docs](./server.md#stdio-transport).
 
 ## OAuth client authentication helpers
 
