@@ -1031,6 +1031,40 @@ describe('OAuth Authorization', () => {
             expect(customFetch).toHaveBeenCalled();
             expect(mockFetch).not.toHaveBeenCalled();
         });
+
+        it('forwards resourceMetadataUrl override to protected resource metadata discovery', async () => {
+            const overrideUrl = new URL('https://custom.example.com/.well-known/oauth-protected-resource');
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString === overrideUrl.toString()) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com', {
+                resourceMetadataUrl: overrideUrl
+            });
+
+            expect(result.resourceMetadata).toEqual(validResourceMetadata);
+            // Verify the override URL was used instead of the default well-known path
+            expect(mockFetch.mock.calls[0]![0].toString()).toBe(overrideUrl.toString());
+        });
     });
 
     describe('auth with provider authorization server URL caching', () => {

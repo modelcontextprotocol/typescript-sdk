@@ -198,6 +198,9 @@ export interface OAuthClientProvider {
      *
      * When available, {@linkcode auth} skips RFC 9728 protected resource metadata
      * discovery and uses this URL directly, reducing latency on subsequent calls.
+     *
+     * Providers should clear the cached URL on repeated authentication failures
+     * to allow re-discovery in case the authorization server has changed.
      */
     authorizationServerUrl?(): string | URL | undefined | Promise<string | URL | undefined>;
 }
