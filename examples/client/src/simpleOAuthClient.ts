@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
@@ -19,7 +19,8 @@ import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 // Configuration
 const DEFAULT_SERVER_URL = 'http://localhost:3000/mcp';
 const CALLBACK_PORT = 8090; // Use different port than auth server (3001)
-const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
+const CALLBACK_HOST = process.env.MCP_HOST ?? 'localhost';
+const CALLBACK_URL = `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback`;
 
 /**
  * Interactive MCP client with OAuth authentication
@@ -52,14 +53,27 @@ class InteractiveOAuthClient {
     private async openBrowser(url: string): Promise<void> {
         console.log(`🌐 Opening browser for authorization: ${url}`);
 
-        const command = `open "${url}"`;
+        const platform = process.platform;
+        let cmd: string;
+        let args: string[];
 
-        exec(command, error => {
-            if (error) {
-                console.error(`Failed to open browser: ${error.message}`);
-                console.log(`Please manually open: ${url}`);
-            }
+        if (platform === 'darwin') {
+            cmd = 'open';
+            args = [url];
+        } else if (platform === 'win32') {
+            cmd = 'cmd';
+            args = ['/c', 'start', '', url];
+        } else {
+            cmd = 'xdg-open';
+            args = [url];
+        }
+
+        const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+        child.on('error', error => {
+            console.error(`Failed to open browser: ${error.message}`);
+            console.log(`Please manually open: ${url}`);
         });
+        child.unref();
     }
     /**
      * Example OAuth callback handler - in production, use a more robust approach
@@ -118,8 +132,8 @@ class InteractiveOAuthClient {
                 }
             });
 
-            server.listen(CALLBACK_PORT, () => {
-                console.log(`OAuth callback server started on http://localhost:${CALLBACK_PORT}`);
+            server.listen(CALLBACK_PORT, CALLBACK_HOST, () => {
+                console.log(`OAuth callback server started on ${CALLBACK_URL}`);
             });
         });
     }
