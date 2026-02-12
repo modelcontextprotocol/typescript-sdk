@@ -38,6 +38,26 @@ Runnable example:
 
 - [`streamableHttpWithSseFallbackClient.ts`](../src/examples/client/streamableHttpWithSseFallbackClient.ts)
 
+## Roots
+
+Roots tell the server which directories or URIs the client considers part of its workspace. Declare the `roots` capability when creating a client, and use `sendRootsListChanged()` to notify the server whenever roots change:
+
+```typescript
+const client = new Client(
+    { name: 'my-client', version: '1.0' },
+    {
+        capabilities: {
+            roots: { listChanged: true }
+        }
+    }
+);
+
+// After connecting, notify the server when roots change
+await client.sendRootsListChanged();
+```
+
+The server can then call `roots/list` to get the updated root list.
+
 ## OAuth client authentication helpers
 
 For OAuth-secured MCP servers, the client `auth` module exposes:

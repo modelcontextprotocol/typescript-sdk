@@ -128,6 +128,31 @@ This snippet is illustrative only; for runnable servers that expose tools, see:
 - [`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts)
 - [`toolWithSampleServer.ts`](../src/examples/server/toolWithSampleServer.ts)
 
+#### Change notifications
+
+When tools are added, removed, or updated at runtime, the server notifies connected clients so they can refresh their tool list. If you use `McpServer.registerTool()`, the notification is sent automatically. You can also trigger it manually:
+
+```typescript
+// Automatic: registerTool sends the notification for you
+server.registerTool('new-tool', { description: 'Added at runtime' }, async () => ({
+    content: [{ type: 'text', text: 'result' }]
+}));
+
+// Manual: trigger explicitly when tools change outside registerTool
+server.sendToolListChanged();
+```
+
+On the client side, listen for the notification to re-fetch tools:
+
+```typescript
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+
+client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+    const { tools } = await client.listTools();
+    console.log('Tools updated:', tools.map(t => t.name));
+});
+```
+
 #### ResourceLink outputs
 
 Tools can return `resource_link` content items to reference large resources without embedding them directly, allowing clients to fetch only what they need.
@@ -191,6 +216,85 @@ For prompts integrated into a full server, see:
 
 - [`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts)
 
+#### Embedded resources in prompts
+
+Prompt messages can include embedded resources alongside text. Use the `resource` content type to attach file contents or other resource data directly in the prompt response:
+
+```typescript
+server.registerPrompt(
+    'analyze-file',
+    {
+        description: 'Analyze a file with context',
+        argsSchema: { filename: z.string() }
+    },
+    async ({ filename }) => ({
+        messages: [
+            {
+                role: 'user',
+                content: {
+                    type: 'resource',
+                    resource: {
+                        uri: `file://${filename}`,
+                        mimeType: 'text/plain',
+                        text: 'File contents here'
+                    }
+                }
+            },
+            {
+                role: 'user',
+                content: { type: 'text', text: 'Please review the file above.' }
+            }
+        ]
+    })
+);
+```
+
+#### Image content in prompts
+
+Prompts can return image content using the `image` content type with base64-encoded data:
+
+```typescript
+server.registerPrompt(
+    'analyze-screenshot',
+    { description: 'Analyze a screenshot' },
+    async () => ({
+        messages: [
+            {
+                role: 'user',
+                content: {
+                    type: 'image',
+                    data: 'iVBORw0KGgoAAAANS...', // base64-encoded image
+                    mimeType: 'image/png'
+                }
+            },
+            {
+                role: 'user',
+                content: { type: 'text', text: 'Describe what you see in this image.' }
+            }
+        ]
+    })
+);
+```
+
+#### Change notifications
+
+Like tools, prompt list changes are automatically notified when you use `registerPrompt()`. You can also trigger the notification manually:
+
+```typescript
+server.sendPromptListChanged();
+```
+
+On the client side:
+
+```typescript
+import { PromptListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+
+client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
+    const { prompts } = await client.listPrompts();
+    console.log('Prompts updated:', prompts.map(p => p.name));
+});
+```
+
 ### Completions
 
 Both prompts and resources can support argument completions. On the client side, you use `client.complete()` with a reference to the prompt or resource and the partially‑typed argument.
@@ -202,6 +306,45 @@ See the MCP spec sections on prompts and resources for complete details, and [`s
 Tools, resources and prompts support a `title` field for human‑readable names. Older APIs can also attach `annotations.title`. To compute the correct display name on the client, use:
 
 - `getDisplayName` from `@modelcontextprotocol/sdk/shared/metadataUtils.js`
+
+## Logging
+
+MCP servers can send log messages to connected clients, and clients can request a minimum log level.
+
+### Sending log messages
+
+Use `server.sendLoggingMessage()` to emit structured log messages to clients:
+
+```typescript
+server.sendLoggingMessage({
+    level: 'info',
+    logger: 'my-server',
+    data: 'Processing request...'
+});
+```
+
+### Handling setLevel requests
+
+Clients can request a minimum logging level via `logging/setLevel`. If you create a `Server` with `capabilities: { logging: {} }`, a default handler is registered that tracks the level per session. You can also add custom logic:
+
+```typescript
+import { SetLevelRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+server.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+    const level = request.params.level;
+    console.log(`Client requested log level: ${level}`);
+    // Update your logging configuration
+    return {};
+});
+```
+
+On the client side, request a log level with:
+
+```typescript
+await client.setLoggingLevel('debug');
+```
+
+Available levels (from most to least verbose): `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`.
 
 ## Multi‑node deployment patterns
 
