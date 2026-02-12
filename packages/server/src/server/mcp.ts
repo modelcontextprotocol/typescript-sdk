@@ -847,7 +847,7 @@ export class McpServer {
     /**
      * Registers a prompt with a config object and callback.
      */
-    registerPrompt<Args extends AnySchema>(
+    registerPrompt<Args extends AnySchema | undefined = undefined>(
         name: string,
         config: {
             title?: string;
