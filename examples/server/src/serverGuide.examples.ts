@@ -7,6 +7,7 @@
  * @module
  */
 
+//#region imports
 import { randomUUID } from 'node:crypto';
 
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
@@ -14,6 +15,7 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
 import { completable, McpServer, ResourceTemplate, StdioServerTransport } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
+//#endregion imports
 
 // ---------------------------------------------------------------------------
 // Tools, resources, and prompts
@@ -72,6 +74,59 @@ function registerTool_resourceLink(server: McpServer) {
         }
     );
     //#endregion registerTool_resourceLink
+}
+
+/** Example: Tool with explicit error handling using isError. */
+function registerTool_errorHandling(server: McpServer) {
+    //#region registerTool_errorHandling
+    server.registerTool(
+        'fetch-data',
+        {
+            description: 'Fetch data from a URL',
+            inputSchema: z.object({ url: z.string() })
+        },
+        async ({ url }): Promise<CallToolResult> => {
+            try {
+                const res = await fetch(url);
+                if (!res.ok) {
+                    return {
+                        content: [{ type: 'text', text: `HTTP ${res.status}: ${res.statusText}` }],
+                        isError: true
+                    };
+                }
+                const text = await res.text();
+                return { content: [{ type: 'text', text }] };
+            } catch (error) {
+                return {
+                    content: [{ type: 'text', text: `Failed: ${error instanceof Error ? error.message : String(error)}` }],
+                    isError: true
+                };
+            }
+        }
+    );
+    //#endregion registerTool_errorHandling
+}
+
+/** Example: Tool with annotations hinting at behavior. */
+function registerTool_annotations(server: McpServer) {
+    //#region registerTool_annotations
+    server.registerTool(
+        'delete-file',
+        {
+            description: 'Delete a file from the project',
+            inputSchema: z.object({ path: z.string() }),
+            annotations: {
+                title: 'Delete File',
+                destructiveHint: true,
+                idempotentHint: true
+            }
+        },
+        async ({ path }): Promise<CallToolResult> => {
+            // ... perform deletion ...
+            return { content: [{ type: 'text', text: `Deleted ${path}` }] };
+        }
+    );
+    //#endregion registerTool_annotations
 }
 
 /** Example: Registering a static resource at a fixed URI. */
@@ -343,6 +398,39 @@ async function stdio_basic() {
 }
 
 // ---------------------------------------------------------------------------
+// Shutdown
+// ---------------------------------------------------------------------------
+
+/** Example: Graceful shutdown for a stateful multi-session HTTP server. */
+function shutdown_statefulHttp(app: ReturnType<typeof createMcpExpressApp>, transports: Map<string, NodeStreamableHTTPServerTransport>) {
+    //#region shutdown_statefulHttp
+    // Capture the http.Server so it can be closed on shutdown
+    const httpServer = app.listen(3000);
+
+    process.on('SIGINT', async () => {
+        httpServer.close();
+
+        for (const [sessionId, transport] of transports) {
+            await transport.close();
+            transports.delete(sessionId);
+        }
+
+        process.exit(0);
+    });
+    //#endregion shutdown_statefulHttp
+}
+
+/** Example: Graceful shutdown for a stdio server. */
+function shutdown_stdio(server: McpServer) {
+    //#region shutdown_stdio
+    process.on('SIGINT', async () => {
+        await server.close();
+        process.exit(0);
+    });
+    //#endregion shutdown_stdio
+}
+
+// ---------------------------------------------------------------------------
 // DNS rebinding protection
 // ---------------------------------------------------------------------------
 
@@ -375,6 +463,8 @@ function dnsRebinding_allowedHosts() {
 // Suppress unused-function warnings (functions exist solely for type-checking)
 void registerTool_basic;
 void registerTool_resourceLink;
+void registerTool_errorHandling;
+void registerTool_annotations;
 void registerTool_logging;
 void registerTool_sampling;
 void registerTool_elicitation;
@@ -386,5 +476,7 @@ void streamableHttp_stateful;
 void streamableHttp_stateless;
 void streamableHttp_jsonResponse;
 void stdio_basic;
+void shutdown_statefulHttp;
+void shutdown_stdio;
 void dnsRebinding_basic;
 void dnsRebinding_allowedHosts;
