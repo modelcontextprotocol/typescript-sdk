@@ -188,6 +188,14 @@ export interface OAuthClientProvider {
      * }
      */
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
+
+    /**
+     * Saves the resource URL determined during the OAuth flow.
+     *
+     * Called by {@linkcode auth} after resource URL selection so providers can
+     * use it in grant-specific logic (e.g., Cross-App Access token exchange).
+     */
+    saveResourceUrl?(url: URL): void | Promise<void>;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -421,6 +429,10 @@ async function authInternal(
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+
+    if (resource) {
+        await provider.saveResourceUrl?.(resource);
+    }
 
     const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
         fetchFn

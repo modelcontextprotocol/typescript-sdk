@@ -17,7 +17,10 @@ import {
     StreamableHTTPClientTransport,
     ElicitRequestSchema,
     ClientCredentialsProvider,
-    PrivateKeyJwtProvider
+    CrossAppAccessProvider,
+    PrivateKeyJwtProvider,
+    discoverOAuthProtectedResourceMetadata,
+    requestJwtAuthorizationGrant
 } from '@modelcontextprotocol/client';
 import { z } from 'zod';
 import { withOAuthRetry, handle401 } from './helpers/withOAuthRetry.js';
@@ -47,6 +50,15 @@ const ClientConformanceContextSchema = z.discriminatedUnion('name', [
         name: z.literal('auth/client-credentials-basic'),
         client_id: z.string(),
         client_secret: z.string()
+    }),
+    z.object({
+        name: z.literal('auth/cross-app-access-complete-flow'),
+        client_id: z.string(),
+        client_secret: z.string(),
+        idp_client_id: z.string(),
+        idp_id_token: z.string(),
+        idp_issuer: z.string(),
+        idp_token_endpoint: z.string()
     })
 ]);
 
@@ -244,6 +256,54 @@ async function runClientCredentialsBasic(serverUrl: string): Promise<void> {
 }
 
 registerScenario('auth/client-credentials-basic', runClientCredentialsBasic);
+
+// ============================================================================
+// Cross-App Access (SEP-990) scenario
+// ============================================================================
+
+async function runCrossAppAccess(serverUrl: string): Promise<void> {
+    const ctx = parseContext();
+    if (ctx.name !== 'auth/cross-app-access-complete-flow') {
+        throw new Error(`Expected cross-app-access context, got ${ctx.name}`);
+    }
+
+    // Discover the MCP authorization server URL via RFC 9728
+    const prm = await discoverOAuthProtectedResourceMetadata(serverUrl);
+    const mcpAuthServerUrl = prm.authorization_servers?.[0] ?? serverUrl;
+
+    const provider = new CrossAppAccessProvider({
+        assertion: async (actx) => requestJwtAuthorizationGrant({
+            tokenEndpoint: ctx.idp_token_endpoint,
+            audience: actx.authorizationServerUrl,
+            resource: actx.resourceUrl,
+            idToken: ctx.idp_id_token,
+            clientId: ctx.idp_client_id,
+            scope: actx.scope,
+            fetchFn: actx.fetchFn
+        }),
+        clientId: ctx.client_id,
+        clientSecret: ctx.client_secret
+    });
+
+    // Pre-set the auth server URL so the provider knows it before prepareTokenRequest
+    provider.saveAuthorizationServerUrl(mcpAuthServerUrl);
+
+    const client = new Client({ name: 'conformance-cross-app-access', version: '1.0.0' }, { capabilities: {} });
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        authProvider: provider
+    });
+
+    await client.connect(transport);
+    logger.debug('Connected via Cross-App Access');
+
+    await client.listTools();
+    logger.debug('Successfully listed tools');
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('auth/cross-app-access-complete-flow', runCrossAppAccess);
 
 // ============================================================================
 // Elicitation defaults scenario

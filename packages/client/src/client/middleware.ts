@@ -2,8 +2,6 @@ import type { FetchLike } from '@modelcontextprotocol/core';
 
 import type { OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
-import type { XAAOptions } from './xaaUtil.js';
-import { getAccessToken } from './xaaUtil.js';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -229,35 +227,6 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
 
             throw error;
         }
-    };
-};
-
-/**
- * Creates a fetch wrapper that handles Cross App Access authentication automatically.
- *
- * This wrapper will:
- * - Add Authorization headers with access tokens
- *
- * @param options - XAA configuration options
- * @returns A fetch middleware function
- */
-export const withCrossAppAccess = (options: XAAOptions): Middleware => {
-    return wrappedFetchFunction => {
-        let accessToken: string | undefined;
-
-        return async (url, init = {}): Promise<Response> => {
-            if (!accessToken) {
-                accessToken = await getAccessToken(options, wrappedFetchFunction);
-            }
-
-            const headers = new Headers(init.headers);
-
-            headers.set('Authorization', `Bearer ${accessToken}`);
-
-            init.headers = headers;
-
-            return wrappedFetchFunction(url, init);
-        };
     };
 };
 
