@@ -968,7 +968,7 @@ describe('OAuth Authorization', () => {
             const result = await discoverOAuthServerInfo('https://resource.example.com');
 
             // Should fall back to server URL origin
-            expect(result.authorizationServerUrl).toEqual(new URL('/', 'https://resource.example.com'));
+            expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
             expect(result.resourceMetadata).toBeUndefined();
             expect(result.authorizationServerMetadata).toBeDefined();
         });

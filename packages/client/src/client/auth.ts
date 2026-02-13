@@ -1027,7 +1027,7 @@ export interface OAuthServerInfo {
      * The authorization server URL, either discovered via RFC 9728
      * or derived from the MCP server URL as a fallback.
      */
-    authorizationServerUrl: string | URL;
+    authorizationServerUrl: string;
 
     /**
      * The authorization server metadata (endpoints, capabilities),
@@ -1070,7 +1070,7 @@ export async function discoverOAuthServerInfo(
     }
 ): Promise<OAuthServerInfo> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
-    let authorizationServerUrl: string | URL | undefined;
+    let authorizationServerUrl: string | undefined;
 
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
@@ -1088,7 +1088,7 @@ export async function discoverOAuthServerInfo(
     // If we don't get a valid authorization server from protected resource metadata,
     // fall back to the legacy MCP spec behavior: MCP server base URL acts as the authorization server
     if (!authorizationServerUrl) {
-        authorizationServerUrl = new URL('/', serverUrl);
+        authorizationServerUrl = String(new URL('/', serverUrl));
     }
 
     const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn: opts?.fetchFn });
