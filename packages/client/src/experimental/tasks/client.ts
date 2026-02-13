@@ -82,7 +82,6 @@ export class ExperimentalClientTasks {
      * ```
      *
      * @param params - Tool call parameters (name and arguments)
-     * @param resultSchema - Zod schema for validating the result (defaults to {@linkcode CallToolResultSchema})
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
      * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *

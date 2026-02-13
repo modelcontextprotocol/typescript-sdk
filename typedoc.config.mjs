@@ -39,5 +39,6 @@ export default {
     headings: {
         readme: false
     },
+    treatWarningsAsErrors: true,
     out: 'tmp/docs/',
 };
