@@ -1,68 +1,13 @@
-import type { FetchLike } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthAccessTokenResponseType, OAuthErrorFields, OAuthErrorType, OAuthTokenExchangeResponseType } from '@modelcontextprotocol/core';
+import { OAuthClientAssertionType, OAuthErrorTypes, OAuthGrantType, OAuthTokenType } from '@modelcontextprotocol/core';
 import qs from 'qs';
 
 import { discoverAuthorizationServerMetadata } from './auth.js';
 // ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const OAuthErrorTypes = [
-    'invalid_request',
-    'invalid_client',
-    'invalid_grant',
-    'unauthorized_client',
-    'unsupported_grant_type',
-    'invalid_scope'
-] as const;
-
-// ============================================================================
-// ENUMS
-// ============================================================================
-
-const enum OAuthGrantType {
-    JWT_BEARER = 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-    TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange'
-}
-
-const enum OAuthTokenType {
-    ACCESS_TOKEN = 'urn:ietf:params:oauth:token-type:access_token',
-    ID_TOKEN = 'urn:ietf:params:oauth:token-type:id_token',
-    JWT_ID_JAG = 'urn:ietf:params:oauth:token-type:id-jag',
-    SAML2 = 'urn:ietf:params:oauth:token-type:saml2'
-}
-
-const enum OAuthClientAssertionType {
-    JWT_BEARER = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
-}
-
-// ============================================================================
 // TYPES
 // ============================================================================
 
-type OAuthErrorType = (typeof OAuthErrorTypes)[number];
-
-type OAuthError = {
-    error: OAuthErrorType;
-    error_description?: string;
-    error_uri?: string;
-};
-
-type OAuthAccessTokenResponseType = {
-    access_token: string;
-    token_type: string;
-    scope?: string;
-    expires_in?: number;
-    refresh_token?: string;
-};
-
-type OAuthTokenExchangeResponseType = {
-    access_token: string;
-    issued_token_type: OAuthTokenType;
-    token_type: string;
-    scope?: string;
-    expires_in?: number;
-    refresh_token?: string;
-};
+type OAuthError = OAuthErrorFields;
 
 type ClientIdFields = {
     client_id: string;
