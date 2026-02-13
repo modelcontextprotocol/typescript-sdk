@@ -91,16 +91,16 @@ export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequest
     let tokenEndpoint = idpTokenEndpoint;
 
     if (!tokenEndpoint) {
-        try {
-            const idpMetadata = await discoverAuthorizationServerMetadata(idpUrl, { fetchFn: options.fetchFn });
-            tokenEndpoint = idpMetadata?.token_endpoint;
-        } catch {
-            // Discovery failed — fall back to idpUrl
+        const idpMetadata = await discoverAuthorizationServerMetadata(idpUrl, { fetchFn: options.fetchFn });
+        tokenEndpoint = idpMetadata?.token_endpoint;
+
+        if (!tokenEndpoint) {
+            throw new Error(`IDP metadata discovery for ${idpUrl} did not return a token_endpoint`);
         }
     }
 
     return requestJwtAuthorizationGrant({
         ...rest,
-        tokenEndpoint: tokenEndpoint ?? idpUrl
+        tokenEndpoint
     });
 }
