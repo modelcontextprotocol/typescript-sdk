@@ -1092,7 +1092,7 @@ export type RegisteredTool = {
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<AnySchema | undefined>;
-    /** @internal */
+    /** @hidden */
     executor: ToolExecutor;
     enabled: boolean;
     enable(): void;
@@ -1231,7 +1231,7 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: AnySchema;
-    /** @internal */
+    /** @hidden */
     handler: PromptHandler;
     enabled: boolean;
     enable(): void;
