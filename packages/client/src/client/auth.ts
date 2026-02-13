@@ -471,6 +471,16 @@ async function authInternal(
                 // RFC 9728 not available — selectResourceURL will handle undefined
             }
         }
+
+        // Re-save if we enriched the cached state with missing metadata
+        if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
+            await provider.saveDiscoveryState?.({
+                authorizationServerUrl: String(authorizationServerUrl),
+                resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                resourceMetadata,
+                authorizationServerMetadata: metadata
+            });
+        }
     } else {
         // Full discovery via RFC 9728
         const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });

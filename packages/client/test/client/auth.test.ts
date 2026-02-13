@@ -1198,6 +1198,68 @@ describe('OAuth Authorization', () => {
             expect(body.get('resource')).toBe('https://resource.example.com/');
         });
 
+        it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({
+                // Partial cache: auth server URL only, no metadata
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com'
+                }),
+                saveDiscoveryState,
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            // Should re-save with the enriched state including fetched metadata
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    authorizationServerMetadata: validAuthMetadata,
+                    resourceMetadata: validResourceMetadata
+                })
+            );
+        });
+
         it('works normally when provider does not implement caching methods', async () => {
             const provider = createMockProvider();
 
