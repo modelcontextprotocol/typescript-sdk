@@ -28,25 +28,6 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * This is a wrapper around {@linkcode WebStandardStreamableHTTPServerTransport} that provides Node.js HTTP compatibility.
  * It uses the `@hono/node-server` library to convert between Node.js HTTP and Web Standard APIs.
  *
- * Usage example:
- *
- * ```typescript
- * // Stateful mode - server sets the session ID
- * const statefulTransport = new StreamableHTTPServerTransport({
- *   sessionIdGenerator: () => randomUUID(),
- * });
- *
- * // Stateless mode - explicitly set session ID to undefined
- * const statelessTransport = new StreamableHTTPServerTransport({
- *   sessionIdGenerator: undefined,
- * });
- *
- * // Using with pre-parsed request body
- * app.post('/mcp', (req, res) => {
- *   transport.handleRequest(req, res, req.body);
- * });
- * ```
- *
  * In stateful mode:
  * - Session ID is generated and included in response headers
  * - Session ID is always included in initialization responses
@@ -57,6 +38,31 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * In stateless mode:
  * - No Session ID is included in any responses
  * - No session validation is performed
+ *
+ * @example Stateful setup
+ * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateful"
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *
+ * const transport = new NodeStreamableHTTPServerTransport({
+ *     sessionIdGenerator: () => randomUUID()
+ * });
+ *
+ * await server.connect(transport);
+ * ```
+ *
+ * @example Stateless setup
+ * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateless"
+ * const transport = new NodeStreamableHTTPServerTransport({
+ *     sessionIdGenerator: undefined
+ * });
+ * ```
+ *
+ * @example Using with a pre-parsed request body (e.g. Express)
+ * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_express"
+ * app.post('/mcp', (req, res) => {
+ *     transport.handleRequest(req, res, req.body);
+ * });
+ * ```
  */
 export class NodeStreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;

@@ -21,6 +21,32 @@ export type CompletableSchema<T extends AnySchema> = T & {
 /**
  * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
  *
+ * @example
+ * ```ts source="./completable.examples.ts#completable_basicUsage"
+ * server.registerPrompt(
+ *     'review-code',
+ *     {
+ *         title: 'Code Review',
+ *         argsSchema: z.object({
+ *             language: completable(z.string().describe('Programming language'), value =>
+ *                 ['typescript', 'javascript', 'python', 'rust', 'go'].filter(lang => lang.startsWith(value))
+ *             )
+ *         })
+ *     },
+ *     ({ language }) => ({
+ *         messages: [
+ *             {
+ *                 role: 'user' as const,
+ *                 content: {
+ *                     type: 'text' as const,
+ *                     text: `Review this ${language} code.`
+ *                 }
+ *             }
+ *         ]
+ *     })
+ * );
+ * ```
+ *
  * @see {@linkcode server/mcp.McpServer.registerPrompt | McpServer.registerPrompt} for using completable schemas in prompt argument definitions
  */
 export function completable<T extends AnySchema>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {

@@ -176,32 +176,6 @@ export interface HandleRequestOptions {
  *
  * This transport works on any runtime that supports Web Standards: Node.js 18+, Cloudflare Workers, Deno, Bun, etc.
  *
- * Usage example:
- *
- * ```typescript
- * // Stateful mode - server sets the session ID
- * const statefulTransport = new WebStandardStreamableHTTPServerTransport({
- *   sessionIdGenerator: () => crypto.randomUUID(),
- * });
- *
- * // Stateless mode - explicitly set session ID to undefined
- * const statelessTransport = new WebStandardStreamableHTTPServerTransport({
- *   sessionIdGenerator: undefined,
- * });
- *
- * // Hono.js usage
- * app.all('/mcp', async (c) => {
- *   return transport.handleRequest(c.req.raw);
- * });
- *
- * // Cloudflare Workers usage
- * export default {
- *   async fetch(request: Request): Promise<Response> {
- *     return transport.handleRequest(request);
- *   }
- * };
- * ```
- *
  * In stateful mode:
  * - Session ID is generated and included in response headers
  * - Session ID is always included in initialization responses
@@ -212,6 +186,40 @@ export interface HandleRequestOptions {
  * In stateless mode:
  * - No Session ID is included in any responses
  * - No session validation is performed
+ *
+ * @example Stateful setup
+ * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_stateful"
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *
+ * const transport = new WebStandardStreamableHTTPServerTransport({
+ *     sessionIdGenerator: () => crypto.randomUUID()
+ * });
+ *
+ * await server.connect(transport);
+ * ```
+ *
+ * @example Stateless setup
+ * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_stateless"
+ * const transport = new WebStandardStreamableHTTPServerTransport({
+ *     sessionIdGenerator: undefined
+ * });
+ * ```
+ *
+ * @example Hono.js
+ * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_hono"
+ * app.all('/mcp', async c => {
+ *     return transport.handleRequest(c.req.raw);
+ * });
+ * ```
+ *
+ * @example Cloudflare Workers
+ * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_workers"
+ * const worker = {
+ *     async fetch(request: Request): Promise<Response> {
+ *         return transport.handleRequest(request);
+ *     }
+ * };
+ * ```
  */
 export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
