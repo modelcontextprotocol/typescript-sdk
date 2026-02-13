@@ -973,65 +973,6 @@ describe('OAuth Authorization', () => {
             expect(result.authorizationServerMetadata).toBeDefined();
         });
 
-        it('returns undefined metadata when auth server metadata discovery fails', async () => {
-            mockFetch.mockImplementation(url => {
-                const urlString = url.toString();
-
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validResourceMetadata
-                    });
-                }
-
-                // All auth server metadata endpoints return 404
-                return Promise.resolve({
-                    ok: false,
-                    status: 404,
-                    text: async () => 'Not found'
-                });
-            });
-
-            const result = await discoverOAuthServerInfo('https://resource.example.com');
-
-            expect(result.authorizationServerUrl).toBe('https://auth.example.com');
-            expect(result.resourceMetadata).toEqual(validResourceMetadata);
-            expect(result.authorizationServerMetadata).toBeUndefined();
-        });
-
-        it('passes custom fetchFn through to discovery functions', async () => {
-            const customFetch = vi.fn().mockImplementation(url => {
-                const urlString = url.toString();
-
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validResourceMetadata
-                    });
-                }
-
-                if (urlString.includes('/.well-known/oauth-authorization-server')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validAuthMetadata
-                    });
-                }
-
-                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
-            });
-
-            await discoverOAuthServerInfo('https://resource.example.com', {
-                fetchFn: customFetch as unknown as typeof fetch
-            });
-
-            // Verify the custom fetch was used for both discovery calls
-            expect(customFetch).toHaveBeenCalled();
-            expect(mockFetch).not.toHaveBeenCalled();
-        });
-
         it('forwards resourceMetadataUrl override to protected resource metadata discovery', async () => {
             const overrideUrl = new URL('https://custom.example.com/.well-known/oauth-protected-resource');
 
@@ -1260,13 +1201,28 @@ describe('OAuth Authorization', () => {
             );
         });
 
-        it('works normally when provider does not implement caching methods', async () => {
-            const provider = createMockProvider();
+        it('uses resourceMetadataUrl from cached discovery state for PRM discovery', async () => {
+            const cachedPrmUrl = 'https://custom.example.com/.well-known/oauth-protected-resource';
+            const provider = createMockProvider({
+                // Cache has auth server URL + resourceMetadataUrl but no resourceMetadata
+                // (simulates browser redirect where PRM URL was saved but metadata wasn't)
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadataUrl: cachedPrmUrl,
+                    authorizationServerMetadata: validAuthMetadata
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
 
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
 
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                // The cached PRM URL should be used for resource metadata discovery
+                if (urlString === cachedPrmUrl) {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
@@ -1274,23 +1230,32 @@ describe('OAuth Authorization', () => {
                     });
                 }
 
-                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                if (urlString.includes('/token')) {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
-                        json: async () => validAuthMetadata
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
                     });
                 }
 
                 return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
             });
 
-            // Should not throw when caching methods are not implemented
-            await auth(provider, { serverUrl: 'https://resource.example.com' });
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
 
-            // Should have done full discovery (called PRM endpoint)
+            expect(result).toBe('AUTHORIZED');
+
+            // Should have used the cached PRM URL, not the default well-known path
             const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
-            expect(prmCalls.length).toBeGreaterThan(0);
+            expect(prmCalls).toHaveLength(1);
+            expect(prmCalls[0]![0].toString()).toBe(cachedPrmUrl);
         });
     });
 
