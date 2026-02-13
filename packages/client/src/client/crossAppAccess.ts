@@ -6,29 +6,9 @@
  */
 
 import type { FetchLike } from '@modelcontextprotocol/core';
-import * as z from 'zod/v4';
+import { JagTokenExchangeResponseSchema } from '@modelcontextprotocol/core';
 
 import { discoverAuthorizationServerMetadata, parseErrorResponse } from './auth.js';
-
-/**
- * RFC 8693 Token Exchange response schema for the JAG flow.
- *
- * Validates the three required fields:
- * - `access_token`: the issued JAG
- * - `issued_token_type`: must be `urn:ietf:params:oauth:token-type:id-jag`
- * - `token_type`: must be `N_A` (case-insensitive per RFC 8693 §2.2.1)
- */
-const JagTokenExchangeResponseSchema = z
-    .object({
-        access_token: z.string(),
-        issued_token_type: z.literal('urn:ietf:params:oauth:token-type:id-jag'),
-        token_type: z
-            .string()
-            .refine((v) => v.toLowerCase() === 'n_a', {
-                message: "Expected token_type 'N_A'"
-            })
-    })
-    .strip();
 
 /**
  * Options for requesting a JWT Authorization Grant from an Identity Provider.

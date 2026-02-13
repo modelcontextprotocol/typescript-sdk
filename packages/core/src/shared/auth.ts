@@ -139,6 +139,26 @@ export const OAuthTokensSchema = z
     .strip();
 
 /**
+ * RFC 8693 Token Exchange response for the JAG (JWT Authorization Grant) flow.
+ *
+ * Validates the three required fields:
+ * - `access_token`: the issued JAG
+ * - `issued_token_type`: must be `urn:ietf:params:oauth:token-type:id-jag`
+ * - `token_type`: must be `N_A` (case-insensitive per RFC 8693 §2.2.1)
+ */
+export const JagTokenExchangeResponseSchema = z
+    .object({
+        access_token: z.string(),
+        issued_token_type: z.literal('urn:ietf:params:oauth:token-type:id-jag'),
+        token_type: z
+            .string()
+            .refine((v) => v.toLowerCase() === 'n_a', {
+                message: "Expected token_type 'N_A'"
+            })
+    })
+    .strip();
+
+/**
  * OAuth 2.1 error response
  */
 export const OAuthErrorResponseSchema = z.object({
@@ -219,6 +239,7 @@ export type OpenIdProviderMetadata = z.infer<typeof OpenIdProviderMetadataSchema
 export type OpenIdProviderDiscoveryMetadata = z.infer<typeof OpenIdProviderDiscoveryMetadataSchema>;
 
 export type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
+export type JagTokenExchangeResponse = z.infer<typeof JagTokenExchangeResponseSchema>;
 export type OAuthErrorResponse = z.infer<typeof OAuthErrorResponseSchema>;
 export type OAuthClientMetadata = z.infer<typeof OAuthClientMetadataSchema>;
 export type OAuthClientInformation = z.infer<typeof OAuthClientInformationSchema>;
