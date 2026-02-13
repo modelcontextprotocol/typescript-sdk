@@ -1109,9 +1109,9 @@ describe('OAuth Authorization', () => {
             vi.clearAllMocks();
         });
 
-        it('calls saveAuthorizationServerUrl after discovery when provider implements it', async () => {
-            const saveAuthorizationServerUrl = vi.fn();
-            const provider = createMockProvider({ saveAuthorizationServerUrl });
+        it('calls saveDiscoveryState after discovery when provider implements it', async () => {
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({ saveDiscoveryState });
 
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
@@ -1137,12 +1137,22 @@ describe('OAuth Authorization', () => {
 
             await auth(provider, { serverUrl: 'https://resource.example.com' });
 
-            expect(saveAuthorizationServerUrl).toHaveBeenCalledWith('https://auth.example.com');
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadata: validResourceMetadata,
+                    authorizationServerMetadata: validAuthMetadata
+                })
+            );
         });
 
-        it('uses cached auth server URL but still fetches resource metadata for resource parameter', async () => {
+        it('restores full discovery state from cache including resource metadata', async () => {
             const provider = createMockProvider({
-                authorizationServerUrl: vi.fn().mockResolvedValue('https://auth.example.com'),
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadata: validResourceMetadata,
+                    authorizationServerMetadata: validAuthMetadata
+                }),
                 tokens: vi.fn().mockResolvedValue({
                     access_token: 'valid-token',
                     refresh_token: 'refresh-token',
@@ -1152,22 +1162,6 @@ describe('OAuth Authorization', () => {
 
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
-
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validResourceMetadata
-                    });
-                }
-
-                if (urlString.includes('/.well-known/oauth-authorization-server')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validAuthMetadata
-                    });
-                }
 
                 if (urlString.includes('/token')) {
                     return Promise.resolve({
@@ -1191,17 +1185,13 @@ describe('OAuth Authorization', () => {
 
             expect(result).toBe('AUTHORIZED');
 
-            // Should use cached auth server URL for auth server metadata discovery
-            const asMdCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-authorization-server'));
-            expect(asMdCalls.length).toBeGreaterThan(0);
-            // The auth server metadata call should target the cached URL, not the resource server
-            expect(asMdCalls[0]![0].toString()).toContain('auth.example.com');
+            // Should NOT have called any discovery endpoints -- all from cache
+            const discoveryCalls = mockFetch.mock.calls.filter(
+                call => call[0].toString().includes('oauth-protected-resource') || call[0].toString().includes('oauth-authorization-server')
+            );
+            expect(discoveryCalls).toHaveLength(0);
 
-            // Should still fetch resource metadata for the resource parameter
-            const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
-            expect(prmCalls.length).toBeGreaterThan(0);
-
-            // Verify the token request includes the resource parameter
+            // Verify the token request includes the resource parameter from cached metadata
             const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
             expect(tokenCall).toBeDefined();
             const body = tokenCall![1].body as URLSearchParams;

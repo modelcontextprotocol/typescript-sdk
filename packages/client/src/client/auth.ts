@@ -144,7 +144,7 @@ export interface OAuthClientProvider {
      * credentials, in the case where the server has indicated that they are no longer valid.
      * This avoids requiring the user to intervene manually.
      */
-    invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+    invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void | Promise<void>;
 
     /**
      * Prepares grant-specific parameters for a token request.
@@ -185,24 +185,47 @@ export interface OAuthClientProvider {
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 
     /**
-     * Saves the authorization server URL discovered during the OAuth flow.
+     * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
+     * discovery. Providers can persist this state to avoid redundant discovery requests
+     * on subsequent {@linkcode auth} calls.
      *
-     * Called by {@linkcode auth} after RFC 9728 discovery so providers can persist the
-     * URL for later use in operations like token refresh or revocation, avoiding
-     * redundant discovery requests.
+     * This state can also be provided out-of-band (e.g., from a previous session or
+     * external configuration) to bootstrap the OAuth flow without discovery.
+     *
+     * Called by {@linkcode auth} after successful discovery.
      */
-    saveAuthorizationServerUrl?(url: string | URL): void | Promise<void>;
+    saveDiscoveryState?(state: OAuthDiscoveryState): void | Promise<void>;
 
     /**
-     * Returns a previously saved authorization server URL, or `undefined` if none is cached.
+     * Returns previously saved discovery state, or `undefined` if none is cached.
      *
-     * When available, {@linkcode auth} skips RFC 9728 protected resource metadata
-     * discovery and uses this URL directly, reducing latency on subsequent calls.
+     * When available, {@linkcode auth} restores the discovery state (authorization server
+     * URL, resource metadata, etc.) instead of performing RFC 9728 discovery, reducing
+     * latency on subsequent calls.
      *
-     * Providers should clear the cached URL on repeated authentication failures
-     * to allow re-discovery in case the authorization server has changed.
+     * Providers should clear cached discovery state on repeated authentication failures
+     * (via {@linkcode invalidateCredentials} with scope `'discovery'` or `'all'`) to allow
+     * re-discovery in case the authorization server has changed.
      */
-    authorizationServerUrl?(): string | URL | undefined | Promise<string | URL | undefined>;
+    discoveryState?(): OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
+}
+
+/**
+ * Discovery state that can be persisted across sessions by an {@linkcode OAuthClientProvider}.
+ *
+ * Contains the results of RFC 9728 protected resource metadata discovery and
+ * authorization server metadata discovery. Persisting this state avoids
+ * redundant discovery HTTP requests on subsequent {@linkcode auth} calls.
+ */
+export interface OAuthDiscoveryState {
+    /** The authorization server URL discovered via RFC 9728 or derived from the server URL. */
+    authorizationServerUrl: string;
+    /** The URL at which the protected resource metadata was found, if available. */
+    resourceMetadataUrl?: string;
+    /** The OAuth 2.0 Protected Resource Metadata from RFC 9728, if available. */
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+    /** The authorization server metadata (endpoints, capabilities), if available. */
+    authorizationServerMetadata?: AuthorizationServerMetadata;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -415,33 +438,53 @@ async function authInternal(
         fetchFn?: FetchLike;
     }
 ): Promise<AuthResult> {
-    // Check if the provider has a cached authorization server URL to skip discovery
-    const cachedAuthServerUrl = await provider.authorizationServerUrl?.();
+    // Check if the provider has cached discovery state to skip discovery
+    const cachedState = await provider.discoveryState?.();
 
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL;
     let metadata: AuthorizationServerMetadata | undefined;
 
-    if (cachedAuthServerUrl) {
-        // Use cached URL, skip auth server URL derivation from RFC 9728
-        authorizationServerUrl = cachedAuthServerUrl;
-        metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn });
+    // If resourceMetadataUrl is not provided, try to load it from cached state
+    // This handles browser redirects where the URL was saved before navigation
+    let effectiveResourceMetadataUrl = resourceMetadataUrl;
+    if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
+        effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
+    }
 
-        // Still fetch resource metadata for selectResourceURL (needed for the resource parameter)
-        try {
-            resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
-        } catch {
-            // RFC 9728 not available — selectResourceURL will handle undefined
+    if (cachedState?.authorizationServerUrl) {
+        // Restore discovery state from cache
+        authorizationServerUrl = cachedState.authorizationServerUrl;
+        resourceMetadata = cachedState.resourceMetadata;
+        metadata =
+            cachedState.authorizationServerMetadata ?? (await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn }));
+
+        // If resource metadata wasn't cached, try to fetch it for selectResourceURL
+        if (!resourceMetadata) {
+            try {
+                resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+                    serverUrl,
+                    { resourceMetadataUrl: effectiveResourceMetadataUrl },
+                    fetchFn
+                );
+            } catch {
+                // RFC 9728 not available — selectResourceURL will handle undefined
+            }
         }
     } else {
         // Full discovery via RFC 9728
-        const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl, fetchFn });
+        const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
         resourceMetadata = serverInfo.resourceMetadata;
 
-        // Persist the discovered URL for future use
-        await provider.saveAuthorizationServerUrl?.(authorizationServerUrl);
+        // Persist discovery state for future use
+        await provider.saveDiscoveryState?.({
+            authorizationServerUrl: String(authorizationServerUrl),
+            resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+            resourceMetadata,
+            authorizationServerMetadata: metadata
+        });
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
