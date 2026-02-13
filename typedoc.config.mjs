@@ -28,7 +28,8 @@ export default {
     entryPointStrategy: 'packages',
     entryPoints,
     packageOptions: {
-        blockTags: [...OptionDefaults.blockTags, '@format']
+        blockTags: [...OptionDefaults.blockTags, '@format'],
+        exclude: ['**/*.examples.ts']
     },
     projectDocuments: ['docs/documents.md'],
     navigation: {
@@ -38,5 +39,6 @@ export default {
     headings: {
         readme: false
     },
+    treatWarningsAsErrors: true,
     out: 'tmp/docs/',
 };

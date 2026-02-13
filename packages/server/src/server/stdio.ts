@@ -8,6 +8,13 @@ import { process } from '@modelcontextprotocol/server/_shims';
  * Server transport for stdio: this communicates with an MCP client by reading from the current process' `stdin` and writing to `stdout`.
  *
  * This transport is only available in Node.js environments.
+ *
+ * @example
+ * ```ts source="./stdio.examples.ts#StdioServerTransport_basicUsage"
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ * const transport = new StdioServerTransport();
+ * await server.connect(transport);
+ * ```
  */
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
