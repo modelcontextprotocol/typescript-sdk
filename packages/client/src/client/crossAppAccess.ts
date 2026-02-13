@@ -82,26 +82,14 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
 
 /**
  * Options for discovering and requesting a JWT Authorization Grant.
+ * Extends {@link RequestJwtAuthGrantOptions} but replaces `tokenEndpoint`
+ * with `idpUrl` / `idpTokenEndpoint` for automatic discovery.
  */
-export interface DiscoverAndRequestJwtAuthGrantOptions {
+export interface DiscoverAndRequestJwtAuthGrantOptions extends Omit<RequestJwtAuthGrantOptions, 'tokenEndpoint'> {
     /** Identity Provider's base URL for OAuth/OIDC discovery. */
     idpUrl: string;
     /** IDP token endpoint URL. When provided, skips IDP metadata discovery. */
     idpTokenEndpoint?: string;
-    /** The MCP authorization server URL (used as the `audience` parameter). */
-    audience: string;
-    /** The MCP resource server URL (used as the `resource` parameter). */
-    resource: string;
-    /** The OIDC ID token to exchange. */
-    idToken: string;
-    /** Client ID for authentication with the IDP. */
-    clientId: string;
-    /** Client secret for authentication with the IDP. */
-    clientSecret?: string;
-    /** Optional scopes to request. */
-    scope?: string;
-    /** Optional fetch function for HTTP requests. */
-    fetchFn?: FetchLike;
 }
 
 /**
@@ -109,11 +97,13 @@ export interface DiscoverAndRequestJwtAuthGrantOptions {
  * Convenience wrapper over {@link requestJwtAuthorizationGrant}.
  */
 export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequestJwtAuthGrantOptions): Promise<string> {
-    let tokenEndpoint = options.idpTokenEndpoint;
+    const { idpUrl, idpTokenEndpoint, ...rest } = options;
+
+    let tokenEndpoint = idpTokenEndpoint;
 
     if (!tokenEndpoint) {
         try {
-            const idpMetadata = await discoverAuthorizationServerMetadata(options.idpUrl, { fetchFn: options.fetchFn });
+            const idpMetadata = await discoverAuthorizationServerMetadata(idpUrl, { fetchFn: options.fetchFn });
             tokenEndpoint = idpMetadata?.token_endpoint;
         } catch {
             // Discovery failed — fall back to idpUrl
@@ -121,13 +111,7 @@ export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequest
     }
 
     return requestJwtAuthorizationGrant({
-        tokenEndpoint: tokenEndpoint ?? options.idpUrl,
-        audience: options.audience,
-        resource: options.resource,
-        idToken: options.idToken,
-        clientId: options.clientId,
-        clientSecret: options.clientSecret,
-        scope: options.scope,
-        fetchFn: options.fetchFn
+        ...rest,
+        tokenEndpoint: tokenEndpoint ?? idpUrl
     });
 }
