@@ -11,6 +11,62 @@ import type { CryptoKey, JWK } from 'jose';
 import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 
 /**
+ * Abstract base class for non-interactive (machine-to-machine) OAuthClientProvider
+ * implementations. Provides the common boilerplate shared by all M2M providers:
+ * token/client-info storage, no-op PKCE/redirect methods, and a simple
+ * `prepareTokenRequest` override point.
+ *
+ * Subclasses only need to set up `_clientInfo` / `_clientMetadata` in the
+ * constructor and optionally override `prepareTokenRequest`.
+ */
+export abstract class NonInteractiveOAuthProvider implements OAuthClientProvider {
+    protected _tokens?: OAuthTokens;
+    protected _clientInfo: OAuthClientInformation;
+    protected _clientMetadata: OAuthClientMetadata;
+
+    constructor(clientInfo: OAuthClientInformation, clientMetadata: OAuthClientMetadata) {
+        this._clientInfo = clientInfo;
+        this._clientMetadata = clientMetadata;
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): OAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    saveClientInformation(info: OAuthClientInformation): void {
+        this._clientInfo = info;
+    }
+
+    tokens(): OAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: OAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error('redirectToAuthorization is not used for non-interactive flows');
+    }
+
+    saveCodeVerifier(): void {
+        // Not used for non-interactive flows
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for non-interactive flows');
+    }
+}
+
+/**
  * Helper to produce a private_key_jwt client authentication function.
  *
  * Usage:
@@ -123,58 +179,20 @@ export interface ClientCredentialsProviderOptions {
  *   authProvider: provider
  * });
  */
-export class ClientCredentialsProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
-    private _clientMetadata: OAuthClientMetadata;
-
+export class ClientCredentialsProvider extends NonInteractiveOAuthProvider {
     constructor(options: ClientCredentialsProviderOptions) {
-        this._clientInfo = {
-            client_id: options.clientId,
-            client_secret: options.clientSecret
-        };
-        this._clientMetadata = {
-            client_name: options.clientName ?? 'client-credentials-client',
-            redirect_uris: [],
-            grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'client_secret_basic'
-        };
-    }
-
-    get redirectUrl(): undefined {
-        return undefined;
-    }
-
-    get clientMetadata(): OAuthClientMetadata {
-        return this._clientMetadata;
-    }
-
-    clientInformation(): OAuthClientInformation {
-        return this._clientInfo;
-    }
-
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
-
-    tokens(): OAuthTokens | undefined {
-        return this._tokens;
-    }
-
-    saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
-    }
-
-    redirectToAuthorization(): void {
-        throw new Error('redirectToAuthorization is not used for client_credentials flow');
-    }
-
-    saveCodeVerifier(): void {
-        // Not used for client_credentials
-    }
-
-    codeVerifier(): string {
-        throw new Error('codeVerifier is not used for client_credentials flow');
+        super(
+            {
+                client_id: options.clientId,
+                client_secret: options.clientSecret
+            },
+            {
+                client_name: options.clientName ?? 'client-credentials-client',
+                redirect_uris: [],
+                grant_types: ['client_credentials'],
+                token_endpoint_auth_method: 'client_secret_basic'
+            }
+        );
     }
 
     prepareTokenRequest(scope?: string): URLSearchParams {
@@ -232,22 +250,21 @@ export interface PrivateKeyJwtProviderOptions {
  *   authProvider: provider
  * });
  */
-export class PrivateKeyJwtProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
-    private _clientMetadata: OAuthClientMetadata;
+export class PrivateKeyJwtProvider extends NonInteractiveOAuthProvider {
     addClientAuthentication: AddClientAuthentication;
 
     constructor(options: PrivateKeyJwtProviderOptions) {
-        this._clientInfo = {
-            client_id: options.clientId
-        };
-        this._clientMetadata = {
-            client_name: options.clientName ?? 'private-key-jwt-client',
-            redirect_uris: [],
-            grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'private_key_jwt'
-        };
+        super(
+            {
+                client_id: options.clientId
+            },
+            {
+                client_name: options.clientName ?? 'private-key-jwt-client',
+                redirect_uris: [],
+                grant_types: ['client_credentials'],
+                token_endpoint_auth_method: 'private_key_jwt'
+            }
+        );
         this.addClientAuthentication = createPrivateKeyJwtAuth({
             issuer: options.clientId,
             subject: options.clientId,
@@ -255,42 +272,6 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
             alg: options.algorithm,
             lifetimeSeconds: options.jwtLifetimeSeconds
         });
-    }
-
-    get redirectUrl(): undefined {
-        return undefined;
-    }
-
-    get clientMetadata(): OAuthClientMetadata {
-        return this._clientMetadata;
-    }
-
-    clientInformation(): OAuthClientInformation {
-        return this._clientInfo;
-    }
-
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
-
-    tokens(): OAuthTokens | undefined {
-        return this._tokens;
-    }
-
-    saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
-    }
-
-    redirectToAuthorization(): void {
-        throw new Error('redirectToAuthorization is not used for client_credentials flow');
-    }
-
-    saveCodeVerifier(): void {
-        // Not used for client_credentials
-    }
-
-    codeVerifier(): string {
-        throw new Error('codeVerifier is not used for client_credentials flow');
     }
 
     prepareTokenRequest(scope?: string): URLSearchParams {
@@ -330,64 +311,27 @@ export interface StaticPrivateKeyJwtProviderOptions {
  * signing a JWT on each request, it accepts a pre-built JWT assertion string and
  * uses it directly for authentication.
  */
-export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
-    private _clientMetadata: OAuthClientMetadata;
+export class StaticPrivateKeyJwtProvider extends NonInteractiveOAuthProvider {
     addClientAuthentication: AddClientAuthentication;
 
     constructor(options: StaticPrivateKeyJwtProviderOptions) {
-        this._clientInfo = {
-            client_id: options.clientId
-        };
-        this._clientMetadata = {
-            client_name: options.clientName ?? 'static-private-key-jwt-client',
-            redirect_uris: [],
-            grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'private_key_jwt'
-        };
+        super(
+            {
+                client_id: options.clientId
+            },
+            {
+                client_name: options.clientName ?? 'static-private-key-jwt-client',
+                redirect_uris: [],
+                grant_types: ['client_credentials'],
+                token_endpoint_auth_method: 'private_key_jwt'
+            }
+        );
 
         const assertion = options.jwtBearerAssertion;
         this.addClientAuthentication = async (_headers, params) => {
             params.set('client_assertion', assertion);
             params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
         };
-    }
-
-    get redirectUrl(): undefined {
-        return undefined;
-    }
-
-    get clientMetadata(): OAuthClientMetadata {
-        return this._clientMetadata;
-    }
-
-    clientInformation(): OAuthClientInformation {
-        return this._clientInfo;
-    }
-
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
-
-    tokens(): OAuthTokens | undefined {
-        return this._tokens;
-    }
-
-    saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
-    }
-
-    redirectToAuthorization(): void {
-        throw new Error('redirectToAuthorization is not used for client_credentials flow');
-    }
-
-    saveCodeVerifier(): void {
-        // Not used for client_credentials
-    }
-
-    codeVerifier(): string {
-        throw new Error('codeVerifier is not used for client_credentials flow');
     }
 
     prepareTokenRequest(scope?: string): URLSearchParams {
@@ -478,63 +422,26 @@ export interface CrossAppAccessProviderOptions {
  * });
  * ```
  */
-export class CrossAppAccessProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
-    private _clientMetadata: OAuthClientMetadata;
+export class CrossAppAccessProvider extends NonInteractiveOAuthProvider {
     private _options: CrossAppAccessProviderOptions;
     private _authServerUrl?: string | URL;
     private _resourceUrl?: URL;
 
     constructor(options: CrossAppAccessProviderOptions) {
+        super(
+            {
+                client_id: options.clientId,
+                client_secret: options.clientSecret
+            },
+            {
+                client_name: options.clientName ?? 'cross-app-access-client',
+                redirect_uris: [],
+                grant_types: ['urn:ietf:params:oauth:grant-type:jwt-bearer'],
+                token_endpoint_auth_method: options.clientSecret ? 'client_secret_basic' : 'none',
+                scope: options.scope?.join(' ')
+            }
+        );
         this._options = options;
-        this._clientInfo = {
-            client_id: options.clientId,
-            client_secret: options.clientSecret
-        };
-        this._clientMetadata = {
-            client_name: options.clientName ?? 'cross-app-access-client',
-            redirect_uris: [],
-            grant_types: ['urn:ietf:params:oauth:grant-type:jwt-bearer'],
-            token_endpoint_auth_method: options.clientSecret ? 'client_secret_basic' : 'none',
-            scope: options.scope?.join(' ')
-        };
-    }
-
-    get redirectUrl(): undefined {
-        return undefined;
-    }
-
-    get clientMetadata(): OAuthClientMetadata {
-        return this._clientMetadata;
-    }
-
-    clientInformation(): OAuthClientInformation {
-        return this._clientInfo;
-    }
-
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
-
-    tokens(): OAuthTokens | undefined {
-        return this._tokens;
-    }
-
-    saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
-    }
-
-    redirectToAuthorization(): void {
-        throw new Error('redirectToAuthorization is not used for cross-app access flow');
-    }
-
-    saveCodeVerifier(): void {
-        // Not used for cross-app access
-    }
-
-    codeVerifier(): string {
-        throw new Error('codeVerifier is not used for cross-app access flow');
     }
 
     saveAuthorizationServerUrl(url: string | URL): void {
