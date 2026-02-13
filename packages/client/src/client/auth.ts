@@ -217,15 +217,12 @@ export interface OAuthClientProvider {
  * authorization server metadata discovery. Persisting this state avoids
  * redundant discovery HTTP requests on subsequent {@linkcode auth} calls.
  */
-export interface OAuthDiscoveryState {
-    /** The authorization server URL discovered via RFC 9728 or derived from the server URL. */
-    authorizationServerUrl: string;
+// TODO: Consider adding `authorizationServerMetadataUrl` to capture the exact well-known URL
+// at which authorization server metadata was discovered. This would require
+// `discoverAuthorizationServerMetadata()` to return the successful discovery URL.
+export interface OAuthDiscoveryState extends OAuthServerInfo {
     /** The URL at which the protected resource metadata was found, if available. */
     resourceMetadataUrl?: string;
-    /** The OAuth 2.0 Protected Resource Metadata from RFC 9728, if available. */
-    resourceMetadata?: OAuthProtectedResourceMetadata;
-    /** The authorization server metadata (endpoints, capabilities), if available. */
-    authorizationServerMetadata?: AuthorizationServerMetadata;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -489,6 +486,9 @@ async function authInternal(
         resourceMetadata = serverInfo.resourceMetadata;
 
         // Persist discovery state for future use
+        // TODO: resourceMetadataUrl is only populated when explicitly provided via options
+        // or loaded from cached state. The URL derived internally by
+        // discoverOAuthProtectedResourceMetadata() is not captured back here.
         await provider.saveDiscoveryState?.({
             authorizationServerUrl: String(authorizationServerUrl),
             resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
