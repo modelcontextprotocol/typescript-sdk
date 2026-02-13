@@ -128,8 +128,8 @@ Next steps:
 
 - Local SDK docs:
     - [docs/server.md](docs/server.md) – building MCP servers, transports, tools/resources/prompts, sampling, elicitation, tasks, and deployment patterns.
-    - [docs/client.md](docs/client.md) – using the high-level client, transports, OAuth helpers, handling server‑initiated requests, and tasks.
-    - [docs/faq.md](docs/faq.md) – environment and troubleshooting FAQs (including Node.js Web Crypto support).
+    - [docs/client.md](docs/client.md) – building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
+    - [docs/faq.md](docs/faq.md) – frequently asked questions and troubleshooting
 - External references:
     - [SDK API documentation](https://modelcontextprotocol.github.io/typescript-sdk/)
     - [Model Context Protocol documentation](https://modelcontextprotocol.io)

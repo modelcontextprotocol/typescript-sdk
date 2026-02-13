@@ -7,6 +7,7 @@
  * @module
  */
 
+//#region imports
 import {
     applyMiddlewares,
     CallToolResultSchema,
@@ -14,10 +15,14 @@ import {
     ClientCredentialsProvider,
     createMiddleware,
     PrivateKeyJwtProvider,
+    ProtocolError,
+    SdkError,
+    SdkErrorCode,
     SSEClientTransport,
     StdioClientTransport,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
+//#endregion imports
 
 // ---------------------------------------------------------------------------
 // Connecting to a server
@@ -67,6 +72,18 @@ async function connect_sseFallback(url: string) {
         return { client, transport };
     }
     //#endregion connect_sseFallback
+}
+
+// ---------------------------------------------------------------------------
+// Disconnecting
+// ---------------------------------------------------------------------------
+
+/** Example: Graceful disconnect for Streamable HTTP. */
+async function disconnect_streamableHttp(client: Client, transport: StreamableHTTPClientTransport) {
+    //#region disconnect_streamableHttp
+    await transport.terminateSession(); // notify the server (recommended)
+    await client.close();
+    //#endregion disconnect_streamableHttp
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +157,23 @@ async function readResource_basic(client: Client) {
     //#endregion readResource_basic
 }
 
+/** Example: Subscribe to resource changes. */
+async function subscribeResource_basic(client: Client) {
+    //#region subscribeResource_basic
+    await client.subscribeResource({ uri: 'config://app' });
+
+    client.setNotificationHandler('notifications/resources/updated', async notification => {
+        if (notification.params.uri === 'config://app') {
+            const { contents } = await client.readResource({ uri: 'config://app' });
+            console.log('Config updated:', contents);
+        }
+    });
+
+    // Later: stop receiving updates
+    await client.unsubscribeResource({ uri: 'config://app' });
+    //#endregion subscribeResource_basic
+}
+
 /** Example: List and get prompts. */
 async function getPrompt_basic(client: Client) {
     //#region getPrompt_basic
@@ -181,7 +215,7 @@ async function complete_basic(client: Client) {
 /** Example: Handle log messages and list-change notifications. */
 function notificationHandler_basic(client: Client) {
     //#region notificationHandler_basic
-    // Server log messages (e.g. from ctx.mcpReq.log() in tool handlers)
+    // Server log messages (sent by the server during request processing)
     client.setNotificationHandler('notifications/message', notification => {
         const { level, data } = notification.params;
         console.log(`[${level}]`, data);
@@ -193,6 +227,13 @@ function notificationHandler_basic(client: Client) {
         console.log('Resources changed:', resources.length);
     });
     //#endregion notificationHandler_basic
+}
+
+/** Example: Control server log level. */
+async function setLoggingLevel_basic(client: Client) {
+    //#region setLoggingLevel_basic
+    await client.setLoggingLevel('warning');
+    //#endregion setLoggingLevel_basic
 }
 
 /** Example: Automatic list-change tracking via the listChanged option. */
@@ -278,6 +319,86 @@ function elicitation_handler(client: Client) {
     //#endregion elicitation_handler
 }
 
+/** Example: Expose filesystem roots to the server. */
+function roots_handler(client: Client) {
+    //#region roots_handler
+    client.setRequestHandler('roots/list', async () => {
+        return {
+            roots: [
+                { uri: 'file:///home/user/projects/my-app', name: 'My App' },
+                { uri: 'file:///home/user/data', name: 'Data' }
+            ]
+        };
+    });
+    //#endregion roots_handler
+}
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
+
+/** Example: Tool errors vs protocol errors. */
+async function errorHandling_toolErrors(client: Client) {
+    //#region errorHandling_toolErrors
+    try {
+        const result = await client.callTool({
+            name: 'fetch-data',
+            arguments: { url: 'https://example.com' }
+        });
+
+        // Tool-level error: the tool ran but reported a problem
+        if (result.isError) {
+            console.error('Tool error:', result.content);
+            return;
+        }
+
+        console.log('Success:', result.content);
+    } catch (error) {
+        // Protocol-level error: the request itself failed
+        if (error instanceof ProtocolError) {
+            console.error(`Protocol error ${error.code}: ${error.message}`);
+        } else if (error instanceof SdkError) {
+            console.error(`SDK error [${error.code}]: ${error.message}`);
+        } else {
+            throw error;
+        }
+    }
+    //#endregion errorHandling_toolErrors
+}
+
+/** Example: Connection lifecycle callbacks. */
+function errorHandling_lifecycle(client: Client) {
+    //#region errorHandling_lifecycle
+    // Out-of-band errors (SSE disconnects, parse errors)
+    client.onerror = error => {
+        console.error('Transport error:', error.message);
+    };
+
+    // Connection closed (pending requests are rejected with CONNECTION_CLOSED)
+    client.onclose = () => {
+        console.log('Connection closed');
+    };
+    //#endregion errorHandling_lifecycle
+}
+
+/** Example: Custom timeouts. */
+async function errorHandling_timeout(client: Client) {
+    //#region errorHandling_timeout
+    try {
+        const result = await client.callTool(
+            { name: 'slow-task', arguments: {} },
+            undefined,
+            { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
+        );
+        console.log(result.content);
+    } catch (error) {
+        if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
+            console.error('Request timed out');
+        }
+    }
+    //#endregion errorHandling_timeout
+}
+
 // ---------------------------------------------------------------------------
 // Advanced patterns
 // ---------------------------------------------------------------------------
@@ -325,16 +446,23 @@ async function resumptionToken_basic(client: Client) {
 void connect_streamableHttp;
 void connect_stdio;
 void connect_sseFallback;
+void disconnect_streamableHttp;
 void auth_clientCredentials;
 void auth_privateKeyJwt;
 void callTool_basic;
 void readResource_basic;
+void subscribeResource_basic;
 void getPrompt_basic;
 void complete_basic;
 void notificationHandler_basic;
+void setLoggingLevel_basic;
 void listChanged_basic;
 void capabilities_declaration;
 void sampling_handler;
 void elicitation_handler;
+void roots_handler;
+void errorHandling_toolErrors;
+void errorHandling_lifecycle;
+void errorHandling_timeout;
 void middleware_basic;
 void resumptionToken_basic;
