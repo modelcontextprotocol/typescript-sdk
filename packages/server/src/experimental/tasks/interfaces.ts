@@ -41,10 +41,27 @@ export type TaskRequestHandler<ResultT extends Result, Args extends AnySchema | 
 
 /**
  * Interface for task-based tool handlers.
+ *
+ * Task-based tools split a long-running operation into three phases:
+ * `createTask`, `getTask`, and `getTaskResult`.
+ *
+ * @see {@linkcode @modelcontextprotocol/server!experimental/tasks/mcpServer.ExperimentalMcpServerTasks#registerToolTask | registerToolTask} for registration.
  * @experimental
  */
 export interface ToolTaskHandler<Args extends AnySchema | undefined = undefined> {
+    /**
+     * Called on the initial `tools/call` request.
+     *
+     * Creates a task via `ctx.task.store.createTask(...)`, starts any
+     * background work, and returns the task object.
+     */
     createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
+    /**
+     * Handler for `tasks/get` requests.
+     */
     getTask: TaskRequestHandler<GetTaskResult, Args>;
+    /**
+     * Handler for `tasks/result` requests.
+     */
     getTaskResult: TaskRequestHandler<CallToolResult, Args>;
 }

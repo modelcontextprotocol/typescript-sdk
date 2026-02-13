@@ -208,6 +208,88 @@ function registerTool_logging() {
 }
 
 // ---------------------------------------------------------------------------
+// Server-initiated requests
+// ---------------------------------------------------------------------------
+
+/** Example: Tool that uses sampling to request an LLM completion from the client. */
+function registerTool_sampling(server: McpServer) {
+    //#region registerTool_sampling
+    server.registerTool(
+        'summarize',
+        {
+            description: 'Summarize text using the client LLM',
+            inputSchema: z.object({ text: z.string() })
+        },
+        async ({ text }, ctx): Promise<CallToolResult> => {
+            const response = await ctx.mcpReq.requestSampling({
+                messages: [
+                    {
+                        role: 'user',
+                        content: {
+                            type: 'text',
+                            text: `Please summarize:\n\n${text}`
+                        }
+                    }
+                ],
+                maxTokens: 500
+            });
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Model (${response.model}): ${JSON.stringify(response.content)}`
+                    }
+                ]
+            };
+        }
+    );
+    //#endregion registerTool_sampling
+}
+
+/** Example: Tool that uses form elicitation to collect user input. */
+function registerTool_elicitation(server: McpServer) {
+    //#region registerTool_elicitation
+    server.registerTool(
+        'collect-feedback',
+        {
+            description: 'Collect user feedback via a form',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult> => {
+            const result = await ctx.mcpReq.elicitInput({
+                mode: 'form',
+                message: 'Please share your feedback:',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        rating: {
+                            type: 'number',
+                            title: 'Rating (1\u20135)',
+                            minimum: 1,
+                            maximum: 5
+                        },
+                        comment: { type: 'string', title: 'Comment' }
+                    },
+                    required: ['rating']
+                }
+            });
+            if (result.action === 'accept') {
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Thanks! ${JSON.stringify(result.content)}`
+                        }
+                    ]
+                };
+            }
+            return { content: [{ type: 'text', text: 'Feedback declined.' }] };
+        }
+    );
+    //#endregion registerTool_elicitation
+}
+
+// ---------------------------------------------------------------------------
 // Transports
 // ---------------------------------------------------------------------------
 
@@ -294,6 +376,8 @@ function dnsRebinding_allowedHosts() {
 void registerTool_basic;
 void registerTool_resourceLink;
 void registerTool_logging;
+void registerTool_sampling;
+void registerTool_elicitation;
 void registerResource_static;
 void registerResource_template;
 void registerPrompt_basic;

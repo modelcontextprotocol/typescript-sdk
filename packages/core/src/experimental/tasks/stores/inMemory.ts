@@ -31,6 +31,7 @@ export class InMemoryTaskStore implements TaskStore {
         return crypto.randomUUID().replaceAll('-', '');
     }
 
+    /** {@inheritDoc TaskStore.createTask} */
     async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task> {
         // Generate a unique task ID
         const taskId = this.generateTaskId();
@@ -96,6 +97,7 @@ export class InMemoryTaskStore implements TaskStore {
         return stored ? { ...stored.task } : null;
     }
 
+    /** {@inheritDoc TaskStore.storeTaskResult} */
     async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, sessionId?: string): Promise<void> {
         const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
@@ -129,6 +131,7 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
+    /** {@inheritDoc TaskStore.getTaskResult} */
     async getTaskResult(taskId: string, sessionId?: string): Promise<Result> {
         const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
@@ -142,6 +145,7 @@ export class InMemoryTaskStore implements TaskStore {
         return stored.result;
     }
 
+    /** {@inheritDoc TaskStore.updateTaskStatus} */
     async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, sessionId?: string): Promise<void> {
         const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
@@ -178,6 +182,7 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
+    /** {@inheritDoc TaskStore.listTasks} */
     async listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
         const PAGE_SIZE = 10;
 
