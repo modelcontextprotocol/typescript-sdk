@@ -102,8 +102,8 @@ catalogs:
       specifier: ^5.2.1
       version: 5.2.1
     hono:
-      specifier: ^4.11.4
-      version: 4.11.4
+      specifier: ^4.11.7
+      version: 4.11.8
   runtimeShared:
     '@cfworker/json-schema':
       specifier: ^4.1.1
@@ -316,7 +316,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.9(hono@4.11.4)
+        version: 1.19.9(hono@4.11.8)
       '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared
@@ -343,7 +343,7 @@ importers:
         version: 5.2.1
       hono:
         specifier: catalog:runtimeServerOnly
-        version: 4.11.4
+        version: 4.11.8
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.5
@@ -660,7 +660,7 @@ importers:
     dependencies:
       hono:
         specifier: catalog:runtimeServerOnly
-        version: 4.11.4
+        version: 4.11.8
     devDependencies:
       '@eslint/js':
         specifier: catalog:devTools
@@ -709,10 +709,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.9(hono@4.11.4)
+        version: 1.19.9(hono@4.11.8)
       hono:
         specifier: catalog:runtimeServerOnly
-        version: 4.11.4
+        version: 4.11.8
     devDependencies:
       '@eslint/js':
         specifier: catalog:devTools
@@ -840,7 +840,7 @@ importers:
         version: link:../../packages/client
       '@modelcontextprotocol/conformance':
         specifier: 0.1.10
-        version: 0.1.10(@cfworker/json-schema@4.1.1)(hono@4.11.4)
+        version: 0.1.10(@cfworker/json-schema@4.1.1)(hono@4.11.8)
       '@modelcontextprotocol/core':
         specifier: workspace:^
         version: link:../../packages/core
@@ -3282,8 +3282,8 @@ packages:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
 
-  hono@4.11.4:
-    resolution: {integrity: sha512-U7tt8JsyrxSRKspfhtLET79pU8K+tInj5QZXs1jSugO1Vq5dFj3kmZsRldo29mTBfcjDRVRXrEZ6LS63Cog9ZA==}
+  hono@4.11.8:
+    resolution: {integrity: sha512-eVkB/CYCCei7K2WElZW9yYQFWssG0DhaDhVvr7wy5jJ22K+ck8fWW0EsLpB0sITUTvPnc97+rrbQqIr5iqiy9Q==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.0.1:
@@ -4993,9 +4993,9 @@ snapshots:
       '@shikijs/types': 3.20.0
       '@shikijs/vscode-textmate': 10.0.2
 
-  '@hono/node-server@1.19.9(hono@4.11.4)':
+  '@hono/node-server@1.19.9(hono@4.11.8)':
     dependencies:
-      hono: 4.11.4
+      hono: 4.11.8
 
   '@humanfs/core@0.19.1': {}
 
@@ -5146,9 +5146,9 @@ snapshots:
       globby: 11.1.0
       read-yaml-file: 1.1.0
 
-  '@modelcontextprotocol/conformance@0.1.10(@cfworker/json-schema@4.1.1)(hono@4.11.4)':
+  '@modelcontextprotocol/conformance@0.1.10(@cfworker/json-schema@4.1.1)(hono@4.11.8)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.25.2(@cfworker/json-schema@4.1.1)(hono@4.11.4)(zod@3.25.76)
+      '@modelcontextprotocol/sdk': 1.25.2(@cfworker/json-schema@4.1.1)(hono@4.11.8)(zod@3.25.76)
       commander: 14.0.2
       eventsource-parser: 3.0.6
       express: 5.2.1
@@ -5159,9 +5159,9 @@ snapshots:
       - hono
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.25.2(@cfworker/json-schema@4.1.1)(hono@4.11.4)(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.25.2(@cfworker/json-schema@4.1.1)(hono@4.11.8)(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.9(hono@4.11.4)
+      '@hono/node-server': 1.19.9(hono@4.11.8)
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5
@@ -6770,7 +6770,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.11.4: {}
+  hono@4.11.8: {}
 
   hookable@6.0.1: {}
 
