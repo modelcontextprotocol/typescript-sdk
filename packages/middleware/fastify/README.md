@@ -42,16 +42,24 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 
 const app = createMcpFastifyApp();
-const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+const mcpServer = new McpServer({ name: 'my-server', version: '1.0.0' });
 
 app.post('/mcp', async (request, reply) => {
     // Stateless example: create a transport per request.
     // For stateful mode (sessions), keep a transport instance around and reuse it.
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await server.connect(transport);
+    await mcpServer.connect(transport);
+
+    // Clean up when the client closes the connection (e.g. during SSE streaming).
+    reply.raw.on('close', () => {
+        transport.close();
+    });
+
     await transport.handleRequest(request.raw, reply.raw, request.body);
 });
 ```
+
+If you create a new `McpServer` per request in stateless mode, also call `mcpServer.close()` in the `close` handler. To reject non-POST requests with 405 Method Not Allowed, add routes for GET and DELETE that send a JSON-RPC error response.
 
 ### Host header validation (DNS rebinding protection)
 
