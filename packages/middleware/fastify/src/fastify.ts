@@ -70,9 +70,8 @@ export function createMcpFastifyApp(options: CreateMcpFastifyAppOptions = {}): F
             app.addHook('onRequest', localhostHostValidation());
         } else if (host === '0.0.0.0' || host === '::') {
             // Warn when binding to all interfaces without DNS rebinding protection
-            // eslint-disable-next-line no-console
-            console.warn(
-                `Warning: Server is binding to ${host} without DNS rebinding protection. ` +
+            app.log.warn(
+                `Server is binding to ${host} without DNS rebinding protection. ` +
                     'Consider using the allowedHosts option to restrict allowed hosts, ' +
                     'or use authentication to protect your server.'
             );
