@@ -43,6 +43,7 @@
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "tsdown": "catalog:devTools"
+        "tsdown": "catalog:devTools",
+        "vitest": "catalog:devTools"
     }
 }

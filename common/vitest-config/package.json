@@ -1,13 +1,15 @@
 {
     "name": "@modelcontextprotocol/vitest-config",
     "private": true,
-    "main": "vitest.config.mjs",
     "type": "module",
     "exports": {
-        ".": "./vitest.config.js"
+        ".": "./vitest.config.ts"
     },
     "dependencies": {
         "typescript": "catalog:devTools"
+    },
+    "peerDependencies": {
+        "vitest": "catalog:devTools"
     },
     "repository": {
         "type": "git",

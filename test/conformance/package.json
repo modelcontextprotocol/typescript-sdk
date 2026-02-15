@@ -49,6 +49,7 @@
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
+        "vitest": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     }
 }
