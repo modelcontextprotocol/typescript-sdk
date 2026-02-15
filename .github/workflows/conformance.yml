@@ -18,16 +18,13 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         steps:
-            - uses: actions/checkout@v4
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
+            - uses: actions/checkout@v6
+            - uses: actions/setup-node@v6
               with:
-                  run_install: false
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 24
+                  node-version-file: .node-version
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
+            - run: corepack enable
             - run: pnpm install
             - run: pnpm run build:all
             - run: pnpm run test:conformance:client:all
@@ -36,16 +33,13 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         steps:
-            - uses: actions/checkout@v4
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
+            - uses: actions/checkout@v6
+            - uses: actions/setup-node@v6
               with:
-                  run_install: false
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 24
+                  node-version-file: .node-version
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
+            - run: corepack enable
             - run: pnpm install
             - run: pnpm run build:all
             - run: pnpm run test:conformance:server
