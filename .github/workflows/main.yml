@@ -17,19 +17,7 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
-              id: pnpm-install
-              with:
-                  run_install: false
-            - uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
-
-            - run: pnpm install
+            - uses: ./.github/actions/setup-node-pnpm
             - run: pnpm run check:all
             - run: pnpm run build:all
 
@@ -42,20 +30,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
-              id: pnpm-install
-              with:
-                  run_install: false
-            - uses: actions/setup-node@v6
+            - uses: ./.github/actions/setup-node-pnpm
               with:
                   node-version: ${{ matrix.node-version }}
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
-
-            - run: pnpm install
-
             - run: pnpm test:all
 
     publish:
@@ -69,20 +46,10 @@ jobs:
             id-token: write
 
         steps:
-            - uses: actions/checkout@v4
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
-              id: pnpm-install
+            - uses: actions/checkout@v6
+            - uses: ./.github/actions/setup-node-pnpm
               with:
-                  run_install: false
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
                   registry-url: 'https://registry.npmjs.org'
-            - run: pnpm install
 
             - name: Determine npm tag
               id: npm-tag
@@ -120,22 +87,11 @@ jobs:
             contents: write
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   fetch-depth: 0 # Fetch all history for all branches and tags
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
-              with:
-                  run_install: false
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
-
-            - name: Install dependencies
-              run: pnpm install
+            - uses: ./.github/actions/setup-node-pnpm
 
             - name: Configure Git
               run: |
