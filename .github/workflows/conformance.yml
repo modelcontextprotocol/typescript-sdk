@@ -22,9 +22,16 @@ jobs:
             - uses: actions/setup-node@v6
               with:
                   node-version-file: .node-version
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
             - run: corepack enable
+            - name: Get pnpm store directory
+              shell: bash
+              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+            - uses: actions/cache@v4
+              with:
+                  path: ${{ env.STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-
             - run: pnpm install
             - run: pnpm run build:all
             - run: pnpm run test:conformance:client:all
@@ -37,9 +44,16 @@ jobs:
             - uses: actions/setup-node@v6
               with:
                   node-version-file: .node-version
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
             - run: corepack enable
+            - name: Get pnpm store directory
+              shell: bash
+              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+            - uses: actions/cache@v4
+              with:
+                  path: ${{ env.STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-
             - run: pnpm install
             - run: pnpm run build:all
             - run: pnpm run test:conformance:server
