@@ -19,10 +19,15 @@ const createMockResponse = () => {
     return res as unknown as Mocked<http.ServerResponse>;
 };
 
-const createMockRequest = ({ headers = {}, body }: { headers?: Record<string, string>; body?: string } = {}) => {
+const createMockRequest = ({
+    headers = {},
+    body,
+    url = '/messages'
+}: { headers?: Record<string, string>; body?: string; url?: string } = {}) => {
     const mockReq = {
         headers,
         body: body ? body : undefined,
+        url,
         auth: {
             token: 'test-token'
         },
@@ -312,7 +317,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                                         'user-agent': 'node',
                                         'accept-encoding': 'gzip, deflate',
                                         'content-length': '124'
-                                    }
+                                    },
+                                    url: `http://127.0.0.1:${serverPort}/?sessionId=${sessionId}`
                                 })
                             }
                         ]
@@ -387,7 +393,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     id: 1
                 });
                 const mockReq = createMockRequest({
-                    headers: { 'content-type': 'application/json' },
+                    headers: { host: 'localhost', 'content-type': 'application/json' },
                     body: validMessage
                 });
                 const mockRes = createMockResponse();
@@ -416,8 +422,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         },
                         requestInfo: {
                             headers: {
+                                host: 'localhost',
                                 'content-type': 'application/json'
-                            }
+                            },
+                            url: new URL('http://localhost/messages')
                         }
                     }
                 );

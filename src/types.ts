@@ -2361,6 +2361,10 @@ export interface RequestInfo {
      * The headers of the request.
      */
     headers: IsomorphicHeaders;
+    /**
+     * The full URL of the request.
+     */
+    url?: URL;
 }
 
 /**
