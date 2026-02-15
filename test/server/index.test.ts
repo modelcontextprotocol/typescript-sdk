@@ -13,12 +13,14 @@ import {
     LATEST_PROTOCOL_VERSION,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
+    ListRootsRequestSchema,
     ListToolsRequestSchema,
     type LoggingMessageNotification,
     McpError,
     NotificationSchema,
     RequestSchema,
     ResultSchema,
+    RootsListChangedNotificationSchema,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     CreateTaskResultSchema
@@ -3276,4 +3278,329 @@ test('should respect client task capabilities', async () => {
     ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
 
     clientTaskStore.cleanup();
+});
+
+describe('roots/list', () => {
+    test('should successfully list roots when client supports roots capability', async () => {
+        const server = new Server(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    prompts: {},
+                    resources: {},
+                    tools: {},
+                    logging: {}
+                },
+                enforceStrictCapabilities: true
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    roots: {}
+                }
+            }
+        );
+
+        // Register handler for roots/list
+        client.setRequestHandler(ListRootsRequestSchema, async () => {
+            return {
+                roots: [
+                    {
+                        uri: 'file:///home/user/project',
+                        name: 'My Project'
+                    }
+                ]
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.listRoots();
+
+        expect(result.roots).toHaveLength(1);
+        expect(result.roots[0]).toEqual({
+            uri: 'file:///home/user/project',
+            name: 'My Project'
+        });
+    });
+
+    test('should handle empty roots list', async () => {
+        const server = new Server(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    prompts: {},
+                    resources: {},
+                    tools: {},
+                    logging: {}
+                },
+                enforceStrictCapabilities: true
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    roots: {}
+                }
+            }
+        );
+
+        // Return empty roots list
+        client.setRequestHandler(ListRootsRequestSchema, async () => {
+            return {
+                roots: []
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.listRoots();
+
+        expect(result.roots).toHaveLength(0);
+        expect(result.roots).toEqual([]);
+    });
+
+    test('should handle multiple roots', async () => {
+        const server = new Server(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    prompts: {},
+                    resources: {},
+                    tools: {},
+                    logging: {}
+                },
+                enforceStrictCapabilities: true
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    roots: {}
+                }
+            }
+        );
+
+        const expectedRoots = [
+            { uri: 'file:///home/user/project1', name: 'Project 1' },
+            { uri: 'file:///home/user/project2', name: 'Project 2' },
+            { uri: 'file:///var/data/shared' }
+        ];
+
+        client.setRequestHandler(ListRootsRequestSchema, async () => {
+            return { roots: expectedRoots };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.listRoots();
+
+        expect(result.roots).toHaveLength(3);
+        expect(result.roots).toEqual(expectedRoots);
+    });
+
+    test('should handle roots with optional name and _meta fields', async () => {
+        const server = new Server(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    prompts: {},
+                    resources: {},
+                    tools: {},
+                    logging: {}
+                },
+                enforceStrictCapabilities: true
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    roots: {}
+                }
+            }
+        );
+
+        const expectedRoots = [
+            // Root with all optional fields
+            {
+                uri: 'file:///home/user/project',
+                name: 'Full Project',
+                _meta: {
+                    type: 'workspace',
+                    priority: 1
+                }
+            },
+            // Root with only uri (minimal)
+            {
+                uri: 'file:///tmp/scratch'
+            },
+            // Root with name but no _meta
+            {
+                uri: 'file:///var/logs',
+                name: 'Log Directory'
+            }
+        ];
+
+        client.setRequestHandler(ListRootsRequestSchema, async () => {
+            return { roots: expectedRoots };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.listRoots();
+
+        expect(result.roots).toHaveLength(3);
+        expect(result.roots[0]).toEqual({
+            uri: 'file:///home/user/project',
+            name: 'Full Project',
+            _meta: {
+                type: 'workspace',
+                priority: 1
+            }
+        });
+        expect(result.roots[1]).toEqual({
+            uri: 'file:///tmp/scratch'
+        });
+        expect(result.roots[2]).toEqual({
+            uri: 'file:///var/logs',
+            name: 'Log Directory'
+        });
+    });
+
+    test('should send roots list changed notification', async () => {
+        const server = new Server(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    prompts: {},
+                    resources: {},
+                    tools: {},
+                    logging: {}
+                },
+                enforceStrictCapabilities: true
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    roots: {
+                        listChanged: true
+                    }
+                }
+            }
+        );
+
+        // Track if notification was received
+        let notificationReceived = false;
+
+        server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+            notificationReceived = true;
+        });
+
+        client.setRequestHandler(ListRootsRequestSchema, async () => {
+            return { roots: [] };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Send the notification
+        await client.sendRootsListChanged();
+
+        // Give a moment for the notification to be processed
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(notificationReceived).toBe(true);
+    });
+
+    test('should pass context to roots/list handler', async () => {
+        const server = new Server(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    prompts: {},
+                    resources: {},
+                    tools: {},
+                    logging: {}
+                },
+                enforceStrictCapabilities: true
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    roots: {}
+                }
+            }
+        );
+
+        let capturedExtra: unknown = null;
+
+        client.setRequestHandler(ListRootsRequestSchema, async (_request, extra) => {
+            capturedExtra = extra;
+            return { roots: [] };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await server.listRoots();
+
+        expect(capturedExtra).not.toBeNull();
+        expect(capturedExtra).toHaveProperty('sessionId');
+        expect(capturedExtra).toHaveProperty('signal');
+    });
 });
