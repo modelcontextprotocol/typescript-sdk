@@ -31,7 +31,7 @@ runs:
     - name: Setup pnpm cache
       uses: actions/cache@v4
       with:
-        path: .pnpm-store
+        path: ${{ github.workspace }}/.pnpm-store
         key: ${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
         restore-keys: |
           ${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-store-
@@ -39,5 +39,5 @@ runs:
     - name: Install dependencies
       shell: bash
       env:
-        PNPM_STORE_DIR: .pnpm-store
+        PNPM_STORE_DIR: ${{ github.workspace }}/.pnpm-store
       run: pnpm install --frozen-lockfile
