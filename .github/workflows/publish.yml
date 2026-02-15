@@ -17,25 +17,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
-
-            - name: Setup Node.js
-              uses: actions/setup-node@v6
+            - uses: ./.github/actions/setup-node-pnpm
               with:
-                  node-version-file: .node-version
                   registry-url: 'https://registry.npmjs.org'
-            - run: corepack enable
-            - name: Get pnpm store directory
-              shell: bash
-              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-            - uses: actions/cache@v4
-              with:
-                  path: ${{ env.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-store-
-
-            - name: Install dependencies
-              run: pnpm install
 
             - name: Build packages
               run: pnpm run build:all

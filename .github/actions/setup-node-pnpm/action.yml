@@ -1,0 +1,43 @@
+name: 'Setup Node with Corepack and pnpm'
+description: 'Sets up Node.js with Corepack-managed pnpm and caching'
+
+inputs:
+  node-version-file:
+    description: 'Path to Node version file'
+    required: false
+    default: '.node-version'
+  node-version:
+    description: 'Node version (overrides node-version-file)'
+    required: false
+  registry-url:
+    description: 'Registry URL for npm authentication'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      id: setup-node
+      with:
+        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ inputs.node-version && '' || inputs.node-version-file }}
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Enable Corepack
+      shell: bash
+      run: corepack enable
+
+    - name: Setup pnpm cache
+      uses: actions/cache@v4
+      with:
+        path: .pnpm-store
+        key: ${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-store-
+
+    - name: Install dependencies
+      shell: bash
+      env:
+        PNPM_STORE_DIR: .pnpm-store
+      run: pnpm install --frozen-lockfile
