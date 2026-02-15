@@ -605,6 +605,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        if (this._transport) {
+            throw new Error(
+                'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
+            );
+        }
+
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
@@ -641,6 +647,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._progressHandlers.clear();
         this._taskProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
+
+        // Abort all in-flight request handlers so they stop sending messages
+        for (const controller of this._requestHandlerAbortControllers.values()) {
+            controller.abort();
+        }
+        this._requestHandlerAbortControllers.clear();
 
         const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
 
@@ -719,6 +731,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
             sendNotification: async notification => {
+                if (abortController.signal.aborted) return;
                 // Include related-task metadata if this request is part of a task
                 const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
                 if (relatedTaskId) {
@@ -727,6 +740,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 await this.notification(notification, notificationOptions);
             },
             sendRequest: async (r, resultSchema, options?) => {
+                if (abortController.signal.aborted) {
+                    throw new McpError(ErrorCode.ConnectionClosed, 'Request was cancelled');
+                }
                 // Include related-task metadata if this request is part of a task
                 const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
                 if (relatedTaskId && !requestOptions.relatedTask) {
