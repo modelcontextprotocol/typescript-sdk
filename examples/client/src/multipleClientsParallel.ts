@@ -1,10 +1,5 @@
 import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    LoggingMessageNotificationSchema,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { CallToolResultSchema, Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Multiple Clients MCP Example
@@ -42,7 +37,7 @@ async function createAndRunClient(config: ClientConfig): Promise<{ id: string; r
     };
 
     // Set up client-specific notification handler
-    client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+    client.setNotificationHandler('notifications/message', notification => {
         console.log(`[${config.id}] Notification: ${notification.params.data}`);
     });
 
@@ -129,30 +124,34 @@ async function main(): Promise<void> {
 
         // Display results from all clients
         console.log('\n=== Final Results ===');
-        results.forEach(({ id, result }) => {
+        for (const { id, result } of results) {
             console.log(`\n[${id}] Tool result:`);
             if (Array.isArray(result.content)) {
-                result.content.forEach((item: { type: string; text?: string }) => {
+                for (const item of result.content) {
                     if (item.type === 'text' && item.text) {
                         console.log(`  ${item.text}`);
                     } else {
                         console.log(`  ${item.type} content:`, item);
                     }
-                });
+                }
             } else {
                 console.log(`  Unexpected result format:`, result);
             }
-        });
+        }
 
         console.log('\n=== All clients completed successfully ===');
     } catch (error) {
         console.error('Error running multiple clients:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
 }
 
 // Start the example
-main().catch((error: unknown) => {
-    console.error('Error running MCP multiple clients example:', error);
+try {
+    await main();
+} catch (error) {
+    console.error('Error running multiple clients:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

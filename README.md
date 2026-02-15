@@ -1,7 +1,6 @@
 # MCP TypeScript SDK
 
-> [!IMPORTANT]
-> **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
+> [!IMPORTANT] **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
 >
 > We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
 >
@@ -30,6 +29,7 @@ This repository contains the TypeScript SDK implementation of the MCP specificat
 
 - MCP **server** libraries (tools/resources/prompts, Streamable HTTP, stdio, auth helpers)
 - MCP **client** libraries (transports, high-level helpers, OAuth helpers)
+- Optional **middleware packages** for specific runtimes/frameworks (Express, Hono, Node.js HTTP)
 - Runnable **examples** (under [`examples/`](examples/))
 
 ## Packages
@@ -39,7 +39,17 @@ This monorepo publishes split packages:
 - **`@modelcontextprotocol/server`**: build MCP servers
 - **`@modelcontextprotocol/client`**: build MCP clients
 
-Both packages have a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but remains compatible with projects using Zod v3.25+.
+Both packages have a **required peer dependency** on `zod` for schema validation. The SDK uses Zod v4.
+
+### Middleware packages (optional)
+
+The SDK also publishes small “middleware” packages under [`packages/middleware/`](packages/middleware/) that help you **wire MCP into a specific runtime or web framework**.
+
+They are intentionally thin adapters: they should not introduce new MCP functionality or business logic. See [`packages/middleware/README.md`](packages/middleware/README.md) for details.
+
+- **`@modelcontextprotocol/node`**: Node.js Streamable HTTP transport wrapper for `IncomingMessage` / `ServerResponse`
+- **`@modelcontextprotocol/express`**: Express helpers (app defaults + Host header validation)
+- **`@modelcontextprotocol/hono`**: Hono helpers (app defaults + JSON body parsing hook + Host header validation)
 
 ## Installation
 
@@ -53,6 +63,23 @@ npm install @modelcontextprotocol/server zod
 
 ```bash
 npm install @modelcontextprotocol/client zod
+```
+
+### Optional middleware packages
+
+The SDK also publishes optional “middleware” packages that help you **wire MCP into a specific runtime or web framework** (for example Express, Hono, or Node.js `http`).
+
+These packages are intentionally thin adapters and should not introduce additional MCP features or business logic. See [`packages/middleware/README.md`](packages/middleware/README.md) for details.
+
+```bash
+# Node.js HTTP (IncomingMessage/ServerResponse) Streamable HTTP transport:
+npm install @modelcontextprotocol/node
+
+# Express integration:
+npm install @modelcontextprotocol/express express
+
+# Hono integration:
+npm install @modelcontextprotocol/hono hono
 ```
 
 ## Quick Start (runnable examples)
@@ -105,6 +132,7 @@ Next steps:
     - [docs/capabilities.md](docs/capabilities.md) – sampling, elicitation (form and URL), and experimental task-based execution.
     - [docs/faq.md](docs/faq.md) – environment and troubleshooting FAQs (including Node.js Web Crypto support).
 - External references:
+    - [SDK API documentation](https://modelcontextprotocol.github.io/typescript-sdk/)
     - [Model Context Protocol documentation](https://modelcontextprotocol.io)
     - [MCP Specification](https://spec.modelcontextprotocol.io)
     - [Example Servers](https://github.com/modelcontextprotocol/servers)

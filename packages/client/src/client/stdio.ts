@@ -4,7 +4,7 @@ import type { Stream } from 'node:stream';
 import { PassThrough } from 'node:stream';
 
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 
 export type StdioServerParameters = {
@@ -21,14 +21,14 @@ export type StdioServerParameters = {
     /**
      * The environment to use when spawning the process.
      *
-     * If not specified, the result of getDefaultEnvironment() will be used.
+     * If not specified, the result of {@linkcode getDefaultEnvironment} will be used.
      */
     env?: Record<string, string>;
 
     /**
      * How to handle stderr of the child process. This matches the semantics of Node's `child_process.spawn`.
      *
-     * The default is "inherit", meaning messages to stderr will be printed to the parent process's stderr.
+     * The default is `"inherit"`, meaning messages to stderr will be printed to the parent process's stderr.
      */
     stderr?: IOType | Stream | number;
 
@@ -164,10 +164,10 @@ export class StdioClientTransport implements Transport {
     }
 
     /**
-     * The stderr stream of the child process, if `StdioServerParameters.stderr` was set to "pipe" or "overlapped".
+     * The `stderr` stream of the child process, if {@linkcode StdioServerParameters.stderr} was set to `"pipe"` or `"overlapped"`.
      *
-     * If stderr piping was requested, a PassThrough stream is returned _immediately_, allowing callers to
-     * attach listeners before the start method is invoked. This prevents loss of any early
+     * If `stderr` piping was requested, a `PassThrough` stream is returned _immediately_, allowing callers to
+     * attach listeners before the `start` method is invoked. This prevents loss of any early
      * error output emitted by the child process.
      */
     get stderr(): Stream | null {
@@ -219,7 +219,7 @@ export class StdioClientTransport implements Transport {
                 // ignore
             }
 
-            await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2_000).unref())]);
+            await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
 
             if (processToClose.exitCode === null) {
                 try {
@@ -228,7 +228,7 @@ export class StdioClientTransport implements Transport {
                     // ignore
                 }
 
-                await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2_000).unref())]);
+                await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
             }
 
             if (processToClose.exitCode === null) {
@@ -246,7 +246,7 @@ export class StdioClientTransport implements Transport {
     send(message: JSONRPCMessage): Promise<void> {
         return new Promise(resolve => {
             if (!this._process?.stdin) {
-                throw new Error('Not connected');
+                throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
             }
 
             const json = serializeMessage(message);

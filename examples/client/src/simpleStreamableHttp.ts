@@ -12,18 +12,16 @@ import type {
 import {
     CallToolResultSchema,
     Client,
-    ElicitRequestSchema,
-    ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
+    InMemoryTaskStore,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
-    ResourceListChangedNotificationSchema,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
@@ -41,8 +39,8 @@ let notificationCount = 0;
 let client: Client | null = null;
 let transport: StreamableHTTPClientTransport | null = null;
 let serverUrl = 'http://localhost:3000/mcp';
-let notificationsToolLastEventId: string | undefined = undefined;
-let sessionId: string | undefined = undefined;
+let notificationsToolLastEventId: string | undefined;
+let sessionId: string | undefined;
 
 async function main(): Promise<void> {
     console.log('MCP Interactive Client');
@@ -68,6 +66,7 @@ function printHelp(): void {
     console.log('  greet [name]               - Call the greet tool');
     console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
     console.log('  collect-info [type]        - Test form elicitation with collect-user-info tool (contact/preferences/feedback)');
+    console.log('  collect-info-task [type]   - Test bidirectional task support (server+client tasks) with elicitation');
     console.log('  start-notifications [interval] [count] - Start periodic notifications');
     console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
     console.log('  list-prompts               - List available prompts');
@@ -85,27 +84,32 @@ function commandLoop(): void {
 
         try {
             switch (command) {
-                case 'connect':
+                case 'connect': {
                     await connect(args[1]);
                     break;
+                }
 
-                case 'disconnect':
+                case 'disconnect': {
                     await disconnect();
                     break;
+                }
 
-                case 'terminate-session':
+                case 'terminate-session': {
                     await terminateSession();
                     break;
+                }
 
-                case 'reconnect':
+                case 'reconnect': {
                     await reconnect();
                     break;
+                }
 
-                case 'list-tools':
+                case 'list-tools': {
                     await listTools();
                     break;
+                }
 
-                case 'call-tool':
+                case 'call-tool': {
                     if (args.length < 2) {
                         console.log('Usage: call-tool <name> [args]');
                     } else {
@@ -121,34 +125,43 @@ function commandLoop(): void {
                         await callTool(toolName, toolArgs);
                     }
                     break;
+                }
 
-                case 'greet':
+                case 'greet': {
                     await callGreetTool(args[1] || 'MCP User');
                     break;
+                }
 
-                case 'multi-greet':
+                case 'multi-greet': {
                     await callMultiGreetTool(args[1] || 'MCP User');
                     break;
+                }
 
-                case 'collect-info':
+                case 'collect-info': {
                     await callCollectInfoTool(args[1] || 'contact');
                     break;
+                }
+
+                case 'collect-info-task': {
+                    await callCollectInfoWithTask(args[1] || 'contact');
+                    break;
+                }
 
                 case 'start-notifications': {
-                    const interval = args[1] ? parseInt(args[1], 10) : 2000;
-                    const count = args[2] ? parseInt(args[2], 10) : 10;
+                    const interval = args[1] ? Number.parseInt(args[1], 10) : 2000;
+                    const count = args[2] ? Number.parseInt(args[2], 10) : 10;
                     await startNotifications(interval, count);
                     break;
                 }
 
                 case 'run-notifications-tool-with-resumability': {
-                    const interval = args[1] ? parseInt(args[1], 10) : 2000;
-                    const count = args[2] ? parseInt(args[2], 10) : 10;
+                    const interval = args[1] ? Number.parseInt(args[1], 10) : 2000;
+                    const count = args[2] ? Number.parseInt(args[2], 10) : 10;
                     await runNotificationsToolWithResumability(interval, count);
                     break;
                 }
 
-                case 'call-tool-task':
+                case 'call-tool-task': {
                     if (args.length < 2) {
                         console.log('Usage: call-tool-task <name> [args]');
                     } else {
@@ -164,12 +177,14 @@ function commandLoop(): void {
                         await callToolTask(toolName, toolArgs);
                     }
                     break;
+                }
 
-                case 'list-prompts':
+                case 'list-prompts': {
                     await listPrompts();
                     break;
+                }
 
-                case 'get-prompt':
+                case 'get-prompt': {
                     if (args.length < 2) {
                         console.log('Usage: get-prompt <name> [args]');
                     } else {
@@ -185,33 +200,39 @@ function commandLoop(): void {
                         await getPrompt(promptName, promptArgs);
                     }
                     break;
+                }
 
-                case 'list-resources':
+                case 'list-resources': {
                     await listResources();
                     break;
+                }
 
-                case 'read-resource':
+                case 'read-resource': {
                     if (args.length < 2) {
                         console.log('Usage: read-resource <uri>');
                     } else {
                         await readResource(args[1]!);
                     }
                     break;
+                }
 
-                case 'help':
+                case 'help': {
                     printHelp();
                     break;
+                }
 
                 case 'quit':
-                case 'exit':
+                case 'exit': {
                     await cleanup();
                     return;
+                }
 
-                default:
+                default: {
                     if (command) {
                         console.log(`Unknown command: ${command}`);
                     }
                     break;
+                }
             }
         } catch (error) {
             console.error(`Error executing command: ${error}`);
@@ -235,7 +256,10 @@ async function connect(url?: string): Promise<void> {
     console.log(`Connecting to ${serverUrl}...`);
 
     try {
-        // Create a new client with form elicitation capability
+        // Create task store for client-side task support
+        const clientTaskStore = new InMemoryTaskStore();
+
+        // Create a new client with form elicitation capability and task support
         client = new Client(
             {
                 name: 'example-client',
@@ -245,24 +269,48 @@ async function connect(url?: string): Promise<void> {
                 capabilities: {
                     elicitation: {
                         form: {}
+                    },
+                    tasks: {
+                        requests: {
+                            elicitation: {
+                                create: {}
+                            }
+                        }
                     }
-                }
+                },
+                taskStore: clientTaskStore
             }
         );
         client.onerror = error => {
-            console.error('\x1b[31mClient error:', error, '\x1b[0m');
+            console.error('\u001B[31mClient error:', error, '\u001B[0m');
         };
 
-        // Set up elicitation request handler with proper validation
-        client.setRequestHandler(ElicitRequestSchema, async request => {
+        // Set up elicitation request handler with proper validation and task support
+        client.setRequestHandler('elicitation/create', async (request, extra) => {
             if (request.params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
             console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);
+            console.log(`Task Creation Requested: ${request.params.task ? 'yes' : 'no'}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
+
+            // Helper to return result, optionally creating a task if requested
+            const returnResult = async (result: {
+                action: 'accept' | 'decline' | 'cancel';
+                content?: Record<string, string | number | boolean | string[]>;
+            }) => {
+                if (request.params.task && extra.task?.store) {
+                    // Create a task and store the result
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
+                    console.log(`📋 Created client-side task: ${task.taskId}`);
+                    return { task };
+                }
+                return result;
+            };
 
             const schema = request.params.requestedSchema;
             const properties = schema.properties;
@@ -279,7 +327,7 @@ async function connect(url?: string): Promise<void> {
                 attempts++;
                 console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
-                const content: Record<string, unknown> = {};
+                const content: Record<string, string | number | boolean | string[]> = {};
                 let inputCancelled = false;
 
                 // Collect input for each field
@@ -343,7 +391,7 @@ async function connect(url?: string): Promise<void> {
                     // Parse and validate the input
                     try {
                         if (answer === '' && field.default !== undefined) {
-                            content[fieldName] = field.default;
+                            content[fieldName] = field.default as string | number | boolean | string[];
                         } else if (answer === '' && !isRequired) {
                             // Skip optional empty fields
                             continue;
@@ -353,28 +401,41 @@ async function connect(url?: string): Promise<void> {
                             // Parse the value based on type
                             let parsedValue: unknown;
 
-                            if (field.type === 'boolean') {
-                                parsedValue = answer.toLowerCase() === 'true' || answer.toLowerCase() === 'yes' || answer === '1';
-                            } else if (field.type === 'number') {
-                                parsedValue = parseFloat(answer);
-                                if (isNaN(parsedValue as number)) {
-                                    throw new Error(`${fieldName} must be a valid number`);
+                            switch (field.type) {
+                                case 'boolean': {
+                                    parsedValue = answer.toLowerCase() === 'true' || answer.toLowerCase() === 'yes' || answer === '1';
+
+                                    break;
                                 }
-                            } else if (field.type === 'integer') {
-                                parsedValue = parseInt(answer, 10);
-                                if (isNaN(parsedValue as number)) {
-                                    throw new Error(`${fieldName} must be a valid integer`);
+                                case 'number': {
+                                    parsedValue = Number.parseFloat(answer);
+                                    if (Number.isNaN(parsedValue as number)) {
+                                        throw new TypeError(`${fieldName} must be a valid number`);
+                                    }
+
+                                    break;
                                 }
-                            } else if (field.enum) {
-                                if (!field.enum.includes(answer)) {
-                                    throw new Error(`${fieldName} must be one of: ${field.enum.join(', ')}`);
+                                case 'integer': {
+                                    parsedValue = Number.parseInt(answer, 10);
+                                    if (Number.isNaN(parsedValue as number)) {
+                                        throw new TypeError(`${fieldName} must be a valid integer`);
+                                    }
+
+                                    break;
                                 }
-                                parsedValue = answer;
-                            } else {
-                                parsedValue = answer;
+                                default: {
+                                    if (field.enum) {
+                                        if (!field.enum.includes(answer)) {
+                                            throw new Error(`${fieldName} must be one of: ${field.enum.join(', ')}`);
+                                        }
+                                        parsedValue = answer;
+                                    } else {
+                                        parsedValue = answer;
+                                    }
+                                }
                             }
 
-                            content[fieldName] = parsedValue;
+                            content[fieldName] = parsedValue as string | number | boolean | string[];
                         }
                     } catch (error) {
                         console.log(`❌ Error: ${error}`);
@@ -384,7 +445,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return { action: 'cancel' };
+                    return returnResult({ action: 'cancel' });
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -397,7 +458,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return returnResult({ action: 'decline' });
                     }
                 }
 
@@ -406,16 +467,17 @@ async function connect(url?: string): Promise<void> {
 
                 if (!isValid) {
                     console.log('❌ Validation errors:');
-                    validate.errors?.forEach(error => {
-                        console.log(`  - ${error.instancePath || 'root'}: ${error.message}`);
-                    });
+                    if (validate.errors)
+                        for (const error of validate.errors) {
+                            console.log(`  - ${error.instancePath || 'root'}: ${error.message}`);
+                        }
 
                     if (attempts < maxAttempts) {
                         console.log('Please correct the errors and try again...');
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return returnResult({ action: 'decline' });
                     }
                 }
 
@@ -429,25 +491,35 @@ async function connect(url?: string): Promise<void> {
                     });
                 });
 
-                if (confirmAnswer === 'yes' || confirmAnswer === 'y') {
-                    return {
-                        action: 'accept',
-                        content
-                    };
-                } else if (confirmAnswer === 'cancel' || confirmAnswer === 'c') {
-                    return { action: 'cancel' };
-                } else if (confirmAnswer === 'no' || confirmAnswer === 'n') {
-                    if (attempts < maxAttempts) {
-                        console.log('Please re-enter the information...');
-                        continue;
-                    } else {
-                        return { action: 'decline' };
+                switch (confirmAnswer) {
+                    case 'yes':
+                    case 'y': {
+                        return returnResult({
+                            action: 'accept',
+                            content
+                        });
                     }
+                    case 'cancel':
+                    case 'c': {
+                        return returnResult({ action: 'cancel' });
+                    }
+                    case 'no':
+                    case 'n': {
+                        if (attempts < maxAttempts) {
+                            console.log('Please re-enter the information...');
+                            continue;
+                        } else {
+                            return returnResult({ action: 'decline' });
+                        }
+
+                        break;
+                    }
+                    // No default
                 }
             }
 
             console.log('Maximum attempts reached. Declining request.');
-            return { action: 'decline' };
+            return returnResult({ action: 'decline' });
         });
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
@@ -455,14 +527,14 @@ async function connect(url?: string): Promise<void> {
         });
 
         // Set up notification handlers
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             notificationCount++;
             console.log(`\nNotification #${notificationCount}: ${notification.params.level} - ${notification.params.data}`);
             // Re-display the prompt
             process.stdout.write('> ');
         });
 
-        client.setNotificationHandler(ResourceListChangedNotificationSchema, async _ => {
+        client.setNotificationHandler('notifications/resources/list_changed', async _ => {
             console.log(`\nResource list changed notification received!`);
             try {
                 if (!client) {
@@ -524,7 +596,10 @@ async function terminateSession(): Promise<void> {
         console.log('Session terminated successfully');
 
         // Check if sessionId was cleared after termination
-        if (!transport.sessionId) {
+        if (transport.sessionId) {
+            console.log('Server responded with 405 Method Not Allowed (session termination not supported)');
+            console.log('Session ID is still active:', transport.sessionId);
+        } else {
             console.log('Session ID has been cleared');
             sessionId = undefined;
 
@@ -533,9 +608,6 @@ async function terminateSession(): Promise<void> {
             console.log('Transport closed after session termination');
             client = null;
             transport = null;
-        } else {
-            console.log('Server responded with 405 Method Not Allowed (session termination not supported)');
-            console.log('Session ID is still active:', transport.sessionId);
         }
     } catch (error) {
         console.error('Error terminating session:', error);
@@ -596,30 +668,47 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
 
-        result.content.forEach(item => {
-            if (item.type === 'text') {
-                console.log(`  ${item.text}`);
-            } else if (item.type === 'resource_link') {
-                const resourceLink = item as ResourceLink;
-                resourceLinks.push(resourceLink);
-                console.log(`  📁 Resource Link: ${resourceLink.name}`);
-                console.log(`     URI: ${resourceLink.uri}`);
-                if (resourceLink.mimeType) {
-                    console.log(`     Type: ${resourceLink.mimeType}`);
+        for (const item of result.content) {
+            switch (item.type) {
+                case 'text': {
+                    console.log(`  ${item.text}`);
+
+                    break;
                 }
-                if (resourceLink.description) {
-                    console.log(`     Description: ${resourceLink.description}`);
+                case 'resource_link': {
+                    const resourceLink = item as ResourceLink;
+                    resourceLinks.push(resourceLink);
+                    console.log(`  📁 Resource Link: ${resourceLink.name}`);
+                    console.log(`     URI: ${resourceLink.uri}`);
+                    if (resourceLink.mimeType) {
+                        console.log(`     Type: ${resourceLink.mimeType}`);
+                    }
+                    if (resourceLink.description) {
+                        console.log(`     Description: ${resourceLink.description}`);
+                    }
+
+                    break;
                 }
-            } else if (item.type === 'resource') {
-                console.log(`  [Embedded Resource: ${item.resource.uri}]`);
-            } else if (item.type === 'image') {
-                console.log(`  [Image: ${item.mimeType}]`);
-            } else if (item.type === 'audio') {
-                console.log(`  [Audio: ${item.mimeType}]`);
-            } else {
-                console.log(`  [Unknown content type]:`, item);
+                case 'resource': {
+                    console.log(`  [Embedded Resource: ${item.resource.uri}]`);
+
+                    break;
+                }
+                case 'image': {
+                    console.log(`  [Image: ${item.mimeType}]`);
+
+                    break;
+                }
+                case 'audio': {
+                    console.log(`  [Audio: ${item.mimeType}]`);
+
+                    break;
+                }
+                default: {
+                    console.log(`  [Unknown content type]:`, item);
+                }
             }
-        });
+        }
 
         // Offer to read resource links
         if (resourceLinks.length > 0) {
@@ -642,6 +731,12 @@ async function callMultiGreetTool(name: string): Promise<void> {
 async function callCollectInfoTool(infoType: string): Promise<void> {
     console.log(`Testing form elicitation with collect-user-info tool (${infoType})...`);
     await callTool('collect-user-info', { infoType });
+}
+
+async function callCollectInfoWithTask(infoType: string): Promise<void> {
+    console.log(`\n🔄 Testing bidirectional task support with collect-user-info-task tool (${infoType})...`);
+    console.log('This will create a task on the server, which will elicit input and create a task on the client.\n');
+    await callToolTask('collect-user-info-task', { infoType });
 }
 
 async function startNotifications(interval: number, count: number): Promise<void> {
@@ -678,13 +773,13 @@ async function runNotificationsToolWithResumability(interval: number, count: num
         });
 
         console.log('Tool result:');
-        result.content.forEach(item => {
+        for (const item of result.content) {
             if (item.type === 'text') {
                 console.log(`  ${item.text}`);
             } else {
                 console.log(`  ${item.type} content:`, item);
             }
-        });
+        }
     } catch (error) {
         console.log(`Error starting notification stream: ${error}`);
     }
@@ -732,9 +827,9 @@ async function getPrompt(name: string, args: Record<string, unknown>): Promise<v
 
         const promptResult = await client.request(promptRequest, GetPromptResultSchema);
         console.log('Prompt template:');
-        promptResult.messages.forEach((msg, index) => {
+        for (const [index, msg] of promptResult.messages.entries()) {
             console.log(`  [${index + 1}] ${msg.role}: ${msg.content.type === 'text' ? msg.content.text : JSON.stringify(msg.content)}`);
-        });
+        }
     } catch (error) {
         console.log(`Error getting prompt ${name}: ${error}`);
     }
@@ -827,10 +922,9 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
                 name,
                 arguments: args
             },
-            CallToolResultSchema,
             {
                 task: {
-                    ttl: 60000 // Keep results for 60 seconds
+                    ttl: 60_000 // Keep results for 60 seconds
                 }
             }
         );
@@ -840,26 +934,30 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
         let lastStatus = '';
         for await (const message of stream) {
             switch (message.type) {
-                case 'taskCreated':
+                case 'taskCreated': {
                     console.log('Task created successfully with ID:', message.task.taskId);
                     break;
-                case 'taskStatus':
+                }
+                case 'taskStatus': {
                     if (lastStatus !== message.task.status) {
                         console.log(`  ${message.task.status}${message.task.statusMessage ? ` - ${message.task.statusMessage}` : ''}`);
                     }
                     lastStatus = message.task.status;
                     break;
-                case 'result':
+                }
+                case 'result': {
                     console.log('Task completed!');
                     console.log('Tool result:');
-                    message.result.content.forEach(item => {
+                    for (const item of message.result.content) {
                         if (item.type === 'text') {
                             console.log(`  ${item.text}`);
                         }
-                    });
+                    }
                     break;
-                case 'error':
+                }
+                case 'error': {
                     throw message.error;
+                }
             }
         }
     } catch (error) {
@@ -891,6 +989,7 @@ async function cleanup(): Promise<void> {
     process.stdin.setRawMode(false);
     readline.close();
     console.log('\nGoodbye!');
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(0);
 }
 
@@ -921,7 +1020,10 @@ process.on('SIGINT', async () => {
 });
 
 // Start the interactive client
-main().catch((error: unknown) => {
+try {
+    await main();
+} catch (error) {
     console.error('Error running MCP client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

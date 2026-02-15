@@ -7,7 +7,9 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    normalizeHeaders
+    normalizeHeaders,
+    SdkError,
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
@@ -17,19 +19,10 @@ import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
     initialReconnectionDelay: 1000,
-    maxReconnectionDelay: 30000,
+    maxReconnectionDelay: 30_000,
     reconnectionDelayGrowFactor: 1.5,
     maxRetries: 2
 };
-
-export class StreamableHTTPError extends Error {
-    constructor(
-        public readonly code: number | undefined,
-        message: string | undefined
-    ) {
-        super(`Streamable HTTP error: ${message}`);
-    }
-}
 
 /**
  * Options for starting or authenticating an SSE connection
@@ -51,13 +44,13 @@ export interface StartSSEOptions {
 
     /**
      * Override Message ID to associate with the replay message
-     * so that response can be associate with the new resumed request.
+     * so that the response can be associated with the new resumed request.
      */
     replayMessageId?: string | number;
 }
 
 /**
- * Configuration options for reconnection behavior of the StreamableHTTPClientTransport.
+ * Configuration options for reconnection behavior of the {@linkcode StreamableHTTPClientTransport}.
  */
 export interface StreamableHTTPReconnectionOptions {
     /**
@@ -86,7 +79,7 @@ export interface StreamableHTTPReconnectionOptions {
 }
 
 /**
- * Configuration options for the `StreamableHTTPClientTransport`.
+ * Configuration options for the {@linkcode StreamableHTTPClientTransport}.
  */
 export type StreamableHTTPClientTransportOptions = {
     /**
@@ -95,13 +88,13 @@ export type StreamableHTTPClientTransportOptions = {
      * When an `authProvider` is specified and the connection is started:
      * 1. The connection is attempted with any existing access token from the `authProvider`.
      * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, `OAuthClientProvider.redirectToAuthorization` is called, and an `UnauthorizedError` will be thrown from `connect`/`start`.
+     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode index.Protocol.connect | connect}/{@linkcode StreamableHTTPClientTransport.start | start}.
      *
-     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call `StreamableHTTPClientTransport.finishAuth` with the authorization code before retrying the connection.
+     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call {@linkcode StreamableHTTPClientTransport.finishAuth} with the authorization code before retrying the connection.
      *
-     * If an `authProvider` is not provided, and auth is required, an `UnauthorizedError` will be thrown.
+     * If an `authProvider` is not provided, and auth is required, an {@linkcode UnauthorizedError} will be thrown.
      *
-     * `UnauthorizedError` might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
+     * {@linkcode UnauthorizedError} might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
      */
     authProvider?: OAuthClientProvider;
 
@@ -129,7 +122,7 @@ export type StreamableHTTPClientTransportOptions = {
 
 /**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
- * It will connect to a server using HTTP POST for sending messages and HTTP GET with Server-Sent Events
+ * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
  */
 export class StreamableHTTPClientTransport implements Transport {
@@ -248,7 +241,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new StreamableHTTPError(response.status, `Failed to open SSE stream: ${response.statusText}`);
+                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
             }
 
             this._handleSseStream(response.body, options, true);
@@ -259,7 +255,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Calculates the next reconnection delay using  backoff algorithm
+     * Calculates the next reconnection delay using a backoff algorithm
      *
      * @param attempt Current reconnection attempt count for the specific stream
      * @returns Time to wait in milliseconds before next reconnection attempt
@@ -467,9 +463,9 @@ export class StreamableHTTPClientTransport implements Transport {
             const { resumptionToken, onresumptiontoken } = options || {};
 
             if (resumptionToken) {
-                // If we have at last event ID, we need to reconnect the SSE stream
-                this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(err =>
-                    this.onerror?.(err)
+                // If we have a last event ID, we need to reconnect the SSE stream
+                this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
+                    error => this.onerror?.(error)
                 );
                 return;
             }
@@ -500,7 +496,10 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     // Prevent infinite recursion when server returns 401 after successful auth
                     if (this._hasCompletedAuthFlow) {
-                        throw new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after successful authentication', {
+                            status: 401,
+                            text
+                        });
                     }
 
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -531,7 +530,10 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Check if we've already tried upscoping with this header to prevent infinite loops.
                         if (this._lastUpscopingHeader === wwwAuthHeader) {
-                            throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
+                            throw new SdkError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
+                                status: 403,
+                                text
+                            });
                         }
 
                         if (scope) {
@@ -559,7 +561,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
+                throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
+                    status: response.status,
+                    text
+                });
             }
 
             // Reset auth loop flag on successful response
@@ -573,7 +578,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
                     // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(err => this.onerror?.(err));
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
                 }
                 return;
             }
@@ -581,7 +586,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // Get original message(s) for detecting request IDs
             const messages = Array.isArray(message) ? message : [message];
 
-            const hasRequests = messages.filter(msg => 'method' in msg && 'id' in msg && msg.id !== undefined).length > 0;
+            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
 
             // Check the response type
             const contentType = response.headers.get('content-type');
@@ -604,7 +609,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 } else {
                     await response.text?.().catch(() => {});
-                    throw new StreamableHTTPError(-1, `Unexpected content type: ${contentType}`);
+                    throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, `Unexpected content type: ${contentType}`, {
+                        contentType
+                    });
                 }
             } else {
                 // No requests in message but got 200 OK - still need to release connection
@@ -621,14 +628,14 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Terminates the current session by sending a DELETE request to the server.
+     * Terminates the current session by sending a `DELETE` request to the server.
      *
      * Clients that no longer need a particular session
      * (e.g., because the user is leaving the client application) SHOULD send an
-     * HTTP DELETE to the MCP endpoint with the Mcp-Session-Id header to explicitly
+     * HTTP `DELETE` to the MCP endpoint with the `Mcp-Session-Id` header to explicitly
      * terminate the session.
      *
-     * The server MAY respond with HTTP 405 Method Not Allowed, indicating that
+     * The server MAY respond with HTTP `405 Method Not Allowed`, indicating that
      * the server does not allow clients to terminate sessions.
      */
     async terminateSession(): Promise<void> {
@@ -652,7 +659,10 @@ export class StreamableHTTPClientTransport implements Transport {
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
-                throw new StreamableHTTPError(response.status, `Failed to terminate session: ${response.statusText}`);
+                throw new SdkError(SdkErrorCode.ClientHttpFailedToTerminateSession, `Failed to terminate session: ${response.statusText}`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
             }
 
             this._sessionId = undefined;
@@ -671,7 +681,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     /**
      * Resume an SSE stream from a previous event ID.
-     * Opens a GET SSE connection with Last-Event-ID header to replay missed events.
+     * Opens a `GET` SSE connection with `Last-Event-ID` header to replay missed events.
      *
      * @param lastEventId The event ID to resume from
      * @param options Optional callback to receive new resumption tokens

@@ -9,8 +9,10 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { type Request, type Response } from 'express';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
+import type { Request, Response } from 'express';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed
@@ -31,8 +33,7 @@ const mcpServer = new McpServer(
 mcpServer.registerTool(
     'register_user',
     {
-        description: 'Register a new user account by collecting their information',
-        inputSchema: {}
+        description: 'Register a new user account by collecting their information'
     },
     async () => {
         try {
@@ -130,8 +131,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
     'create_event',
     {
-        description: 'Create a calendar event by collecting event details',
-        inputSchema: {}
+        description: 'Create a calendar event by collecting event details'
     },
     async () => {
         try {
@@ -235,8 +235,7 @@ mcpServer.registerTool(
 mcpServer.registerTool(
     'update_shipping_address',
     {
-        description: 'Update shipping address with validation',
-        inputSchema: {}
+        description: 'Update shipping address with validation'
     },
     async () => {
         try {
@@ -316,12 +315,12 @@ mcpServer.registerTool(
 );
 
 async function main() {
-    const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+    const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
 
     const app = createMcpExpressApp();
 
     // Map to store transports by session ID
-    const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+    const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
     // MCP POST endpoint
     const mcpPostHandler = async (req: Request, res: Response) => {
@@ -331,13 +330,13 @@ async function main() {
         }
 
         try {
-            let transport: StreamableHTTPServerTransport;
+            let transport: NodeStreamableHTTPServerTransport;
             if (sessionId && transports[sessionId]) {
                 // Reuse existing transport for this session
                 transport = transports[sessionId];
             } else if (!sessionId && isInitializeRequest(req.body)) {
                 // New initialization request - create new transport
-                transport = new StreamableHTTPServerTransport({
+                transport = new NodeStreamableHTTPServerTransport({
                     sessionIdGenerator: () => randomUUID(),
                     onsessioninitialized: sessionId => {
                         // Store the transport by session ID when session is initialized
@@ -365,7 +364,7 @@ async function main() {
                 res.status(400).json({
                     jsonrpc: '2.0',
                     error: {
-                        code: -32000,
+                        code: -32_000,
                         message: 'Bad Request: No valid session ID provided'
                     },
                     id: null
@@ -381,7 +380,7 @@ async function main() {
                 res.status(500).json({
                     jsonrpc: '2.0',
                     error: {
-                        code: -32603,
+                        code: -32_603,
                         message: 'Internal server error'
                     },
                     id: null
@@ -434,6 +433,7 @@ async function main() {
     app.listen(PORT, error => {
         if (error) {
             console.error('Failed to start server:', error);
+            // eslint-disable-next-line unicorn/no-process-exit
             process.exit(1);
         }
         console.log(`Form elicitation example server is running on http://localhost:${PORT}/mcp`);
@@ -463,7 +463,10 @@ async function main() {
     });
 }
 
-main().catch(error => {
+try {
+    await main();
+} catch (error) {
     console.error('Server error:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

@@ -1,4 +1,4 @@
-import type { McpError, Result, Task } from '../types/types.js';
+import type { Result, Task } from '../types/types.js';
 
 /**
  * Base message type
@@ -36,12 +36,12 @@ export interface ResultMessage<T extends Result> extends BaseResponseMessage {
  */
 export interface ErrorMessage extends BaseResponseMessage {
     type: 'error';
-    error: McpError;
+    error: Error;
 }
 
 /**
  * Union type representing all possible messages that can be yielded during request processing.
- * Note: Progress notifications are handled through the existing onprogress callback mechanism.
+ * Note: Progress notifications are handled through the existing {@linkcode index.RequestOptions | onprogress} callback mechanism.
  * Side-channeled messages (server requests/notifications) are handled through registered handlers.
  */
 export type ResponseMessage<T extends Result> = TaskStatusMessage | TaskCreatedMessage | ResultMessage<T> | ErrorMessage;

@@ -9,23 +9,20 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
-import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/server';
 import {
-    checkResourceAllowed,
-    createMcpExpressApp,
+    createProtectedResourceMetadataRouter,
     getOAuthProtectedResourceMetadataUrl,
-    isInitializeRequest,
-    mcpAuthMetadataRouter,
-    McpServer,
     requireBearerAuth,
-    StreamableHTTPServerTransport,
-    UrlElicitationRequiredError
-} from '@modelcontextprotocol/server';
+    setupAuthServer
+} from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 import { InMemoryEventStore } from './inMemoryEventStore.js';
 
@@ -45,16 +42,16 @@ const getServer = () => {
         'payment-confirm',
         {
             description: 'A tool that confirms a payment directly with a user',
-            inputSchema: {
+            inputSchema: z.object({
                 cartId: z.string().describe('The ID of the cart to confirm')
-            }
+            })
         },
-        async ({ cartId }, extra): Promise<CallToolResult> => {
+        async ({ cartId }, ctx): Promise<CallToolResult> => {
             /*
         In a real world scenario, there would be some logic here to check if the user has the provided cartId.
         For the purposes of this example, we'll throw an error (-> elicits the client to open a URL to confirm payment)
         */
-            const sessionId = extra.sessionId;
+            const sessionId = ctx.sessionId;
             if (!sessionId) {
                 throw new Error('Expected a Session ID');
             }
@@ -78,19 +75,19 @@ const getServer = () => {
         'third-party-auth',
         {
             description: 'A demo tool that requires third-party OAuth credentials',
-            inputSchema: {
+            inputSchema: z.object({
                 param1: z.string().describe('First parameter')
-            }
+            })
         },
-        async (_, extra): Promise<CallToolResult> => {
+        async (_, ctx): Promise<CallToolResult> => {
             /*
         In a real world scenario, there would be some logic here to check if we already have a valid access token for the user.
-        Auth info (with a subject or `sub` claim) can be typically be found in `extra.authInfo`.
+        Auth info (with a subject or `sub` claim) can be typically be found in `ctx.http?.authInfo`.
         If we do, we can just return the result of the tool call.
         If we don't, we can throw an ElicitationRequiredError to request the user to authenticate.
         For the purposes of this example, we'll throw an error (-> elicits the client to open a URL to authenticate).
       */
-            const sessionId = extra.sessionId;
+            const sessionId = ctx.sessionId;
             if (!sessionId) {
                 throw new Error('Expected a Session ID');
             }
@@ -218,8 +215,8 @@ function completeURLElicitation(elicitationId: string) {
     elicitation.completeResolver();
 }
 
-const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
-const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
+const MCP_PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = createMcpExpressApp();
 
@@ -238,63 +235,18 @@ let authMiddleware = null;
 const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
 const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true });
+setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: true });
 
-const tokenVerifier = {
-    verifyAccessToken: async (token: string) => {
-        const endpoint = oauthMetadata.introspection_endpoint;
-
-        if (!endpoint) {
-            throw new Error('No token verification endpoint available in metadata');
-        }
-
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({
-                token: token
-            }).toString()
-        });
-
-        if (!response.ok) {
-            const text = await response.text().catch(() => null);
-            throw new Error(`Invalid or expired token: ${text}`);
-        }
-
-        const data = (await response.json()) as { aud: string; client_id: string; scope: string; exp: number };
-
-        if (!data.aud) {
-            throw new Error(`Resource Indicator (RFC8707) missing`);
-        }
-        if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
-            throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
-        }
-
-        // Convert the response to AuthInfo format
-        return {
-            token,
-            clientId: data.client_id,
-            scopes: data.scope ? data.scope.split(' ') : [],
-            expiresAt: data.exp
-        };
-    }
-};
-// Add metadata routes to the main MCP server
-app.use(
-    mcpAuthMetadataRouter({
-        oauthMetadata,
-        resourceServerUrl: mcpServerUrl,
-        scopesSupported: ['mcp:tools'],
-        resourceName: 'MCP Demo Server'
-    })
-);
+// Add protected resource metadata route to the MCP server
+// This allows clients to discover the auth server
+// Pass the resource path so metadata is served at /.well-known/oauth-protected-resource/mcp
+app.use(createProtectedResourceMetadataRouter('/mcp'));
 
 authMiddleware = requireBearerAuth({
-    verifier: tokenVerifier,
     requiredScopes: [],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+    strictResource: true,
+    expectedResource: mcpServerUrl
 });
 
 /**
@@ -326,15 +278,17 @@ async function sendApiKeyElicitation(
         });
 
         switch (result.action) {
-            case 'accept':
+            case 'accept': {
                 console.log('🔑 URL elicitation demo: Client accepted the API key elicitation (now pending form submission)');
                 // Wait for the API key to be submitted via the form
                 // The form submission will complete the elicitation
                 break;
-            default:
+            }
+            default: {
                 console.log('🔑 URL elicitation demo: Client declined to provide an API key');
                 // In a real app, this might close the connection, but for the demo, we'll continue
                 break;
+            }
         }
     } catch (error) {
         console.error('Error during API key elicitation:', error);
@@ -408,7 +362,7 @@ app.post('/api-key-form', express.urlencoded(), (req: Request, res: Response) =>
     }
 
     // A real app might store this API key to be used later for the user.
-    console.log(`🔑 Received API key \x1b[32m${apiKey}\x1b[0m for session ${sessionId}`);
+    console.log(`🔑 Received API key \u001B[32m${apiKey}\u001B[0m for session ${sessionId}`);
 
     // If we have an elicitationId, complete the elicitation
     completeURLElicitation(elicitationId);
@@ -594,7 +548,7 @@ app.post('/confirm-payment', express.urlencoded(), (req: Request, res: Response)
 });
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 // Interface for a function that can send an elicitation request
 type ElicitationSender = (params: ElicitRequestURLParams) => Promise<ElicitResult>;
@@ -613,7 +567,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
     console.debug(`Received MCP POST for session: ${sessionId || 'unknown'}`);
 
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
@@ -621,7 +575,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             const server = getServer();
             // New initialization request
             const eventStore = new InMemoryEventStore();
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore, // Enable resumability
                 onsessioninitialized: sessionId => {
@@ -657,7 +611,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32000,
+                    code: -32_000,
                     message: 'Bad Request: No valid session ID provided'
                 },
                 id: null
@@ -674,7 +628,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -752,9 +706,11 @@ app.delete('/mcp', authMiddleware, mcpDeleteHandler);
 app.listen(MCP_PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
+    console.log(`  Protected Resource Metadata: http://localhost:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
 });
 
 // Handle server shutdown

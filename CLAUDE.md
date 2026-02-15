@@ -22,6 +22,15 @@ pnpm --filter @modelcontextprotocol/core test -- path/to/file.test.ts
 pnpm --filter @modelcontextprotocol/core test -- -t "test name"
 ```
 
+## Breaking Changes
+
+When making breaking changes, document them in **both**:
+
+- `docs/migration.md` — human-readable guide with before/after code examples
+- `docs/migration-SKILL.md` — LLM-optimized mapping tables for mechanical migration
+
+Include what changed, why, and how to migrate. Search for related sections and group related changes together rather than adding new standalone sections.
+
 ## Code Style Guidelines
 
 - **TypeScript**: Strict type checking, ES modules, explicit return types
@@ -31,6 +40,12 @@ pnpm --filter @modelcontextprotocol/core test -- -t "test name"
 - **Formatting**: 2-space indentation, semicolons required, single quotes preferred
 - **Testing**: Co-locate tests with source files, use descriptive test names
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
+
+### JSDoc `@example` Code Snippets
+
+JSDoc `@example` tags should pull type-checked code from companion `.examples.ts` files (e.g., `client.ts` → `client.examples.ts`). Use `` ```ts source="./file.examples.ts#regionName" `` fences referencing `//#region regionName` blocks; region names follow `exportedName_variant` or `ClassName_methodName_variant` pattern (e.g., `applyMiddlewares_basicUsage`, `Client_connect_basicUsage`). For whole-file inclusion (any file type), omit the `#regionName`.
+
+Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdown files.
 
 ## Architecture Overview
 
@@ -64,10 +79,14 @@ Transports (`packages/core/src/shared/transport.ts`) provide the communication l
 ### Client-Side Features
 
 - **Auth**: OAuth client support in `packages/client/src/client/auth.ts` and `packages/client/src/client/auth-extensions.ts`
-- **Middleware**: Request middleware in `packages/client/src/client/middleware.ts`
+- **Client middleware**: Request middleware in `packages/client/src/client/middleware.ts` (unrelated to the framework adapter packages below)
 - **Sampling**: Clients can handle `sampling/createMessage` requests from servers (LLM completions)
 - **Elicitation**: Clients can handle `elicitation/create` requests for user input (form or URL mode)
 - **Roots**: Clients can expose filesystem roots to servers via `roots/list`
+
+### Middleware packages (framework/runtime adapters)
+
+The repo also ships “middleware” packages under `packages/middleware/` (e.g. `@modelcontextprotocol/express`, `@modelcontextprotocol/hono`, `@modelcontextprotocol/node`). These are thin integration layers for specific frameworks/runtimes and should not add new MCP functionality.
 
 ### Experimental Features
 
@@ -75,12 +94,11 @@ Located in `packages/*/src/experimental/`:
 
 - **Tasks**: Long-running task support with polling/resumption (`packages/core/src/experimental/tasks/`)
 
-### Zod Compatibility
+### Zod Schemas
 
-The SDK uses `zod/v4` internally but supports both v3 and v4 APIs. Compatibility utilities:
+The SDK uses `zod/v4` internally. Schema utilities live in:
 
-- `packages/core/src/util/zod-compat.ts` - Schema parsing helpers that work across versions
-- `packages/core/src/util/zod-json-schema-compat.ts` - Converts Zod schemas to JSON Schema
+- `packages/core/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
 
 ### Validation
 
@@ -132,37 +150,51 @@ When a request arrives from the remote side:
 2. **`Protocol.connect()`** routes to `_onrequest()`, `_onresponse()`, or `_onnotification()`
 3. **`Protocol._onrequest()`**:
     - Looks up handler in `_requestHandlers` map (keyed by method name)
-    - Creates `RequestHandlerExtra` with `signal`, `sessionId`, `sendNotification`, `sendRequest`
+    - Creates `BaseContext` with `signal`, `sessionId`, `sendNotification`, `sendRequest`, etc.
+    - Calls `buildContext()` to let subclasses enrich the context (e.g., Server adds `requestInfo`)
     - Invokes handler, sends JSON-RPC response back via transport
-4. **Handler** was registered via `setRequestHandler(Schema, handler)`
+4. **Handler** was registered via `setRequestHandler('method', handler)`
 
 ### Handler Registration
 
 ```typescript
 // In Client (for server→client requests like sampling, elicitation)
-client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+client.setRequestHandler('sampling/createMessage', async (request, ctx) => {
   // Handle sampling request from server
   return { role: "assistant", content: {...}, model: "..." };
 });
 
 // In Server (for client→server requests like tools/call)
-server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+server.setRequestHandler('tools/call', async (request, ctx) => {
   // Handle tool call from client
   return { content: [...] };
 });
 ```
 
-### Request Handler Extra
+### Request Handler Context
 
-The `extra` parameter in handlers (`RequestHandlerExtra`) provides:
+The `ctx` parameter in handlers provides a structured context:
 
-- `signal`: AbortSignal for cancellation
-- `sessionId`: Transport session identifier
-- `authInfo`: Validated auth token info (if authenticated)
-- `requestId`: JSON-RPC message ID
-- `sendNotification(notification)`: Send related notification back
-- `sendRequest(request, schema)`: Send related request (for bidirectional flows)
-- `taskStore`: Task storage interface (if tasks enabled)
+**`BaseContext`** (common to both Server and Client), fields organized into nested groups:
+
+- `sessionId?`: Transport session identifier
+- `mcpReq`: Request-level concerns
+  - `id`: JSON-RPC message ID
+  - `method`: Request method string (e.g., 'tools/call')
+  - `_meta?`: Request metadata
+  - `signal`: AbortSignal for cancellation
+  - `send(request, schema, options?)`: Send related request (for bidirectional flows)
+  - `notify(notification)`: Send related notification back
+- `http?`: HTTP transport info (undefined for stdio)
+  - `authInfo?`: Validated auth token info
+- `task?`: Task context (`{ id?, store, requestedTtl? }`) when task storage is configured
+
+**`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:
+
+- `mcpReq` adds: `log(level, data, logger?)`, `elicitInput(params, options?)`, `requestSampling(params, options?)`
+- `http?` adds: `req?` (HTTP request info), `closeSSE?`, `closeStandaloneSSE?`
+
+**`ClientContext`** is currently identical to `BaseContext`.
 
 ### Capability Checking
 
@@ -193,7 +225,7 @@ const result = await server.createMessage({
 });
 
 // Client must have registered handler:
-client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
+client.setRequestHandler('sampling/createMessage', async (request, extra) => {
   // Client-side LLM call
   return { role: "assistant", content: {...} };
 });
@@ -204,7 +236,7 @@ client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
 ### Request Handler Registration (Low-Level Server)
 
 ```typescript
-server.setRequestHandler(SomeRequestSchema, async (request, extra) => {
+server.setRequestHandler('tools/call', async (request, extra) => {
     // extra contains sessionId, authInfo, sendNotification, etc.
     return {
         /* result */
@@ -224,7 +256,8 @@ mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, extra) => {
 
 ```typescript
 // Server
-const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+// (Node.js IncomingMessage/ServerResponse wrapper; exported by @modelcontextprotocol/node)
+const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
 await server.connect(transport);
 
 // Client

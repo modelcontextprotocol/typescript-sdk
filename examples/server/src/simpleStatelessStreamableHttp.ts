@@ -1,5 +1,7 @@
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -18,9 +20,9 @@ const getServer = () => {
         'greeting-template',
         {
             description: 'A simple greeting prompt template',
-            argsSchema: {
+            argsSchema: z.object({
                 name: z.string().describe('Name to include in greeting')
-            }
+            })
         },
         async ({ name }): Promise<GetPromptResult> => {
             return {
@@ -42,25 +44,19 @@ const getServer = () => {
         'start-notification-stream',
         {
             description: 'Starts sending periodic notifications for testing resumability',
-            inputSchema: {
+            inputSchema: z.object({
                 interval: z.number().describe('Interval in milliseconds between notifications').default(100),
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(10)
-            }
+            })
         },
-        async ({ interval, count }, extra): Promise<CallToolResult> => {
+        async ({ interval, count }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
             let counter = 0;
 
             while (count === 0 || counter < count) {
                 counter++;
                 try {
-                    await server.sendLoggingMessage(
-                        {
-                            level: 'info',
-                            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-                        },
-                        extra.sessionId
-                    );
+                    await ctx.mcpReq.log('info', `Periodic notification #${counter} at ${new Date().toISOString()}`);
                 } catch (error) {
                     console.error('Error sending notification:', error);
                 }
@@ -103,7 +99,7 @@ const app = createMcpExpressApp();
 app.post('/mcp', async (req: Request, res: Response) => {
     const server = getServer();
     try {
-        const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+        const transport: NodeStreamableHTTPServerTransport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: undefined
         });
         await server.connect(transport);
@@ -119,7 +115,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -134,7 +130,7 @@ app.get('/mcp', async (req: Request, res: Response) => {
         JSON.stringify({
             jsonrpc: '2.0',
             error: {
-                code: -32000,
+                code: -32_000,
                 message: 'Method not allowed.'
             },
             id: null
@@ -148,7 +144,7 @@ app.delete('/mcp', async (req: Request, res: Response) => {
         JSON.stringify({
             jsonrpc: '2.0',
             error: {
-                code: -32000,
+                code: -32_000,
                 message: 'Method not allowed.'
             },
             id: null
@@ -161,6 +157,7 @@ const PORT = 3000;
 app.listen(PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
@@ -169,5 +166,6 @@ app.listen(PORT, error => {
 // Handle server shutdown
 process.on('SIGINT', async () => {
     console.log('Shutting down server...');
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(0);
 });

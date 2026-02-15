@@ -9,28 +9,24 @@ import type {
     AnyObjectSchema,
     CallToolRequest,
     CancelTaskResult,
-    ClientRequest,
-    CompatibilityCallToolResultSchema,
     GetTaskResult,
     ListTasksResult,
-    Notification,
     Request,
     RequestOptions,
     ResponseMessage,
-    Result,
     SchemaOutput
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
 /**
- * Internal interface for accessing Client's private methods.
+ * Internal interface for accessing {@linkcode Client}'s private methods.
  * @internal
  */
-interface ClientInternal<RequestT extends Request> {
+interface ClientInternal {
     requestStream<T extends AnyObjectSchema>(
-        request: ClientRequest | RequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void>;
@@ -49,56 +45,54 @@ interface ClientInternal<RequestT extends Request> {
  *
  * @experimental
  */
-export class ExperimentalClientTasks<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> {
-    constructor(private readonly _client: Client<RequestT, NotificationT, ResultT>) {}
+export class ExperimentalClientTasks {
+    constructor(private readonly _client: Client) {}
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to tool execution, allowing you to
      * observe intermediate task status updates for long-running tool calls.
-     * Automatically validates structured output if the tool has an outputSchema.
+     * Automatically validates structured output if the tool has an `outputSchema`.
      *
      * @example
-     * ```typescript
+     * ```ts source="./client.examples.ts#ExperimentalClientTasks_callToolStream"
      * const stream = client.experimental.tasks.callToolStream({ name: 'myTool', arguments: {} });
      * for await (const message of stream) {
-     *   switch (message.type) {
-     *     case 'taskCreated':
-     *       console.log('Tool execution started:', message.task.taskId);
-     *       break;
-     *     case 'taskStatus':
-     *       console.log('Tool status:', message.task.status);
-     *       break;
-     *     case 'result':
-     *       console.log('Tool result:', message.result);
-     *       break;
-     *     case 'error':
-     *       console.error('Tool error:', message.error);
-     *       break;
-     *   }
+     *     switch (message.type) {
+     *         case 'taskCreated': {
+     *             console.log('Tool execution started:', message.task.taskId);
+     *             break;
+     *         }
+     *         case 'taskStatus': {
+     *             console.log('Tool status:', message.task.status);
+     *             break;
+     *         }
+     *         case 'result': {
+     *             console.log('Tool result:', message.result);
+     *             break;
+     *         }
+     *         case 'error': {
+     *             console.error('Tool error:', message.error);
+     *             break;
+     *         }
+     *     }
      * }
      * ```
      *
      * @param params - Tool call parameters (name and arguments)
-     * @param resultSchema - Zod schema for validating the result (defaults to CallToolResultSchema)
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
-    async *callToolStream<T extends typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema>(
+    async *callToolStream(
         params: CallToolRequest['params'],
-        resultSchema: T = CallToolResultSchema as T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<typeof CallToolResultSchema>>, void, void> {
         // Access Client's internal methods
-        const clientInternal = this._client as unknown as ClientInternal<RequestT>;
+        const clientInternal = this._client as unknown as ClientInternal;
 
         // Add task creation parameters if server supports it and not explicitly provided
         const optionsWithTask = {
@@ -108,7 +102,7 @@ export class ExperimentalClientTasks<
             task: options?.task ?? (clientInternal.isToolTask(params.name) ? {} : undefined)
         };
 
-        const stream = clientInternal.requestStream({ method: 'tools/call', params }, resultSchema, optionsWithTask);
+        const stream = clientInternal.requestStream({ method: 'tools/call', params }, CallToolResultSchema, optionsWithTask);
 
         // Get the validator for this tool (if it has an output schema)
         const validator = clientInternal.getToolOutputValidator(params.name);
@@ -123,8 +117,8 @@ export class ExperimentalClientTasks<
                 if (!result.structuredContent && !result.isError) {
                     yield {
                         type: 'error',
-                        error: new McpError(
-                            ErrorCode.InvalidRequest,
+                        error: new ProtocolError(
+                            ProtocolErrorCode.InvalidRequest,
                             `Tool ${params.name} has an output schema but did not return structured content`
                         )
                     };
@@ -140,22 +134,22 @@ export class ExperimentalClientTasks<
                         if (!validationResult.valid) {
                             yield {
                                 type: 'error',
-                                error: new McpError(
-                                    ErrorCode.InvalidParams,
+                                error: new ProtocolError(
+                                    ProtocolErrorCode.InvalidParams,
                                     `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
                                 )
                             };
                             return;
                         }
                     } catch (error) {
-                        if (error instanceof McpError) {
+                        if (error instanceof ProtocolError) {
                             yield { type: 'error', error };
                             return;
                         }
                         yield {
                             type: 'error',
-                            error: new McpError(
-                                ErrorCode.InvalidParams,
+                            error: new ProtocolError(
+                                ProtocolErrorCode.InvalidParams,
                                 `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
                             )
                         };
@@ -244,27 +238,52 @@ export class ExperimentalClientTasks<
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.
      *
+     * @example
+     * ```ts source="./client.examples.ts#ExperimentalClientTasks_requestStream"
+     * const stream = client.experimental.tasks.requestStream(request, CallToolResultSchema, options);
+     * for await (const message of stream) {
+     *     switch (message.type) {
+     *         case 'taskCreated': {
+     *             console.log('Task created:', message.task.taskId);
+     *             break;
+     *         }
+     *         case 'taskStatus': {
+     *             console.log('Task status:', message.task.status);
+     *             break;
+     *         }
+     *         case 'result': {
+     *             console.log('Final result:', message.result);
+     *             break;
+     *         }
+     *         case 'error': {
+     *             console.error('Error:', message.error);
+     *             break;
+     *         }
+     *     }
+     * }
+     * ```
+     *
      * @param request - The request to send
      * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
     requestStream<T extends AnyObjectSchema>(
-        request: ClientRequest | RequestT,
+        request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         // Delegate to the client's underlying Protocol method
         type ClientWithRequestStream = {
             requestStream<U extends AnyObjectSchema>(
-                request: ClientRequest | RequestT,
+                request: Request,
                 resultSchema: U,
                 options?: RequestOptions
             ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;

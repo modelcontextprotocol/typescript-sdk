@@ -1,16 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    LoggingMessageNotificationSchema,
-    McpServer,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { CallToolResultSchema, McpServer } from '@modelcontextprotocol/server';
+import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
 /**
  * Simple in-memory EventStore for testing resumability.
@@ -33,7 +30,7 @@ class InMemoryEventStore implements EventStore {
         if (!streamId) return '';
 
         let found = false;
-        const sorted = [...this.events.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const sorted = [...this.events.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
         for (const [eventId, { streamId: sid, message }] of sorted) {
             if (sid !== streamId) continue;
             if (eventId === lastEventId) {
@@ -46,12 +43,11 @@ class InMemoryEventStore implements EventStore {
     }
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
+describe('Zod v4', () => {
     describe('Transport resumability', () => {
         let server: Server;
         let mcpServer: McpServer;
-        let serverTransport: StreamableHTTPServerTransport;
+        let serverTransport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let eventStore: InMemoryEventStore;
 
@@ -63,15 +59,17 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
             // Add a simple notification tool that completes quickly
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'send-notification',
-                'Sends a single notification',
                 {
-                    message: z.string().describe('Message to send').default('Test notification')
+                    description: 'Sends a single notification',
+                    inputSchema: z.object({
+                        message: z.string().describe('Message to send').default('Test notification')
+                    })
                 },
-                async ({ message }, { sendNotification }) => {
+                async ({ message }, ctx) => {
                     // Send notification immediately
-                    await sendNotification({
+                    await ctx.mcpReq.notify({
                         method: 'notifications/message',
                         params: {
                             level: 'info',
@@ -86,17 +84,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Add a long-running tool that sends multiple notifications
-            mcpServer.tool(
+            mcpServer.registerTool(
                 'run-notifications',
-                'Sends multiple notifications over time',
                 {
-                    count: z.number().describe('Number of notifications to send').default(10),
-                    interval: z.number().describe('Interval between notifications in ms').default(50)
+                    description: 'Sends multiple notifications over time',
+                    inputSchema: z.object({
+                        count: z.number().describe('Number of notifications to send').default(10),
+                        interval: z.number().describe('Interval between notifications in ms').default(50)
+                    })
                 },
-                async ({ count, interval }, { sendNotification }) => {
+                async ({ count, interval }, ctx) => {
                     // Send notifications at specified intervals
                     for (let i = 0; i < count; i++) {
-                        await sendNotification({
+                        await ctx.mcpReq.notify({
                             method: 'notifications/message',
                             params: {
                                 level: 'info',
@@ -117,7 +117,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Create a transport with the event store
-            serverTransport = new StreamableHTTPServerTransport({
+            serverTransport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore
             });
@@ -191,7 +191,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Set up notification handler for first client
-            client1.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client1.setNotificationHandler('notifications/message', notification => {
                 if (notification.method === 'notifications/message') {
                     notifications.push(notification.params);
                 }
@@ -247,11 +247,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // any in-progress requests, which is expected behavior
             await transport1.close();
             // Save the promise so we can catch it after closing
-            const catchPromise = toolPromise.catch(err => {
+            const catchPromise = toolPromise.catch(error => {
                 // This error is expected - the connection was intentionally closed
-                if (err?.code !== -32000) {
+                if (error?.code !== -32_000) {
                     // ConnectionClosed error code
-                    console.error('Unexpected error type during transport close:', err);
+                    console.error('Unexpected error type during transport close:', error);
                 }
             });
 
@@ -270,7 +270,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Track replayed notifications separately
             const replayedNotifications: unknown[] = [];
-            client2.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client2.setNotificationHandler('notifications/message', notification => {
                 if (notification.method === 'notifications/message') {
                     replayedNotifications.push(notification.params);
                 }

@@ -1,23 +1,25 @@
 import type { AuthorizationServerMetadata, OAuthTokens } from '@modelcontextprotocol/core';
-import { InvalidClientMetadataError, LATEST_PROTOCOL_VERSION, ServerError } from '@modelcontextprotocol/core';
-import { expect, type Mock, vi } from 'vitest';
+import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import type { Mock } from 'vitest';
+import { expect, vi } from 'vitest';
 
+import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
     auth,
     buildDiscoveryUrls,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
+    discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
     isHttpsUrl,
-    type OAuthClientProvider,
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
     startAuthorization
 } from '../../src/client/auth.js';
-import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
+import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({
@@ -29,7 +31,7 @@ vi.mock('pkce-challenge', () => ({
 
 // Mock fetch globally
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 describe('OAuth Authorization', () => {
     beforeEach(() => {
@@ -137,18 +139,13 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call with MCP header - fail with TypeError (simulating CORS error)
-                    // We need to use TypeError specifically because that's what the implementation checks for
-                    return Promise.reject(new TypeError('Network error'));
-                } else {
-                    // Second call without header - succeed
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validMetadata
-                    });
-                }
+                return callCount === 1
+                    ? Promise.reject(new TypeError('Network error'))
+                    : Promise.resolve({
+                          ok: true,
+                          status: 200,
+                          json: async () => validMetadata
+                      });
             });
 
             // Should succeed with the second call
@@ -170,13 +167,7 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call - fail with TypeError
-                    return Promise.reject(new TypeError('First failure'));
-                } else {
-                    // Second call - fail with different error
-                    return Promise.reject(new Error('Second failure'));
-                }
+                return callCount === 1 ? Promise.reject(new TypeError('First failure')) : Promise.reject(new Error('Second failure'));
             });
 
             // Should fail with the second error
@@ -608,18 +599,13 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call with MCP header - fail with TypeError (simulating CORS error)
-                    // We need to use TypeError specifically because that's what the implementation checks for
-                    return Promise.reject(new TypeError('Network error'));
-                } else {
-                    // Second call without header - succeed
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => validMetadata
-                    });
-                }
+                return callCount === 1
+                    ? Promise.reject(new TypeError('Network error'))
+                    : Promise.resolve({
+                          ok: true,
+                          status: 200,
+                          json: async () => validMetadata
+                      });
             });
 
             // Should succeed with the second call
@@ -641,13 +627,7 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation((_url, _options) => {
                 callCount++;
 
-                if (callCount === 1) {
-                    // First call - fail with TypeError
-                    return Promise.reject(new TypeError('First failure'));
-                } else {
-                    // Second call - fail with different error
-                    return Promise.reject(new Error('Second failure'));
-                }
+                return callCount === 1 ? Promise.reject(new TypeError('First failure')) : Promise.reject(new Error('Second failure'));
             });
 
             // Should fail with the second error
@@ -913,6 +893,369 @@ describe('OAuth Authorization', () => {
 
             // Verify that all discovery URLs were attempted
             expect(mockFetch).toHaveBeenCalledTimes(6); // 3 URLs × 2 attempts each (with and without headers)
+        });
+    });
+
+    describe('discoverOAuthServerInfo', () => {
+        const validResourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: ['https://auth.example.com']
+        };
+
+        const validAuthMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+            response_types_supported: ['code']
+        };
+
+        it('returns auth server from RFC 9728 protected resource metadata', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://auth.example.com');
+            expect(result.resourceMetadata).toEqual(validResourceMetadata);
+            expect(result.authorizationServerMetadata).toEqual(validAuthMetadata);
+        });
+
+        it('falls back to server URL when RFC 9728 is not supported', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                // RFC 9728 returns 404
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            ...validAuthMetadata,
+                            issuer: 'https://resource.example.com'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            // Should fall back to server URL origin
+            expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
+            expect(result.resourceMetadata).toBeUndefined();
+            expect(result.authorizationServerMetadata).toBeDefined();
+        });
+
+        it('forwards resourceMetadataUrl override to protected resource metadata discovery', async () => {
+            const overrideUrl = new URL('https://custom.example.com/.well-known/oauth-protected-resource');
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString === overrideUrl.toString()) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com', {
+                resourceMetadataUrl: overrideUrl
+            });
+
+            expect(result.resourceMetadata).toEqual(validResourceMetadata);
+            // Verify the override URL was used instead of the default well-known path
+            expect(mockFetch.mock.calls[0]![0].toString()).toBe(overrideUrl.toString());
+        });
+    });
+
+    describe('auth with provider authorization server URL caching', () => {
+        const validResourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: ['https://auth.example.com']
+        };
+
+        const validAuthMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+
+        function createMockProvider(overrides: Partial<OAuthClientProvider> = {}): OAuthClientProvider {
+            return {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'test-client-id',
+                    client_secret: 'test-client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                ...overrides
+            };
+        }
+
+        beforeEach(() => {
+            vi.clearAllMocks();
+        });
+
+        it('calls saveDiscoveryState after discovery when provider implements it', async () => {
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({ saveDiscoveryState });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadata: validResourceMetadata,
+                    authorizationServerMetadata: validAuthMetadata
+                })
+            );
+        });
+
+        it('restores full discovery state from cache including resource metadata', async () => {
+            const provider = createMockProvider({
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadata: validResourceMetadata,
+                    authorizationServerMetadata: validAuthMetadata
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            // Should NOT have called any discovery endpoints -- all from cache
+            const discoveryCalls = mockFetch.mock.calls.filter(
+                call => call[0].toString().includes('oauth-protected-resource') || call[0].toString().includes('oauth-authorization-server')
+            );
+            expect(discoveryCalls).toHaveLength(0);
+
+            // Verify the token request includes the resource parameter from cached metadata
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('resource')).toBe('https://resource.example.com/');
+        });
+
+        it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({
+                // Partial cache: auth server URL only, no metadata
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com'
+                }),
+                saveDiscoveryState,
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            // Should re-save with the enriched state including fetched metadata
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    authorizationServerMetadata: validAuthMetadata,
+                    resourceMetadata: validResourceMetadata
+                })
+            );
+        });
+
+        it('uses resourceMetadataUrl from cached discovery state for PRM discovery', async () => {
+            const cachedPrmUrl = 'https://custom.example.com/.well-known/oauth-protected-resource';
+            const provider = createMockProvider({
+                // Cache has auth server URL + resourceMetadataUrl but no resourceMetadata
+                // (simulates browser redirect where PRM URL was saved but metadata wasn't)
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadataUrl: cachedPrmUrl,
+                    authorizationServerMetadata: validAuthMetadata
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                // The cached PRM URL should be used for resource metadata discovery
+                if (urlString === cachedPrmUrl) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            // Should have used the cached PRM URL, not the default well-known path
+            const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
+            expect(prmCalls).toHaveLength(1);
+            expect(prmCalls[0]![0].toString()).toBe(cachedPrmUrl);
         });
     });
 
@@ -1265,7 +1608,9 @@ describe('OAuth Authorization', () => {
         });
 
         it('throws on error response', async () => {
-            mockFetch.mockResolvedValueOnce(Response.json(new ServerError('Token exchange failed').toResponseObject(), { status: 400 }));
+            mockFetch.mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.ServerError, 'Token exchange failed').toResponseObject(), { status: 400 })
+            );
 
             await expect(
                 exchangeAuthorization('https://auth.example.com', {
@@ -1458,7 +1803,9 @@ describe('OAuth Authorization', () => {
         });
 
         it('throws on error response', async () => {
-            mockFetch.mockResolvedValueOnce(Response.json(new ServerError('Token refresh failed').toResponseObject(), { status: 400 }));
+            mockFetch.mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.ServerError, 'Token refresh failed').toResponseObject(), { status: 400 })
+            );
 
             await expect(
                 refreshAuthorization('https://auth.example.com', {
@@ -1478,8 +1825,8 @@ describe('OAuth Authorization', () => {
         const validClientInfo = {
             client_id: 'client123',
             client_secret: 'secret123',
-            client_id_issued_at: 1612137600,
-            client_secret_expires_at: 1612224000,
+            client_id_issued_at: 1_612_137_600,
+            client_secret_expires_at: 1_612_224_000,
             ...validClientMetadata
         };
 
@@ -1544,7 +1891,9 @@ describe('OAuth Authorization', () => {
 
         it('throws on error response', async () => {
             mockFetch.mockResolvedValueOnce(
-                Response.json(new ServerError('Dynamic client registration failed').toResponseObject(), { status: 400 })
+                Response.json(new OAuthError(OAuthErrorCode.ServerError, 'Dynamic client registration failed').toResponseObject(), {
+                    status: 400
+                })
             );
 
             await expect(
@@ -1627,6 +1976,7 @@ describe('OAuth Authorization', () => {
             // redirectUrl returns undefined to indicate non-interactive flow
             const ccProvider: OAuthClientProvider = {
                 get redirectUrl() {
+                    // eslint-disable-next-line unicorn/no-useless-undefined
                     return undefined;
                 },
                 get clientMetadata() {
@@ -1712,8 +2062,8 @@ describe('OAuth Authorization', () => {
                         json: async () => ({
                             client_id: 'test-client-id',
                             client_secret: 'test-client-secret',
-                            client_id_issued_at: 1612137600,
-                            client_secret_expires_at: 1612224000,
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
                             redirect_uris: ['http://localhost:3000/callback'],
                             client_name: 'Test Client'
                         })
@@ -1784,8 +2134,8 @@ describe('OAuth Authorization', () => {
                         json: async () => ({
                             client_id: 'test-client-id',
                             client_secret: 'test-client-secret',
-                            client_id_issued_at: 1612137600,
-                            client_secret_expires_at: 1612224000,
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
                             redirect_uris: ['http://localhost:3000/callback'],
                             client_name: 'Test Client'
                         })
@@ -3120,7 +3470,7 @@ describe('OAuth Authorization', () => {
                 auth(providerWithInvalidUri, {
                     serverUrl: 'https://server.example.com'
                 })
-            ).rejects.toThrow(InvalidClientMetadataError);
+            ).rejects.toMatchObject({ code: OAuthErrorCode.InvalidClientMetadata });
         });
 
         it('throws an error when clientMetadataUrl has root pathname', async () => {
@@ -3155,7 +3505,7 @@ describe('OAuth Authorization', () => {
                 auth(providerWithRootPathname, {
                     serverUrl: 'https://server.example.com'
                 })
-            ).rejects.toThrow(InvalidClientMetadataError);
+            ).rejects.toMatchObject({ code: OAuthErrorCode.InvalidClientMetadata });
         });
 
         it('throws an error when clientMetadataUrl is not a valid URL', async () => {
@@ -3190,7 +3540,7 @@ describe('OAuth Authorization', () => {
                 auth(providerWithInvalidUrl, {
                     serverUrl: 'https://server.example.com'
                 })
-            ).rejects.toThrow(InvalidClientMetadataError);
+            ).rejects.toMatchObject({ code: OAuthErrorCode.InvalidClientMetadata });
         });
 
         it('falls back to DCR when client_uri is missing', async () => {

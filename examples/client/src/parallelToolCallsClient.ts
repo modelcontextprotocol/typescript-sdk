@@ -1,11 +1,5 @@
 import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { CallToolResultSchema, Client, ListToolsResultSchema, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Parallel Tool Calls MCP Client
@@ -44,13 +38,13 @@ async function main(): Promise<void> {
         console.log('Successfully connected to MCP server');
 
         // Set up notification handler with caller identification
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             console.log(`Notification: ${notification.params.data}`);
         });
 
         console.log('List tools');
         const toolsRequest = await listTools(client);
-        console.log('Tools: ', toolsRequest);
+        console.log('Tools:', toolsRequest);
 
         // 2. Start multiple notification tools in parallel
         console.log('\n=== Starting Multiple Notification Streams in Parallel ===');
@@ -59,18 +53,18 @@ async function main(): Promise<void> {
         // Log the results from each tool call
         for (const [caller, result] of Object.entries(toolResults)) {
             console.log(`\n=== Tool result for ${caller} ===`);
-            result.content.forEach((item: { type: string; text?: string }) => {
+            for (const item of result.content) {
                 if (item.type === 'text') {
                     console.log(`  ${item.text}`);
                 } else {
                     console.log(`  ${item.type} content:`, item);
                 }
-            });
+            }
         }
 
         // 3. Wait for all notifications (10 seconds)
         console.log('\n=== Waiting for all notifications ===');
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        await new Promise(resolve => setTimeout(resolve, 10_000));
 
         // 4. Disconnect
         console.log('\n=== Disconnecting ===');
@@ -78,6 +72,7 @@ async function main(): Promise<void> {
         console.log('Disconnected from MCP server');
     } catch (error) {
         console.error('Error running client:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
 }
@@ -177,9 +172,9 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
 
         // Organize results by caller
         const resultsByTool: Record<string, CallToolResult> = {};
-        results.forEach(({ caller, result }) => {
+        for (const { caller, result } of results) {
             resultsByTool[caller] = result;
-        });
+        }
 
         return resultsByTool;
     } catch (error) {
@@ -188,8 +183,11 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
     }
 }
 
-// Start the client
-main().catch((error: unknown) => {
-    console.error('Error running MCP client:', error);
+try {
+    // Run the client
+    await main();
+} catch (error) {
+    console.error('Error running client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

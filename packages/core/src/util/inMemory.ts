@@ -1,3 +1,4 @@
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { Transport } from '../shared/transport.js';
 import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/types.js';
 
@@ -19,7 +20,7 @@ export class InMemoryTransport implements Transport {
     sessionId?: string;
 
     /**
-     * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a Client and one to a Server.
+     * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a {@linkcode @modelcontextprotocol/client!client/client.Client | Client} and one to a {@linkcode @modelcontextprotocol/server!server/server.Server | Server}.
      */
     static createLinkedPair(): [InMemoryTransport, InMemoryTransport] {
         const clientTransport = new InMemoryTransport();
@@ -50,7 +51,7 @@ export class InMemoryTransport implements Transport {
      */
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId; authInfo?: AuthInfo }): Promise<void> {
         if (!this._otherTransport) {
-            throw new Error('Not connected');
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
         if (this._otherTransport.onmessage) {

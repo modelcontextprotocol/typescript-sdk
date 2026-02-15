@@ -1,9 +1,9 @@
-import { completable, getCompleter } from '../../src/server/completable.js';
-import type { ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
-import { zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
+import * as z from 'zod/v4';
+import { describe, expect, it } from 'vitest';
 
-describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
+import { completable, getCompleter } from '../../src/server/completable.js';
+
+describe('completable with Zod v4', () => {
     it('preserves types and values of underlying schema', () => {
         const baseSchema = z.string();
         const schema = completable(baseSchema, () => []);

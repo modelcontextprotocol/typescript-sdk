@@ -12,4 +12,4 @@ Users who checked `result.isError` for unknown tools should catch rejected promi
 **Resources:** Unknown resource reads now return error code `-32002` (ResourceNotFound)
 instead of `-32602` (InvalidParams), per the MCP specification.
 
-Added `ErrorCode.ResourceNotFound` to the ErrorCode enum.
+Added `ProtocolErrorCode.ResourceNotFound` to the ProtocolErrorCode enum.
