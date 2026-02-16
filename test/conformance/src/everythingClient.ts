@@ -247,24 +247,17 @@ async function runPreRegistrationClient(serverUrl: string): Promise<void> {
 
     // Create a provider pre-populated with registered credentials,
     // so the SDK skips dynamic client registration.
-    const provider = new ConformanceOAuthProvider(
-        'http://localhost:3000/callback',
-        {
-            client_name: 'conformance-pre-registration',
-            redirect_uris: ['http://localhost:3000/callback']
-        }
-    );
+    const provider = new ConformanceOAuthProvider('http://localhost:3000/callback', {
+        client_name: 'conformance-pre-registration',
+        redirect_uris: ['http://localhost:3000/callback']
+    });
     provider.saveClientInformation({
         client_id: ctx.client_id,
         client_secret: ctx.client_secret,
         redirect_uris: ['http://localhost:3000/callback']
     });
 
-    const oauthFetch = withOAuthRetry(
-        'conformance-pre-registration',
-        new URL(serverUrl),
-        handle401
-    )(fetch);
+    const oauthFetch = withOAuthRetry('conformance-pre-registration', new URL(serverUrl), handle401)(fetch);
 
     // Replace the provider in the middleware — we need to use our pre-populated one.
     // withOAuthRetry creates its own provider, so instead we use the provider directly.
