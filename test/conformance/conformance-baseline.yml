@@ -1,14 +1,8 @@
 # Known conformance test failures for v1.x
 # These are tracked and should be removed as they're fixed.
 #
-# tools_call: conformance runner's test server reuses a single Server
-# instance across requests, triggering v1.26.0's "Already connected"
-# guard (GHSA-345p-7cg4-v4c7). Fixed in conformance repo (PR #141),
-# remove this entry once a new conformance release is published.
-#
-# auth/pre-registration: scenario added in conformance 0.1.11 that
-# requires a dedicated client handler for pre-registered credentials.
-# Needs to be implemented in both v1.x and main.
+# auth/cross-app-access-complete-flow: SEP-990 Enterprise Managed OAuth
+# scenario added in conformance 0.1.14. Requires implementing token
+# exchange (RFC 8693) and JWT bearer grant (RFC 7523) in the client.
 client:
-    - tools_call
-    - auth/pre-registration
+    - auth/cross-app-access-complete-flow
