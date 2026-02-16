@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { IncomingMessage, ServerResponse } from 'node:http';
+import { TLSSocket } from 'node:tls';
 import { Transport } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema, MessageExtraInfo, RequestInfo } from '../types.js';
 import getRawBody from 'raw-body';
@@ -149,7 +150,15 @@ export class SSEServerTransport implements Transport {
         }
 
         const authInfo: AuthInfo | undefined = req.auth;
-        const requestInfo: RequestInfo = { headers: req.headers };
+
+        const host = req.headers.host;
+        const protocol = req.socket instanceof TLSSocket ? 'https' : 'http';
+        const fullUrl = host && req.url ? new URL(req.url, `${protocol}://${host}`) : undefined;
+
+        const requestInfo: RequestInfo = {
+            headers: req.headers,
+            url: fullUrl
+        };
 
         let body: string | unknown;
         try {
