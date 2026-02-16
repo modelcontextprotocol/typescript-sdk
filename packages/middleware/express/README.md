@@ -2,7 +2,7 @@
 
 Express adapters for the MCP TypeScript server SDK.
 
-This package is a thin Express integration layer for [`@modelcontextprotocol/server`](../../server/).
+This package is a thin Express integration layer for [`@modelcontextprotocol/server`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/packages/server).
 
 It does **not** implement MCP itself. Instead, it helps you:
 
