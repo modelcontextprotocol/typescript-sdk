@@ -37,7 +37,8 @@ The SDK tracks the MCP specification and aims to release updates within 30 days 
 ### Near-Term
 
 1. **Complete client conformance** — Implement `auth/pre-registration` scenario to reach 100%.
-2. **Documentation gaps** — Document remaining 14 features with examples (tools change notifications, prompts embedded resources/image content/change notifications, roots change notifications, logging set level, resource templates, subscribing/unsubscribing, completions, ping, stdio transports).
+2. **Documentation gaps** — Document remaining 14 features with examples (tools change notifications, prompts embedded resources/image content/change notifications, roots change notifications, logging set level, resource templates, subscribing/unsubscribing, completions, ping,
+   stdio transports).
 3. **P0 triage** — Audit open P0-labeled issues and re-triage mislabeled items.
 
 ### Ongoing
@@ -48,13 +49,13 @@ The SDK tracks the MCP specification and aims to release updates within 30 days 
 
 ## Tier 1 Targets
 
-| Requirement | Current | Target | Status |
-|-------------|---------|--------|--------|
-| Server conformance | 100% | 100% | Done |
-| Client conformance | 94.7% | 100% | In progress |
-| Issue triage | 96.9% | >= 90% | Done |
-| P0 resolution | 5 open | 0 open | Needs triage audit |
-| Documentation | 34/48 | 48/48 | In progress |
-| Dependency policy | Published | Published | Done |
-| Roadmap | Published | Published | Done (this document) |
-| Versioning policy | Published | Published | Done |
+| Requirement        | Current   | Target    | Status               |
+| ------------------ | --------- | --------- | -------------------- |
+| Server conformance | 100%      | 100%      | Done                 |
+| Client conformance | 94.7%     | 100%      | In progress          |
+| Issue triage       | 96.9%     | >= 90%    | Done                 |
+| P0 resolution      | 5 open    | 0 open    | Needs triage audit   |
+| Documentation      | 34/48     | 48/48     | In progress          |
+| Dependency policy  | Published | Published | Done                 |
+| Roadmap            | Published | Published | Done (this document) |
+| Versioning policy  | Published | Published | Done                 |
