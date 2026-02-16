@@ -149,7 +149,10 @@ import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/typ
 
 client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
     const { tools } = await client.listTools();
-    console.log('Tools updated:', tools.map(t => t.name));
+    console.log(
+        'Tools updated:',
+        tools.map(t => t.name)
+    );
 });
 ```
 
@@ -187,18 +190,15 @@ Dynamic resources use `ResourceTemplate` with URI patterns containing variables.
 ```typescript
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-server.registerResource(
-    'user-profile',
-    new ResourceTemplate('users://{userId}/profile', { list: undefined }),
-    { title: 'User Profile', mimeType: 'application/json' },
-    async (uri, variables) => ({
-        contents: [{
+server.registerResource('user-profile', new ResourceTemplate('users://{userId}/profile', { list: undefined }), { title: 'User Profile', mimeType: 'application/json' }, async (uri, variables) => ({
+    contents: [
+        {
             uri: uri.toString(),
             mimeType: 'application/json',
             text: JSON.stringify({ userId: variables.userId, name: 'Example User' })
-        }]
-    })
-);
+        }
+    ]
+}));
 ```
 
 Templates can also provide argument completions — see the [Completions](#completions) section below.
@@ -214,7 +214,7 @@ await client.subscribeResource({ uri: 'config://app' });
 // Client side: listen for update notifications
 import { ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
-client.setNotificationHandler(ResourceUpdatedNotificationSchema, async (notification) => {
+client.setNotificationHandler(ResourceUpdatedNotificationSchema, async notification => {
     const { uri } = notification.params;
     const updated = await client.readResource({ uri });
     console.log('Resource updated:', updated);
@@ -304,26 +304,22 @@ server.registerPrompt(
 Prompts can return image content using the `image` content type with base64-encoded data:
 
 ```typescript
-server.registerPrompt(
-    'analyze-screenshot',
-    { description: 'Analyze a screenshot' },
-    async () => ({
-        messages: [
-            {
-                role: 'user',
-                content: {
-                    type: 'image',
-                    data: 'iVBORw0KGgoAAAANS...', // base64-encoded image
-                    mimeType: 'image/png'
-                }
-            },
-            {
-                role: 'user',
-                content: { type: 'text', text: 'Describe what you see in this image.' }
+server.registerPrompt('analyze-screenshot', { description: 'Analyze a screenshot' }, async () => ({
+    messages: [
+        {
+            role: 'user',
+            content: {
+                type: 'image',
+                data: 'iVBORw0KGgoAAAANS...', // base64-encoded image
+                mimeType: 'image/png'
             }
-        ]
-    })
-);
+        },
+        {
+            role: 'user',
+            content: { type: 'text', text: 'Describe what you see in this image.' }
+        }
+    ]
+}));
 ```
 
 #### Change notifications
@@ -341,7 +337,10 @@ import { PromptListChangedNotificationSchema } from '@modelcontextprotocol/sdk/t
 
 client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
     const { prompts } = await client.listPrompts();
-    console.log('Prompts updated:', prompts.map(p => p.name));
+    console.log(
+        'Prompts updated:',
+        prompts.map(p => p.name)
+    );
 });
 ```
 
@@ -362,7 +361,7 @@ server.registerResource(
         list: undefined,
         complete: {
             category: () => ['guides', 'api-reference', 'tutorials'],
-            page: (value) => ['getting-started', 'installation', 'configuration']
+            page: value => ['getting-started', 'installation', 'configuration']
         }
     }),
     { title: 'Documentation' },
@@ -386,9 +385,7 @@ server.registerPrompt(
         description: 'Greet someone',
         argsSchema: {
             name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie']),
-            language: completable(z.string(), (value) =>
-                ['en', 'es', 'fr'].filter(l => l.startsWith(value))
-            )
+            language: completable(z.string(), value => ['en', 'es', 'fr'].filter(l => l.startsWith(value)))
         }
     },
     async ({ name, language }) => ({
@@ -460,7 +457,7 @@ Clients can request a minimum logging level via `logging/setLevel`. If you creat
 ```typescript
 import { SetLevelRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-server.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+server.server.setRequestHandler(SetLevelRequestSchema, async request => {
     const level = request.params.level;
     console.log(`Client requested log level: ${level}`);
     // Update your logging configuration
