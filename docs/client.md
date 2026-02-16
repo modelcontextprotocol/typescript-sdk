@@ -46,10 +46,7 @@ Roots tell the server which directories or URIs the client considers part of its
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const client = new Client(
-    { name: 'my-client', version: '1.0' },
-    { capabilities: { roots: { listChanged: true } } }
-);
+const client = new Client({ name: 'my-client', version: '1.0' }, { capabilities: { roots: { listChanged: true } } });
 
 // Handle roots/list requests from the server
 client.setRequestHandler(ListRootsRequestSchema, async () => ({
@@ -76,7 +73,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const transport = new StdioClientTransport({
     command: 'node',
     args: ['path/to/server.js'],
-    env: { MY_VAR: 'value' }  // optional
+    env: { MY_VAR: 'value' } // optional
 });
 
 const client = new Client({ name: 'my-client', version: '1.0' });
