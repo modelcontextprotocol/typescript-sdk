@@ -38,16 +38,19 @@ export const withOAuthRetry = (
     clientName: string,
     baseUrl?: string | URL,
     handle401Fn: typeof handle401 = handle401,
-    clientMetadataUrl?: string
+    clientMetadataUrl?: string,
+    existingProvider?: ConformanceOAuthProvider
 ): Middleware => {
-    const provider = new ConformanceOAuthProvider(
-        'http://localhost:3000/callback',
-        {
-            client_name: clientName,
-            redirect_uris: ['http://localhost:3000/callback']
-        },
-        clientMetadataUrl
-    );
+    const provider =
+        existingProvider ??
+        new ConformanceOAuthProvider(
+            'http://localhost:3000/callback',
+            {
+                client_name: clientName,
+                redirect_uris: ['http://localhost:3000/callback']
+            },
+            clientMetadataUrl
+        );
     return (next: FetchLike) => {
         return async (input: string | URL, init?: RequestInit): Promise<Response> => {
             const makeRequest = async (): Promise<Response> => {
