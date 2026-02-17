@@ -1,0 +1,21 @@
+{
+    "name": "@modelcontextprotocol/examples-server-quickstart",
+    "private": true,
+    "version": "2.0.0-alpha.0",
+    "type": "module",
+    "bin": {
+        "weather": "./build/index.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "workspace:^",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@types/node": "^24.10.1",
+        "typescript": "catalog:devTools"
+    }
+}

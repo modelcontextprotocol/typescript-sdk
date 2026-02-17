@@ -209,8 +209,6 @@ function findLabeledCodeFences(
  * @returns The dedented content
  */
 function dedent(content: string, baseIndent: string): string {
-  if (!baseIndent) return content;
-
   const lines = content.split('\n');
   const dedentedLines = lines.map((line) => {
     // Preserve empty lines as-is
@@ -314,7 +312,7 @@ function getOrLoadRegion(
 
   if (fileContent === undefined) {
     try {
-      fileContent = readFileSync(absoluteExamplePath, 'utf-8').trim();
+      fileContent = readFileSync(absoluteExamplePath, 'utf-8');
     } catch {
       throw new Error(`Example file not found: ${absoluteExamplePath}`);
     }
@@ -323,7 +321,7 @@ function getOrLoadRegion(
 
   // If no region name, return whole file
   if (!regionName) {
-    return fileContent;
+    return fileContent.trim();
   }
 
   // Extract region from cached file content, cache the result

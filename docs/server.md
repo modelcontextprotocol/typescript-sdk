@@ -1,5 +1,5 @@
 ---
-title: Server
+title: Server Guide
 ---
 
 # Server overview
