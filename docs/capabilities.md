@@ -27,6 +27,99 @@ Runnable example:
 
 The `simpleStreamableHttp` server also includes a `collect-user-info` tool that demonstrates how to drive elicitation from a tool and handle the response.
 
+#### Schema validation
+
+Elicitation schemas support validation constraints on each field. The server validates responses automatically against the `requestedSchema` using the SDK's JSON Schema validator.
+
+```typescript
+const result = await server.server.elicitInput({
+    mode: 'form',
+    message: 'Enter your details:',
+    requestedSchema: {
+        type: 'object',
+        properties: {
+            email: {
+                type: 'string',
+                title: 'Email',
+                format: 'email',
+                minLength: 5
+            },
+            age: {
+                type: 'integer',
+                title: 'Age',
+                minimum: 0,
+                maximum: 150
+            }
+        },
+        required: ['email']
+    }
+});
+```
+
+String fields support `minLength`, `maxLength`, and `format` (`'email'`, `'uri'`, `'date'`, `'date-time'`). Number fields support `minimum` and `maximum`.
+
+#### Default values
+
+Schema properties can include `default` values. When the client declares the `applyDefaults` capability, the SDK automatically fills in defaults for fields the user doesn't provide.
+
+> **Note:** `applyDefaults` is a TypeScript SDK extension — it is not part of the MCP protocol specification.
+
+```typescript
+// Client declares applyDefaults:
+const client = new Client(
+  { name: 'my-client', version: '1.0.0' },
+  { capabilities: { elicitation: { form: { applyDefaults: true } } } }
+);
+
+// Server schema with defaults:
+requestedSchema: {
+  type: 'object',
+  properties: {
+    newsletter: { type: 'boolean', title: 'Newsletter', default: false },
+    theme: { type: 'string', title: 'Theme', default: 'dark' }
+  }
+}
+```
+
+#### Enum values
+
+Elicitation schemas support several enum patterns for single-select and multi-select fields:
+
+```typescript
+requestedSchema: {
+  type: 'object',
+  properties: {
+    // Simple enum (untitled options)
+    color: {
+      type: 'string',
+      title: 'Favorite Color',
+      enum: ['red', 'green', 'blue'],
+      default: 'blue'
+    },
+    // Titled enum with display labels
+    priority: {
+      type: 'string',
+      title: 'Priority',
+      oneOf: [
+        { const: 'low', title: 'Low Priority' },
+        { const: 'medium', title: 'Medium Priority' },
+        { const: 'high', title: 'High Priority' }
+      ]
+    },
+    // Multi-select
+    tags: {
+      type: 'array',
+      title: 'Tags',
+      items: { type: 'string', enum: ['frontend', 'backend', 'docs'] },
+      minItems: 1,
+      maxItems: 3
+    }
+  }
+}
+```
+
+For a full example with validation, defaults, and enums, see [`elicitationFormExample.ts`](../src/examples/server/elicitationFormExample.ts).
+
 ### URL elicitation
 
 URL elicitation is designed for sensitive data and secure web‑based flows (e.g., collecting an API key, confirming a payment, or doing third‑party OAuth). Instead of returning form data, the server asks the client to open a URL and the rest of the flow happens in the browser.
@@ -45,6 +138,23 @@ Key points:
     - Opens the URL in the system browser.
 
 Sensitive information **must not** be collected via form elicitation; always use URL elicitation or out‑of‑band flows for secrets.
+
+#### Complete notification
+
+When a URL elicitation flow finishes (the user completes the browser-based action), the server sends a `notifications/elicitation/complete` notification to the client. This tells the client the out-of-band flow is done and any pending UI can be dismissed.
+
+Use `createElicitationCompletionNotifier` on the low-level server to create a callback that sends this notification:
+
+```typescript
+// Create a notifier for a specific elicitation:
+const notifyComplete = server.server.createElicitationCompletionNotifier('setup-123');
+
+// Later, when the browser flow completes (e.g. via webhook):
+await notifyComplete();
+// Client receives: { method: 'notifications/elicitation/complete', params: { elicitationId: 'setup-123' } }
+```
+
+See [`elicitationUrlExample.ts`](../src/examples/server/elicitationUrlExample.ts) for a full working example.
 
 ## Task-based execution (experimental)
 
@@ -70,7 +180,7 @@ For a runnable example that uses the in-memory store shipped with the SDK, see:
 On the client, you use:
 
 - `client.experimental.tasks.callToolStream(...)` to start a tool call that may create a task and emit status updates over time.
-- `client.getTask(...)` and `client.getTaskResult(...)` to check status and fetch results after reconnecting.
+- `client.experimental.tasks.getTask(...)` and `client.experimental.tasks.getTaskResult(...)` to check status and fetch results after reconnecting.
 
 The interactive client in:
 
