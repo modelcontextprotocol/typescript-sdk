@@ -1,5 +1,5 @@
 ---
-title: Client
+title: Client Guide
 ---
 
 # Client overview
