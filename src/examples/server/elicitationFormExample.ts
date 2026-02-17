@@ -72,6 +72,29 @@ const getServer = () => {
                                 title: 'Newsletter',
                                 description: 'Subscribe to newsletter?',
                                 default: false
+                            },
+                            role: {
+                                type: 'string',
+                                title: 'Role',
+                                description: 'Your primary role',
+                                oneOf: [
+                                    { const: 'developer', title: 'Developer' },
+                                    { const: 'designer', title: 'Designer' },
+                                    { const: 'manager', title: 'Manager' },
+                                    { const: 'other', title: 'Other' }
+                                ],
+                                default: 'developer'
+                            },
+                            interests: {
+                                type: 'array',
+                                title: 'Interests',
+                                description: 'Select your areas of interest',
+                                items: {
+                                    type: 'string',
+                                    enum: ['frontend', 'backend', 'mobile', 'devops', 'ai']
+                                },
+                                minItems: 1,
+                                maxItems: 3
                             }
                         },
                         required: ['username', 'email', 'password']
