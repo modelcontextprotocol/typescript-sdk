@@ -443,6 +443,7 @@ class TaskSession {
 // Server Setup
 // ============================================================================
 
+const HOST = process.env.MCP_HOST ?? 'localhost';
 const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 8000;
 
 // Create shared stores
@@ -630,7 +631,7 @@ const createServer = (): Server => {
 // Express App Setup
 // ============================================================================
 
-const app = createMcpExpressApp();
+const app = createMcpExpressApp({ host: HOST });
 
 // Map to store transports by session ID
 const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
@@ -718,11 +719,16 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`Starting server on http://localhost:${PORT}/mcp`);
+const httpServer = app.listen(PORT, HOST, () => {
+    console.log(`Starting server on http://${HOST}:${PORT}/mcp`);
     console.log('\nAvailable tools:');
     console.log('  - confirm_delete: Demonstrates elicitation (asks user y/n)');
     console.log('  - write_haiku: Demonstrates sampling (requests LLM completion)');
+});
+httpServer.on('error', error => {
+    console.error('Failed to start server:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
 });
 
 // Handle shutdown
