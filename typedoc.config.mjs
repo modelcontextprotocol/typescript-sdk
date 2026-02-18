@@ -31,6 +31,7 @@ export default {
         blockTags: [...OptionDefaults.blockTags, '@format'],
         exclude: ['**/*.examples.ts']
     },
+    highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],
     projectDocuments: ['docs/documents.md'],
     navigation: {
         compactFolders: true,

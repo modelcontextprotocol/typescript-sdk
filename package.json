@@ -26,7 +26,7 @@
         "sync:snippets": "tsx scripts/sync-snippets.ts",
         "examples:simple-server:w": "pnpm --filter @modelcontextprotocol/examples-server exec tsx --watch src/simpleStreamableHttp.ts --oauth",
         "docs": "typedoc",
-        "docs:check": "typedoc --emit none",
+        "docs:check": "typedoc",
         "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",
         "prepack:all": "pnpm -r prepack",
