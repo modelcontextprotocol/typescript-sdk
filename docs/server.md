@@ -61,6 +61,20 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
+## Server instructions
+
+Instructions describe how to use the server and its features — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Clients may add them to the system prompt. Instructions should not duplicate information already in tool descriptions.
+
+```ts source="../examples/server/src/serverGuide.examples.ts#instructions_basic"
+const server = new McpServer(
+    { name: 'db-server', version: '1.0.0' },
+    {
+        instructions:
+            'Always call list_tables before running queries. Use validate_schema before migrate_schema for safe migrations. Results are limited to 1000 rows.'
+    }
+);
+```
+
 ## Tools
 
 Tools let clients invoke actions on your server — they are usually the main way LLMs call into your application (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
@@ -314,6 +328,45 @@ server.registerTool(
 );
 ```
 
+## Progress
+
+Progress notifications let a tool report incremental status updates during long-running operations (see [Progress](https://modelcontextprotocol.io/specification/latest/basic/utilities/progress) in the MCP specification).
+
+If the client includes a `progressToken` in the request `_meta`, send `notifications/progress` via `ctx.mcpReq.notify()` (from {@linkcode @modelcontextprotocol/server!index.BaseContext | BaseContext}):
+
+```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_progress"
+server.registerTool(
+    'process-files',
+    {
+        description: 'Process files with progress updates',
+        inputSchema: z.object({ files: z.array(z.string()) })
+    },
+    async ({ files }, ctx): Promise<CallToolResult> => {
+        const progressToken = ctx.mcpReq._meta?.progressToken;
+
+        for (let i = 0; i < files.length; i++) {
+            // ... process files[i] ...
+
+            if (progressToken !== undefined) {
+                await ctx.mcpReq.notify({
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken,
+                        progress: i + 1,
+                        total: files.length,
+                        message: `Processed ${files[i]}`
+                    }
+                });
+            }
+        }
+
+        return { content: [{ type: 'text', text: `Processed ${files.length} files` }] };
+    }
+);
+```
+
+`progress` must increase on each call. `total` and `message` are optional. If the client does not provide a `progressToken`, skip the notification.
+
 ## Server-initiated requests
 
 MCP is bidirectional — servers can send requests *to* the client during tool execution, as long as the client declares matching capabilities (see [Architecture](https://modelcontextprotocol.io/docs/learn/architecture) in the MCP overview).
@@ -411,6 +464,25 @@ server.registerTool(
 ```
 
 For runnable examples, see [`elicitationFormExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/elicitationFormExample.ts) (form) and [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/elicitationUrlExample.ts) (URL).
+
+### Roots
+
+Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call {@linkcode @modelcontextprotocol/server!server/server.Server#listRoots | server.server.listRoots()} (requires the client to declare the `roots` capability):
+
+```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_roots"
+server.registerTool(
+    'list-workspace-files',
+    {
+        description: 'List files across all workspace roots',
+        inputSchema: z.object({})
+    },
+    async (_args, _ctx): Promise<CallToolResult> => {
+        const { roots } = await server.server.listRoots();
+        const summary = roots.map(r => `${r.name ?? r.uri}: ${r.uri}`).join('\n');
+        return { content: [{ type: 'text', text: summary }] };
+    }
+);
+```
 
 ## Tasks (experimental)
 

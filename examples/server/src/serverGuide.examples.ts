@@ -18,6 +18,24 @@ import * as z from 'zod/v4';
 //#endregion imports
 
 // ---------------------------------------------------------------------------
+// Server instructions
+// ---------------------------------------------------------------------------
+
+/** Example: McpServer with instructions for LLM guidance. */
+function instructions_basic() {
+    //#region instructions_basic
+    const server = new McpServer(
+        { name: 'db-server', version: '1.0.0' },
+        {
+            instructions:
+                'Always call list_tables before running queries. Use validate_schema before migrate_schema for safe migrations. Results are limited to 1000 rows.'
+        }
+    );
+    //#endregion instructions_basic
+    return server;
+}
+
+// ---------------------------------------------------------------------------
 // Tools, resources, and prompts
 // ---------------------------------------------------------------------------
 
@@ -263,6 +281,44 @@ function registerTool_logging() {
 }
 
 // ---------------------------------------------------------------------------
+// Progress
+// ---------------------------------------------------------------------------
+
+/** Example: Tool that sends progress notifications during a long-running operation. */
+function registerTool_progress(server: McpServer) {
+    //#region registerTool_progress
+    server.registerTool(
+        'process-files',
+        {
+            description: 'Process files with progress updates',
+            inputSchema: z.object({ files: z.array(z.string()) })
+        },
+        async ({ files }, ctx): Promise<CallToolResult> => {
+            const progressToken = ctx.mcpReq._meta?.progressToken;
+
+            for (let i = 0; i < files.length; i++) {
+                // ... process files[i] ...
+
+                if (progressToken !== undefined) {
+                    await ctx.mcpReq.notify({
+                        method: 'notifications/progress',
+                        params: {
+                            progressToken,
+                            progress: i + 1,
+                            total: files.length,
+                            message: `Processed ${files[i]}`
+                        }
+                    });
+                }
+            }
+
+            return { content: [{ type: 'text', text: `Processed ${files.length} files` }] };
+        }
+    );
+    //#endregion registerTool_progress
+}
+
+// ---------------------------------------------------------------------------
 // Server-initiated requests
 // ---------------------------------------------------------------------------
 
@@ -342,6 +398,24 @@ function registerTool_elicitation(server: McpServer) {
         }
     );
     //#endregion registerTool_elicitation
+}
+
+/** Example: Tool that requests the client's filesystem roots. */
+function registerTool_roots(server: McpServer) {
+    //#region registerTool_roots
+    server.registerTool(
+        'list-workspace-files',
+        {
+            description: 'List files across all workspace roots',
+            inputSchema: z.object({})
+        },
+        async (_args, _ctx): Promise<CallToolResult> => {
+            const { roots } = await server.server.listRoots();
+            const summary = roots.map(r => `${r.name ?? r.uri}: ${r.uri}`).join('\n');
+            return { content: [{ type: 'text', text: summary }] };
+        }
+    );
+    //#endregion registerTool_roots
 }
 
 // ---------------------------------------------------------------------------
@@ -461,13 +535,16 @@ function dnsRebinding_allowedHosts() {
 }
 
 // Suppress unused-function warnings (functions exist solely for type-checking)
+void instructions_basic;
 void registerTool_basic;
 void registerTool_resourceLink;
 void registerTool_errorHandling;
 void registerTool_annotations;
 void registerTool_logging;
+void registerTool_progress;
 void registerTool_sampling;
 void registerTool_elicitation;
+void registerTool_roots;
 void registerResource_static;
 void registerResource_template;
 void registerPrompt_basic;
