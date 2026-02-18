@@ -1,4 +1,10 @@
-import type { FetchLike, OAuthAccessTokenResponseType, OAuthErrorFields, OAuthErrorType, OAuthTokenExchangeResponseType } from '@modelcontextprotocol/core';
+import type {
+    FetchLike,
+    OAuthAccessTokenResponseType,
+    OAuthErrorFields,
+    OAuthErrorType,
+    OAuthTokenExchangeResponseType
+} from '@modelcontextprotocol/core';
 import { OAuthClientAssertionType, OAuthErrorTypes, OAuthGrantType, OAuthTokenType } from '@modelcontextprotocol/core';
 import qs from 'qs';
 
