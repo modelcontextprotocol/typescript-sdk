@@ -11,7 +11,7 @@ In this tutorial, we'll build a simple MCP weather server and connect it to a ho
 We'll build a server that exposes two tools: `get-alerts` and `get-forecast`. Then we'll connect the server to an MCP host (in this case, Claude for Desktop).
 
 > [!NOTE]
-> Servers can connect to any client. We've chosen Claude for Desktop here for simplicity, but we also have a guide on [building your own client](./client.md) as well as a [list of other clients here](https://modelcontextprotocol.io/clients).
+> Servers can connect to any client. We've chosen Claude for Desktop here for simplicity, but we also have a guide on [building your own client](./client-quickstart.md) as well as a [list of other clients here](https://modelcontextprotocol.io/clients).
 
 ## Core MCP Concepts
 
@@ -370,7 +370,7 @@ Let's now test your server from an existing MCP host, Claude for Desktop.
 ## Testing your server with Claude for Desktop
 
 > [!NOTE]
-> Claude for Desktop is not yet available on Linux. Linux users can proceed to the [Client guide](./client.md) to build an MCP client that connects to the server we just built.
+> Claude for Desktop is not yet available on Linux. Linux users can proceed to the [Client quickstart](./client-quickstart.md) to build an MCP client that connects to the server we just built.
 
 First, make sure you have Claude for Desktop installed. [You can install the latest version here.](https://claude.ai/download) If you already have Claude for Desktop, **make sure it's updated to the latest version.**
 
