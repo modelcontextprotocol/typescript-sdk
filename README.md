@@ -14,7 +14,7 @@
 - [Overview](#overview)
 - [Packages](#packages)
 - [Installation](#installation)
-- [Quick Start (runnable examples)](#quick-start-runnable-examples)
+- [Getting Started](#getting-started)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
@@ -82,59 +82,53 @@ npm install @modelcontextprotocol/express express
 npm install @modelcontextprotocol/hono hono
 ```
 
-## Quick Start (runnable examples)
+## Getting Started
 
-The runnable examples live under `examples/` and are kept in sync with the docs.
+Here is what an MCP server looks like. This minimal example exposes a single `greet` tool over stdio:
 
-1. **Install dependencies** (from repo root):
+```typescript
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
-```bash
-pnpm install
+const server = new McpServer({ name: 'greeting-server', version: '1.0.0' });
+
+server.registerTool(
+  'greet',
+  {
+    description: 'Greet someone by name',
+    inputSchema: z.object({ name: z.string() }),
+  },
+  async ({ name }) => ({
+    content: [{ type: 'text', text: `Hello, ${name}!` }],
+  }),
+);
+
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main();
 ```
 
-2. **Run a Streamable HTTP example server**:
+Ready to build something real? Follow the step-by-step quickstart tutorials:
 
-```bash
-pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
-```
+- [Build a weather server](docs/server-quickstart.md) — server quickstart
+- [Build an LLM-powered chatbot](docs/client-quickstart.md) — client quickstart
 
-Alternatively, from within the example package:
+The complete code for each tutorial is in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/) and [`examples/client-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client-quickstart/). For more advanced runnable examples, see:
 
-```bash
-cd examples/server
-pnpm tsx src/simpleStreamableHttp.ts
-```
-
-3. **Run the interactive client in another terminal**:
-
-```bash
-pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleStreamableHttp.ts
-```
-
-Alternatively, from within the example package:
-
-```bash
-cd examples/client
-pnpm tsx src/simpleStreamableHttp.ts
-```
-
-Next steps:
-
-- Server examples index: [`examples/server/README.md`](examples/server/README.md)
-- Client examples index: [`examples/client/README.md`](examples/client/README.md)
-- Guided walkthroughs: [`docs/server.md`](docs/server.md) and [`docs/client.md`](docs/client.md)
+- [`examples/server/README.md`](examples/server/README.md) — server examples index
+- [`examples/client/README.md`](examples/client/README.md) — client examples index
 
 ## Documentation
 
-- Local SDK docs:
-    - [docs/server.md](docs/server.md) – building MCP servers: transports, tools, resources, prompts, server-initiated requests, and deployment
-    - [docs/client.md](docs/client.md) – building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
-    - [docs/faq.md](docs/faq.md) – frequently asked questions and troubleshooting
-- External references:
-    - [SDK API documentation](https://modelcontextprotocol.github.io/typescript-sdk/)
-    - [Model Context Protocol documentation](https://modelcontextprotocol.io)
-    - [MCP Specification](https://spec.modelcontextprotocol.io)
-    - [Example Servers](https://github.com/modelcontextprotocol/servers)
+- [Server Guide](docs/server.md) — building MCP servers: transports, tools, resources, prompts, server-initiated requests, and deployment
+- [Client Guide](docs/client.md) — building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
+- [FAQ](docs/faq.md) — frequently asked questions and troubleshooting
+- [API docs](https://modelcontextprotocol.github.io/typescript-sdk/)
+- [MCP documentation](https://modelcontextprotocol.io/docs)
+- [MCP specification](https://modelcontextprotocol.io/specification/latest)
 
 ## v1 (legacy) documentation and fixes
 
