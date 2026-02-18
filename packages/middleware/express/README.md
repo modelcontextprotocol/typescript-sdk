@@ -34,6 +34,14 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 const app = createMcpExpressApp(); // default host is 127.0.0.1; protection enabled
 ```
 
+`createMcpExpressApp()` also installs `express.json()` so `req.body` is available for MCP transports. The JSON body size limit defaults to 100kb (Express default) and can be configured:
+
+```ts
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+
+const app = createMcpExpressApp({ maxBodyBytes: 1_000_000 });
+```
+
 ### Streamable HTTP endpoint (Express)
 
 ```ts
