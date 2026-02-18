@@ -13,6 +13,7 @@ A client connects to a server, discovers what it offers — tools, resources, pr
 The examples below use these imports. Adjust based on which features and transport you need:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#imports"
+import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     CallToolResultSchema,
@@ -97,6 +98,18 @@ await client.close();
 
 For stdio, `client.close()` handles graceful process shutdown (closes stdin, then SIGTERM, then SIGKILL if needed).
 
+### Server instructions
+
+Servers can provide an `instructions` string during initialization that describes how to use them — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Retrieve it after connecting and include it in the model's system prompt:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#serverInstructions_basic"
+const instructions = client.getInstructions();
+
+const systemPrompt = ['You are a helpful assistant.', instructions].filter(Boolean).join('\n\n');
+
+console.log(systemPrompt);
+```
+
 ## Authentication
 
 MCP servers can require OAuth 2.0 authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an `authProvider` to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport} to enable this — the SDK provides built-in providers for common machine-to-machine flows, or you can implement the full {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface for user-facing OAuth.
@@ -144,13 +157,19 @@ For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.c
 
 Tools are callable actions offered by servers — discovering and invoking them is usually how your client enables an LLM to take action (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listTools | listTools()} to discover available tools, and {@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} to invoke one:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listTools | listTools()} to discover available tools, and {@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} to invoke one. Results may be paginated — loop on `nextCursor` to collect all pages:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#callTool_basic"
-const { tools } = await client.listTools();
+const allTools: Tool[] = [];
+let toolCursor: string | undefined;
+do {
+    const { tools, nextCursor } = await client.listTools({ cursor: toolCursor });
+    allTools.push(...tools);
+    toolCursor = nextCursor;
+} while (toolCursor);
 console.log(
     'Available tools:',
-    tools.map(t => t.name)
+    allTools.map(t => t.name)
 );
 
 const result = await client.callTool({
@@ -160,17 +179,52 @@ const result = await client.callTool({
 console.log(result.content);
 ```
 
+Tool results may include a `structuredContent` field — a machine-readable JSON object for programmatic use by the client application, complementing `content` which is for the LLM:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#callTool_structuredOutput"
+const result = await client.callTool({
+    name: 'calculate-bmi',
+    arguments: { weightKg: 70, heightM: 1.75 }
+});
+
+// Machine-readable output for the client application
+if (result.structuredContent) {
+    console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+}
+```
+
+### Tracking progress
+
+Pass `onprogress` to receive incremental progress notifications from long-running tools. Use `resetTimeoutOnProgress` to keep the request alive while the server is actively reporting, and `maxTotalTimeout` as an absolute cap:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#callTool_progress"
+const result = await client.callTool({ name: 'long-operation', arguments: {} }, undefined, {
+    onprogress: ({ progress, total }) => {
+        console.log(`Progress: ${progress}/${total ?? '?'}`);
+    },
+    resetTimeoutOnProgress: true,
+    maxTotalTimeout: 600_000
+});
+console.log(result.content);
+```
+
 ## Resources
 
 Resources are read-only data — files, database schemas, configuration — that your application can retrieve from a server and attach as context for the model (see [Resources](https://modelcontextprotocol.io/docs/learn/server-concepts#resources) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listResources | listResources()} and {@linkcode @modelcontextprotocol/client!client/client.Client#readResource | readResource()} to discover and read server-provided data:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listResources | listResources()} and {@linkcode @modelcontextprotocol/client!client/client.Client#readResource | readResource()} to discover and read server-provided data. Results may be paginated — loop on `nextCursor` to collect all pages:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#readResource_basic"
-const { resources } = await client.listResources();
+const allResources: Resource[] = [];
+let resourceCursor: string | undefined;
+do {
+    const { resources, nextCursor } = await client.listResources({ cursor: resourceCursor });
+    allResources.push(...resources);
+    resourceCursor = nextCursor;
+} while (resourceCursor);
 console.log(
     'Available resources:',
-    resources.map(r => r.name)
+    allResources.map(r => r.name)
 );
 
 const { contents } = await client.readResource({ uri: 'config://app' });
@@ -203,13 +257,19 @@ await client.unsubscribeResource({ uri: 'config://app' });
 
 Prompts are reusable message templates that servers offer to help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listPrompts | listPrompts()} and {@linkcode @modelcontextprotocol/client!client/client.Client#getPrompt | getPrompt()} to list available prompts and retrieve them with arguments:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listPrompts | listPrompts()} and {@linkcode @modelcontextprotocol/client!client/client.Client#getPrompt | getPrompt()} to list available prompts and retrieve them with arguments. Results may be paginated — loop on `nextCursor` to collect all pages:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#getPrompt_basic"
-const { prompts } = await client.listPrompts();
+const allPrompts: Prompt[] = [];
+let promptCursor: string | undefined;
+do {
+    const { prompts, nextCursor } = await client.listPrompts({ cursor: promptCursor });
+    allPrompts.push(...prompts);
+    promptCursor = nextCursor;
+} while (promptCursor);
 console.log(
     'Available prompts:',
-    prompts.map(p => p.name)
+    allPrompts.map(p => p.name)
 );
 
 const { messages } = await client.getPrompt({
