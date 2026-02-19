@@ -15,6 +15,7 @@ import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import type { TokenProvider } from './tokenProvider.js';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -99,6 +100,16 @@ export type StreamableHTTPClientTransportOptions = {
     authProvider?: OAuthClientProvider;
 
     /**
+     * A simple token provider for bearer authentication.
+     *
+     * Use this instead of `authProvider` when tokens are managed externally
+     * (e.g., upfront auth, gateway/proxy patterns, service accounts).
+     *
+     * If both `authProvider` and `tokenProvider` are set, `authProvider` takes precedence.
+     */
+    tokenProvider?: TokenProvider;
+
+    /**
      * Customizes HTTP requests to the server.
      */
     requestInit?: RequestInit;
@@ -132,6 +143,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _scope?: string;
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
+    private _tokenProvider?: TokenProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _sessionId?: string;
@@ -152,6 +164,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
+        this._tokenProvider = opts?.tokenProvider;
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
@@ -189,6 +202,11 @@ export class StreamableHTTPClientTransport implements Transport {
             const tokens = await this._authProvider.tokens();
             if (tokens) {
                 headers['Authorization'] = `Bearer ${tokens.access_token}`;
+            }
+        } else if (this._tokenProvider) {
+            const token = await this._tokenProvider();
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
             }
         }
 
