@@ -36,12 +36,13 @@
     "dependencies": {
         "@modelcontextprotocol/client": "workspace:^",
         "ajv": "catalog:runtimeShared",
+        "open": "^11.0.0",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
+        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/examples-shared": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "tsdown": "catalog:devTools"
     }

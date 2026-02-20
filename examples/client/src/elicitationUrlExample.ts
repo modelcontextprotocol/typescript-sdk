@@ -5,7 +5,6 @@
 // URL elicitation allows servers to prompt the end-user to open a URL in their browser
 // to collect sensitive information.
 
-import { exec } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 
@@ -29,6 +28,7 @@ import {
     UnauthorizedError,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/client';
+import open from 'open';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
@@ -272,15 +272,25 @@ async function elicitationLoop(): Promise<void> {
     }
 }
 
-async function openBrowser(url: string): Promise<void> {
-    const command = `open "${url}"`;
+const ALLOWED_SCHEMES = new Set(['http:', 'https:']);
 
-    exec(command, error => {
-        if (error) {
-            console.error(`Failed to open browser: ${error.message}`);
-            console.log(`Please manually open: ${url}`);
+async function openBrowser(url: string): Promise<void> {
+    try {
+        const parsed = new URL(url);
+        if (!ALLOWED_SCHEMES.has(parsed.protocol)) {
+            console.error(`Refusing to open URL with unsupported scheme '${parsed.protocol}': ${url}`);
+            return;
         }
-    });
+    } catch {
+        console.error(`Invalid URL: ${url}`);
+        return;
+    }
+
+    try {
+        await open(url);
+    } catch {
+        console.log(`Please manually open: ${url}`);
+    }
 }
 
 /**
