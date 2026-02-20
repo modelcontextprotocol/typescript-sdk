@@ -53,6 +53,12 @@ type MakeUnknownsNotOptional<T> =
                       }
           : T;
 
+// Targeted fix: in spec, requestedSchema needs index signature to match SDK's .passthrough()
+// which allows additional JSON Schema fields like `additionalProperties` from Zod's .toJSONSchema()
+type FixSpecRequestedSchema<T> = T extends { requestedSchema: infer R }
+    ? Omit<T, 'requestedSchema'> & { requestedSchema: R & { [x: string]: unknown } }
+    : T;
+
 // Targeted fix: in spec, treat ClientCapabilities.elicitation?: object as Record<string, unknown>
 type FixSpecClientCapabilities<T> = T extends { elicitation?: object }
     ? Omit<T, 'elicitation'> & { elicitation?: Record<string, unknown> }
@@ -160,11 +166,14 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ElicitRequestParams: (sdk: SDKTypes.ElicitRequestParams, spec: SpecTypes.ElicitRequestParams) => {
+    ElicitRequestParams: (
+        sdk: SDKTypes.ElicitRequestParams,
+        spec: FixSpecRequestedSchema<SpecTypes.ElicitRequestFormParams> | SpecTypes.ElicitRequestURLParams
+    ) => {
         sdk = spec;
         spec = sdk;
     },
-    ElicitRequestFormParams: (sdk: SDKTypes.ElicitRequestFormParams, spec: SpecTypes.ElicitRequestFormParams) => {
+    ElicitRequestFormParams: (sdk: SDKTypes.ElicitRequestFormParams, spec: FixSpecRequestedSchema<SpecTypes.ElicitRequestFormParams>) => {
         sdk = spec;
         spec = sdk;
     },
