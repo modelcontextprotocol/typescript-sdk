@@ -5098,6 +5098,228 @@ describe('Zod v4', () => {
         });
     });
 
+    // https://github.com/anthropics/claude-code/issues/18260
+    // Tool inputSchema must not contain $ref — LLMs cannot resolve JSON Schema
+    // references and will stringify object parameters instead of passing objects.
+    describe('Tool inputSchema should not contain $ref', () => {
+        // Track schemas registered in globalRegistry so we can clean up
+        const registeredSchemas: z.core.$ZodType[] = [];
+        afterEach(() => {
+            for (const schema of registeredSchemas) {
+                z.globalRegistry.remove(schema);
+            }
+            registeredSchemas.length = 0;
+        });
+
+        function registerInGlobal<T extends z.core.$ZodType>(schema: T, meta: { id: string }): T {
+            z.globalRegistry.add(schema, meta);
+            registeredSchemas.push(schema);
+            return schema;
+        }
+
+        test('registered types should be inlined in schema and callable', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            const Address = registerInGlobal(z.object({ street: z.string(), city: z.string() }), { id: 'Address' });
+
+            server.registerTool('update-address', { inputSchema: z.object({ home: Address, work: Address }) }, async args => ({
+                content: [{ type: 'text' as const, text: `home: ${args.home.city}, work: ${args.work.city}` }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            // Schema invariant: no $ref in the schema sent to clients
+            const { tools } = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const schema = tools[0]!.inputSchema;
+            expect(JSON.stringify(schema)).not.toContain('$ref');
+            expect(JSON.stringify(schema)).not.toContain('$defs');
+            expect(schema.properties!['home']).toMatchObject({
+                type: 'object',
+                properties: { street: { type: 'string' }, city: { type: 'string' } }
+            });
+
+            // Runtime invariant: callTool with object args should succeed
+            const result = await client.callTool({
+                name: 'update-address',
+                arguments: {
+                    home: { street: '123 Main St', city: 'Springfield' },
+                    work: { street: '456 Oak Ave', city: 'Shelbyville' }
+                }
+            });
+            expect(result.content).toEqual([{ type: 'text', text: 'home: Springfield, work: Shelbyville' }]);
+        });
+
+        test('discriminatedUnion with registered types should be inlined and callable', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            const CreateOp = z.object({ type: z.literal('create'), file_text: z.string() });
+            const AppendOp = z.object({ type: z.literal('append'), new_str: z.string() });
+            registerInGlobal(CreateOp, { id: 'CreateOp' });
+            registerInGlobal(AppendOp, { id: 'AppendOp' });
+
+            server.registerTool(
+                'write-file',
+                {
+                    inputSchema: z.object({
+                        path: z.string(),
+                        operation: z.discriminatedUnion('type', [CreateOp, AppendOp])
+                    })
+                },
+                async args => ({
+                    content: [{ type: 'text' as const, text: `${args.operation.type}: ${args.path}` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            // Schema invariant: oneOf variants should be inline objects, not $ref
+            const { tools } = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const schema = tools[0]!.inputSchema;
+            expect(JSON.stringify(schema)).not.toContain('$ref');
+            expect(JSON.stringify(schema)).not.toContain('$defs');
+            const operation = schema.properties!['operation'] as Record<string, unknown>;
+            const variants = (operation['oneOf'] ?? operation['anyOf']) as Array<Record<string, unknown>>;
+            expect(variants).toBeDefined();
+            expect(variants.length).toBe(2);
+            expect(variants[0]).toHaveProperty('type', 'object');
+            expect(variants[1]).toHaveProperty('type', 'object');
+
+            // Runtime invariant: callTool with object operation should succeed
+            // This is exactly the case that fails when LLMs stringify $ref params
+            const result = await client.callTool({
+                name: 'write-file',
+                arguments: {
+                    path: '/tmp/test.md',
+                    operation: { type: 'create', file_text: 'hello world' }
+                }
+            });
+            expect(result.content).toEqual([{ type: 'text', text: 'create: /tmp/test.md' }]);
+        });
+
+        test('mixed $ref and inline params in same tool should both work', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            // Reproduces the original Notion MCP bug: one param uses $ref,
+            // another uses inline type: object — only the $ref param gets stringified
+            const ParentRequest = z.object({ database_id: z.string() });
+            registerInGlobal(ParentRequest, { id: 'ParentRequest' });
+
+            server.registerTool(
+                'create-page',
+                {
+                    inputSchema: z.object({
+                        parent: ParentRequest,
+                        properties: z.object({
+                            title: z.string()
+                        })
+                    })
+                },
+                async args => ({
+                    content: [{ type: 'text' as const, text: `db: ${args.parent.database_id}, title: ${args.properties.title}` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const { tools } = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const schema = tools[0]!.inputSchema;
+
+            // Both params should be inline objects
+            expect(JSON.stringify(schema)).not.toContain('$ref');
+            expect(schema.properties!['parent']).toMatchObject({ type: 'object' });
+            expect(schema.properties!['properties']).toMatchObject({ type: 'object' });
+
+            const result = await client.callTool({
+                name: 'create-page',
+                arguments: {
+                    parent: { database_id: '2275ad9e-1234' },
+                    properties: { title: 'Test Page' }
+                }
+            });
+            expect(result.content).toEqual([{ type: 'text', text: 'db: 2275ad9e-1234, title: Test Page' }]);
+        });
+
+        test('$ref pointing to oneOf union should be inlined', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            // Notion-style: $defs contains a oneOf union referenced via $ref
+            const ParentRequest = z.union([z.object({ database_id: z.string() }), z.object({ page_id: z.string() })]);
+            registerInGlobal(ParentRequest, { id: 'ParentRequest' });
+
+            server.registerTool(
+                'create-item',
+                {
+                    inputSchema: z.object({ parent: ParentRequest })
+                },
+                async _args => ({
+                    content: [{ type: 'text' as const, text: 'created' }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const { tools } = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const schema = tools[0]!.inputSchema;
+            expect(JSON.stringify(schema)).not.toContain('$ref');
+            expect(JSON.stringify(schema)).not.toContain('$defs');
+
+            // The inlined parent should have the union variants directly
+            const parent = schema.properties!['parent'] as Record<string, unknown>;
+            const variants = (parent['oneOf'] ?? parent['anyOf']) as Array<Record<string, unknown>>;
+            expect(variants).toBeDefined();
+            expect(variants.length).toBe(2);
+
+            const result = await client.callTool({
+                name: 'create-item',
+                arguments: { parent: { database_id: 'abc-123' } }
+            });
+            expect(result.content).toEqual([{ type: 'text', text: 'created' }]);
+        });
+
+        test('recursive types should be inlined in schema', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            const TreeNode: z.ZodType = z.object({
+                value: z.string(),
+                children: z.lazy(() => z.array(TreeNode))
+            });
+
+            server.registerTool('process-tree', { inputSchema: z.object({ root: TreeNode }) }, async () => ({
+                content: [{ type: 'text' as const, text: 'processed' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            // Schema invariant: no $ref in recursive schemas either
+            const { tools } = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(JSON.stringify(tools[0]!.inputSchema)).not.toContain('$ref');
+
+            // Runtime invariant: nested object args should work
+            const result = await client.callTool({
+                name: 'process-tree',
+                arguments: {
+                    root: { value: 'root', children: [{ value: 'child', children: [] }] }
+                }
+            });
+            expect(result.content).toEqual([{ type: 'text', text: 'processed' }]);
+        });
+    });
+
     describe('Tools with transformation schemas', () => {
         test('should support z.preprocess() schemas', async () => {
             const server = new McpServer({
