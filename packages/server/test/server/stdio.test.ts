@@ -1,4 +1,4 @@
-import { Readable, Writable } from 'node:stream';
+import { Readable, Writable, PassThrough } from 'node:stream';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
@@ -101,4 +101,67 @@ test('should read multiple messages', async () => {
     await server.start();
     await finished;
     expect(readMessages).toEqual(messages);
+});
+
+test('should forward stdout errors to onerror', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    const errorReceived = new Promise<Error>(resolve => {
+        server.onerror = error => {
+            resolve(error);
+        };
+    });
+
+    await server.start();
+
+    // Simulate an EPIPE error on stdout
+    const epipeError = new Error('write EPIPE');
+    (epipeError as NodeJS.ErrnoException).code = 'EPIPE';
+    output.destroy(epipeError);
+
+    const receivedError = await errorReceived;
+    expect(receivedError.message).toBe('write EPIPE');
+});
+
+test('should not crash when stdout emits error after client disconnect', async () => {
+    // Create a writable that will emit an EPIPE error on write
+    const brokenOutput = new Writable({
+        write(_chunk, _encoding, callback) {
+            const error = new Error('write EPIPE') as NodeJS.ErrnoException;
+            error.code = 'EPIPE';
+            callback(error);
+        }
+    });
+
+    const server = new StdioServerTransport(input, brokenOutput);
+
+    const errors: Error[] = [];
+    server.onerror = error => {
+        errors.push(error);
+    };
+
+    await server.start();
+
+    const message: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {}
+    };
+
+    // This should not throw an unhandled error
+    await expect(server.send(message)).rejects.toThrow('write EPIPE');
+    await server.close();
+});
+
+test('should clean up stdout error listener on close', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = () => {};
+
+    await server.start();
+    const listenersBeforeClose = output.listenerCount('error');
+
+    await server.close();
+    const listenersAfterClose = output.listenerCount('error');
+
+    expect(listenersAfterClose).toBeLessThan(listenersBeforeClose);
 });
