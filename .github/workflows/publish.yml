@@ -17,22 +17,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
+            - uses: ./.github/actions/setup-node-pnpm
               with:
-                  run_install: false
-
-            - name: Setup Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
                   registry-url: 'https://registry.npmjs.org'
-
-            - name: Install dependencies
-              run: pnpm install
 
             - name: Build packages
               run: pnpm run build:all
