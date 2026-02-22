@@ -1659,4 +1659,87 @@ describe('StreamableHTTPClientTransport', () => {
             });
         });
     });
+
+    describe('graceful close', () => {
+        it('should wait for in-flight requests before aborting', async () => {
+            await transport.start();
+
+            // Track when abort is called
+            const abortController = (transport as any)._abortController as AbortController;
+            let abortCalledAt = 0;
+            const origAbort = abortController.abort.bind(abortController);
+            abortController.abort = (...args: any[]) => {
+                abortCalledAt = Date.now();
+                return origAbort(...args);
+            };
+
+            // Create a slow fetch that takes 100ms to resolve
+            let fetchResolvedAt = 0;
+            (globalThis.fetch as Mock).mockImplementationOnce(() => {
+                return new Promise(resolve => {
+                    setTimeout(() => {
+                        fetchResolvedAt = Date.now();
+                        resolve({
+                            ok: true,
+                            status: 202,
+                            headers: new Headers(),
+                            text: () => Promise.resolve('')
+                        });
+                    }, 100);
+                });
+            });
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-graceful'
+            };
+
+            // Start send (don't await) and immediately close
+            const sendPromise = transport.send(message);
+            const closePromise = transport.close();
+
+            await Promise.allSettled([sendPromise, closePromise]);
+
+            // abort() should have been called AFTER the fetch resolved
+            expect(fetchResolvedAt).toBeGreaterThan(0);
+            expect(abortCalledAt).toBeGreaterThanOrEqual(fetchResolvedAt);
+        });
+
+        it('should abort after timeout even if requests are still pending', async () => {
+            await transport.start();
+
+            // Create a fetch that never resolves on its own, but rejects on abort
+            (globalThis.fetch as Mock).mockImplementationOnce((_url: string, init?: RequestInit) => {
+                return new Promise((_resolve, reject) => {
+                    if (init?.signal) {
+                        init.signal.addEventListener('abort', () => {
+                            reject(new DOMException('The operation was aborted', 'AbortError'));
+                        });
+                    }
+                });
+            });
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-timeout'
+            };
+
+            // Start send (don't await) and immediately close
+            const sendPromise = transport.send(message).catch(() => {});
+
+            const start = Date.now();
+            await transport.close();
+            const elapsed = Date.now() - start;
+
+            // close() should complete within the 2s timeout (with some margin)
+            expect(elapsed).toBeLessThan(3000);
+            expect(elapsed).toBeGreaterThanOrEqual(1900);
+
+            await sendPromise;
+        }, 10000);
+    });
 });
