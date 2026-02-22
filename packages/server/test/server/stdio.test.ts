@@ -1,8 +1,10 @@
+import process from 'node:process';
 import { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 
+import type { StdioServerTransportOptions } from '../../src/server/stdio.js';
 import { StdioServerTransport } from '../../src/server/stdio.js';
 
 let input: Readable;
@@ -101,4 +103,80 @@ test('should read multiple messages', async () => {
     await server.start();
     await finished;
     expect(readMessages).toEqual(messages);
+});
+
+test('should accept options object constructor', async () => {
+    const server = new StdioServerTransport({ stdin: input, stdout: output });
+    server.onerror = error => {
+        throw error;
+    };
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+    await server.close();
+    expect(didClose).toBeTruthy();
+});
+
+describe('host process watchdog', () => {
+    test('should close transport when host process is gone', async () => {
+        // Use a PID that does not exist
+        const deadPid = 2147483647;
+        const server = new StdioServerTransport({
+            stdin: input,
+            stdout: output,
+            clientProcessId: deadPid,
+            watchdogIntervalMs: 100
+        });
+
+        const closed = new Promise<void>(resolve => {
+            server.onclose = () => resolve();
+        });
+
+        await server.start();
+
+        // Watchdog should detect the dead PID and close
+        await closed;
+    }, 10000);
+
+    test('should not close when host process is alive', async () => {
+        // Use our own PID — always alive
+        const server = new StdioServerTransport({
+            stdin: input,
+            stdout: output,
+            clientProcessId: process.pid,
+            watchdogIntervalMs: 100
+        });
+
+        let didClose = false;
+        server.onclose = () => {
+            didClose = true;
+        };
+
+        await server.start();
+
+        // Wait for several watchdog cycles
+        await new Promise(resolve => setTimeout(resolve, 350));
+        expect(didClose).toBe(false);
+
+        await server.close();
+    });
+
+    test('should stop watchdog on close', async () => {
+        const server = new StdioServerTransport({
+            stdin: input,
+            stdout: output,
+            clientProcessId: process.pid,
+            watchdogIntervalMs: 100
+        });
+
+        await server.start();
+        await server.close();
+
+        // If watchdog was not stopped, it would keep running — verify no errors after close
+        await new Promise(resolve => setTimeout(resolve, 300));
+    });
 });
