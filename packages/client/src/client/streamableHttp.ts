@@ -458,10 +458,7 @@ export class StreamableHTTPClientTransport implements Transport {
         // Uses a timeout to avoid hanging if a request is stuck.
         if (this._pendingRequests.size > 0) {
             const timeout = new Promise<void>(resolve => setTimeout(resolve, 2000));
-            await Promise.race([
-                Promise.allSettled(this._pendingRequests),
-                timeout
-            ]);
+            await Promise.race([Promise.allSettled(this._pendingRequests), timeout]);
         }
 
         this._abortController?.abort();
@@ -474,7 +471,9 @@ export class StreamableHTTPClientTransport implements Transport {
     ): Promise<void> {
         // Track this request so close() can wait for it to finish
         let resolve: () => void;
-        const requestPromise = new Promise<void>(r => { resolve = r; });
+        const requestPromise = new Promise<void>(r => {
+            resolve = r;
+        });
         this._pendingRequests.add(requestPromise);
 
         try {
