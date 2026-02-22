@@ -5,6 +5,36 @@ import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
+ * Options for configuring `StdioServerTransport`.
+ */
+export interface StdioServerTransportOptions {
+    /**
+     * The readable stream to use for input. Defaults to `process.stdin`.
+     */
+    stdin?: Readable;
+
+    /**
+     * The writable stream to use for output. Defaults to `process.stdout`.
+     */
+    stdout?: Writable;
+
+    /**
+     * The PID of the client (host) process. When set, the server will periodically
+     * check if the host process is still alive and self-terminate if it is gone.
+     *
+     * This helps prevent orphaned server processes when the host crashes or is
+     * killed without cleanly shutting down the server.
+     */
+    clientProcessId?: number;
+
+    /**
+     * How often (in milliseconds) to check if the host process is alive.
+     * Only used when `clientProcessId` is set. Defaults to 3000 (3 seconds).
+     */
+    watchdogIntervalMs?: number;
+}
+
+/**
  * Server transport for stdio: this communicates with an MCP client by reading from the current process' `stdin` and writing to `stdout`.
  *
  * This transport is only available in Node.js environments.
@@ -19,11 +49,30 @@ import { process } from '@modelcontextprotocol/server/_shims';
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _clientProcessId?: number;
+    private _watchdogInterval?: ReturnType<typeof setInterval>;
+    private _watchdogIntervalMs: number;
 
-    constructor(
-        private _stdin: Readable = process.stdin,
-        private _stdout: Writable = process.stdout
-    ) {}
+    constructor(options?: StdioServerTransportOptions);
+    constructor(stdin?: Readable, stdout?: Writable);
+    constructor(stdinOrOptions?: Readable | StdioServerTransportOptions, stdout?: Writable) {
+        if (stdinOrOptions && typeof stdinOrOptions === 'object' && !('read' in stdinOrOptions)) {
+            // Options object form
+            const options = stdinOrOptions as StdioServerTransportOptions;
+            this._stdin = options.stdin ?? process.stdin;
+            this._stdout = options.stdout ?? process.stdout;
+            this._clientProcessId = options.clientProcessId;
+            this._watchdogIntervalMs = options.watchdogIntervalMs ?? 3000;
+        } else {
+            // Legacy positional args form
+            this._stdin = (stdinOrOptions as Readable) ?? process.stdin;
+            this._stdout = stdout ?? process.stdout;
+            this._watchdogIntervalMs = 3000;
+        }
+    }
+
+    private _stdin: Readable;
+    private _stdout: Writable;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -51,6 +100,37 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._startHostWatchdog();
+    }
+
+    private _startHostWatchdog(): void {
+        if (this._clientProcessId === undefined || this._watchdogInterval) {
+            return;
+        }
+
+        const pid = this._clientProcessId;
+        this._watchdogInterval = setInterval(() => {
+            try {
+                // Signal 0 does not kill the process — it just checks if it exists.
+                process.kill(pid, 0);
+            } catch {
+                // Host process is gone, self-terminate.
+                this._stopHostWatchdog();
+                void this.close();
+            }
+        }, this._watchdogIntervalMs);
+
+        // Ensure the watchdog timer does not prevent the process from exiting.
+        if (typeof this._watchdogInterval === 'object' && 'unref' in this._watchdogInterval) {
+            this._watchdogInterval.unref();
+        }
+    }
+
+    private _stopHostWatchdog(): void {
+        if (this._watchdogInterval) {
+            clearInterval(this._watchdogInterval);
+            this._watchdogInterval = undefined;
+        }
     }
 
     private processReadBuffer() {
@@ -69,6 +149,8 @@ export class StdioServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        this._stopHostWatchdog();
+
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
