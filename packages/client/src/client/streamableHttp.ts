@@ -141,6 +141,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
+    private _pendingRequests = new Set<Promise<void>>();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -451,6 +452,18 @@ export class StreamableHTTPClientTransport implements Transport {
             clearTimeout(this._reconnectionTimeout);
             this._reconnectionTimeout = undefined;
         }
+
+        // Wait for in-flight requests to complete before aborting to prevent
+        // Undici/OpenTelemetry from marking successful responses as aborted.
+        // Uses a timeout to avoid hanging if a request is stuck.
+        if (this._pendingRequests.size > 0) {
+            const timeout = new Promise<void>(resolve => setTimeout(resolve, 2000));
+            await Promise.race([
+                Promise.allSettled(this._pendingRequests),
+                timeout
+            ]);
+        }
+
         this._abortController?.abort();
         this.onclose?.();
     }
@@ -459,6 +472,11 @@ export class StreamableHTTPClientTransport implements Transport {
         message: JSONRPCMessage | JSONRPCMessage[],
         options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
     ): Promise<void> {
+        // Track this request so close() can wait for it to finish
+        let resolve: () => void;
+        const requestPromise = new Promise<void>(r => { resolve = r; });
+        this._pendingRequests.add(requestPromise);
+
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
 
@@ -620,6 +638,9 @@ export class StreamableHTTPClientTransport implements Transport {
         } catch (error) {
             this.onerror?.(error as Error);
             throw error;
+        } finally {
+            resolve!();
+            this._pendingRequests.delete(requestPromise);
         }
     }
 

@@ -75,6 +75,7 @@ export class SSEClientTransport implements Transport {
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
+    private _pendingRequests = new Set<Promise<void>>();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -238,6 +239,17 @@ export class SSEClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        // Wait for in-flight requests to complete before aborting to prevent
+        // Undici/OpenTelemetry from marking successful responses as aborted.
+        // Uses a timeout to avoid hanging if a request is stuck.
+        if (this._pendingRequests.size > 0) {
+            const timeout = new Promise<void>(resolve => setTimeout(resolve, 2000));
+            await Promise.race([
+                Promise.allSettled(this._pendingRequests),
+                timeout
+            ]);
+        }
+
         this._abortController?.abort();
         this._eventSource?.close();
         this.onclose?.();
@@ -247,6 +259,11 @@ export class SSEClientTransport implements Transport {
         if (!this._endpoint) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
+
+        // Track this request so close() can wait for it to finish
+        let resolve: () => void;
+        const requestPromise = new Promise<void>(r => { resolve = r; });
+        this._pendingRequests.add(requestPromise);
 
         try {
             const headers = await this._commonHeaders();
@@ -290,6 +307,9 @@ export class SSEClientTransport implements Transport {
         } catch (error) {
             this.onerror?.(error as Error);
             throw error;
+        } finally {
+            resolve!();
+            this._pendingRequests.delete(requestPromise);
         }
     }
 
