@@ -4161,3 +4161,88 @@ describe('Client sampling validation with tools', () => {
         expect(Array.isArray(result.content)).toBe(true);
     });
 });
+
+/***
+ * Tests: Periodic Ping
+ */
+describe('periodic ping', () => {
+    test('should send periodic pings when enabled', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const pingReceived = vi.fn();
+        server.setRequestHandler('ping', async () => {
+            pingReceived();
+            return {};
+        });
+
+        const client = new Client(
+            { name: 'test client', version: '1.0' },
+            {
+                ping: { enabled: true, intervalMs: 100 }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Wait for a few ping intervals
+        await new Promise(resolve => setTimeout(resolve, 350));
+
+        expect(pingReceived).toHaveBeenCalled();
+        expect(pingReceived.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+        await client.close();
+    });
+
+    test('should not send pings when disabled (default)', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const pingReceived = vi.fn();
+        server.setRequestHandler('ping', async () => {
+            pingReceived();
+            return {};
+        });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, {});
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        expect(pingReceived).not.toHaveBeenCalled();
+
+        await client.close();
+    });
+
+    test('should stop pings on close', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const pingReceived = vi.fn();
+        server.setRequestHandler('ping', async () => {
+            pingReceived();
+            return {};
+        });
+
+        const client = new Client(
+            { name: 'test client', version: '1.0' },
+            {
+                ping: { enabled: true, intervalMs: 100 }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Wait for at least one ping
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const countBeforeClose = pingReceived.mock.calls.length;
+        expect(countBeforeClose).toBeGreaterThanOrEqual(1);
+
+        await client.close();
+
+        // Wait and verify no more pings are sent
+        await new Promise(resolve => setTimeout(resolve, 300));
+        expect(pingReceived.mock.calls.length).toBe(countBeforeClose);
+    });
+});

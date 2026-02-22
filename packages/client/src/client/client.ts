@@ -184,6 +184,19 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     listChanged?: ListChangedHandlers;
+
+    /**
+     * Configuration for periodic ping to detect connection health.
+     *
+     * Per the MCP specification, implementations SHOULD periodically issue pings
+     * to detect connection health, and the frequency SHOULD be configurable.
+     */
+    ping?: {
+        /** Ping interval in milliseconds. Defaults to 60000 (60 seconds). */
+        intervalMs?: number;
+        /** Whether to enable periodic pings. Defaults to false. */
+        enabled?: boolean;
+    };
 };
 
 /**
@@ -205,6 +218,8 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    private _pingInterval?: ReturnType<typeof setInterval>;
+    private _pingConfig: { intervalMs: number; enabled: boolean };
 
     /**
      * Initializes this client with the given name and version information.
@@ -217,6 +232,10 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+        this._pingConfig = {
+            intervalMs: options?.ping?.intervalMs ?? 60_000,
+            enabled: options?.ping?.enabled ?? false
+        };
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -515,11 +534,40 @@ export class Client extends Protocol<ClientContext> {
                 this._setupListChangedHandlers(this._pendingListChangedConfig);
                 this._pendingListChangedConfig = undefined;
             }
+
+            // Start periodic ping if configured
+            this._startPeriodicPing();
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
             throw error;
         }
+    }
+
+    private _startPeriodicPing(): void {
+        if (!this._pingConfig.enabled || this._pingInterval) {
+            return;
+        }
+
+        this._pingInterval = setInterval(async () => {
+            try {
+                await this.ping();
+            } catch (error) {
+                this.onerror?.(error as Error);
+            }
+        }, this._pingConfig.intervalMs);
+    }
+
+    private _stopPeriodicPing(): void {
+        if (this._pingInterval) {
+            clearInterval(this._pingInterval);
+            this._pingInterval = undefined;
+        }
+    }
+
+    override async close(): Promise<void> {
+        this._stopPeriodicPing();
+        await super.close();
     }
 
     /**
