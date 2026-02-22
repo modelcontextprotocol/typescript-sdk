@@ -1220,6 +1220,63 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: onInputValidationError callback
+         */
+        test('should call onInputValidationError callback on schema validation failure', async () => {
+            const validationErrors: { toolName: string; arguments: unknown; error: string }[] = [];
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    onInputValidationError: details => {
+                        validationErrors.push(details);
+                    }
+                }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    inputSchema: z.object({
+                        name: z.string(),
+                        value: z.number()
+                    })
+                },
+                async () => ({
+                    content: [{ type: 'text', text: 'ok' }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test',
+                        arguments: {
+                            name: 'test',
+                            value: 'not a number'
+                        }
+                    }
+                },
+                CallToolResultSchema
+            );
+
+            expect(validationErrors).toHaveLength(1);
+            expect(validationErrors[0]!.toolName).toBe('test');
+            expect(validationErrors[0]!.arguments).toEqual({ name: 'test', value: 'not a number' });
+            expect(validationErrors[0]!.error).toBeTruthy();
+        });
+
+        /***
          * Test: Preventing Duplicate Tool Registration
          */
         test('should prevent duplicate tool registration', () => {

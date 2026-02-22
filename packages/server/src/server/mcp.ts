@@ -51,6 +51,19 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * Options for configuring an {@linkcode McpServer}.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Callback invoked when tool input validation fails against the declared inputSchema.
+     * Useful for observability, logging, and tuning tool definitions.
+     *
+     * Called before the validation error is returned to the client.
+     */
+    onInputValidationError?: (details: { toolName: string; arguments: unknown; error: string }) => void;
+};
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
@@ -76,9 +89,11 @@ export class McpServer {
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    private _onInputValidationError?: McpServerOptions['onInputValidationError'];
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
+        this._onInputValidationError = options?.onInputValidationError;
     }
 
     /**
@@ -259,6 +274,7 @@ export class McpServer {
         const parseResult = await parseSchemaAsync(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
             const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+            this._onInputValidationError?.({ toolName, arguments: args, error: errorMessage });
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`
