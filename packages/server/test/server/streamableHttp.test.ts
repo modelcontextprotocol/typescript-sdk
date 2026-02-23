@@ -754,6 +754,236 @@ describe('Zod v4', () => {
         });
     });
 
+    describe('HTTPServerTransport - onerror callback', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+        let onerrorSpy: ReturnType<typeof vi.fn<(error: Error) => void>>;
+
+        beforeEach(async () => {
+            onerrorSpy = vi.fn<(error: Error) => void>();
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.registerTool(
+                'greet',
+                {
+                    description: 'A simple greeting tool',
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
+                },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+            transport.onerror = onerrorSpy;
+
+            await mcpServer.connect(transport);
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        async function initializeServer(): Promise<string> {
+            onerrorSpy.mockClear();
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+            const response = await transport.handleRequest(request);
+            expect(response.status).toBe(200);
+            return response.headers.get('mcp-session-id') as string;
+        }
+
+        it('should call onerror for invalid JSON in POST', async () => {
+            await initializeServer();
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body: 'not valid json'
+            });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Invalid JSON/);
+        });
+
+        it('should call onerror for invalid JSON-RPC message', async () => {
+            const sessionId = await initializeServer();
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: JSON.stringify({ not: 'a valid jsonrpc message' })
+            });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Invalid JSON-RPC message/);
+        });
+
+        it('should call onerror for missing Accept header on POST', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.initialize, { accept: 'application/json' });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Not Acceptable/);
+        });
+
+        it('should call onerror for unsupported Content-Type', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'text/plain'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Unsupported Media Type/);
+        });
+
+        it('should call onerror when server is not initialized', async () => {
+            // Verify spy starts clean (no calls from beforeEach setup)
+            expect(onerrorSpy).not.toHaveBeenCalled();
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList);
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalledTimes(1);
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Server not initialized/);
+        });
+
+        it('should call onerror for invalid session ID', async () => {
+            await initializeServer();
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, { sessionId: 'invalid-session-id' });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Session not found/);
+        });
+
+        it('should call onerror for re-initialization attempt', async () => {
+            await initializeServer();
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Server already initialized/);
+        });
+
+        it('should call onerror for missing Accept header on GET', async () => {
+            const sessionId = await initializeServer();
+            const request = createRequest('GET', undefined, { sessionId, accept: 'application/json' });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Not Acceptable/);
+        });
+
+        it('should call onerror for concurrent SSE streams', async () => {
+            const sessionId = await initializeServer();
+
+            // First SSE stream
+            const request1 = createRequest('GET', undefined, { sessionId });
+            const response1 = await transport.handleRequest(request1);
+            expect(response1.status).toBe(200);
+
+            // Second SSE stream should trigger onerror
+            const request2 = createRequest('GET', undefined, { sessionId });
+            await transport.handleRequest(request2);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Only one SSE stream/);
+        });
+
+        it('should call onerror for unsupported protocol version', async () => {
+            const sessionId = await initializeServer();
+
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': 'unsupported-version'
+                },
+                body: JSON.stringify(TEST_MESSAGES.toolsList)
+            });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalled();
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Unsupported protocol version/);
+        });
+
+        it('should call onerror for unsupported HTTP methods', async () => {
+            // Verify spy starts clean (no calls from beforeEach setup)
+            expect(onerrorSpy).not.toHaveBeenCalled();
+
+            const request = new Request('http://localhost/mcp', { method: 'PUT' });
+            await transport.handleRequest(request);
+
+            expect(onerrorSpy).toHaveBeenCalledTimes(1);
+            expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Method not allowed/);
+        });
+
+        it('should call onerror for invalid event ID in replay', async () => {
+            // Transport with event store that returns undefined for unknown IDs
+            const eventStore: EventStore = {
+                async storeEvent(): Promise<EventId> {
+                    return 'evt-1';
+                },
+                async getStreamIdForEventId(): Promise<StreamId | undefined> {
+                    return undefined; // Unknown event ID
+                },
+                async replayEventsAfter(): Promise<StreamId> {
+                    return 'stream-1';
+                }
+            };
+            const storeTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                eventStore
+            });
+            const storeSpy = vi.fn<(error: Error) => void>();
+            storeTransport.onerror = storeSpy;
+
+            const storeMcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await storeMcpServer.connect(storeTransport);
+
+            // Initialize first
+            const initReq = createRequest('POST', TEST_MESSAGES.initialize);
+            const initResp = await storeTransport.handleRequest(initReq);
+            const sid = initResp.headers.get('mcp-session-id') as string;
+            storeSpy.mockClear();
+
+            // GET with unknown Last-Event-ID
+            const request = new Request('http://localhost/mcp', {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sid,
+                    'mcp-protocol-version': '2025-11-25',
+                    'Last-Event-ID': 'unknown-event-id'
+                }
+            });
+            const response = await storeTransport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(storeSpy).toHaveBeenCalledTimes(1);
+            expect(storeSpy.mock.calls[0]![0]!.message).toMatch(/Invalid event ID format/);
+
+            await storeTransport.close();
+        });
+    });
+
     describe('HTTPServerTransport - start() method', () => {
         it('should throw error when started twice', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({
