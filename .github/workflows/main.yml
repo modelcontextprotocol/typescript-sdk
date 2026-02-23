@@ -91,8 +91,8 @@ jobs:
                   # Check if this is a beta release
                   if [[ "$VERSION" == *"-beta"* ]]; then
                     echo "tag=--tag beta" >> $GITHUB_OUTPUT
-                  # Check if this release is from a non-main branch (patch/maintenance release)
-                  elif [[ "${{ github.event.release.target_commitish }}" != "main" ]]; then
+                  # Check if this release is from a non-primary branch (patch/maintenance release)
+                  elif [[ "${{ github.event.release.target_commitish }}" != "main" && "${{ github.event.release.target_commitish }}" != "v1.x" ]]; then
                     # Use "release-X.Y" as tag for old branch releases (e.g., "release-1.23" for 1.23.x)
                     # npm tags are mutable pointers to versions (like "latest" pointing to 1.24.3).
                     # Using "release-1.23" means users can `npm install @modelcontextprotocol/sdk@release-1.23`
