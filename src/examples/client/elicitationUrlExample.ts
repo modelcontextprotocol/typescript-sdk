@@ -25,7 +25,6 @@ import {
 } from '../../types.js';
 import { getDisplayName } from '../../shared/metadataUtils.js';
 import { OAuthClientMetadata } from '../../shared/auth.js';
-import { exec } from 'node:child_process';
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 import { UnauthorizedError } from '../../client/auth.js';
 import { createServer } from 'node:http';
@@ -45,8 +44,7 @@ const clientMetadata: OAuthClientMetadata = {
     scope: 'mcp:tools'
 };
 oauthProvider = new InMemoryOAuthClientProvider(OAUTH_CALLBACK_URL, clientMetadata, (redirectUrl: URL) => {
-    console.log(`🌐 Opening browser for OAuth redirect: ${redirectUrl.toString()}`);
-    openBrowser(redirectUrl.toString());
+    console.log(`\n🔗 Please open this URL in your browser to authorize:\n  ${redirectUrl.toString()}`);
 });
 
 // Create readline interface for user input
@@ -259,17 +257,6 @@ async function elicitationLoop(): Promise<void> {
     }
 }
 
-async function openBrowser(url: string): Promise<void> {
-    const command = `open "${url}"`;
-
-    exec(command, error => {
-        if (error) {
-            console.error(`Failed to open browser: ${error.message}`);
-            console.log(`Please manually open: ${url}`);
-        }
-    });
-}
-
 /**
  * Enqueues an elicitation request and returns the result.
  *
@@ -402,9 +389,8 @@ async function handleURLElicitation(params: ElicitRequestURLParams): Promise<Eli
         console.error('Background completion wait failed:', error);
     });
 
-    // 4. Open the URL in the browser
-    console.log(`\n🚀 Opening browser to: ${url}`);
-    await openBrowser(url);
+    // 4. Direct user to open the URL in their browser
+    console.log(`\n🔗 Please open this URL in your browser:\n  ${url}`);
 
     console.log('\n⏳ Waiting for you to complete the interaction in your browser...');
     console.log('   The server will send a notification once you complete the action.');
