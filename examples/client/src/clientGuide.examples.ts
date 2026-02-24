@@ -7,6 +7,8 @@
  * @module
  */
 
+//#region imports
+import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     CallToolResultSchema,
@@ -14,10 +16,14 @@ import {
     ClientCredentialsProvider,
     createMiddleware,
     PrivateKeyJwtProvider,
+    ProtocolError,
+    SdkError,
+    SdkErrorCode,
     SSEClientTransport,
     StdioClientTransport,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
+//#endregion imports
 
 // ---------------------------------------------------------------------------
 // Connecting to a server
@@ -70,6 +76,33 @@ async function connect_sseFallback(url: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Disconnecting
+// ---------------------------------------------------------------------------
+
+/** Example: Graceful disconnect for Streamable HTTP. */
+async function disconnect_streamableHttp(client: Client, transport: StreamableHTTPClientTransport) {
+    //#region disconnect_streamableHttp
+    await transport.terminateSession(); // notify the server (recommended)
+    await client.close();
+    //#endregion disconnect_streamableHttp
+}
+
+// ---------------------------------------------------------------------------
+// Server instructions
+// ---------------------------------------------------------------------------
+
+/** Example: Access server instructions after connecting. */
+async function serverInstructions_basic(client: Client) {
+    //#region serverInstructions_basic
+    const instructions = client.getInstructions();
+
+    const systemPrompt = ['You are a helpful assistant.', instructions].filter(Boolean).join('\n\n');
+
+    console.log(systemPrompt);
+    //#endregion serverInstructions_basic
+}
+
+// ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------
 
@@ -110,10 +143,16 @@ async function auth_privateKeyJwt(pemEncodedKey: string) {
 /** Example: List and call tools. */
 async function callTool_basic(client: Client) {
     //#region callTool_basic
-    const { tools } = await client.listTools();
+    const allTools: Tool[] = [];
+    let toolCursor: string | undefined;
+    do {
+        const { tools, nextCursor } = await client.listTools({ cursor: toolCursor });
+        allTools.push(...tools);
+        toolCursor = nextCursor;
+    } while (toolCursor);
     console.log(
         'Available tools:',
-        tools.map(t => t.name)
+        allTools.map(t => t.name)
     );
 
     const result = await client.callTool({
@@ -124,13 +163,48 @@ async function callTool_basic(client: Client) {
     //#endregion callTool_basic
 }
 
+/** Example: Structured tool output. */
+async function callTool_structuredOutput(client: Client) {
+    //#region callTool_structuredOutput
+    const result = await client.callTool({
+        name: 'calculate-bmi',
+        arguments: { weightKg: 70, heightM: 1.75 }
+    });
+
+    // Machine-readable output for the client application
+    if (result.structuredContent) {
+        console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+    }
+    //#endregion callTool_structuredOutput
+}
+
+/** Example: Track progress of a long-running tool call. */
+async function callTool_progress(client: Client) {
+    //#region callTool_progress
+    const result = await client.callTool({ name: 'long-operation', arguments: {} }, undefined, {
+        onprogress: ({ progress, total }) => {
+            console.log(`Progress: ${progress}/${total ?? '?'}`);
+        },
+        resetTimeoutOnProgress: true,
+        maxTotalTimeout: 600_000
+    });
+    console.log(result.content);
+    //#endregion callTool_progress
+}
+
 /** Example: List and read resources. */
 async function readResource_basic(client: Client) {
     //#region readResource_basic
-    const { resources } = await client.listResources();
+    const allResources: Resource[] = [];
+    let resourceCursor: string | undefined;
+    do {
+        const { resources, nextCursor } = await client.listResources({ cursor: resourceCursor });
+        allResources.push(...resources);
+        resourceCursor = nextCursor;
+    } while (resourceCursor);
     console.log(
         'Available resources:',
-        resources.map(r => r.name)
+        allResources.map(r => r.name)
     );
 
     const { contents } = await client.readResource({ uri: 'config://app' });
@@ -140,13 +214,36 @@ async function readResource_basic(client: Client) {
     //#endregion readResource_basic
 }
 
+/** Example: Subscribe to resource changes. */
+async function subscribeResource_basic(client: Client) {
+    //#region subscribeResource_basic
+    await client.subscribeResource({ uri: 'config://app' });
+
+    client.setNotificationHandler('notifications/resources/updated', async notification => {
+        if (notification.params.uri === 'config://app') {
+            const { contents } = await client.readResource({ uri: 'config://app' });
+            console.log('Config updated:', contents);
+        }
+    });
+
+    // Later: stop receiving updates
+    await client.unsubscribeResource({ uri: 'config://app' });
+    //#endregion subscribeResource_basic
+}
+
 /** Example: List and get prompts. */
 async function getPrompt_basic(client: Client) {
     //#region getPrompt_basic
-    const { prompts } = await client.listPrompts();
+    const allPrompts: Prompt[] = [];
+    let promptCursor: string | undefined;
+    do {
+        const { prompts, nextCursor } = await client.listPrompts({ cursor: promptCursor });
+        allPrompts.push(...prompts);
+        promptCursor = nextCursor;
+    } while (promptCursor);
     console.log(
         'Available prompts:',
-        prompts.map(p => p.name)
+        allPrompts.map(p => p.name)
     );
 
     const { messages } = await client.getPrompt({
@@ -181,7 +278,7 @@ async function complete_basic(client: Client) {
 /** Example: Handle log messages and list-change notifications. */
 function notificationHandler_basic(client: Client) {
     //#region notificationHandler_basic
-    // Server log messages (e.g. from ctx.mcpReq.log() in tool handlers)
+    // Server log messages (sent by the server during request processing)
     client.setNotificationHandler('notifications/message', notification => {
         const { level, data } = notification.params;
         console.log(`[${level}]`, data);
@@ -193,6 +290,13 @@ function notificationHandler_basic(client: Client) {
         console.log('Resources changed:', resources.length);
     });
     //#endregion notificationHandler_basic
+}
+
+/** Example: Control server log level. */
+async function setLoggingLevel_basic(client: Client) {
+    //#region setLoggingLevel_basic
+    await client.setLoggingLevel('warning');
+    //#endregion setLoggingLevel_basic
 }
 
 /** Example: Automatic list-change tracking via the listChanged option. */
@@ -278,6 +382,86 @@ function elicitation_handler(client: Client) {
     //#endregion elicitation_handler
 }
 
+/** Example: Expose filesystem roots to the server. */
+function roots_handler(client: Client) {
+    //#region roots_handler
+    client.setRequestHandler('roots/list', async () => {
+        return {
+            roots: [
+                { uri: 'file:///home/user/projects/my-app', name: 'My App' },
+                { uri: 'file:///home/user/data', name: 'Data' }
+            ]
+        };
+    });
+    //#endregion roots_handler
+}
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
+
+/** Example: Tool errors vs protocol errors. */
+async function errorHandling_toolErrors(client: Client) {
+    //#region errorHandling_toolErrors
+    try {
+        const result = await client.callTool({
+            name: 'fetch-data',
+            arguments: { url: 'https://example.com' }
+        });
+
+        // Tool-level error: the tool ran but reported a problem
+        if (result.isError) {
+            console.error('Tool error:', result.content);
+            return;
+        }
+
+        console.log('Success:', result.content);
+    } catch (error) {
+        // Protocol-level error: the request itself failed
+        if (error instanceof ProtocolError) {
+            console.error(`Protocol error ${error.code}: ${error.message}`);
+        } else if (error instanceof SdkError) {
+            console.error(`SDK error [${error.code}]: ${error.message}`);
+        } else {
+            throw error;
+        }
+    }
+    //#endregion errorHandling_toolErrors
+}
+
+/** Example: Connection lifecycle callbacks. */
+function errorHandling_lifecycle(client: Client) {
+    //#region errorHandling_lifecycle
+    // Out-of-band errors (SSE disconnects, parse errors)
+    client.onerror = error => {
+        console.error('Transport error:', error.message);
+    };
+
+    // Connection closed (pending requests are rejected with CONNECTION_CLOSED)
+    client.onclose = () => {
+        console.log('Connection closed');
+    };
+    //#endregion errorHandling_lifecycle
+}
+
+/** Example: Custom timeouts. */
+async function errorHandling_timeout(client: Client) {
+    //#region errorHandling_timeout
+    try {
+        const result = await client.callTool(
+            { name: 'slow-task', arguments: {} },
+            undefined,
+            { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
+        );
+        console.log(result.content);
+    } catch (error) {
+        if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
+            console.error('Request timed out');
+        }
+    }
+    //#endregion errorHandling_timeout
+}
+
 // ---------------------------------------------------------------------------
 // Advanced patterns
 // ---------------------------------------------------------------------------
@@ -325,16 +509,26 @@ async function resumptionToken_basic(client: Client) {
 void connect_streamableHttp;
 void connect_stdio;
 void connect_sseFallback;
+void disconnect_streamableHttp;
+void serverInstructions_basic;
 void auth_clientCredentials;
 void auth_privateKeyJwt;
 void callTool_basic;
+void callTool_structuredOutput;
+void callTool_progress;
 void readResource_basic;
+void subscribeResource_basic;
 void getPrompt_basic;
 void complete_basic;
 void notificationHandler_basic;
+void setLoggingLevel_basic;
 void listChanged_basic;
 void capabilities_declaration;
 void sampling_handler;
 void elicitation_handler;
+void roots_handler;
+void errorHandling_toolErrors;
+void errorHandling_lifecycle;
+void errorHandling_timeout;
 void middleware_basic;
 void resumptionToken_basic;

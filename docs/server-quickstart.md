@@ -4,14 +4,11 @@ title: Server Quickstart
 
 # Quickstart: Build a weather server
 
-In this tutorial, we'll build a simple MCP weather server and connect it to a host, Claude for Desktop.
+In this tutorial, we'll build a simple MCP weather server and connect it to a host.
 
 ## What we'll be building
 
-We'll build a server that exposes two tools: `get-alerts` and `get-forecast`. Then we'll connect the server to an MCP host (in this case, Claude for Desktop).
-
-> [!NOTE]
-> Servers can connect to any client. We've chosen Claude for Desktop here for simplicity, but we also have a guide on [building your own client](./client.md) as well as a [list of other clients here](https://modelcontextprotocol.io/clients).
+We'll build a server that exposes two tools: `get-alerts` and `get-forecast`. Then we'll connect the server to an MCP host (in this case, VS Code with GitHub Copilot).
 
 ## Core MCP Concepts
 
@@ -365,80 +362,49 @@ main().catch((error) => {
 
 Make sure to run `npm run build` to build your server! This is a very important step in getting your server to connect.
 
-Let's now test your server from an existing MCP host, Claude for Desktop.
+Let's now test your server from an existing MCP host.
 
-## Testing your server with Claude for Desktop
+## Testing your server in VS Code
+
+[VS Code](https://code.visualstudio.com/) with [GitHub Copilot](https://github.com/features/copilot) can discover and invoke MCP tools via agent mode. [Copilot Free](https://github.com/features/copilot/plans) is sufficient to follow along.
 
 > [!NOTE]
-> Claude for Desktop is not yet available on Linux. Linux users can proceed to the [Client guide](./client.md) to build an MCP client that connects to the server we just built.
+> Servers can connect to any client. We've chosen VS Code here for simplicity, but we also have a guide on [building your own client](./client-quickstart.md) as well as a [list of other clients here](https://modelcontextprotocol.io/clients).
 
-First, make sure you have Claude for Desktop installed. [You can install the latest version here.](https://claude.ai/download) If you already have Claude for Desktop, **make sure it's updated to the latest version.**
+### Prerequisites
 
-We'll need to configure Claude for Desktop for whichever MCP servers you want to use. To do this, open your Claude for Desktop App configuration at `~/Library/Application Support/Claude/claude_desktop_config.json` in a text editor. Make sure to create the file if it doesn't exist.
+1. Install [VS Code](https://code.visualstudio.com/) (version 1.99 or later).
+2. Install the **GitHub Copilot** extension from the VS Code Extensions marketplace.
+3. Sign in to your GitHub account when prompted.
 
-For example, if you have [VS Code](https://code.visualstudio.com/) installed:
+### Configure the MCP server
 
-**macOS/Linux:**
-
-```bash
-code ~/Library/Application\ Support/Claude/claude_desktop_config.json
-```
-
-**Windows:**
-
-```powershell
-code $env:AppData\Claude\claude_desktop_config.json
-```
-
-You'll then add your servers in the `mcpServers` key. The MCP UI elements will only show up in Claude for Desktop if at least one server is properly configured.
-
-In this case, we'll add our single weather server like so:
-
-**macOS/Linux:**
+Create a `.vscode/mcp.json` file in your `weather` project root:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "weather": {
+      "type": "stdio",
       "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/PARENT/FOLDER/weather/build/index.js"]
+      "args": ["./build/index.js"]
     }
   }
 }
 ```
 
-**Windows:**
+VS Code may prompt you to trust the MCP server when it detects this file. If prompted, confirm to start the server.
 
-```json
-{
-  "mcpServers": {
-    "weather": {
-      "command": "node",
-      "args": ["C:\\PATH\\TO\\PARENT\\FOLDER\\weather\\build\\index.js"]
-    }
-  }
-}
-```
+To verify, run **MCP: List Servers** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`). The `weather` server should show a running status.
 
-This tells Claude for Desktop:
+### Use the tools
 
-1. There's an MCP server named "weather"
-2. Launch it by running `node /ABSOLUTE/PATH/TO/PARENT/FOLDER/weather/build/index.js`
-
-Save the file, and restart **Claude for Desktop**.
-
-### Test with commands
-
-Let's make sure Claude for Desktop is picking up the two tools we've exposed in our `weather` server. You can do this by looking for the "Add files, connectors, and more /" icon.
-
-After clicking on the plus icon, hover over the "Connectors" menu. You should see the `weather` server listed.
-
-If your server isn't being picked up by Claude for Desktop, proceed to the [Troubleshooting](#troubleshooting) section for debugging tips.
-
-If the server has shown up in the "Connectors" menu, you can now test your server by running the following commands in Claude for Desktop:
-
-- What's the weather in Sacramento?
-- What are the active weather alerts in Texas?
+1. Open **Copilot Chat** (`Ctrl+Alt+I` / `Ctrl+Cmd+I`).
+2. Select **Agent** mode from the mode selector at the top of the chat panel.
+3. Click the **Tools** button to confirm `get-alerts` and `get-forecast` appear.
+4. Try these prompts:
+   - "What's the weather in Sacramento?"
+   - "What are the active weather alerts in Texas?"
 
 > [!NOTE]
 > Since this is the US National Weather Service, the queries will only work for US locations.
@@ -447,57 +413,30 @@ If the server has shown up in the "Connectors" menu, you can now test your serve
 
 When you ask a question:
 
-1. The client sends your question to Claude
-2. Claude analyzes the available tools and decides which one(s) to use
+1. The client sends your question to the LLM
+2. The LLM analyzes the available tools and decides which one(s) to use
 3. The client executes the chosen tool(s) through the MCP server
-4. The results are sent back to Claude
-5. Claude formulates a natural language response
-6. The response is displayed to you!
+4. The results are sent back to the LLM
+5. The LLM formulates a natural language response
+6. The response is displayed to you
 
 ## Troubleshooting
 
 <details>
-<summary>Claude for Desktop integration issues</summary>
+<summary>VS Code integration issues</summary>
 
-**Getting logs from Claude for Desktop**
+**Server not appearing or fails to start**
 
-Claude.app logging related to MCP is written to log files in `~/Library/Logs/Claude`:
+1. Verify you have VS Code 1.99 or later (`Help > About`) and that GitHub Copilot is installed.
+2. Verify the server builds without errors: run `npm run build` in the `weather` directory.
+3. Test it manually: run `node build/index.js` — the process should start and wait for input. Press `Ctrl+C` to exit.
+4. Check the server logs: in **MCP: List Servers**, select the server and choose **Show Output**.
+5. If the `node` command is not found, use the full path to the Node binary.
 
-- `mcp.log` will contain general logging about MCP connections and connection failures.
-- Files named `mcp-server-SERVERNAME.log` will contain error (stderr) logging from the named server.
+**Tools don't appear in Copilot Chat**
 
-You can run the following command to list recent logs and follow along with any new ones:
-
-```bash
-# Check Claude's logs for errors
-tail -n 20 -f ~/Library/Logs/Claude/mcp*.log
-```
-
-**Server not showing up in Claude**
-
-1. Check your `claude_desktop_config.json` file syntax
-2. Make sure the path to your project is absolute and not relative
-3. Restart Claude for Desktop completely
-
-> [!WARNING]
-> To properly restart Claude for Desktop, you must fully quit the application:
->
-> - **Windows**: Right-click the Claude icon in the system tray (which may be hidden in the "hidden icons" menu) and select "Quit" or "Exit".
-> - **macOS**: Use Cmd+Q or select "Quit Claude" from the menu bar.
->
-> Simply closing the window does not fully quit the application, and your MCP server configuration changes will not take effect.
-
-**Tool calls failing silently**
-
-If Claude attempts to use the tools but they fail:
-
-1. Check Claude's logs for errors
-2. Verify your server builds and runs without errors
-3. Try restarting Claude for Desktop
-
-**None of this is working. What do I do?**
-
-Please refer to our [debugging guide](https://modelcontextprotocol.io/legacy/tools/debugging) for better debugging tools and more detailed guidance.
+1. Confirm you're in **Agent** mode (not Ask or Edit mode).
+2. Run **MCP: Reset Cached Tools** from the Command Palette, then recheck the **Tools** list.
 
 </details>
 
@@ -523,9 +462,6 @@ Fix:
 This isn't an error - it just means there are no current weather alerts for that state. Try a different state or check during severe weather.
 
 </details>
-
-> [!NOTE]
-> For more advanced troubleshooting, check out our guide on [Debugging MCP](https://modelcontextprotocol.io/legacy/tools/debugging).
 
 ## Next steps
 
