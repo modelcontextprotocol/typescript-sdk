@@ -1,25 +1,29 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Client } from '@modelcontextprotocol/client';
 import type {
+    CreateMessageResult,
     ElicitRequestSchema,
+    ElicitResult,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
     LoggingMessageNotification,
+    ResponseMessage,
+    Task,
     Transport
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
+    CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateTaskResultSchema,
     ElicitResultSchema,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
-    ProtocolError,
-    ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    toArrayAsync
 } from '@modelcontextprotocol/core';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
@@ -1824,6 +1828,236 @@ describe('createMessage validation', () => {
     });
 });
 
+describe('createMessageStream', () => {
+    test('should throw when tools are provided without sampling.tools capability', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        client.setRequestHandler('sampling/createMessage', async () => ({
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' },
+            model: 'test-model'
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        expect(() => {
+            server.experimental.tasks.createMessageStream({
+                messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+                maxTokens: 100,
+                tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+            });
+        }).toThrow('Client does not support sampling tools capability');
+    });
+
+    test('should throw when tool_result has no matching tool_use in previous message', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        client.setRequestHandler('sampling/createMessage', async () => ({
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' },
+            model: 'test-model'
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        expect(() => {
+            server.experimental.tasks.createMessageStream({
+                messages: [
+                    { role: 'user', content: { type: 'text', text: 'Hello' } },
+                    {
+                        role: 'user',
+                        content: [{ type: 'tool_result', toolUseId: 'test-id', content: [{ type: 'text', text: 'result' }] }]
+                    }
+                ],
+                maxTokens: 100
+            });
+        }).toThrow('tool_result blocks are not matching any tool_use from the previous message');
+    });
+
+    describe('terminal message guarantees', () => {
+        test('should yield exactly one terminal message for successful request', async () => {
+            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+            client.setRequestHandler('sampling/createMessage', async () => ({
+                role: 'assistant',
+                content: { type: 'text', text: 'Response' },
+                model: 'test-model'
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const stream = server.experimental.tasks.createMessageStream({
+                messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+                maxTokens: 100
+            });
+
+            const allMessages = await toArrayAsync(stream);
+
+            expect(allMessages.length).toBe(1);
+            expect(allMessages[0].type).toBe('result');
+
+            const taskMessages = allMessages.filter(m => m.type === 'taskCreated' || m.type === 'taskStatus');
+            expect(taskMessages.length).toBe(0);
+        });
+
+        test('should yield error as terminal message when client returns error', async () => {
+            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+            client.setRequestHandler('sampling/createMessage', async () => {
+                throw new Error('Simulated client error');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const stream = server.experimental.tasks.createMessageStream({
+                messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+                maxTokens: 100
+            });
+
+            const allMessages = await toArrayAsync(stream);
+
+            expect(allMessages.length).toBe(1);
+            expect(allMessages[0].type).toBe('error');
+        });
+
+        test('should yield exactly one terminal message with result', async () => {
+            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+            client.setRequestHandler('sampling/createMessage', () => ({
+                model: 'test-model',
+                role: 'assistant' as const,
+                content: { type: 'text' as const, text: 'Response' }
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const stream = server.experimental.tasks.createMessageStream({
+                messages: [{ role: 'user', content: { type: 'text', text: 'Message' } }],
+                maxTokens: 100
+            });
+
+            const messages = await toArrayAsync(stream);
+            const terminalMessages = messages.filter(m => m.type === 'result' || m.type === 'error');
+
+            expect(terminalMessages.length).toBe(1);
+
+            const lastMessage = messages.at(-1);
+            expect(lastMessage.type === 'result' || lastMessage.type === 'error').toBe(true);
+
+            if (lastMessage.type === 'result') {
+                expect((lastMessage.result as CreateMessageResult).content).toBeDefined();
+            }
+        });
+    });
+
+    describe('non-task request minimality', () => {
+        test('should yield only result message for non-task request', async () => {
+            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+            client.setRequestHandler('sampling/createMessage', () => ({
+                model: 'test-model',
+                role: 'assistant' as const,
+                content: { type: 'text' as const, text: 'Response' }
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const stream = server.experimental.tasks.createMessageStream({
+                messages: [{ role: 'user', content: { type: 'text', text: 'Message' } }],
+                maxTokens: 100
+            });
+
+            const messages = await toArrayAsync(stream);
+
+            const taskMessages = messages.filter(m => m.type === 'taskCreated' || m.type === 'taskStatus');
+            expect(taskMessages.length).toBe(0);
+
+            const resultMessages = messages.filter(m => m.type === 'result');
+            expect(resultMessages.length).toBe(1);
+
+            expect(messages.length).toBe(1);
+        });
+    });
+
+    describe('task-augmented request handling', () => {
+        test('should yield taskCreated and result for task-augmented request', async () => {
+            const clientTaskStore = new InMemoryTaskStore();
+            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+            const client = new Client(
+                { name: 'test client', version: '1.0' },
+                {
+                    capabilities: {
+                        sampling: {},
+                        tasks: {
+                            requests: {
+                                sampling: { createMessage: {} }
+                            }
+                        }
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler('sampling/createMessage', async (request, extra) => {
+                const result = {
+                    model: 'test-model',
+                    role: 'assistant' as const,
+                    content: { type: 'text' as const, text: 'Task response' }
+                };
+
+                if (request.params.task && extra.task?.store) {
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
+                    return { task };
+                }
+                return result;
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const stream = server.experimental.tasks.createMessageStream(
+                {
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Task-augmented message' } }],
+                    maxTokens: 100
+                },
+                { task: { ttl: 60_000 } }
+            );
+
+            const messages = await toArrayAsync(stream);
+
+            // Should have taskCreated and result
+            expect(messages.length).toBeGreaterThanOrEqual(2);
+
+            // First message should be taskCreated
+            expect(messages[0].type).toBe('taskCreated');
+            const taskCreated = messages[0] as { type: 'taskCreated'; task: Task };
+            expect(taskCreated.task.taskId).toBeDefined();
+
+            // Last message should be result
+            const lastMessage = messages.at(-1);
+            expect(lastMessage.type).toBe('result');
+            if (lastMessage.type === 'result') {
+                expect((lastMessage.result as CreateMessageResult).model).toBe('test-model');
+            }
+
+            clientTaskStore.cleanup();
+        });
+    });
+});
+
 describe('createMessage backwards compatibility', () => {
     test('createMessage without tools returns single content (backwards compat)', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
@@ -3180,4 +3414,304 @@ test('should respect client task capabilities', async () => {
     ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
 
     clientTaskStore.cleanup();
+});
+
+describe('elicitInputStream', () => {
+    let server: Server;
+    let client: Client;
+    let clientTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[0];
+    let serverTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[1];
+
+    beforeEach(async () => {
+        server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        client = new Client(
+            { name: 'test client', version: '1.0' },
+            {
+                capabilities: {
+                    elicitation: {
+                        form: {},
+                        url: {}
+                    }
+                }
+            }
+        );
+
+        [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    });
+
+    afterEach(async () => {
+        await server.close().catch(() => {});
+        await client.close().catch(() => {});
+    });
+
+    test('should throw when client does not support form elicitation', async () => {
+        // Create client without form elicitation capability
+        const noFormClient = new Client(
+            { name: 'test client', version: '1.0' },
+            {
+                capabilities: {
+                    elicitation: {
+                        url: {}
+                    }
+                }
+            }
+        );
+
+        const [noFormClientTransport, noFormServerTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([noFormClient.connect(noFormClientTransport), server.connect(noFormServerTransport)]);
+
+        expect(() => {
+            server.experimental.tasks.elicitInputStream({
+                mode: 'form',
+                message: 'Enter data',
+                requestedSchema: { type: 'object', properties: {} }
+            });
+        }).toThrow('Client does not support form elicitation.');
+
+        await noFormClient.close().catch(() => {});
+    });
+
+    test('should throw when client does not support url elicitation', async () => {
+        // Create client without url elicitation capability
+        const noUrlClient = new Client(
+            { name: 'test client', version: '1.0' },
+            {
+                capabilities: {
+                    elicitation: {
+                        form: {}
+                    }
+                }
+            }
+        );
+
+        const [noUrlClientTransport, noUrlServerTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([noUrlClient.connect(noUrlClientTransport), server.connect(noUrlServerTransport)]);
+
+        expect(() => {
+            server.experimental.tasks.elicitInputStream({
+                mode: 'url',
+                message: 'Open URL',
+                elicitationId: 'test-123',
+                url: 'https://example.com/auth'
+            });
+        }).toThrow('Client does not support url elicitation.');
+
+        await noUrlClient.close().catch(() => {});
+    });
+
+    test('should default to form mode when mode is not specified', async () => {
+        const requestStreamSpy = vi.spyOn(server.experimental.tasks, 'requestStream');
+
+        client.setRequestHandler('elicitation/create', () => ({
+            action: 'accept',
+            content: { value: 'test' }
+        }));
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Call without explicit mode
+        const params = {
+            message: 'Enter value',
+            requestedSchema: {
+                type: 'object' as const,
+                properties: { value: { type: 'string' as const } }
+            }
+        };
+
+        const stream = server.experimental.tasks.elicitInputStream(
+            params as Parameters<typeof server.experimental.tasks.elicitInputStream>[0]
+        );
+        await toArrayAsync(stream);
+
+        // Verify mode was normalized to 'form'
+        expect(requestStreamSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                method: 'elicitation/create',
+                params: expect.objectContaining({ mode: 'form' })
+            }),
+            ElicitResultSchema,
+            undefined
+        );
+    });
+
+    test('should yield error as terminal message when client returns error', async () => {
+        client.setRequestHandler('elicitation/create', () => {
+            throw new Error('Simulated client error');
+        });
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const stream = server.experimental.tasks.elicitInputStream({
+            mode: 'form',
+            message: 'Enter data',
+            requestedSchema: {
+                type: 'object',
+                properties: { value: { type: 'string' } }
+            }
+        });
+
+        const allMessages = await toArrayAsync(stream);
+
+        expect(allMessages.length).toBe(1);
+        expect(allMessages[0].type).toBe('error');
+    });
+
+    // For any streaming elicitation request, the AsyncGenerator yields exactly one terminal
+    // message (either 'result' or 'error') as its final message.
+    describe('terminal message guarantees', () => {
+        test.each([
+            { action: 'accept' as const, content: { data: 'test-value' } },
+            { action: 'decline' as const, content: undefined },
+            { action: 'cancel' as const, content: undefined }
+        ])('should yield exactly one terminal message for action: $action', async ({ action, content }) => {
+            client.setRequestHandler('elicitation/create', () => ({
+                action,
+                content
+            }));
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const stream = server.experimental.tasks.elicitInputStream({
+                mode: 'form',
+                message: 'Test message',
+                requestedSchema: {
+                    type: 'object',
+                    properties: { data: { type: 'string' } }
+                }
+            });
+
+            const messages = await toArrayAsync(stream);
+
+            // Count terminal messages (result or error)
+            const terminalMessages = messages.filter(m => m.type === 'result' || m.type === 'error');
+
+            expect(terminalMessages.length).toBe(1);
+
+            // Verify terminal message is the last message
+            const lastMessage = messages.at(-1);
+            expect(lastMessage.type === 'result' || lastMessage.type === 'error').toBe(true);
+
+            // Verify result content matches expected action
+            if (lastMessage.type === 'result') {
+                expect((lastMessage.result as ElicitResult).action).toBe(action);
+            }
+        });
+    });
+
+    // For any non-task elicitation request, the generator yields exactly one 'result' message
+    // (or 'error' if the request fails), with no 'taskCreated' or 'taskStatus' messages.
+    describe('non-task request minimality', () => {
+        test.each([
+            { action: 'accept' as const, content: { value: 'test' } },
+            { action: 'decline' as const, content: undefined },
+            { action: 'cancel' as const, content: undefined }
+        ])('should yield only result message for non-task request with action: $action', async ({ action, content }) => {
+            client.setRequestHandler('elicitation/create', () => ({
+                action,
+                content
+            }));
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Non-task request (no task option)
+            const stream = server.experimental.tasks.elicitInputStream({
+                mode: 'form',
+                message: 'Non-task request',
+                requestedSchema: {
+                    type: 'object',
+                    properties: { value: { type: 'string' } }
+                }
+            });
+
+            const messages = await toArrayAsync(stream);
+
+            // Verify no taskCreated or taskStatus messages
+            const taskMessages = messages.filter(m => m.type === 'taskCreated' || m.type === 'taskStatus');
+            expect(taskMessages.length).toBe(0);
+
+            // Verify exactly one result message
+            const resultMessages = messages.filter(m => m.type === 'result');
+            expect(resultMessages.length).toBe(1);
+
+            // Verify total message count is 1
+            expect(messages.length).toBe(1);
+        });
+    });
+
+    // For any task-augmented elicitation request, the generator should yield at least one
+    // 'taskCreated' message followed by 'taskStatus' messages before yielding the final
+    // result or error.
+    describe('task-augmented request handling', () => {
+        test('should yield taskCreated and result for task-augmented request', async () => {
+            const clientTaskStore = new InMemoryTaskStore();
+            const taskClient = new Client(
+                { name: 'test client', version: '1.0' },
+                {
+                    capabilities: {
+                        elicitation: { form: {} },
+                        tasks: {
+                            requests: {
+                                elicitation: { create: {} }
+                            }
+                        }
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            taskClient.setRequestHandler('elicitation/create', async (request, extra) => {
+                const result = {
+                    action: 'accept' as const,
+                    content: { username: 'task-user' }
+                };
+
+                if (request.params.task && extra.task?.store) {
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
+                    return { task };
+                }
+                return result;
+            });
+
+            const [taskClientTransport, taskServerTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([taskClient.connect(taskClientTransport), server.connect(taskServerTransport)]);
+
+            const stream = server.experimental.tasks.elicitInputStream(
+                {
+                    mode: 'form',
+                    message: 'Task-augmented request',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: { username: { type: 'string' } },
+                        required: ['username']
+                    }
+                },
+                { task: { ttl: 60_000 } }
+            );
+
+            const messages = await toArrayAsync(stream);
+
+            // Should have taskCreated and result
+            expect(messages.length).toBeGreaterThanOrEqual(2);
+
+            // First message should be taskCreated
+            expect(messages[0].type).toBe('taskCreated');
+            const taskCreated = messages[0] as { type: 'taskCreated'; task: Task };
+            expect(taskCreated.task.taskId).toBeDefined();
+
+            // Last message should be result
+            const lastMessage = messages.at(-1);
+            expect(lastMessage.type).toBe('result');
+            if (lastMessage.type === 'result') {
+                expect((lastMessage.result as ElicitResult).action).toBe('accept');
+                expect((lastMessage.result as ElicitResult).content).toEqual({ username: 'task-user' });
+            }
+
+            clientTaskStore.cleanup();
+            await taskClient.close().catch(() => {});
+        });
+    });
 });

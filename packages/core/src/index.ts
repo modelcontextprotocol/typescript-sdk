@@ -23,22 +23,21 @@ export * from './validation/cfWorkerProvider.js';
  * This module provides configurable JSON Schema validation for the MCP SDK.
  * Choose a validator based on your runtime environment:
  *
- * - AjvJsonSchemaValidator: Best for Node.js (default, fastest)
+ * - {@linkcode AjvJsonSchemaValidator}: Best for Node.js (default, fastest)
  *   Import from: @modelcontextprotocol/sdk/validation/ajv
  *   Requires peer dependencies: ajv, ajv-formats
  *
- * - CfWorkerJsonSchemaValidator: Best for edge runtimes
+ * - {@linkcode CfWorkerJsonSchemaValidator}: Best for edge runtimes
  *   Import from: @modelcontextprotocol/sdk/validation/cfworker
  *   Requires peer dependency: @cfworker/json-schema
  *
- * @example
- * ```typescript
- * // For Node.js with AJV
- * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+ * @example For Node.js with AJV
+ * ```ts source="./index.examples.ts#validation_ajv"
  * const validator = new AjvJsonSchemaValidator();
+ * ```
  *
- * // For Cloudflare Workers
- * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
+ * @example For Cloudflare Workers
+ * ```ts source="./index.examples.ts#validation_cfWorker"
  * const validator = new CfWorkerJsonSchemaValidator();
  * ```
  *

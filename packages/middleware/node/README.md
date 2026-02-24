@@ -2,7 +2,7 @@
 
 Node.js adapters for the MCP TypeScript server SDK.
 
-This package is a thin Node.js integration layer for [`@modelcontextprotocol/server`](../../server/). It provides a Streamable HTTP transport that works with Node’s `IncomingMessage` / `ServerResponse`.
+This package is a thin Node.js integration layer for [`@modelcontextprotocol/server`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/packages/server). It provides a Streamable HTTP transport that works with Node’s `IncomingMessage` / `ServerResponse`.
 
 For web‑standard runtimes (Cloudflare Workers, Deno, Bun, etc.), use `WebStandardStreamableHTTPServerTransport` from `@modelcontextprotocol/server` directly.
 

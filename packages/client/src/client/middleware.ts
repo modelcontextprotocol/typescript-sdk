@@ -13,19 +13,19 @@ export type Middleware = (next: FetchLike) => FetchLike;
  * Creates a fetch wrapper that handles OAuth authentication automatically.
  *
  * This wrapper will:
- * - Add Authorization headers with access tokens
+ * - Add `Authorization` headers with access tokens
  * - Handle 401 responses by attempting re-authentication
  * - Retry the original request after successful auth
- * - Handle OAuth errors appropriately (OAuthErrorCode.InvalidClient, etc.)
+ * - Handle OAuth errors appropriately ({@linkcode index.OAuthErrorCode.InvalidClient | OAuthErrorCode.InvalidClient}, etc.)
  *
- * The baseUrl parameter is optional and defaults to using the domain from the request URL.
- * However, you should explicitly provide baseUrl when:
+ * The `baseUrl` parameter is optional and defaults to using the domain from the request URL.
+ * However, you should explicitly provide `baseUrl` when:
  * - Making requests to multiple subdomains (e.g., api.example.com, cdn.example.com)
  * - Using API paths that differ from OAuth discovery paths (e.g., requesting /api/v1/data but OAuth is at /)
  * - The OAuth server is on a different domain than your API requests
  * - You want to ensure consistent OAuth behavior regardless of request URLs
  *
- * For MCP transports, set baseUrl to the same URL you pass to the transport constructor.
+ * For MCP transports, set `baseUrl` to the same URL you pass to the transport constructor.
  *
  * Note: This wrapper is designed for general-purpose fetch operations.
  * MCP transports (SSE and StreamableHTTP) already have built-in OAuth handling
@@ -133,7 +133,7 @@ export type LoggingOptions = {
 
     /**
      * Status level filter - only log requests with status >= this value
-     * Set to 0 to log all requests, 400 to log only errors
+     * Set to `0` to log all requests, `400` to log only errors
      * @default 0
      */
     statusLevel?: number;
@@ -145,7 +145,7 @@ export type LoggingOptions = {
  * When called without arguments `withLogging()`, it uses the default logger that:
  * - Logs successful requests (2xx) to `console.log`
  * - Logs error responses (4xx/5xx) and network errors to `console.error`
- * - Logs all requests regardless of status (statusLevel: 0)
+ * - Logs all requests regardless of status (`statusLevel: 0`)
  * - Does not include request or response headers in logs
  * - Measures and displays request duration in milliseconds
  *
@@ -235,12 +235,9 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
  * Middleware are applied in the order they appear, creating a chain of handlers.
  *
  * @example
- * ```typescript
+ * ```ts source="./middleware.examples.ts#applyMiddlewares_basicUsage"
  * // Create a middleware pipeline that handles both OAuth and logging
- * const enhancedFetch = applyMiddlewares(
- *   withOAuth(oauthProvider, 'https://api.example.com'),
- *   withLogging({ statusLevel: 400 })
- * )(fetch);
+ * const enhancedFetch = applyMiddlewares(withOAuth(oauthProvider, 'https://api.example.com'), withLogging({ statusLevel: 400 }))(fetch);
  *
  * // Use the enhanced fetch - it will handle auth and log errors
  * const response = await enhancedFetch('https://api.example.com/data');
@@ -264,53 +261,53 @@ export const applyMiddlewares = (...middleware: Middleware[]): Middleware => {
  * Provides the next handler and request details as separate parameters for easier access.
  *
  * @example
- * ```typescript
+ * ```ts source="./middleware.examples.ts#createMiddleware_examples"
  * // Create custom authentication middleware
  * const customAuthMiddleware = createMiddleware(async (next, input, init) => {
- *   const headers = new Headers(init?.headers);
- *   headers.set('X-Custom-Auth', 'my-token');
+ *     const headers = new Headers(init?.headers);
+ *     headers.set('X-Custom-Auth', 'my-token');
  *
- *   const response = await next(input, { ...init, headers });
+ *     const response = await next(input, { ...init, headers });
  *
- *   if (response.status === 401) {
- *     console.log('Authentication failed');
- *   }
+ *     if (response.status === 401) {
+ *         console.log('Authentication failed');
+ *     }
  *
- *   return response;
+ *     return response;
  * });
  *
  * // Create conditional middleware
  * const conditionalMiddleware = createMiddleware(async (next, input, init) => {
- *   const url = typeof input === 'string' ? input : input.toString();
+ *     const url = typeof input === 'string' ? input : input.toString();
  *
- *   // Only add headers for API routes
- *   if (url.includes('/api/')) {
- *     const headers = new Headers(init?.headers);
- *     headers.set('X-API-Version', 'v2');
- *     return next(input, { ...init, headers });
- *   }
+ *     // Only add headers for API routes
+ *     if (url.includes('/api/')) {
+ *         const headers = new Headers(init?.headers);
+ *         headers.set('X-API-Version', 'v2');
+ *         return next(input, { ...init, headers });
+ *     }
  *
- *   // Pass through for non-API routes
- *   return next(input, init);
+ *     // Pass through for non-API routes
+ *     return next(input, init);
  * });
  *
  * // Create caching middleware
  * const cacheMiddleware = createMiddleware(async (next, input, init) => {
- *   const cacheKey = typeof input === 'string' ? input : input.toString();
+ *     const cacheKey = typeof input === 'string' ? input : input.toString();
  *
- *   // Check cache first
- *   const cached = await getFromCache(cacheKey);
- *   if (cached) {
- *     return new Response(cached, { status: 200 });
- *   }
+ *     // Check cache first
+ *     const cached = await getFromCache(cacheKey);
+ *     if (cached) {
+ *         return new Response(cached, { status: 200 });
+ *     }
  *
- *   // Make request and cache result
- *   const response = await next(input, init);
- *   if (response.ok) {
- *     await saveToCache(cacheKey, await response.clone().text());
- *   }
+ *     // Make request and cache result
+ *     const response = await next(input, init);
+ *     if (response.ok) {
+ *         await saveToCache(cacheKey, await response.clone().text());
+ *     }
  *
- *   return response;
+ *     return response;
  * });
  * ```
  *

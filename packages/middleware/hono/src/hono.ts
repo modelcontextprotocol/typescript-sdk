@@ -8,8 +8,8 @@ import { hostHeaderValidation, localhostHostValidation } from './middleware/host
  */
 export interface CreateMcpHonoAppOptions {
     /**
-     * The hostname to bind to. Defaults to '127.0.0.1'.
-     * When set to '127.0.0.1', 'localhost', or '::1', DNS rebinding protection is automatically enabled.
+     * The hostname to bind to. Defaults to `'127.0.0.1'`.
+     * When set to `'127.0.0.1'`, `'localhost'`, or `'::1'`, DNS rebinding protection is automatically enabled.
      */
     host?: string;
 
@@ -27,7 +27,7 @@ export interface CreateMcpHonoAppOptions {
 /**
  * Creates a Hono application pre-configured for MCP servers.
  *
- * When the host is '127.0.0.1', 'localhost', or '::1' (the default is '127.0.0.1'),
+ * When the host is `'127.0.0.1'`, `'localhost'`, or `'::1'` (the default is `'127.0.0.1'`),
  * DNS rebinding protection middleware is automatically applied to protect against
  * DNS rebinding attacks on localhost servers.
  *

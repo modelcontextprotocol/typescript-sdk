@@ -1,7 +1,8 @@
 import type { OAuthErrorResponse } from '../shared/auth.js';
 
 /**
- * OAuth error codes as defined by RFC 6749 and extensions.
+ * OAuth error codes as defined by {@link https://datatracker.ietf.org/doc/html/rfc6749#section-5.2 | RFC 6749}
+ * and extensions.
  */
 export enum OAuthErrorCode {
     /**
@@ -123,7 +124,7 @@ export class OAuthError extends Error {
     }
 
     /**
-     * Creates an OAuthError from an OAuth error response.
+     * Creates an {@linkcode OAuthError} from an OAuth error response.
      */
     static fromResponse(response: OAuthErrorResponse): OAuthError {
         return new OAuthError(response.error as OAuthErrorCode, response.error_description ?? response.error, response.error_uri);

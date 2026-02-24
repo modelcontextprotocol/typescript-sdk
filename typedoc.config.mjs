@@ -3,9 +3,10 @@ import fg from 'fast-glob';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Find all package.json files in packages/*/ and build package list
-const packageJsonPaths = await fg('packages/*/package.json', {
-    cwd: process.cwd()
+// Find all package.json files under packages/ and build package list
+const packageJsonPaths = await fg('packages/**/package.json', {
+    cwd: process.cwd(),
+    ignore: ['**/node_modules/**']
 });
 const packages = packageJsonPaths.map(p => {
     const rootDir = join(process.cwd(), p.replace('/package.json', ''));
@@ -21,13 +22,16 @@ console.log(
     publicPackages.map(p => p.manifest.name)
 );
 
+/** @type {Partial<import("typedoc").TypeDocOptions>} */
 export default {
     name: 'MCP TypeScript SDK',
     entryPointStrategy: 'packages',
     entryPoints,
     packageOptions: {
-        blockTags: [...OptionDefaults.blockTags, '@format']
+        blockTags: [...OptionDefaults.blockTags, '@format'],
+        exclude: ['**/*.examples.ts']
     },
+    highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],
     projectDocuments: ['docs/documents.md'],
     navigation: {
         compactFolders: true,
@@ -35,5 +39,7 @@ export default {
     },
     headings: {
         readme: false
-    }
+    },
+    treatWarningsAsErrors: true,
+    out: 'tmp/docs/',
 };

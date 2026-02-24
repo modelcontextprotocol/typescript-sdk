@@ -20,7 +20,7 @@ export class InMemoryTransport implements Transport {
     sessionId?: string;
 
     /**
-     * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a Client and one to a Server.
+     * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a {@linkcode @modelcontextprotocol/client!client/client.Client | Client} and one to a {@linkcode @modelcontextprotocol/server!server/server.Server | Server}.
      */
     static createLinkedPair(): [InMemoryTransport, InMemoryTransport] {
         const clientTransport = new InMemoryTransport();
