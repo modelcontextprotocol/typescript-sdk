@@ -1949,7 +1949,7 @@ describe('Zod v4', () => {
             const serverToClientMessages: unknown[] = [];
             const originalSend = serverTransport.send.bind(serverTransport);
             vi.spyOn(serverTransport, 'send').mockImplementation(async (message, options) => {
-                serverToClientMessages.push(JSON.parse(JSON.stringify(message)));
+                serverToClientMessages.push(structuredClone(message));
                 return originalSend(message, options);
             });
 
@@ -1971,7 +1971,7 @@ describe('Zod v4', () => {
                     message !== null &&
                     'error' in message &&
                     typeof (message as { error?: { code?: unknown } }).error === 'object' &&
-                    (message as { error: { code?: unknown } }).error.code === -32042
+                    (message as { error: { code?: unknown } }).error.code === -32_042
             ) as
                 | {
                       error: {
@@ -1985,7 +1985,7 @@ describe('Zod v4', () => {
                 | undefined;
 
             expect(wireErrorResponse).toBeDefined();
-            expect(wireErrorResponse?.error.code).toBe(-32042);
+            expect(wireErrorResponse?.error.code).toBe(-32_042);
             expect(wireErrorResponse?.error.message).toBe(wireMessage);
             expect(wireErrorResponse?.error.message).not.toContain('MCP error -32042:');
             expect(wireErrorResponse?.error.data).toMatchObject({
@@ -2002,7 +2002,7 @@ describe('Zod v4', () => {
 
             expect(clientError).toBeInstanceOf(UrlElicitationRequiredError);
             if (clientError instanceof UrlElicitationRequiredError) {
-                expect(clientError.code).toBe(-32042);
+                expect(clientError.code).toBe(-32_042);
                 expect(clientError.elicitations).toEqual([elicitationParams]);
                 expect(clientError.message).toBe('MCP error -32042: Confirmation required');
                 expect((clientError.message.match(/MCP error -32042:/g) ?? []).length).toBe(1);
