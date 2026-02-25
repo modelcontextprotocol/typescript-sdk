@@ -93,6 +93,22 @@ git worktree add "$V2_WORKTREE" "origin/main" --detach
 cd "$V2_WORKTREE"
 pnpm install
 pnpm -r --filter='./packages/**' build
+
+# Patch the V2 typedoc config to add navigation links and set the base URL
+# so that links resolve correctly when served under /v2/
+node -e "
+import fs from 'fs';
+const cfg = fs.readFileSync('typedoc.config.mjs', 'utf8');
+const patched = cfg.replace(
+  /export default \{/,
+  \"export default {\\n    hostedBaseUrl: 'https://modelcontextprotocol.github.io/typescript-sdk/v2/',\"
+).replace(
+  /navigation:/,
+  \"navigationLinks: {\\n        'V1 Docs': '/',\\n    },\\n    navigation:\"
+);
+fs.writeFileSync('typedoc.config.mjs', patched);
+"
+
 npx typedoc  # outputs to tmp/docs/ per typedoc.config.mjs
 
 mkdir -p "$OUTPUT_DIR/v2"
