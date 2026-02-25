@@ -112,9 +112,6 @@ const patched = cfg.replace(
 fs.writeFileSync('typedoc.config.mjs', patched);
 "
 
-# Patch the V2 README to update doc links
-sed -i 's|For v1 documentation and code, see the \[.v1\.x. branch\](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1\.x)\.|For v1 documentation, see the [V1 API docs](https://modelcontextprotocol.github.io/typescript-sdk/).|' README.md
-
 npx typedoc  # outputs to tmp/docs/ per typedoc.config.mjs
 
 mkdir -p "$OUTPUT_DIR/v2"
