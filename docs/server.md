@@ -38,7 +38,7 @@ await server.connect(transport);
 ```
 
 > [!WARNING]
-> `NodeStreamableHTTPServerTransport` does **not** include DNS rebinding protection. If your server listens on localhost, use [`createMcpExpressApp()`](#dns-rebinding-protection) or [`createMcpHonoApp()`](#dns-rebinding-protection) instead — they enable protection by default. See [DNS rebinding protection](#dns-rebinding-protection) for details.
+> If your server listens on localhost, use [`createMcpExpressApp()`](#dns-rebinding-protection) or [`createMcpHonoApp()`](#dns-rebinding-protection) instead — they include [DNS rebinding protection](#dns-rebinding-protection) by default.
 
 > [!NOTE]
 > For full runnable examples, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) (sessions, logging, tasks, elicitation, auth hooks), [`jsonResponseStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/jsonResponseStreamableHttp.ts) (`enableJsonResponse: true`, no SSE), and [`standaloneSseWithGetStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/standaloneSseWithGetStreamableHttp.ts) (notifications with Streamable HTTP GET + SSE).
