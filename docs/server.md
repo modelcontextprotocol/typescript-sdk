@@ -49,6 +49,9 @@ For stateful servers with session management, see [`simpleStreamableHttp.ts`](ht
 >
 > For protocol details, see [Transports](https://modelcontextprotocol.io/specification/latest/basic/transports) in the MCP specification.
 
+> [!WARNING]
+> If your server listens on localhost, use [`createMcpExpressApp()`](#dns-rebinding-protection) or [`createMcpHonoApp()`](#dns-rebinding-protection) instead of using `NodeStreamableHTTPServerTransport` directly — they include [DNS rebinding protection](#dns-rebinding-protection) by default.
+
 #### Stateless vs stateful sessions
 
 Streamable HTTP can run:
