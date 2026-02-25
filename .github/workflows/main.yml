@@ -138,9 +138,7 @@ jobs:
                   cache-dependency-path: pnpm-lock.yaml
 
             - name: Generate multi-version docs
-              uses: ./.github/actions/generate-docs
-              with:
-                  output-dir: tmp/docs-combined
+              run: bash scripts/generate-multidoc.sh tmp/docs-combined
 
             - name: Configure Pages
               uses: actions/configure-pages@v5
