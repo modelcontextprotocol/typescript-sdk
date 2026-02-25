@@ -25,20 +25,24 @@ Streamable HTTP is the HTTP‑based transport. It supports:
 - Optional JSON‑only response mode with no SSE
 - Session management and resumability
 
-A minimal stateful setup:
+A minimal stateless server using `createMcpExpressApp()`, which includes [DNS rebinding protection](#dns-rebinding-protection) by default:
 
-```ts source="../examples/server/src/serverGuide.examples.ts#streamableHttp_stateful"
-const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+```ts
+const app = createMcpExpressApp();
 
-const transport = new NodeStreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID()
+app.post('/mcp', async (req, res) => {
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+    const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined // stateless
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
 });
 
-await server.connect(transport);
+app.listen(3000, '127.0.0.1');
 ```
 
-> [!WARNING]
-> If your server listens on localhost, use [`createMcpExpressApp()`](#dns-rebinding-protection) or [`createMcpHonoApp()`](#dns-rebinding-protection) instead — they include [DNS rebinding protection](#dns-rebinding-protection) by default.
+For stateful servers with session management, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts).
 
 > [!NOTE]
 > For full runnable examples, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) (sessions, logging, tasks, elicitation, auth hooks), [`jsonResponseStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/jsonResponseStreamableHttp.ts) (`enableJsonResponse: true`, no SSE), and [`standaloneSseWithGetStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/standaloneSseWithGetStreamableHttp.ts) (notifications with Streamable HTTP GET + SSE).
