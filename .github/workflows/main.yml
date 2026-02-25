@@ -2,6 +2,7 @@ on:
     push:
         branches:
             - main
+            - v1.x
     pull_request:
     workflow_dispatch:
     release:
@@ -109,11 +110,13 @@ jobs:
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-    # Generates API documentation (V1 + V2) and deploys to GitHub Pages on any release
+    # Generates API documentation (V1 + V2) and deploys to GitHub Pages on push to main/v1.x or release
     deploy-docs:
         runs-on: ubuntu-latest
-        if: github.event_name == 'release'
-        needs: [publish]
+        if: >-
+            github.event_name == 'release' ||
+            (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/v1.x'))
+        needs: [build]
 
         permissions:
             contents: read
