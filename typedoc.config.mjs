@@ -33,8 +33,9 @@ export default {
     },
     highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],
     projectDocuments: ['docs/documents.md'],
+    hostedBaseUrl: 'https://modelcontextprotocol.github.io/typescript-sdk/v2/',
     navigationLinks: {
-        'V1 Docs': '/'
+        'V1 Docs': '/typescript-sdk/'
     },
     navigation: {
         compactFolders: true,

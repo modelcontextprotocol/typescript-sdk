@@ -17,7 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-OUTPUT_DIR="${1:-$REPO_ROOT/tmp/docs-combined}"
+OUTPUT_DIR="$(cd "$REPO_ROOT" && realpath -m "${1:-tmp/docs-combined}")"
 V1_WORKTREE="$REPO_ROOT/.worktrees/v1-docs"
 V2_WORKTREE="$REPO_ROOT/.worktrees/v2-docs"
 
@@ -76,7 +76,7 @@ cat > typedoc.json << 'TYPEDOC_EOF'
     "docs/faq.md"
   ],
   "navigationLinks": {
-    "V2 Docs": "/v2/"
+    "V2 Docs": "/typescript-sdk/v2/"
   },
   "headings": {
     "readme": false
@@ -108,35 +108,6 @@ git worktree add "$V2_WORKTREE" "origin/main" --detach
 cd "$V2_WORKTREE"
 pnpm install
 pnpm -r --filter='./packages/**' build
-
-# Write the V2 pre-release banner script
-cat > docs/v2-banner.js << 'BANNER_EOF'
-document.addEventListener("DOMContentLoaded", function () {
-    var banner = document.createElement("div");
-    banner.innerHTML =
-        "This documents a <strong>pre-release</strong> version of the SDK. Expect breaking changes. For the stable SDK, see the <a href='/'>V1 docs</a>.";
-    banner.style.cssText =
-        "background:#fff3cd;color:#856404;border-bottom:1px solid #ffc107;padding:8px 16px;text-align:center;font-size:14px;";
-    banner.querySelector("a").style.cssText = "color:#856404;text-decoration:underline;";
-    document.body.insertBefore(banner, document.body.firstChild);
-
-
-});
-BANNER_EOF
-
-# Patch the V2 typedoc config to add navigation links, base URL, and banner
-node -e "
-import fs from 'fs';
-const cfg = fs.readFileSync('typedoc.config.mjs', 'utf8');
-const patched = cfg.replace(
-  /export default \{/,
-  \"export default {\\n    hostedBaseUrl: 'https://modelcontextprotocol.github.io/typescript-sdk/v2/',\\n    customJs: 'docs/v2-banner.js',\"
-).replace(
-  /navigation:/,
-  \"navigationLinks: {\\n        'V1 Docs': '/',\\n    },\\n    navigation:\"
-);
-fs.writeFileSync('typedoc.config.mjs', patched);
-"
 
 npx typedoc  # outputs to tmp/docs/ per typedoc.config.mjs
 
