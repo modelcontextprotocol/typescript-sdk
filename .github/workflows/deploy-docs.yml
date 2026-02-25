@@ -5,6 +5,7 @@ on:
         branches:
             - main
             - v1.x
+    workflow_dispatch:
 
 concurrency:
     group: deploy-docs

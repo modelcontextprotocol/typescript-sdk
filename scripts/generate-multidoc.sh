@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 #
-# Generate combined V1 + V2 TypeDoc documentation locally.
+# Generate combined V1 + V2 TypeDoc documentation.
 #
-# V2 docs are generated from the current branch and placed at the root.
-# V1 docs are generated from the v1.x branch (via a git worktree) and
-# placed under /v1/.
+# V1 docs (from the v1.x branch) are placed at the root.
+# V2 docs (from main) are placed under /v2/.
+#
+# This script can be run from any branch — it fetches both v1.x and main
+# via git worktrees.
 #
 # Usage:
 #   scripts/generate-multidoc.sh [output-dir]
@@ -17,47 +19,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="${1:-$REPO_ROOT/tmp/docs-combined}"
 V1_WORKTREE="$REPO_ROOT/.worktrees/v1-docs"
-V1_BRANCH="origin/v1.x"
+V2_WORKTREE="$REPO_ROOT/.worktrees/v2-docs"
 
 cleanup() {
-    echo "Cleaning up V1 worktree..."
+    echo "Cleaning up worktrees..."
     cd "$REPO_ROOT"
     git worktree remove --force "$V1_WORKTREE" 2>/dev/null || true
+    git worktree remove --force "$V2_WORKTREE" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# ---------------------------------------------------------------------------
-# Step 1: Generate V2 docs from the current branch
-# ---------------------------------------------------------------------------
-echo "=== Generating V2 docs ==="
-cd "$REPO_ROOT"
-pnpm install
-pnpm build:all
-pnpm docs  # outputs to tmp/docs/ per typedoc.config.mjs
-
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
-cp -r "$REPO_ROOT/tmp/docs/"* "$OUTPUT_DIR/"
 
 # ---------------------------------------------------------------------------
-# Step 2: Generate V1 docs from v1.x via a git worktree
+# Step 1: Generate V1 docs from v1.x branch
 # ---------------------------------------------------------------------------
 echo "=== Generating V1 docs ==="
 
-# Ensure we have the latest v1.x ref
 git fetch origin v1.x
 
-# Clean up any stale worktree
 git worktree remove --force "$V1_WORKTREE" 2>/dev/null || true
 rm -rf "$V1_WORKTREE"
-
-git worktree add "$V1_WORKTREE" "$V1_BRANCH" --detach
+git worktree add "$V1_WORKTREE" "origin/v1.x" --detach
 
 cd "$V1_WORKTREE"
 npm install
 npm install --save-dev typedoc@^0.28.14
 
-# Write a temporary TypeDoc config for V1
 cat > typedoc.json << 'TYPEDOC_EOF'
 {
   "name": "MCP TypeScript SDK (V1)",
@@ -80,7 +69,7 @@ cat > typedoc.json << 'TYPEDOC_EOF'
     "src/examples/**"
   ],
   "navigationLinks": {
-    "V2 Docs (Latest)": "/"
+    "V2 Docs": "/v2/"
   },
   "skipErrorChecking": true
 }
@@ -88,11 +77,26 @@ TYPEDOC_EOF
 
 npx typedoc
 
+cp -r "$V1_WORKTREE/tmp/docs/"* "$OUTPUT_DIR/"
+
 # ---------------------------------------------------------------------------
-# Step 3: Merge V1 docs into the combined output
+# Step 2: Generate V2 docs from main branch
 # ---------------------------------------------------------------------------
-mkdir -p "$OUTPUT_DIR/v1"
-cp -r "$V1_WORKTREE/tmp/docs/"* "$OUTPUT_DIR/v1/"
+echo "=== Generating V2 docs ==="
+
+git fetch origin main
+
+git worktree remove --force "$V2_WORKTREE" 2>/dev/null || true
+rm -rf "$V2_WORKTREE"
+git worktree add "$V2_WORKTREE" "origin/main" --detach
+
+cd "$V2_WORKTREE"
+pnpm install
+pnpm build:all
+pnpm docs  # outputs to tmp/docs/ per typedoc.config.mjs
+
+mkdir -p "$OUTPUT_DIR/v2"
+cp -r "$V2_WORKTREE/tmp/docs/"* "$OUTPUT_DIR/v2/"
 
 cd "$REPO_ROOT"
 echo "=== Combined docs generated at $OUTPUT_DIR ==="
