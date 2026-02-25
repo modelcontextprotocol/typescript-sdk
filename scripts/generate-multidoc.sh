@@ -68,6 +68,13 @@ cat > typedoc.json << 'TYPEDOC_EOF'
     "**/__mocks__/**",
     "src/examples/**"
   ],
+  "projectDocuments": [
+    "docs/server.md",
+    "docs/client.md",
+    "docs/capabilities.md",
+    "docs/protocol.md",
+    "docs/faq.md"
+  ],
   "navigationLinks": {
     "V2 Docs": "/v2/"
   },
@@ -77,6 +84,11 @@ cat > typedoc.json << 'TYPEDOC_EOF'
   "skipErrorChecking": true
 }
 TYPEDOC_EOF
+
+# Rewrite relative .ts links to point to GitHub source instead of media downloads
+V1_GITHUB="https://github.com/modelcontextprotocol/typescript-sdk/blob/v1.x"
+sed -i "s|(src/examples/|(${V1_GITHUB}/src/examples/|g" README.md
+sed -i "s|(../src/examples/|(${V1_GITHUB}/src/examples/|g" docs/*.md
 
 npx typedoc
 
