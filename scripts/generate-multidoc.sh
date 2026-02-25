@@ -92,8 +92,8 @@ git worktree add "$V2_WORKTREE" "origin/main" --detach
 
 cd "$V2_WORKTREE"
 pnpm install
-pnpm build:all
-pnpm docs  # outputs to tmp/docs/ per typedoc.config.mjs
+pnpm -r --filter='./packages/**' build
+npx typedoc  # outputs to tmp/docs/ per typedoc.config.mjs
 
 mkdir -p "$OUTPUT_DIR/v2"
 cp -r "$V2_WORKTREE/tmp/docs/"* "$OUTPUT_DIR/v2/"
