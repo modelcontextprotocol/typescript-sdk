@@ -4,7 +4,7 @@
 >
 > We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
 >
-> For v1 documentation and code, see the [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x).
+> For v1 documentation, see the [V1 API docs](https://modelcontextprotocol.github.io/typescript-sdk/v1/). For v1 code and fixes, see the [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x).
 
 ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fserver) ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fclient) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fserver)
 
@@ -138,8 +138,7 @@ Next steps:
 
 ## v1 (legacy) documentation and fixes
 
-If you are using the **v1** generation of the SDK, the **v1 documentation** (and any v1-specific fixes) live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). See:
-[`https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x`](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x).
+If you are using the **v1** generation of the SDK, the **v1 API documentation** is available at [`https://modelcontextprotocol.github.io/typescript-sdk/v1/`](https://modelcontextprotocol.github.io/typescript-sdk/v1/). The v1 source code and any v1-specific fixes live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x).
 
 ## Contributing
 
