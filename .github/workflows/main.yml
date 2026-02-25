@@ -109,20 +109,22 @@ jobs:
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-    # Generates API documentation for GitHub Pages on any release
-    # Supports both simple tags (v1.2.3) and package-scoped tags (@scope/package@1.2.3)
-    publish-gh-pages:
+    # Generates API documentation and deploys to GitHub Pages on any release
+    deploy-docs:
         runs-on: ubuntu-latest
         if: github.event_name == 'release'
         needs: [publish]
 
         permissions:
-            contents: write
+            pages: write
+            id-token: write
+
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
 
         steps:
             - uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0 # Fetch all history for all branches and tags
 
             - name: Install pnpm
               uses: pnpm/action-setup@v4
@@ -137,13 +139,20 @@ jobs:
             - name: Install dependencies
               run: pnpm install
 
-            - name: Configure Git
-              run: |
-                  git config --global user.name "github-actions[bot]"
-                  git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            - name: Build packages
+              run: pnpm build:all
 
             - name: Generate documentation
-              run: ./scripts/generate-gh-pages.sh "${{ github.ref_name }}"
+              run: pnpm docs
 
-            - name: Push to gh-pages
-              run: git push origin gh-pages
+            - name: Configure Pages
+              uses: actions/configure-pages@v5
+
+            - name: Upload Pages artifact
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: tmp/docs
+
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v4
