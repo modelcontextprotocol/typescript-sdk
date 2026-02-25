@@ -71,6 +71,9 @@ cat > typedoc.json << 'TYPEDOC_EOF'
   "navigationLinks": {
     "V2 Docs": "/v2/"
   },
+  "headings": {
+    "readme": false
+  },
   "skipErrorChecking": true
 }
 TYPEDOC_EOF
