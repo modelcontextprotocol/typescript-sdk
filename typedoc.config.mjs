@@ -43,6 +43,7 @@ export default {
     headings: {
         readme: false
     },
+    customJs: 'docs/v2-banner.js',
     treatWarningsAsErrors: true,
     out: 'tmp/docs/',
 };

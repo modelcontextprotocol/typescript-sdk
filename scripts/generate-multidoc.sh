@@ -109,14 +109,28 @@ cd "$V2_WORKTREE"
 pnpm install
 pnpm -r --filter='./packages/**' build
 
-# Patch the V2 typedoc config to add navigation links and set the base URL
-# so that links resolve correctly when served under /v2/
+# Write the V2 pre-release banner script
+cat > docs/v2-banner.js << 'BANNER_EOF'
+document.addEventListener("DOMContentLoaded", function () {
+    var banner = document.createElement("div");
+    banner.innerHTML =
+        "This documents a <strong>pre-release</strong> version of the SDK. Expect breaking changes. For the stable SDK, see the <a href='/'>V1 docs</a>.";
+    banner.style.cssText =
+        "background:#fff3cd;color:#856404;border-bottom:1px solid #ffc107;padding:8px 16px;text-align:center;font-size:14px;";
+    banner.querySelector("a").style.cssText = "color:#856404;text-decoration:underline;";
+    document.body.insertBefore(banner, document.body.firstChild);
+
+
+});
+BANNER_EOF
+
+# Patch the V2 typedoc config to add navigation links, base URL, and banner
 node -e "
 import fs from 'fs';
 const cfg = fs.readFileSync('typedoc.config.mjs', 'utf8');
 const patched = cfg.replace(
   /export default \{/,
-  \"export default {\\n    hostedBaseUrl: 'https://modelcontextprotocol.github.io/typescript-sdk/v2/',\"
+  \"export default {\\n    hostedBaseUrl: 'https://modelcontextprotocol.github.io/typescript-sdk/v2/',\\n    customJs: 'docs/v2-banner.js',\"
 ).replace(
   /navigation:/,
   \"navigationLinks: {\\n        'V1 Docs': '/',\\n    },\\n    navigation:\"
