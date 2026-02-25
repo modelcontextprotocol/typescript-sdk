@@ -1,0 +1,87 @@
+name: 'Generate Multi-Version Docs'
+description: 'Generates combined V1 + V2 TypeDoc API documentation'
+
+inputs:
+    output-dir:
+        description: 'Directory to write combined docs to'
+        required: false
+        default: 'tmp/docs-combined'
+
+runs:
+    using: composite
+    steps:
+        # --- V2 docs (current checkout) ---
+        - name: Install V2 dependencies
+          shell: bash
+          run: pnpm install
+
+        - name: Build V2 packages
+          shell: bash
+          run: pnpm build:all
+
+        - name: Generate V2 docs
+          shell: bash
+          run: pnpm docs
+
+        - name: Stage V2 docs
+          shell: bash
+          run: |
+              mkdir -p ${{ inputs.output-dir }}
+              cp -r tmp/docs/* ${{ inputs.output-dir }}/
+
+        # --- V1 docs (separate checkout) ---
+        - name: Checkout V1 branch
+          uses: actions/checkout@v6
+          with:
+              ref: v1.x
+              path: v1-checkout
+
+        - name: Install V1 dependencies
+          shell: bash
+          working-directory: v1-checkout
+          run: |
+              npm install
+              npm install --save-dev typedoc@^0.28.14
+
+        - name: Write V1 TypeDoc config
+          shell: bash
+          working-directory: v1-checkout
+          run: |
+              cat > typedoc.json << 'EOF'
+              {
+                "name": "MCP TypeScript SDK (V1)",
+                "entryPoints": [
+                  "src/client/index.ts",
+                  "src/server/index.ts",
+                  "src/shared/protocol.ts",
+                  "src/shared/transport.ts",
+                  "src/types.ts",
+                  "src/inMemory.ts",
+                  "src/validation/index.ts",
+                  "src/experimental/index.ts"
+                ],
+                "tsconfig": "tsconfig.json",
+                "out": "tmp/docs",
+                "exclude": [
+                  "**/*.test.ts",
+                  "**/__fixtures__/**",
+                  "**/__mocks__/**",
+                  "src/examples/**"
+                ],
+                "navigationLinks": {
+                  "V2 Docs (Latest)": "/"
+                },
+                "skipErrorChecking": true
+              }
+              EOF
+
+        - name: Generate V1 docs
+          shell: bash
+          working-directory: v1-checkout
+          run: npx typedoc
+
+        - name: Merge V1 docs into combined output
+          shell: bash
+          run: |
+              mkdir -p ${{ inputs.output-dir }}/v1
+              cp -r v1-checkout/tmp/docs/* ${{ inputs.output-dir }}/v1/

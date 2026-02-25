@@ -33,6 +33,9 @@ export default {
     },
     highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],
     projectDocuments: ['docs/documents.md'],
+    navigationLinks: {
+        'V1 Docs': '/v1/'
+    },
     navigation: {
         compactFolders: true,
         includeFolders: false
