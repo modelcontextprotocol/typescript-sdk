@@ -136,6 +136,17 @@ Next steps:
     - [MCP Specification](https://spec.modelcontextprotocol.io)
     - [Example Servers](https://github.com/modelcontextprotocol/servers)
 
+### Building docs locally
+
+To generate the API reference documentation locally:
+
+```bash
+pnpm docs          # Generate V2 docs only (output: tmp/docs/)
+pnpm docs:multi    # Generate combined V1 + V2 docs (output: tmp/docs-combined/)
+```
+
+The `docs:multi` script checks out both the `v1.x` and `main` branches via git worktrees, builds each, and produces a combined site with V1 docs at the root and V2 docs under `/v2/`.
+
 ## v1 (legacy) documentation and fixes
 
 If you are using the **v1** generation of the SDK, the **v1 API documentation** is available at [`https://modelcontextprotocol.github.io/typescript-sdk/`](https://modelcontextprotocol.github.io/typescript-sdk/). The v1 source code and any v1-specific fixes live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). V2 API docs are at [`/v2/`](https://modelcontextprotocol.github.io/typescript-sdk/v2/).
