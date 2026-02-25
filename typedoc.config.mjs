@@ -24,7 +24,7 @@ console.log(
 
 /** @type {Partial<import("typedoc").TypeDocOptions>} */
 export default {
-    name: 'MCP TypeScript SDK',
+    name: 'MCP TypeScript SDK (V2)',
     entryPointStrategy: 'packages',
     entryPoints,
     packageOptions: {

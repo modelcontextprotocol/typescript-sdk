@@ -49,7 +49,7 @@ npm install --save-dev typedoc@^0.28.14
 
 cat > typedoc.json << 'TYPEDOC_EOF'
 {
-  "name": "MCP TypeScript SDK (V1)",
+  "name": "MCP TypeScript SDK",
   "entryPoints": [
     "src/client/index.ts",
     "src/server/index.ts",
