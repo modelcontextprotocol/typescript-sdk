@@ -76,7 +76,7 @@ cat > typedoc.json << 'TYPEDOC_EOF'
     "docs/faq.md"
   ],
   "navigationLinks": {
-    "V2 Docs": "/typescript-sdk/v2/"
+    "V2 Docs": "/v2/"
   },
   "headings": {
     "readme": false

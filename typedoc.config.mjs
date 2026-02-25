@@ -32,10 +32,15 @@ export default {
         exclude: ['**/*.examples.ts']
     },
     highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],
-    projectDocuments: ['docs/documents.md'],
-    hostedBaseUrl: 'https://modelcontextprotocol.github.io/typescript-sdk/v2/',
+    projectDocuments: [
+        'docs/documents.md',
+        'packages/middleware/README.md',
+        'examples/server/README.md',
+        'examples/client/README.md',
+    ],
+    hostedBaseUrl: 'https://ts.sdk.modelcontextprotocol.io/v2/',
     navigationLinks: {
-        'V1 Docs': '/typescript-sdk/'
+        'V1 Docs': '/'
     },
     navigation: {
         compactFolders: true,
