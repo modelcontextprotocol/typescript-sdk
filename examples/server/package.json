@@ -52,6 +52,7 @@
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@types/cors": "catalog:devTools",
         "@types/express": "catalog:devTools",
-        "tsdown": "catalog:devTools"
+        "tsdown": "catalog:devTools",
+        "vitest": "catalog:devTools"
     }
 }

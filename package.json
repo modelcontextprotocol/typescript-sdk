@@ -73,7 +73,6 @@
         "typedoc": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools",
         "ws": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     },

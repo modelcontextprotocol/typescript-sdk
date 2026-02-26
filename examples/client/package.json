@@ -44,6 +44,7 @@
         "@modelcontextprotocol/examples-shared": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "tsdown": "catalog:devTools"
+        "tsdown": "catalog:devTools",
+        "vitest": "catalog:devTools"
     }
 }

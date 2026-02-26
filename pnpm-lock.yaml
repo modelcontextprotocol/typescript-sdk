@@ -218,9 +218,6 @@ importers:
       typescript-eslint:
         specifier: catalog:devTools
         version: 8.51.0(eslint@9.39.2)(typescript@5.9.3)
-      vitest:
-        specifier: catalog:devTools
-        version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
       ws:
         specifier: catalog:devTools
         version: 8.18.3
@@ -276,6 +273,9 @@ importers:
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
     devDependencies:
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
@@ -314,6 +314,9 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260105.1)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
 
   examples/client-quickstart:
     dependencies:
@@ -385,6 +388,9 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260105.1)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
 
   examples/server-quickstart:
     dependencies:
@@ -906,6 +912,9 @@ importers:
       express:
         specifier: catalog:runtimeServerOnly
         version: 5.2.1
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.5
