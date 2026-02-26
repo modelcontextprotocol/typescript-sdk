@@ -185,6 +185,50 @@ export interface OAuthClientProvider {
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 
     /**
+     * Saves the authorization server URL after RFC 9728 discovery.
+     * This method is called by {@linkcode auth} after successful discovery of the
+     * authorization server via protected resource metadata.
+     *
+     * Providers implementing Cross-App Access or other flows that need access to
+     * the discovered authorization server URL should implement this method.
+     *
+     * @param authorizationServerUrl - The authorization server URL discovered via RFC 9728
+     */
+    saveAuthorizationServerUrl?(authorizationServerUrl: string): void | Promise<void>;
+
+    /**
+     * Returns the previously saved authorization server URL, if available.
+     *
+     * Providers implementing Cross-App Access can use this to access the
+     * authorization server URL discovered during the OAuth flow.
+     *
+     * @returns The authorization server URL, or `undefined` if not available
+     */
+    authorizationServerUrl?(): string | undefined | Promise<string | undefined>;
+
+    /**
+     * Saves the resource URL after RFC 9728 discovery.
+     * This method is called by {@linkcode auth} after successful discovery of the
+     * resource metadata.
+     *
+     * Providers implementing Cross-App Access or other flows that need access to
+     * the discovered resource URL should implement this method.
+     *
+     * @param resourceUrl - The resource URL discovered via RFC 9728
+     */
+    saveResourceUrl?(resourceUrl: string): void | Promise<void>;
+
+    /**
+     * Returns the previously saved resource URL, if available.
+     *
+     * Providers implementing Cross-App Access can use this to access the
+     * resource URL discovered during the OAuth flow.
+     *
+     * @returns The resource URL, or `undefined` if not available
+     */
+    resourceUrl?(): string | undefined | Promise<string | undefined>;
+
+    /**
      * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
      * discovery. Providers can persist this state to avoid redundant discovery requests
      * on subsequent {@linkcode auth} calls.
@@ -497,7 +541,15 @@ async function authInternal(
         });
     }
 
+    // Save authorization server URL for providers that need it (e.g., CrossAppAccessProvider)
+    await provider.saveAuthorizationServerUrl?.(String(authorizationServerUrl));
+
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+
+    // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
+    if (resource) {
+        await provider.saveResourceUrl?.(String(resource));
+    }
 
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -550,6 +602,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
+            scope,
             fetchFn
         });
 
@@ -1389,21 +1442,25 @@ export async function fetchToken(
         metadata,
         resource,
         authorizationCode,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: URL;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
+        /** Optional scope parameter from auth() options */
+        scope?: string;
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
-    const scope = provider.clientMetadata.scope;
+    // Prefer scope from options, fallback to provider.clientMetadata.scope
+    const effectiveScope = scope ?? provider.clientMetadata.scope;
 
     // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
     let tokenRequestParams: URLSearchParams | undefined;
     if (provider.prepareTokenRequest) {
-        tokenRequestParams = await provider.prepareTokenRequest(scope);
+        tokenRequestParams = await provider.prepareTokenRequest(effectiveScope);
     }
 
     // Default to authorization_code grant if no custom prepareTokenRequest

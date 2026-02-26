@@ -153,6 +153,61 @@ For user-facing applications, implement the {@linkcode @modelcontextprotocol/cli
 
 For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClient.ts) and [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClientProvider.ts).
 
+### Cross-App Access (Enterprise Managed Authorization)
+
+{@linkcode @modelcontextprotocol/client!client/authExtensions.CrossAppAccessProvider | CrossAppAccessProvider} implements Enterprise Managed Authorization (SEP-990) for scenarios where users authenticate with an enterprise identity provider (IdP) and clients need to access protected MCP servers on their behalf.
+
+This provider handles a two-step OAuth flow:
+1. Exchange the user's ID Token from the enterprise IdP for a JWT Authorization Grant (JAG) via RFC 8693 token exchange
+2. Exchange the JAG for an access token from the MCP server via RFC 7523 JWT bearer grant
+
+```ts
+import { CrossAppAccessProvider } from '@modelcontextprotocol/client';
+import { discoverAndRequestJwtAuthGrant } from '@modelcontextprotocol/client/crossAppAccess';
+
+const authProvider = new CrossAppAccessProvider({
+    // Callback to obtain JWT Authorization Grant
+    assertion: async (ctx) => {
+        // ctx provides: authorizationServerUrl, resourceUrl, scope, fetchFn
+        const result = await discoverAndRequestJwtAuthGrant({
+            idpUrl: 'https://idp.example.com',
+            audience: ctx.authorizationServerUrl,  // MCP auth server
+            resource: ctx.resourceUrl,              // MCP resource URL
+            idToken: await getMyIdToken(),          // Your ID token acquisition
+            clientId: 'my-idp-client',
+            clientSecret: 'my-idp-secret',
+            scope: ctx.scope,
+            fetchFn: ctx.fetchFn
+        });
+        return result.jwtAuthGrant;
+    },
+    
+    // MCP server credentials
+    clientId: 'my-mcp-client',
+    clientSecret: 'my-mcp-secret',
+    clientName: 'my-app'  // Optional
+});
+
+const transport = new StreamableHTTPClientTransport(
+    new URL('http://localhost:3000/mcp'),
+    { authProvider }
+);
+```
+
+The `assertion` callback receives a context object with:
+- `authorizationServerUrl` – The MCP server's authorization server (discovered automatically)
+- `resourceUrl` – The MCP resource URL (discovered automatically)
+- `scope` – Optional scope passed to `auth()` or from `clientMetadata`
+- `fetchFn` – Fetch implementation to use for HTTP requests
+
+For manual control over the token exchange steps, use the Layer 2 utilities from `@modelcontextprotocol/client/crossAppAccess`:
+- `requestJwtAuthorizationGrant()` – Exchange ID Token for JAG at IdP
+- `discoverAndRequestJwtAuthGrant()` – Discovery + JAG acquisition
+- `exchangeJwtAuthGrant()` – Exchange JAG for access token at MCP server
+
+> [!NOTE]
+> See [RFC 8693 (Token Exchange)](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7523 (JWT Bearer Grant)](https://datatracker.ietf.org/doc/html/rfc7523), and [RFC 9728 (Resource Discovery)](https://datatracker.ietf.org/doc/html/rfc9728) for the underlying OAuth standards.
+
 ## Tools
 
 Tools are callable actions offered by servers — discovering and invoking them is usually how your client enables an LLM to take action (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
