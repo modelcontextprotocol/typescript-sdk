@@ -1,6 +1,7 @@
 export * from './client/auth.js';
 export * from './client/authExtensions.js';
 export * from './client/client.js';
+export * from './client/crossAppAccess.js';
 export * from './client/middleware.js';
 export * from './client/sse.js';
 export * from './client/stdio.js';

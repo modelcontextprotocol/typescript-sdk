@@ -5,7 +5,7 @@
  * for common machine-to-machine authentication scenarios.
  */
 
-import type { OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
 import type { CryptoKey, JWK } from 'jose';
 
 import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
@@ -405,6 +405,265 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
     prepareTokenRequest(scope?: string): URLSearchParams {
         const params = new URLSearchParams({ grant_type: 'client_credentials' });
         if (scope) params.set('scope', scope);
+        return params;
+    }
+}
+
+/**
+ * Context provided to the assertion callback in {@linkcode CrossAppAccessProvider}.
+ * Contains orchestrator-discovered information needed for JWT Authorization Grant requests.
+ */
+export interface CrossAppAccessContext {
+    /**
+     * The authorization server URL of the target MCP server.
+     * Discovered via RFC 9728 protected resource metadata.
+     */
+    authorizationServerUrl: string;
+
+    /**
+     * The resource URL of the target MCP server.
+     * Discovered via RFC 9728 protected resource metadata.
+     */
+    resourceUrl: string;
+
+    /**
+     * Optional scope being requested for the MCP server.
+     */
+    scope?: string;
+
+    /**
+     * Fetch function to use for HTTP requests (e.g., for IdP token exchange).
+     */
+    fetchFn: FetchLike;
+}
+
+/**
+ * Callback function type that provides a JWT Authorization Grant (ID-JAG).
+ *
+ * The callback receives context about the target MCP server (authorization server URL,
+ * resource URL, scope) and should return a JWT Authorization Grant that will be used
+ * to obtain an access token from the MCP server.
+ */
+export type AssertionCallback = (context: CrossAppAccessContext) => string | Promise<string>;
+
+/**
+ * Options for creating a {@linkcode CrossAppAccessProvider}.
+ */
+export interface CrossAppAccessProviderOptions {
+    /**
+     * Callback function that provides a JWT Authorization Grant (ID-JAG).
+     *
+     * The callback receives the MCP server's authorization server URL, resource URL,
+     * and requested scope, and should return a JWT Authorization Grant obtained from
+     * the enterprise IdP via RFC 8693 token exchange.
+     *
+     * You can use the utility functions from the `crossAppAccess` module
+     * for standard flows, or implement custom logic.
+     *
+     * @example
+     * ```ts
+     * assertion: async (ctx) => {
+     *     const result = await discoverAndRequestJwtAuthGrant({
+     *         idpUrl: 'https://idp.example.com',
+     *         audience: ctx.authorizationServerUrl,
+     *         resource: ctx.resourceUrl,
+     *         idToken: await getIdToken(),
+     *         clientId: 'my-idp-client',
+     *         clientSecret: 'my-idp-secret',
+     *         scope: ctx.scope,
+     *         fetchFn: ctx.fetchFn
+     *     });
+     *     return result.jwtAuthGrant;
+     * }
+     * ```
+     */
+    assertion: AssertionCallback;
+
+    /**
+     * The `client_id` registered with the MCP server's authorization server.
+     */
+    clientId: string;
+
+    /**
+     * The `client_secret` for authenticating with the MCP server's authorization server.
+     */
+    clientSecret: string;
+
+    /**
+     * Optional client name for metadata.
+     */
+    clientName?: string;
+
+    /**
+     * Custom fetch implementation. Defaults to global fetch.
+     */
+    fetchFn?: FetchLike;
+}
+
+/**
+ * OAuth provider for Cross-App Access (Enterprise Managed Authorization) using JWT Authorization Grant.
+ *
+ * This provider implements the Enterprise Managed Authorization flow (SEP-990) where:
+ * 1. User authenticates with an enterprise IdP and the client obtains an ID Token
+ * 2. Client exchanges the ID Token for a JWT Authorization Grant (ID-JAG) via RFC 8693 token exchange
+ * 3. Client uses the JAG to obtain an access token from the MCP server via RFC 7523 JWT bearer grant
+ *
+ * The provider handles steps 2-3 automatically, with the JAG acquisition delegated to
+ * a callback function that you provide. This allows flexibility in how you obtain and
+ * cache ID Tokens from the IdP.
+ *
+ * @see https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/draft/enterprise-managed-authorization.mdx
+ *
+ * @example
+ * ```ts
+ * const provider = new CrossAppAccessProvider({
+ *     assertion: async (ctx) => {
+ *         const result = await discoverAndRequestJwtAuthGrant({
+ *             idpUrl: 'https://idp.example.com',
+ *             audience: ctx.authorizationServerUrl,
+ *             resource: ctx.resourceUrl,
+ *             idToken: await getIdToken(), // Your function to get ID token
+ *             clientId: 'my-idp-client',
+ *             clientSecret: 'my-idp-secret',
+ *             scope: ctx.scope,
+ *             fetchFn: ctx.fetchFn
+ *         });
+ *         return result.jwtAuthGrant;
+ *     },
+ *     clientId: 'my-mcp-client',
+ *     clientSecret: 'my-mcp-secret'
+ * });
+ *
+ * const transport = new StreamableHTTPClientTransport(serverUrl, {
+ *     authProvider: provider
+ * });
+ * ```
+ */
+export class CrossAppAccessProvider implements OAuthClientProvider {
+    private _tokens?: OAuthTokens;
+    private _clientInfo: OAuthClientInformation;
+    private _clientMetadata: OAuthClientMetadata;
+    private _assertionCallback: AssertionCallback;
+    private _fetchFn: FetchLike;
+    private _authorizationServerUrl?: string;
+    private _resourceUrl?: string;
+    private _scope?: string;
+
+    constructor(options: CrossAppAccessProviderOptions) {
+        this._clientInfo = {
+            client_id: options.clientId,
+            client_secret: options.clientSecret
+        };
+        this._clientMetadata = {
+            client_name: options.clientName ?? 'cross-app-access-client',
+            redirect_uris: [],
+            grant_types: ['urn:ietf:params:oauth:grant-type:jwt-bearer'],
+            token_endpoint_auth_method: 'client_secret_basic'
+        };
+        this._assertionCallback = options.assertion;
+        this._fetchFn = options.fetchFn ?? fetch;
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): OAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    saveClientInformation(info: OAuthClientInformation): void {
+        this._clientInfo = info;
+    }
+
+    tokens(): OAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: OAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error('redirectToAuthorization is not used for jwt-bearer flow');
+    }
+
+    saveCodeVerifier(): void {
+        // Not used for jwt-bearer
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for jwt-bearer flow');
+    }
+
+    /**
+     * Saves the authorization server URL discovered during OAuth flow.
+     * This is called by the auth() function after RFC 9728 discovery.
+     */
+    saveAuthorizationServerUrl?(authorizationServerUrl: string): void {
+        this._authorizationServerUrl = authorizationServerUrl;
+    }
+
+    /**
+     * Returns the cached authorization server URL if available.
+     */
+    authorizationServerUrl?(): string | undefined {
+        return this._authorizationServerUrl;
+    }
+
+    /**
+     * Saves the resource URL discovered during OAuth flow.
+     * This is called by the auth() function after RFC 9728 discovery.
+     */
+    saveResourceUrl?(resourceUrl: string): void {
+        this._resourceUrl = resourceUrl;
+    }
+
+    /**
+     * Returns the cached resource URL if available.
+     */
+    resourceUrl?(): string | undefined {
+        return this._resourceUrl;
+    }
+
+    async prepareTokenRequest(scope?: string): Promise<URLSearchParams> {
+        // Get the authorization server URL and resource URL from cached state
+        const authServerUrl = this._authorizationServerUrl;
+        const resourceUrl = this._resourceUrl;
+
+        if (!authServerUrl) {
+            throw new Error('Authorization server URL not available. Ensure auth() has been called first.');
+        }
+
+        if (!resourceUrl) {
+            throw new Error('Resource URL not available. Ensure auth() has been called first.');
+        }
+
+        // Store scope for assertion callback
+        this._scope = scope;
+
+        // Call the assertion callback to get the JWT Authorization Grant
+        const jwtAuthGrant = await this._assertionCallback({
+            authorizationServerUrl: authServerUrl,
+            resourceUrl: resourceUrl,
+            scope: this._scope,
+            fetchFn: this._fetchFn
+        });
+
+        // Return params for JWT bearer grant per RFC 7523
+        const params = new URLSearchParams({
+            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            assertion: jwtAuthGrant
+        });
+
+        if (scope) {
+            params.set('scope', scope);
+        }
+
         return params;
     }
 }
