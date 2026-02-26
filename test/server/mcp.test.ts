@@ -2075,7 +2075,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(() => {
                 mcpServer.tool('test', 'A tool', jsonSchema, cb);
-            }).toThrow(/Zod schema/);
+            }).toThrow(/unrecognized object/);
             
             expect(() => {
                 mcpServer.registerTool(
@@ -2083,7 +2083,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     { description: 'A tool', inputSchema: jsonSchema },
                     cb
                 );
-            }).toThrow(/Zod schema/);
+            }).toThrow(/unrecognized object/);
         });
     });
 
