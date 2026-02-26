@@ -176,7 +176,6 @@ export class McpServer {
             }
 
             try {
-
                 const isTaskRequest = !!request.params.task;
                 const taskSupport = tool.execution?.taskSupport;
                 const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<AnySchema>);
