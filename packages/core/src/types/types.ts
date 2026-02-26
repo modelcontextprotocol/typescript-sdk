@@ -228,6 +228,7 @@ export enum ProtocolErrorCode {
     InternalError = -32_603,
 
     // MCP-specific error codes
+    ResourceNotFound = -32_002,
     UrlElicitationRequired = -32_042
 }
 
