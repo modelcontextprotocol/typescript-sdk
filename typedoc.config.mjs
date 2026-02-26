@@ -24,13 +24,24 @@ console.log(
 
 /** @type {Partial<import("typedoc").TypeDocOptions>} */
 export default {
-    name: 'MCP TypeScript SDK',
+    name: 'MCP TypeScript SDK (V2)',
     entryPointStrategy: 'packages',
     entryPoints,
     packageOptions: {
-        blockTags: [...OptionDefaults.blockTags, '@format']
+        blockTags: [...OptionDefaults.blockTags, '@format'],
+        exclude: ['**/*.examples.ts']
     },
-    projectDocuments: ['docs/documents.md'],
+    highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],
+    projectDocuments: [
+        'docs/documents.md',
+        'packages/middleware/README.md',
+        'examples/server/README.md',
+        'examples/client/README.md',
+    ],
+    hostedBaseUrl: 'https://ts.sdk.modelcontextprotocol.io/v2/',
+    navigationLinks: {
+        'V1 Docs': '/'
+    },
     navigation: {
         compactFolders: true,
         includeFolders: false
@@ -38,5 +49,7 @@ export default {
     headings: {
         readme: false
     },
+    customJs: 'docs/v2-banner.js',
+    treatWarningsAsErrors: true,
     out: 'tmp/docs/',
 };

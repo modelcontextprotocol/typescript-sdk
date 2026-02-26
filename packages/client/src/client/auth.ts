@@ -144,7 +144,7 @@ export interface OAuthClientProvider {
      * credentials, in the case where the server has indicated that they are no longer valid.
      * This avoids requiring the user to intervene manually.
      */
-    invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+    invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void | Promise<void>;
 
     /**
      * Prepares grant-specific parameters for a token request.
@@ -183,6 +183,46 @@ export interface OAuthClientProvider {
      * }
      */
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
+
+    /**
+     * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
+     * discovery. Providers can persist this state to avoid redundant discovery requests
+     * on subsequent {@linkcode auth} calls.
+     *
+     * This state can also be provided out-of-band (e.g., from a previous session or
+     * external configuration) to bootstrap the OAuth flow without discovery.
+     *
+     * Called by {@linkcode auth} after successful discovery.
+     */
+    saveDiscoveryState?(state: OAuthDiscoveryState): void | Promise<void>;
+
+    /**
+     * Returns previously saved discovery state, or `undefined` if none is cached.
+     *
+     * When available, {@linkcode auth} restores the discovery state (authorization server
+     * URL, resource metadata, etc.) instead of performing RFC 9728 discovery, reducing
+     * latency on subsequent calls.
+     *
+     * Providers should clear cached discovery state on repeated authentication failures
+     * (via {@linkcode invalidateCredentials} with scope `'discovery'` or `'all'`) to allow
+     * re-discovery in case the authorization server has changed.
+     */
+    discoveryState?(): OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
+}
+
+/**
+ * Discovery state that can be persisted across sessions by an {@linkcode OAuthClientProvider}.
+ *
+ * Contains the results of RFC 9728 protected resource metadata discovery and
+ * authorization server metadata discovery. Persisting this state avoids
+ * redundant discovery HTTP requests on subsequent {@linkcode auth} calls.
+ */
+// TODO: Consider adding `authorizationServerMetadataUrl` to capture the exact well-known URL
+// at which authorization server metadata was discovered. This would require
+// `discoverAuthorizationServerMetadata()` to return the successful discovery URL.
+export interface OAuthDiscoveryState extends OAuthServerInfo {
+    /** The URL at which the protected resource metadata was found, if available. */
+    resourceMetadataUrl?: string;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -193,7 +233,7 @@ export class UnauthorizedError extends Error {
     }
 }
 
-type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
+export type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
 function isClientAuthMethod(method: string): method is ClientAuthMethod {
     return ['client_secret_basic', 'client_secret_post', 'none'].includes(method);
@@ -395,31 +435,69 @@ async function authInternal(
         fetchFn?: FetchLike;
     }
 ): Promise<AuthResult> {
-    let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
-    let authorizationServerUrl: string | URL | undefined;
+    // Check if the provider has cached discovery state to skip discovery
+    const cachedState = await provider.discoveryState?.();
 
-    try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
-        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
-            authorizationServerUrl = resourceMetadata.authorization_servers[0];
-        }
-    } catch {
-        // Ignore errors and fall back to /.well-known/oauth-authorization-server
+    let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+    let authorizationServerUrl: string | URL;
+    let metadata: AuthorizationServerMetadata | undefined;
+
+    // If resourceMetadataUrl is not provided, try to load it from cached state
+    // This handles browser redirects where the URL was saved before navigation
+    let effectiveResourceMetadataUrl = resourceMetadataUrl;
+    if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
+        effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
     }
 
-    /**
-     * If we don't get a valid authorization server metadata from protected resource metadata,
-     * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server base URL acts as the Authorization server.
-     */
-    if (!authorizationServerUrl) {
-        authorizationServerUrl = new URL('/', serverUrl);
+    if (cachedState?.authorizationServerUrl) {
+        // Restore discovery state from cache
+        authorizationServerUrl = cachedState.authorizationServerUrl;
+        resourceMetadata = cachedState.resourceMetadata;
+        metadata =
+            cachedState.authorizationServerMetadata ?? (await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn }));
+
+        // If resource metadata wasn't cached, try to fetch it for selectResourceURL
+        if (!resourceMetadata) {
+            try {
+                resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+                    serverUrl,
+                    { resourceMetadataUrl: effectiveResourceMetadataUrl },
+                    fetchFn
+                );
+            } catch {
+                // RFC 9728 not available — selectResourceURL will handle undefined
+            }
+        }
+
+        // Re-save if we enriched the cached state with missing metadata
+        if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
+            await provider.saveDiscoveryState?.({
+                authorizationServerUrl: String(authorizationServerUrl),
+                resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                resourceMetadata,
+                authorizationServerMetadata: metadata
+            });
+        }
+    } else {
+        // Full discovery via RFC 9728
+        const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
+        authorizationServerUrl = serverInfo.authorizationServerUrl;
+        metadata = serverInfo.authorizationServerMetadata;
+        resourceMetadata = serverInfo.resourceMetadata;
+
+        // Persist discovery state for future use
+        // TODO: resourceMetadataUrl is only populated when explicitly provided via options
+        // or loaded from cached state. The URL derived internally by
+        // discoverOAuthProtectedResourceMetadata() is not captured back here.
+        await provider.saveDiscoveryState?.({
+            authorizationServerUrl: String(authorizationServerUrl),
+            resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+            resourceMetadata,
+            authorizationServerMetadata: metadata
+        });
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
-
-    const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
-        fetchFn
-    });
 
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -942,6 +1020,87 @@ export async function discoverAuthorizationServerMetadata(
 }
 
 /**
+ * Result of {@linkcode discoverOAuthServerInfo}.
+ */
+export interface OAuthServerInfo {
+    /**
+     * The authorization server URL, either discovered via RFC 9728
+     * or derived from the MCP server URL as a fallback.
+     */
+    authorizationServerUrl: string;
+
+    /**
+     * The authorization server metadata (endpoints, capabilities),
+     * or `undefined` if metadata discovery failed.
+     */
+    authorizationServerMetadata?: AuthorizationServerMetadata;
+
+    /**
+     * The OAuth 2.0 Protected Resource Metadata from RFC 9728,
+     * or `undefined` if the server does not support it.
+     */
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+}
+
+/**
+ * Discovers the authorization server for an MCP server following
+ * {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728} (OAuth 2.0 Protected
+ * Resource Metadata), with fallback to treating the server URL as the
+ * authorization server.
+ *
+ * This function combines two discovery steps into one call:
+ * 1. Probes `/.well-known/oauth-protected-resource` on the MCP server to find the
+ *    authorization server URL (RFC 9728).
+ * 2. Fetches authorization server metadata from that URL (RFC 8414 / OpenID Connect Discovery).
+ *
+ * Use this when you need the authorization server metadata for operations outside the
+ * {@linkcode auth} orchestrator, such as token refresh or token revocation.
+ *
+ * @param serverUrl - The MCP resource server URL
+ * @param opts - Optional configuration
+ * @param opts.resourceMetadataUrl - Override URL for the protected resource metadata endpoint
+ * @param opts.fetchFn - Custom fetch function for HTTP requests
+ * @returns Authorization server URL, metadata, and resource metadata (if available)
+ */
+export async function discoverOAuthServerInfo(
+    serverUrl: string | URL,
+    opts?: {
+        resourceMetadataUrl?: URL;
+        fetchFn?: FetchLike;
+    }
+): Promise<OAuthServerInfo> {
+    let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+    let authorizationServerUrl: string | undefined;
+
+    try {
+        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+            serverUrl,
+            { resourceMetadataUrl: opts?.resourceMetadataUrl },
+            opts?.fetchFn
+        );
+        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+            authorizationServerUrl = resourceMetadata.authorization_servers[0];
+        }
+    } catch {
+        // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
+    }
+
+    // If we don't get a valid authorization server from protected resource metadata,
+    // fall back to the legacy MCP spec behavior: MCP server base URL acts as the authorization server
+    if (!authorizationServerUrl) {
+        authorizationServerUrl = String(new URL('/', serverUrl));
+    }
+
+    const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn: opts?.fetchFn });
+
+    return {
+        authorizationServerUrl,
+        authorizationServerMetadata,
+        resourceMetadata
+    };
+}
+
+/**
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
  */
 export async function startAuthorization(
@@ -1210,18 +1369,17 @@ export async function refreshAuthorization(
  * @throws {Error} When provider doesn't implement `prepareTokenRequest` or token fetch fails
  *
  * @example
- * ```typescript
+ * ```ts source="./auth.examples.ts#fetchToken_clientCredentials"
  * // Provider for client_credentials:
- * class MyProvider implements OAuthClientProvider {
- *   prepareTokenRequest(scope) {
- *     const params = new URLSearchParams({ grant_type: 'client_credentials' });
- *     if (scope) params.set('scope', scope);
- *     return params;
- *   }
- *   // ... other methods
+ * class MyProvider extends MyProviderBase implements OAuthClientProvider {
+ *     prepareTokenRequest(scope?: string) {
+ *         const params = new URLSearchParams({ grant_type: 'client_credentials' });
+ *         if (scope) params.set('scope', scope);
+ *         return params;
+ *     }
  * }
  *
- * const tokens = await fetchToken(provider, authServerUrl, { metadata });
+ * const tokens = await fetchToken(new MyProvider(), authServerUrl, { metadata });
  * ```
  */
 export async function fetchToken(

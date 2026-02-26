@@ -1033,27 +1033,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Sends a request and returns an AsyncGenerator that yields response messages.
      * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
-     * @example
-     * ```typescript
-     * const stream = protocol.requestStream(request, resultSchema, options);
-     * for await (const message of stream) {
-     *   switch (message.type) {
-     *     case 'taskCreated':
-     *       console.log('Task created:', message.task.taskId);
-     *       break;
-     *     case 'taskStatus':
-     *       console.log('Task status:', message.task.status);
-     *       break;
-     *     case 'result':
-     *       console.log('Final result:', message.result);
-     *       break;
-     *     case 'error':
-     *       console.error('Error:', message.error);
-     *       break;
-     *   }
-     * }
-     * ```
-     *
      * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
      */
     protected async *requestStream<T extends AnyObjectSchema>(
