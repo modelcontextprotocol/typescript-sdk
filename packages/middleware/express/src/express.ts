@@ -58,7 +58,7 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
     const { host = '127.0.0.1', allowedHosts, jsonBodyLimit } = options;
 
     const app = express();
-    app.use(express.json(jsonBodyLimit !== undefined ? { limit: jsonBodyLimit } : {}));
+    app.use(express.json(jsonBodyLimit === undefined ? {} : { limit: jsonBodyLimit }));
 
     // If allowedHosts is explicitly provided, use that for validation
     if (allowedHosts) {
