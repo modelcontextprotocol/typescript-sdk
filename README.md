@@ -154,8 +154,11 @@ For more details on how to run these examples (including recommended commands an
     - [docs/server.md](docs/server.md) – building and running MCP servers, transports, tools/resources/prompts, CORS, DNS rebinding, and multi-node deployment.
     - [docs/client.md](docs/client.md) – using the high-level client, transports, backwards compatibility, and OAuth helpers.
     - [docs/capabilities.md](docs/capabilities.md) – sampling, elicitation (form and URL), and experimental task-based execution.
+    - [docs/protocol.md](docs/protocol.md) – protocol features: ping, progress, cancellation, pagination, capability negotiation, and JSON Schema.
     - [docs/faq.md](docs/faq.md) – environment and troubleshooting FAQs (including Node.js Web Crypto support).
 - External references:
+    - [V1 API reference](https://modelcontextprotocol.github.io/typescript-sdk/)
+    - [V2 API reference](https://modelcontextprotocol.github.io/typescript-sdk/v2/)
     - [Model Context Protocol documentation](https://modelcontextprotocol.io)
     - [MCP Specification](https://spec.modelcontextprotocol.io)
     - [Example Servers](https://github.com/modelcontextprotocol/servers)

@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.26.0",
+    "version": "1.27.1",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -123,8 +123,8 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "^4.1.1",
-        "@modelcontextprotocol/conformance": "^0.1.11",
         "@eslint/js": "^9.39.1",
+        "@modelcontextprotocol/conformance": "^0.1.14",
         "@types/content-type": "^1.1.8",
         "@types/cors": "^2.8.17",
         "@types/cross-spawn": "^6.0.6",
