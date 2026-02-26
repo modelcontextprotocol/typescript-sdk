@@ -4,6 +4,7 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     createFetchWithInit,
     isInitializedNotification,
+    isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
@@ -357,7 +358,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            if (isJSONRPCResultResponse(message)) {
+                            // Handle both success AND error responses for completion detection and ID remapping
+                            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                                 // Mark that we received a response - no need to reconnect for this request
                                 receivedResponse = true;
                                 if (replayMessageId !== undefined) {
