@@ -35,6 +35,7 @@
         "lint:fix:all": "pnpm sync:snippets && pnpm -r lint:fix",
         "check:all": "pnpm -r typecheck && pnpm -r lint && pnpm run docs:check",
         "test:all": "pnpm -r test",
+        "prepare": "npx --no-install lefthook install",
         "test:conformance:client": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client",
         "test:conformance:client:all": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client:all",
         "test:conformance:client:run": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client:run",
@@ -44,6 +45,7 @@
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
+        "lefthook": "^2.0.16",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@changesets/changelog-github": "^0.5.2",
         "@changesets/cli": "^2.29.8",

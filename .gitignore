@@ -143,3 +143,5 @@ dist/
 
 # Conformance test results
 results/
+
+.lefthook-local.yml
