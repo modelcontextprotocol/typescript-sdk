@@ -166,14 +166,16 @@ export class McpServer {
         );
 
         this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
+            // Tool lookup errors are JSON-RPC errors, not tool errors
+            const tool = this._registeredTools[request.params.name];
+            if (!tool) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+            }
+            if (!tool.enabled) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+            }
+
             try {
-                const tool = this._registeredTools[request.params.name];
-                if (!tool) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
-                }
-                if (!tool.enabled) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
-                }
 
                 const isTaskRequest = !!request.params.task;
                 const taskSupport = tool.execution?.taskSupport;
@@ -213,9 +215,8 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof ProtocolError) {
-                    // Protocol errors should be returned as JSON-RPC errors, not wrapped in CallToolResult
-                    throw error;
+                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
+                    throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }

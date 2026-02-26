@@ -99,15 +99,15 @@ export class StdioServerTransport implements Transport {
     send(message: JSONRPCMessage): Promise<void> {
         return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-            
+
             // Handle write errors (e.g., EPIPE when client disconnects)
             const onError = (error: Error) => {
                 this._stdout.off('error', onError);
                 reject(error);
             };
-            
+
             this._stdout.once('error', onError);
-            
+
             if (this._stdout.write(json)) {
                 this._stdout.off('error', onError);
                 resolve();
