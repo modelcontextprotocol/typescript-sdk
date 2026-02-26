@@ -7,6 +7,7 @@ import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
     auth,
     buildDiscoveryUrls,
+    determineScope,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
@@ -3591,6 +3592,229 @@ describe('OAuth Authorization', () => {
                 client_id: 'generated-uuid',
                 client_secret: 'generated-secret',
                 redirect_uris: ['http://localhost:3000/callback']
+            });
+        });
+    });
+
+    describe('determineScope', () => {
+        const baseClientMetadata = {
+            redirect_uris: ['http://localhost:3000/callback'],
+            client_name: 'Test Client'
+        };
+
+        describe('MCP Scope Selection Strategy', () => {
+            it('returns explicit requestedScope as-is (priority 1)', () => {
+                const result = determineScope({
+                    requestedScope: 'files:read',
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'fallback:scope'
+                    }
+                });
+
+                expect(result).toBe('files:read');
+            });
+
+            it('uses PRM scopes_supported when no explicit scope (priority 2)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write', 'mcp:admin']
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'fallback:scope'
+                    }
+                });
+
+                expect(result).toBe('mcp:read mcp:write mcp:admin');
+            });
+
+            it('falls back to clientMetadata.scope when no PRM scopes (priority 3)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/'
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'client:default'
+                    }
+                });
+
+                expect(result).toBe('client:default');
+            });
+
+            it('returns undefined when no scope source available (priority 4)', () => {
+                const result = determineScope({
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBeUndefined();
+            });
+
+            it('returns undefined when PRM has no scopes_supported and clientMetadata has no scope', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/'
+                    },
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBeUndefined();
+            });
+        });
+
+        describe('SEP-2207: offline_access scope augmentation', () => {
+            const asMetadataWithOfflineAccess = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/authorize',
+                token_endpoint: 'https://auth.example.com/token',
+                response_types_supported: ['code'] as string[],
+                scopes_supported: ['openid', 'profile', 'offline_access']
+            };
+
+            const asMetadataWithoutOfflineAccess = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/authorize',
+                token_endpoint: 'https://auth.example.com/token',
+                response_types_supported: ['code'] as string[],
+                scopes_supported: ['openid', 'profile']
+            };
+
+            const clientMetadataWithRefreshToken = {
+                ...baseClientMetadata,
+                grant_types: ['authorization_code', 'refresh_token']
+            };
+
+            it('augments explicit scope with offline_access', () => {
+                const result = determineScope({
+                    requestedScope: 'mcp:read mcp:write',
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write offline_access');
+            });
+
+            it('adds offline_access when AS supports it and client grant_types includes refresh_token', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write offline_access');
+            });
+
+            it('adds offline_access when using clientMetadata.scope fallback', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...clientMetadataWithRefreshToken,
+                        scope: 'mcp:tools'
+                    }
+                });
+
+                expect(result).toBe('mcp:tools offline_access');
+            });
+
+            it('does NOT augment when no other scopes are present', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBeUndefined();
+            });
+
+            it('does NOT augment when AS metadata lacks offline_access', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithoutOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when AS metadata is undefined', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when offline_access already in clientMetadata.scope', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...clientMetadataWithRefreshToken,
+                        scope: 'mcp:tools offline_access'
+                    }
+                });
+
+                expect(result).toBe('mcp:tools offline_access');
+            });
+
+            it('does NOT augment when non-compliant PRM already includes offline_access', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'offline_access', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read offline_access mcp:write');
+            });
+
+            it('does NOT augment when grant_types omits refresh_token', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        grant_types: ['authorization_code']
+                    }
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when grant_types is undefined (respects OAuth defaults)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
             });
         });
     });
