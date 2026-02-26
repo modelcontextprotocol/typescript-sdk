@@ -448,7 +448,7 @@ Task-based execution enables "call-now, fetch-later" patterns for long-running o
 
 ### DNS rebinding protection
 
-MCP servers running on localhost are vulnerable to [DNS rebinding attacks](https://en.wikipedia.org/wiki/DNS_rebinding), which allow malicious websites to bypass browser same-origin policies and interact with local services. **All localhost MCP servers should use DNS rebinding protection.**
+Under normal circumstances, cross-origin browser restrictions limit what a malicious website can do to your localhost server. [DNS rebinding attacks](https://en.wikipedia.org/wiki/DNS_rebinding) get around those restrictions entirely by making the requests appear as same-origin, since the attacking domain resolves to localhost. Validating the host header on the server side protects against this scenario.  **All localhost MCP servers should use DNS rebinding protection.**
 
 The recommended approach is to use `createMcpExpressApp()` (from `@modelcontextprotocol/express`) or `createMcpHonoApp()` (from `@modelcontextprotocol/hono`), which enable Host header validation by default:
 
