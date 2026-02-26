@@ -4,7 +4,7 @@
 >
 > We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
 >
-> For v1 documentation and code, see the [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x).
+> For v1 documentation, see the [V1 API docs](https://ts.sdk.modelcontextprotocol.io/). For v2 API docs, see [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
 
 ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fserver) ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fclient) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fserver)
 
@@ -131,15 +131,25 @@ Next steps:
     - [docs/client.md](docs/client.md) – building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
     - [docs/faq.md](docs/faq.md) – frequently asked questions and troubleshooting
 - External references:
-    - [SDK API documentation](https://modelcontextprotocol.github.io/typescript-sdk/)
+    - [SDK API documentation](https://ts.sdk.modelcontextprotocol.io/)
     - [Model Context Protocol documentation](https://modelcontextprotocol.io)
     - [MCP Specification](https://spec.modelcontextprotocol.io)
     - [Example Servers](https://github.com/modelcontextprotocol/servers)
 
+### Building docs locally
+
+To generate the API reference documentation locally:
+
+```bash
+pnpm docs          # Generate V2 docs only (output: tmp/docs/)
+pnpm docs:multi    # Generate combined V1 + V2 docs (output: tmp/docs-combined/)
+```
+
+The `docs:multi` script checks out both the `v1.x` and `main` branches via git worktrees, builds each, and produces a combined site with V1 docs at the root and V2 docs under `/v2/`.
+
 ## v1 (legacy) documentation and fixes
 
-If you are using the **v1** generation of the SDK, the **v1 documentation** (and any v1-specific fixes) live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). See:
-[`https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x`](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x).
+If you are using the **v1** generation of the SDK, the **v1 API documentation** is available at [`https://ts.sdk.modelcontextprotocol.io/`](https://ts.sdk.modelcontextprotocol.io/). The v1 source code and any v1-specific fixes live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). V2 API docs are at [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
 
 ## Contributing
 
