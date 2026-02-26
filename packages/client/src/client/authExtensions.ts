@@ -457,8 +457,8 @@ export interface CrossAppAccessProviderOptions {
      * and requested scope, and should return a JWT Authorization Grant obtained from
      * the enterprise IdP via RFC 8693 token exchange.
      *
-     * You can use the {@linkcode discoverAndRequestJwtAuthGrant} utility from
-     * `crossAppAccess.ts` for standard flows, or implement custom logic.
+     * You can use the utility functions from the `crossAppAccess` module
+     * for standard flows, or implement custom logic.
      *
      * @example
      * ```ts
