@@ -761,18 +761,48 @@ export async function discoverOAuthProtectedResourceMetadata(
 }
 
 /**
- * Helper function to handle fetch with CORS retry logic
+ * Fetch with a retry heuristic for CORS errors caused by custom headers.
+ *
+ * In browsers, adding a custom header (e.g. `MCP-Protocol-Version`) triggers a CORS preflight.
+ * If the server doesn't allow that header, the browser throws a `TypeError` before any response
+ * is received. Retrying without custom headers often succeeds because the request becomes
+ * "simple" (no preflight). If the server sends no CORS headers at all, the retry also fails
+ * with `TypeError` and we return `undefined` so callers can fall through to an alternate URL.
+ *
+ * However, `fetch()` also throws `TypeError` for non-CORS failures (DNS resolution, connection
+ * refused, invalid URL). Swallowing those and returning `undefined` masks real errors and can
+ * cause callers to silently fall through to a different discovery URL. CORS is a browser-only
+ * concept, so in non-browser runtimes (Node.js, Workers) a `TypeError` from `fetch` is never a
+ * CORS error — there we propagate the error instead of swallowing it.
+ *
+ * In browsers, we cannot reliably distinguish CORS `TypeError` from network `TypeError` from the
+ * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
+    // CORS only exists in browsers. In Node.js/Workers/etc., a TypeError from fetch is always a
+    // real network or configuration error, never CORS.
+    const corsIsPossible = (globalThis as { document?: unknown }).document !== undefined;
     try {
         return await fetchFn(url, { headers });
     } catch (error) {
-        if (error instanceof TypeError) {
-            // CORS errors come back as TypeError, retry without headers
-            // We're getting CORS errors on retry too, return undefined
-            return headers ? fetchWithCorsRetry(url, undefined, fetchFn) : undefined;
+        if (!(error instanceof TypeError) || !corsIsPossible) {
+            throw error;
         }
-        throw error;
+        if (headers) {
+            // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
+            // request: if that succeeds, we've sidestepped the preflight.
+            try {
+                return await fetchFn(url, {});
+            } catch (retryError) {
+                if (!(retryError instanceof TypeError)) {
+                    throw retryError;
+                }
+                // Retry also got CORS-blocked (server sends no CORS headers at all).
+                // Return undefined so the caller tries the next discovery URL.
+                return undefined;
+            }
+        }
+        return undefined;
     }
 }
 
