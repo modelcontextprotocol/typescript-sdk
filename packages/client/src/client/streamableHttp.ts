@@ -118,6 +118,13 @@ export type StreamableHTTPClientTransportOptions = {
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
     sessionId?: string;
+
+    /**
+     * The MCP protocol version to include in the `mcp-protocol-version` header on all requests.
+     * When reconnecting with a preserved `sessionId`, set this to the version negotiated during the original
+     * handshake so the reconnected transport continues sending the required header.
+     */
+    protocolVersion?: string;
 };
 
 /**
@@ -155,6 +162,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
+        this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
     }
 

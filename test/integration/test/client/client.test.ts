@@ -125,6 +125,58 @@ test('should initialize with supported older protocol version', async () => {
 });
 
 /***
+ * Test: Reconnecting with the same Client restores protocol version on new transport
+ */
+test('should restore negotiated protocol version on transport when reconnecting with same client', async () => {
+    const setProtocolVersion = vi.fn();
+    const initialTransport: Transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        setProtocolVersion,
+        send: vi.fn().mockImplementation(message => {
+            if (message.method === 'initialize') {
+                initialTransport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: { name: 'test', version: '1.0' }
+                    }
+                });
+            }
+            return Promise.resolve();
+        })
+    };
+
+    const client = new Client({ name: 'test client', version: '1.0' });
+    await client.connect(initialTransport);
+
+    // Initial handshake should have set the protocol version on the transport
+    expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+    // Now simulate reconnection: new transport with a pre-existing sessionId.
+    // connect() will early-return without re-initializing, but MUST restore the protocol version
+    // so HTTP transports can keep sending the required mcp-protocol-version header.
+    const reconnectSetProtocolVersion = vi.fn();
+    const reconnectTransport: Transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        setProtocolVersion: reconnectSetProtocolVersion,
+        send: vi.fn().mockResolvedValue(undefined),
+        sessionId: 'existing-session-id'
+    };
+
+    await client.connect(reconnectTransport);
+
+    // No initialize request should have been sent (sessionId was set)
+    expect(reconnectTransport.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'initialize' }), expect.anything());
+    // But the protocol version MUST have been restored onto the new transport
+    expect(reconnectSetProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+});
+
+/***
  * Test: Reject Unsupported Protocol Version
  */
 test('should reject unsupported protocol version', async () => {
