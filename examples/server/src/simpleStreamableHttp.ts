@@ -695,11 +695,11 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             return; // Already handled
         } else {
             // Invalid request - no session ID or not initialization request
-            res.status(400).json({
+            res.status(404).json({
                 jsonrpc: '2.0',
                 error: {
                     code: -32_000,
-                    message: 'Bad Request: No valid session ID provided'
+                    message: 'Not Found: No valid session ID provided'
                 },
                 id: null
             });
@@ -735,7 +735,7 @@ if (useOAuth && authMiddleware) {
 const mcpGetHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+        res.status(404).send('Invalid or missing session ID');
         return;
     }
 
@@ -766,7 +766,7 @@ if (useOAuth && authMiddleware) {
 const mcpDeleteHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+        res.status(404).send('Invalid or missing session ID');
         return;
     }
 

@@ -671,9 +671,9 @@ app.post('/mcp', async (req: Request, res: Response) => {
             await transport.handleRequest(req, res, req.body);
             return;
         } else {
-            res.status(400).json({
+            res.status(404).json({
                 jsonrpc: '2.0',
-                error: { code: -32_000, message: 'Bad Request: No valid session ID' },
+                error: { code: -32_000, message: 'Not Found: No valid session ID' },
                 id: null
             });
             return;
@@ -696,7 +696,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
 app.get('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+        res.status(404).send('Invalid or missing session ID');
         return;
     }
 
@@ -708,7 +708,7 @@ app.get('/mcp', async (req: Request, res: Response) => {
 app.delete('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+        res.status(404).send('Invalid or missing session ID');
         return;
     }
 
