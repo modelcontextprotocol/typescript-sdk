@@ -1307,6 +1307,35 @@ test('should only allow setRequestHandler for declared capabilities', () => {
     }).toThrow(/^Server does not support logging/);
 });
 
+test('should register logging/setLevel handler when logging capability is added via registerCapabilities', async () => {
+    const server = new Server({
+        name: 'test server',
+        version: '1.0'
+    });
+
+    // Register logging capability after construction
+    server.registerCapabilities({ logging: {} });
+
+    const client = new Client({
+        name: 'test client',
+        version: '1.0'
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Client sets logging level - should work without error
+    await expect(client.setLoggingLevel('warning')).resolves.not.toThrow();
+
+    // Sending a log message should also work
+    await expect(
+        server.sendLoggingMessage({
+            level: 'warning',
+            data: 'Test log message'
+        })
+    ).resolves.not.toThrow();
+});
+
 test('should handle server cancelling a request', async () => {
     const server = new Server(
         {
