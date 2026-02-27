@@ -1259,18 +1259,38 @@ async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    const json: unknown = await response.json();
+    return OAuthTokensSchema.parse(await parseTokenResponse(response));
+}
 
-    try {
-        return OAuthTokensSchema.parse(json);
-    } catch (parseError) {
-        // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
-        // Check for error field only if token parsing failed.
-        if (typeof json === 'object' && json !== null && 'error' in json) {
-            throw await parseErrorResponse(JSON.stringify(json));
-        }
-        throw parseError;
+/**
+ * Parses a token endpoint response, handling both JSON and URL-encoded formats.
+ *
+ * While the SDK sends `Accept: application/json`, some OAuth providers (e.g. GitHub)
+ * may still return `application/x-www-form-urlencoded` responses.
+ * Both formats are valid per the OAuth 2.0/2.1 specifications.
+ */
+async function parseTokenResponse(response: Response): Promise<Record<string, unknown>> {
+    const contentType = response.headers?.get?.('content-type') ?? '';
+
+    // If server explicitly returns URL-encoded, parse accordingly
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+        return urlEncodedToObject(await response.text());
     }
+
+    // Default path: JSON (most servers comply with Accept: application/json)
+    return await response.json();
+}
+
+/**
+ * Converts a URL-encoded string to a plain object.
+ */
+function urlEncodedToObject(text: string): Record<string, string> {
+    const params = new URLSearchParams(text);
+    const result: Record<string, string> = {};
+    for (const [key, value] of params) {
+        result[key] = value;
+    }
+    return result;
 }
 
 /**
