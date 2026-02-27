@@ -1,7 +1,34 @@
-import type { Express } from 'express';
+import type { ErrorRequestHandler, Express } from 'express';
 import express from 'express';
 
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
+
+const DEFAULT_MAX_BODY_BYTES = 100 * 1024; // Express default (100kb), made explicit.
+
+// Ensure body parsing failures return JSON-RPC-shaped errors (instead of HTML).
+const jsonBodyErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
+    if (res.headersSent) return next(error);
+
+    const type = typeof (error as { type?: unknown } | null)?.type === 'string' ? String((error as { type: string }).type) : '';
+    if (type === 'entity.too.large') {
+        res.status(413).json({
+            jsonrpc: '2.0',
+            error: { code: -32_000, message: 'Payload too large' },
+            id: null
+        });
+        return;
+    }
+    if (type === 'entity.parse.failed') {
+        res.status(400).json({
+            jsonrpc: '2.0',
+            error: { code: -32_700, message: 'Parse error: Invalid JSON' },
+            id: null
+        });
+        return;
+    }
+
+    next(error);
+};
 
 /**
  * Options for creating an MCP Express application.
@@ -22,6 +49,13 @@ export interface CreateMcpExpressAppOptions {
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
+
+    /**
+     * Maximum size (in bytes) for JSON request bodies.
+     *
+     * Defaults to 100kb (Express default). Increase this if your tool calls need larger payloads.
+     */
+    maxBodyBytes?: number;
 }
 
 /**
@@ -51,10 +85,9 @@ export interface CreateMcpExpressAppOptions {
  * ```
  */
 export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): Express {
-    const { host = '127.0.0.1', allowedHosts } = options;
+    const { host = '127.0.0.1', allowedHosts, maxBodyBytes = DEFAULT_MAX_BODY_BYTES } = options;
 
     const app = express();
-    app.use(express.json());
 
     // If allowedHosts is explicitly provided, use that for validation
     if (allowedHosts) {
@@ -74,6 +107,11 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
             );
         }
     }
+
+    // Parse JSON request bodies for MCP endpoints (explicit limit to reduce DoS risk).
+    app.use(express.json({ limit: maxBodyBytes }));
+
+    app.use(jsonBodyErrorHandler);
 
     return app;
 }
