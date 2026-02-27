@@ -213,9 +213,20 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                // Per MCP spec, tool not found should return a JSON-RPC error, not isError result
+                // https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling
+                if (
+                    error instanceof ProtocolError &&
+                    (error.code === ProtocolErrorCode.InvalidParams || error.code === ProtocolErrorCode.MethodNotFound) &&
+                    error.message.includes('not found')
+                ) {
+                    throw error;
                 }
+                // URL elicitation errors should propagate
+                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
+                    throw error;
+                }
+                // Other errors (execution, validation) get wrapped in CallToolResult with isError: true
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
         });

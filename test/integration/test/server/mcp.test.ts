@@ -1812,6 +1812,7 @@ describe('Zod v4', () => {
 
         /***
          * Test: ProtocolError for Invalid Tool Name
+         * Per MCP spec, calling a nonexistent tool should return a JSON-RPC error, not a result with isError
          */
         test('should throw ProtocolError for invalid tool name', async () => {
             const mcpServer = new McpServer({
@@ -1837,25 +1838,17 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'nonexistent-tool'
-                    }
-                },
-                CallToolResultSchema
-            );
-
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
+            await expect(
+                client.request(
                     {
-                        type: 'text',
-                        text: expect.stringContaining('Tool nonexistent-tool not found')
-                    }
-                ])
-            );
+                        method: 'tools/call',
+                        params: {
+                            name: 'nonexistent-tool'
+                        }
+                    },
+                    CallToolResultSchema
+                )
+            ).rejects.toThrow(/Tool nonexistent-tool not found/);
         });
 
         /***
