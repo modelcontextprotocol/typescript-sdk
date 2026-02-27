@@ -1680,6 +1680,68 @@ describe('OAuth Authorization', () => {
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
+
+        it('parses URL-encoded token response when Content-Type is application/x-www-form-urlencoded', async () => {
+            const urlEncodedBody = 'access_token=gho_abc123&token_type=bearer&scope=repo';
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'application/x-www-form-urlencoded' }),
+                text: async () => urlEncodedBody
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback'
+            });
+
+            expect(tokens.access_token).toBe('gho_abc123');
+            expect(tokens.token_type).toBe('bearer');
+        });
+
+        it('parses URL-encoded token response with expires_in as string', async () => {
+            const urlEncodedBody = 'access_token=tok_xyz&token_type=bearer&expires_in=3600&refresh_token=ref_abc';
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' }),
+                text: async () => urlEncodedBody
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback'
+            });
+
+            expect(tokens.access_token).toBe('tok_xyz');
+            expect(tokens.token_type).toBe('bearer');
+            expect(tokens.expires_in).toBe(3600);
+            expect(tokens.refresh_token).toBe('ref_abc');
+        });
+
+        it('still parses JSON responses when Content-Type is application/json', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: async () => validTokens
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback'
+            });
+
+            expect(tokens).toEqual(validTokens);
+        });
     });
 
     describe('refreshAuthorization', () => {
