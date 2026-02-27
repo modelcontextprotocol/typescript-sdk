@@ -1024,6 +1024,13 @@ export class McpServer {
                     annotations = rest.shift() as ToolAnnotations;
                 }
             } else if (typeof firstArg === 'object' && firstArg !== null) {
+                if (looksLikeJsonSchema(firstArg)) {
+                    throw new Error(
+                        `Tool "${name}": Plain JSON Schema objects are not supported as inputSchema. ` +
+                        `Use Zod schemas instead (e.g., z.object({ ... })). ` +
+                        `See https://github.com/modelcontextprotocol/typescript-sdk#tools for examples.`
+                    );
+                }
                 // Not a ZodRawShapeCompat, so must be annotations in this position
                 // Case: tool(name, annotations, cb)
                 // Or: tool(name, description, annotations, cb)
@@ -1382,6 +1389,17 @@ function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
 
     // A raw shape has at least one property that is a Zod schema
     return Object.values(obj).some(isZodTypeLike);
+}
+
+/**
+ * Detects plain JSON Schema objects that were likely intended as inputSchema.
+ * These have characteristic fields like "type", "properties", or "$schema"
+ * that don't appear in ToolAnnotations.
+ */
+function looksLikeJsonSchema(obj: object): boolean {
+    const record = obj as Record<string, unknown>;
+    const jsonSchemaKeys = ['type', 'properties', '$schema', '$id', 'items', 'allOf', 'anyOf', 'oneOf'];
+    return jsonSchemaKeys.some(key => key in record);
 }
 
 /**

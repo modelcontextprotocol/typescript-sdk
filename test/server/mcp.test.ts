@@ -1124,6 +1124,74 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Plain JSON Schema throws instead of silently dropping
+         */
+        test('should throw when plain JSON Schema object is passed as inputSchema', () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            expect(() => {
+                mcpServer.tool(
+                    'my.tool',
+                    'A tool with JSON Schema',
+                    {
+                        type: 'object',
+                        properties: {
+                            directory_id: {
+                                type: 'string',
+                                description: 'The UUID of the directory'
+                            }
+                        },
+                        required: ['directory_id']
+                    } as any,
+                    async () => ({
+                        content: [{ type: 'text', text: 'ok' }]
+                    })
+                );
+            }).toThrow(/Plain JSON Schema objects are not supported/);
+        });
+
+        test('should throw for JSON Schema with $schema property', () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            expect(() => {
+                mcpServer.tool(
+                    'my.tool',
+                    {
+                        $schema: 'http://json-schema.org/draft-07/schema#',
+                        type: 'object',
+                        properties: {}
+                    } as any,
+                    async () => ({
+                        content: [{ type: 'text', text: 'ok' }]
+                    })
+                );
+            }).toThrow(/Plain JSON Schema objects are not supported/);
+        });
+
+        test('should still accept valid ToolAnnotations without false positive', () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            // This should NOT throw — valid ToolAnnotations
+            mcpServer.tool(
+                'my.tool',
+                'A tool with annotations',
+                { readOnlyHint: true, destructiveHint: false },
+                async () => ({
+                    content: [{ type: 'text', text: 'ok' }]
+                })
+            );
+        });
+
+        /***
          * Test: Multiple Tool Registration
          */
         test('should allow registering multiple tools', () => {
