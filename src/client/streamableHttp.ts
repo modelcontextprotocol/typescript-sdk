@@ -3,6 +3,23 @@ import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, J
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
+/**
+ * Merges OAuth scope strings, accumulating unique scopes across responses.
+ * Per RFC 6750 §3.1, servers report only the scopes required for the specific
+ * operation, so the client must accumulate scopes across multiple 401/403
+ * responses to support progressive authorization.
+ */
+function mergeScopes(existing: string | undefined, incoming: string | undefined): string | undefined {
+    if (!incoming) return existing;
+    if (!existing) return incoming;
+
+    const merged = new Set(existing.split(' '));
+    for (const scope of incoming.split(' ')) {
+        merged.add(scope);
+    }
+    return [...merged].join(' ');
+}
+
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
     initialReconnectionDelay: 1000,
@@ -494,7 +511,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                     this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
+                    this._scope = mergeScopes(this._scope, scope);
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
@@ -524,7 +541,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
 
                         if (scope) {
-                            this._scope = scope;
+                            this._scope = mergeScopes(this._scope, scope);
                         }
 
                         if (resourceMetadataUrl) {

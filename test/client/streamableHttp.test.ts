@@ -673,6 +673,65 @@ describe('StreamableHTTPClientTransport', () => {
         authSpy.mockRestore();
     });
 
+    it('accumulates scopes across multiple 403 responses for progressive authorization', async () => {
+        const message1: JSONRPCMessage = { jsonrpc: '2.0', method: 'tools/list', params: {}, id: '1' };
+        const message2: JSONRPCMessage = { jsonrpc: '2.0', method: 'tools/call', params: {}, id: '2' };
+
+        const fetchMock = global.fetch as Mock;
+
+        // Spy on auth module
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        // First request: 403 with scope "read"
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="read"'
+                }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+
+        await transport.send(message1);
+
+        // Verify first auth call has scope "read"
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({ scope: 'read' })
+        );
+
+        authSpy.mockClear();
+        fetchMock.mockClear();
+
+        // Second request: 403 with scope "write"
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="write"'
+                }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+
+        await transport.send(message2);
+
+        // Verify second auth call has ACCUMULATED scopes "read write" (not just "write")
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({ scope: 'read write' })
+        );
+
+        authSpy.mockRestore();
+    });
+
     it('prevents infinite upscoping on repeated 403', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
