@@ -388,8 +388,15 @@ export class StreamableHTTPClientTransport implements Transport {
                     );
                 }
             } catch (error) {
-                // Handle stream errors - likely a network disconnect
-                this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
+                // Handle stream errors - check if this is a normal termination or an actual error
+                // "TypeError: terminated" occurs when the server closes the connection gracefully
+                // This is expected behavior for polling/timeout scenarios and should be handled quietly
+                const isGracefulTermination =
+                    error instanceof TypeError && (error.message === 'terminated' || error.message.includes('body stream'));
+
+                if (!isGracefulTermination) {
+                    this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
+                }
 
                 // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
                 // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
