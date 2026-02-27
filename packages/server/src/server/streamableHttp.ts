@@ -21,6 +21,18 @@ import {
 export type StreamId = string;
 export type EventId = string;
 
+const DEFAULT_MAX_BODY_BYTES = 1_000_000;
+
+class PayloadTooLargeError extends Error {
+    readonly maxBodyBytes: number;
+
+    constructor(maxBodyBytes: number) {
+        super('Payload too large');
+        this.name = 'PayloadTooLargeError';
+        this.maxBodyBytes = maxBodyBytes;
+    }
+}
+
 /**
  * Interface for resumability support via event storage
  */
@@ -106,6 +118,19 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * Default is `false` (SSE streams are preferred).
      */
     enableJsonResponse?: boolean;
+
+    /**
+     * Maximum size in bytes that this transport will read when parsing an `application/json` request body.
+     * This is a basic DoS guard for servers that call `transport.handleRequest(req)` without an upstream body-size limit.
+     *
+     * Set to `0` (or any non-finite value like `Infinity`) to disable the limit (not recommended).
+     *
+     * Note: if you pass `parsedBody` to `handleRequest`, this limit is not applied
+     * (your framework/body parser must enforce its own limit).
+     *
+     * @default 1_000_000
+     */
+    maxBodyBytes?: number;
 
     /**
      * Event store for resumability support
@@ -230,6 +255,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
+    private _maxBodyBytes?: number;
     private _standaloneSseStreamId: string = '_GET_stream';
     private _eventStore?: EventStore;
     private _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
@@ -248,6 +274,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
         this._enableJsonResponse = options.enableJsonResponse ?? false;
+        const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+        this._maxBodyBytes = Number.isFinite(maxBodyBytes) && maxBodyBytes > 0 ? maxBodyBytes : undefined;
         this._eventStore = options.eventStore;
         this._onsessioninitialized = options.onsessioninitialized;
         this._onsessionclosed = options.onsessionclosed;
@@ -304,6 +332,72 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         );
+    }
+
+    private async parseJsonRequestBody(req: Request): Promise<unknown> {
+        if (this._maxBodyBytes === undefined) {
+            return req.json();
+        }
+
+        const maxBodyBytes = this._maxBodyBytes;
+
+        // Quick reject when content-length is present and exceeds the limit.
+        const contentLengthHeader = req.headers.get('content-length');
+        if (contentLengthHeader) {
+            const contentLength = Number(contentLengthHeader);
+            if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) {
+                throw new PayloadTooLargeError(maxBodyBytes);
+            }
+        }
+
+        const reader = req.body?.getReader();
+        if (!reader) {
+            // Fall back to the platform JSON parsing if the body stream is unavailable.
+            return req.json();
+        }
+
+        const chunks: Uint8Array[] = [];
+        let totalBytes = 0;
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
+                }
+                if (!value) {
+                    continue;
+                }
+
+                totalBytes += value.byteLength;
+                if (totalBytes > maxBodyBytes) {
+                    try {
+                        await reader.cancel();
+                    } catch {
+                        // Best-effort.
+                    }
+                    throw new PayloadTooLargeError(maxBodyBytes);
+                }
+
+                chunks.push(value);
+            }
+        } finally {
+            try {
+                reader.releaseLock();
+            } catch {
+                // Ignore.
+            }
+        }
+
+        const bodyBytes = new Uint8Array(totalBytes);
+        let offset = 0;
+        for (const chunk of chunks) {
+            bodyBytes.set(chunk, offset);
+            offset += chunk.byteLength;
+        }
+
+        const bodyText = new TextDecoder().decode(bodyBytes);
+        return JSON.parse(bodyText) as unknown;
     }
 
     /**
@@ -634,8 +728,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let rawMessage;
             if (options?.parsedBody === undefined) {
                 try {
-                    rawMessage = await req.json();
-                } catch {
+                    rawMessage = await this.parseJsonRequestBody(req);
+                } catch (error) {
+                    if (error instanceof PayloadTooLargeError) {
+                        return this.createJsonErrorResponse(413, -32_000, 'Payload too large');
+                    }
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }
             } else {
