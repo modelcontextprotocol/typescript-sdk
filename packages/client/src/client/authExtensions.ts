@@ -112,6 +112,11 @@ export interface ClientCredentialsProviderOptions {
      * Optional client name for metadata.
      */
     clientName?: string;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
 }
 
 /**
@@ -146,7 +151,8 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
             client_name: options.clientName ?? 'client-credentials-client',
             redirect_uris: [],
             grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'client_secret_basic'
+            token_endpoint_auth_method: 'client_secret_basic',
+            scope: options.scope
         };
     }
 
@@ -222,6 +228,11 @@ export interface PrivateKeyJwtProviderOptions {
      * Optional JWT lifetime in seconds (default: 300).
      */
     jwtLifetimeSeconds?: number;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
 }
 
 /**
@@ -258,7 +269,8 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
             client_name: options.clientName ?? 'private-key-jwt-client',
             redirect_uris: [],
             grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'private_key_jwt'
+            token_endpoint_auth_method: 'private_key_jwt',
+            scope: options.scope
         };
         this.addClientAuthentication = createPrivateKeyJwtAuth({
             issuer: options.clientId,
@@ -333,6 +345,11 @@ export interface StaticPrivateKeyJwtProviderOptions {
      * Optional client name for metadata.
      */
     clientName?: string;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
 }
 
 /**
@@ -356,7 +373,8 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
             client_name: options.clientName ?? 'static-private-key-jwt-client',
             redirect_uris: [],
             grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'private_key_jwt'
+            token_endpoint_auth_method: 'private_key_jwt',
+            scope: options.scope
         };
 
         const assertion = options.jwtBearerAssertion;
