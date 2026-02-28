@@ -943,9 +943,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.tool(
                 'test',
                 'A tool using z.object()',
-                z.object({ message: z.string() }),
-                async ({ message }) => ({
-                    content: [{ type: 'text', text: `Echo: ${message}` }]
+                z.object({ message: z.string() }) as any,
+                async ({ message }: { message: string }) => ({
+                    content: [{ type: 'text' as const, text: `Echo: ${message}` }]
                 })
             );
 
@@ -972,9 +972,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CallToolResultSchema
             );
 
-            expect(callResult.content).toEqual([
-                { type: 'text', text: 'Echo: hello' }
-            ]);
+            expect(callResult.content).toEqual([{ type: 'text', text: 'Echo: hello' }]);
         });
 
         test('should auto-unwrap z.object() with annotations', async () => {
@@ -990,10 +988,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.tool(
                 'test',
                 'A tool with z.object() and annotations',
-                z.object({ name: z.string() }),
+                z.object({ name: z.string() }) as any,
                 { title: 'Test Tool', readOnlyHint: true },
-                async ({ name }) => ({
-                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                async ({ name }: { name: string }) => ({
+                    content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
                 })
             );
 
