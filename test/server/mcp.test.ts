@@ -1181,14 +1181,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // This should NOT throw — valid ToolAnnotations
-            mcpServer.tool(
-                'my.tool',
-                'A tool with annotations',
-                { readOnlyHint: true, destructiveHint: false },
-                async () => ({
-                    content: [{ type: 'text' as const, text: 'ok' }]
-                })
-            );
+            mcpServer.tool('my.tool', 'A tool with annotations', { readOnlyHint: true, destructiveHint: false }, async () => ({
+                content: [{ type: 'text' as const, text: 'ok' }]
+            }));
         });
 
         /***

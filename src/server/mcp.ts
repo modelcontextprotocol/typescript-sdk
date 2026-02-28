@@ -1027,8 +1027,8 @@ export class McpServer {
                 if (looksLikeJsonSchema(firstArg)) {
                     throw new Error(
                         `Tool "${name}": Plain JSON Schema objects are not supported as inputSchema. ` +
-                        `Use Zod schemas instead (e.g., z.object({ ... })). ` +
-                        `See https://github.com/modelcontextprotocol/typescript-sdk#tools for examples.`
+                            `Use Zod schemas instead (e.g., z.object({ ... })). ` +
+                            `See https://github.com/modelcontextprotocol/typescript-sdk#tools for examples.`
                     );
                 }
                 // Not a ZodRawShapeCompat, so must be annotations in this position
