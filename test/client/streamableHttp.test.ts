@@ -700,10 +700,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message1);
 
         // Verify first auth call has scope "read"
-        expect(authSpy).toHaveBeenCalledWith(
-            mockAuthProvider,
-            expect.objectContaining({ scope: 'read' })
-        );
+        expect(authSpy).toHaveBeenCalledWith(mockAuthProvider, expect.objectContaining({ scope: 'read' }));
 
         authSpy.mockClear();
         fetchMock.mockClear();
@@ -724,10 +721,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message2);
 
         // Verify second auth call has ACCUMULATED scopes "read write" (not just "write")
-        expect(authSpy).toHaveBeenCalledWith(
-            mockAuthProvider,
-            expect.objectContaining({ scope: 'read write' })
-        );
+        expect(authSpy).toHaveBeenCalledWith(mockAuthProvider, expect.objectContaining({ scope: 'read write' }));
 
         authSpy.mockRestore();
     });
