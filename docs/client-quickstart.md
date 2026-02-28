@@ -19,9 +19,12 @@ This quickstart assumes you have familiarity with:
 
 Before starting, ensure your system meets these requirements:
 
-- Node.js 20 or higher installed
+- Node.js 20 or higher installed (or **Bun** / **Deno** — the SDK supports all three runtimes)
 - Latest version of `npm` installed
 - An Anthropic API key from the [Anthropic Console](https://console.anthropic.com/settings/keys)
+
+> [!TIP]
+> This tutorial uses Node.js and npm, but you can substitute `bun` or `deno` commands where appropriate. For example, use `bun add` instead of `npm install`, or run the client with `bun run` / `deno run`.
 
 ## Set up your environment
 
