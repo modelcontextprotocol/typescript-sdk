@@ -31,7 +31,7 @@
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client",
         "test:integration:bun": "bun test test/server/bun.test.ts",
-        "test:integration:deno": "deno test --config deno.json --no-check --allow-net --allow-read --allow-env test/server/deno.test.ts"
+        "test:integration:deno": "deno test --no-check --allow-net --allow-read --allow-env test/server/deno.test.ts"
     },
     "devDependencies": {
         "@modelcontextprotocol/core": "workspace:^",

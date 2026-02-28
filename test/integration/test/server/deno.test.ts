@@ -2,7 +2,7 @@
  * Deno integration test
  *
  * Verifies the MCP server and client packages work natively on Deno.
- * Run with: deno test --config deno.json --no-check --allow-net --allow-read --allow-env test/server/deno.test.ts
+ * Run with: deno test --no-check --allow-net --allow-read --allow-env test/server/deno.test.ts
  */
 
 import assert from 'node:assert/strict';
