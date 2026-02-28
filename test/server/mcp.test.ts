@@ -1147,7 +1147,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         required: ['directory_id']
                     } as any,
                     async () => ({
-                        content: [{ type: 'text', text: 'ok' }]
+                        content: [{ type: 'text' as const, text: 'ok' }]
                     })
                 );
             }).toThrow(/Plain JSON Schema objects are not supported/);
@@ -1168,7 +1168,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         properties: {}
                     } as any,
                     async () => ({
-                        content: [{ type: 'text', text: 'ok' }]
+                        content: [{ type: 'text' as const, text: 'ok' }]
                     })
                 );
             }).toThrow(/Plain JSON Schema objects are not supported/);
@@ -1186,7 +1186,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'A tool with annotations',
                 { readOnlyHint: true, destructiveHint: false },
                 async () => ({
-                    content: [{ type: 'text', text: 'ok' }]
+                    content: [{ type: 'text' as const, text: 'ok' }]
                 })
             );
         });
