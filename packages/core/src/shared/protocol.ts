@@ -34,6 +34,7 @@ import type {
     RequestMethod,
     RequestTypeMap,
     Result,
+    ResultTypeMap,
     ServerCapabilities,
     Task,
     TaskCreationParams,
@@ -44,6 +45,7 @@ import {
     CreateTaskResultSchema,
     getNotificationSchema,
     getRequestSchema,
+    getResultSchema,
     GetTaskResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
@@ -297,7 +299,10 @@ export type BaseContext = {
          *
          * This is used by certain transports to correctly associate related messages.
          */
-        send: <U extends AnySchema>(request: Request, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
+        send: <M extends RequestMethod>(
+            request: { method: M; params?: Record<string, unknown> },
+            options?: TaskRequestOptions
+        ) => Promise<ResultTypeMap[M]>;
 
         /**
          * Sends a notification that relates to the current request being handled.
@@ -808,7 +813,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 method: request.method,
                 _meta: request.params?._meta,
                 signal: abortController.signal,
-                send: async (r, resultSchema, options?) => {
+                send: async (r, options?) => {
                     const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
                     if (relatedTaskId && !requestOptions.relatedTask) {
                         requestOptions.relatedTask = { taskId: relatedTaskId };
@@ -817,7 +822,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     if (effectiveTaskId && taskStore) {
                         await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
                     }
-                    return await this.request(r, resultSchema, requestOptions);
+                    return await this.request(r, requestOptions);
                 },
                 notify: async notification => {
                     const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
@@ -1030,12 +1035,32 @@ export abstract class Protocol<ContextT extends BaseContext> {
     protected abstract assertTaskHandlerCapability(method: string): void;
 
     /**
-     * Sends a request and returns an AsyncGenerator that yields response messages.
+     * Sends a request and returns an AsyncGenerator that yields response messages,
+     * resolving the result schema automatically from the method name.
      * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
      */
-    protected async *requestStream<T extends AnyObjectSchema>(
+    protected async *requestStream<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
+        options?: RequestOptions
+    ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
+        const resultSchema = getResultSchema(request.method) as unknown as AnyObjectSchema;
+        yield* this._requestStreamWithSchema(request as Request, resultSchema, options) as AsyncGenerator<
+            ResponseMessage<ResultTypeMap[M]>,
+            void,
+            void
+        >;
+    }
+
+    /**
+     * Sends a request and returns an AsyncGenerator that yields response messages,
+     * using the provided schema for validation.
+     *
+     * This is the internal implementation used by SDK methods that need to specify
+     * a particular result schema.
+     */
+    protected async *_requestStreamWithSchema<T extends AnyObjectSchema>(
         request: Request,
         resultSchema: T,
         options?: RequestOptions
@@ -1045,7 +1070,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // For non-task requests, just yield the result
         if (!task) {
             try {
-                const result = await this.request(request, resultSchema, options);
+                const result = await this._requestWithSchema(request, resultSchema, options);
                 yield { type: 'result', result };
             } catch (error) {
                 yield {
@@ -1061,7 +1086,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         let taskId: string | undefined;
         try {
             // Send the request and get the CreateTaskResult
-            const createResult = await this.request(request, CreateTaskResultSchema, options);
+            const createResult = await this._requestWithSchema(request, CreateTaskResultSchema, options);
 
             // Extract taskId from the result
             if (createResult.task) {
@@ -1132,11 +1157,30 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Sends a request and waits for a response.
+     * Sends a request and waits for a response, resolving the result schema
+     * automatically from the method name.
      *
      * Do not use this method to emit notifications! Use {@linkcode Protocol.notification | notification()} instead.
      */
-    request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    request<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
+        options?: RequestOptions
+    ): Promise<ResultTypeMap[M]> {
+        const resultSchema = getResultSchema(request.method);
+        return this._requestWithSchema(request as Request, resultSchema, options) as Promise<ResultTypeMap[M]>;
+    }
+
+    /**
+     * Sends a request and waits for a response, using the provided schema for validation.
+     *
+     * This is the internal implementation used by SDK methods that need to specify
+     * a particular result schema (e.g., for compatibility or task-specific schemas).
+     */
+    protected _requestWithSchema<T extends AnySchema>(
+        request: Request,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
@@ -1299,7 +1343,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * @experimental Use `client.experimental.tasks.getTask()` to access this method.
      */
     protected async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
-        return this.request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
+        return this._requestWithSchema({ method: 'tasks/get', params }, GetTaskResultSchema, options);
     }
 
     /**
@@ -1312,7 +1356,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<SchemaOutput<T>> {
-        return this.request({ method: 'tasks/result', params }, resultSchema, options);
+        return this._requestWithSchema({ method: 'tasks/result', params }, resultSchema, options);
     }
 
     /**
@@ -1321,7 +1365,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * @experimental Use `client.experimental.tasks.listTasks()` to access this method.
      */
     protected async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
-        return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
+        return this._requestWithSchema({ method: 'tasks/list', params }, ListTasksResultSchema, options);
     }
 
     /**
@@ -1330,7 +1374,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * @experimental Use `client.experimental.tasks.cancelTask()` to access this method.
      */
     protected async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
-        return this.request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
+        return this._requestWithSchema({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
     }
 
     /**

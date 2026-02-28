@@ -7,8 +7,7 @@
  * @module
  */
 
-import type { Request, RequestOptions } from '@modelcontextprotocol/core';
-import { CallToolResultSchema } from '@modelcontextprotocol/core';
+import type { RequestOptions } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -44,9 +43,9 @@ async function ExperimentalClientTasks_callToolStream(client: Client) {
 /**
  * Example: Using requestStream to consume task lifecycle events for any request type.
  */
-async function ExperimentalClientTasks_requestStream(client: Client, request: Request, options: RequestOptions) {
+async function ExperimentalClientTasks_requestStream(client: Client, options: RequestOptions) {
     //#region ExperimentalClientTasks_requestStream
-    const stream = client.experimental.tasks.requestStream(request, CallToolResultSchema, options);
+    const stream = client.experimental.tasks.requestStream({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } }, options);
     for await (const message of stream) {
         switch (message.type) {
             case 'taskCreated': {

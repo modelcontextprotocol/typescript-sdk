@@ -10,17 +10,11 @@ import type {
     ResourceLink
 } from '@modelcontextprotocol/client';
 import {
-    CallToolResultSchema,
     Client,
     getDisplayName,
-    GetPromptResultSchema,
     InMemoryTaskStore,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListToolsResultSchema,
     ProtocolError,
     ProtocolErrorCode,
-    ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -541,13 +535,10 @@ async function connect(url?: string): Promise<void> {
                     console.log('Client disconnected, cannot fetch resources');
                     return;
                 }
-                const resourcesResult = await client.request(
-                    {
-                        method: 'resources/list',
-                        params: {}
-                    },
-                    ListResourcesResultSchema
-                );
+                const resourcesResult = await client.request({
+                    method: 'resources/list',
+                    params: {}
+                });
                 console.log('Available resources count:', resourcesResult.resources.length);
             } catch {
                 console.log('Failed to list resources after change notification');
@@ -632,7 +623,7 @@ async function listTools(): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -663,7 +654,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         };
 
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = await client.request(request, CallToolResultSchema);
+        const result = await client.request(request);
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
@@ -767,7 +758,7 @@ async function runNotificationsToolWithResumability(interval: number, count: num
             console.log(`Updated resumption token: ${event}`);
         };
 
-        const result = await client.request(request, CallToolResultSchema, {
+        const result = await client.request(request, {
             resumptionToken: notificationsToolLastEventId,
             onresumptiontoken: onLastEventIdUpdate
         });
@@ -796,7 +787,7 @@ async function listPrompts(): Promise<void> {
             method: 'prompts/list',
             params: {}
         };
-        const promptsResult = await client.request(promptsRequest, ListPromptsResultSchema);
+        const promptsResult = await client.request(promptsRequest);
         console.log('Available prompts:');
         if (promptsResult.prompts.length === 0) {
             console.log('  No prompts available');
@@ -825,7 +816,7 @@ async function getPrompt(name: string, args: Record<string, unknown>): Promise<v
             }
         };
 
-        const promptResult = await client.request(promptRequest, GetPromptResultSchema);
+        const promptResult = await client.request(promptRequest);
         console.log('Prompt template:');
         for (const [index, msg] of promptResult.messages.entries()) {
             console.log(`  [${index + 1}] ${msg.role}: ${msg.content.type === 'text' ? msg.content.text : JSON.stringify(msg.content)}`);
@@ -846,7 +837,7 @@ async function listResources(): Promise<void> {
             method: 'resources/list',
             params: {}
         };
-        const resourcesResult = await client.request(resourcesRequest, ListResourcesResultSchema);
+        const resourcesResult = await client.request(resourcesRequest);
 
         console.log('Available resources:');
         if (resourcesResult.resources.length === 0) {
@@ -874,7 +865,7 @@ async function readResource(uri: string): Promise<void> {
         };
 
         console.log(`Reading resource: ${uri}`);
-        const result = await client.request(request, ReadResourceResultSchema);
+        const result = await client.request(request);
 
         console.log('Resource contents:');
         for (const content of result.contents) {

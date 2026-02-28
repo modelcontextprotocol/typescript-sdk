@@ -16,7 +16,6 @@ The examples below use these imports. Adjust based on which features and transpo
 import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
-    CallToolResultSchema,
     Client,
     ClientCredentialsProvider,
     createMiddleware,
@@ -523,7 +522,6 @@ const result = await client.request(
         method: 'tools/call',
         params: { name: 'long-running-task', arguments: {} }
     },
-    CallToolResultSchema,
     {
         resumptionToken: lastToken,
         onresumptiontoken: (token: string) => {

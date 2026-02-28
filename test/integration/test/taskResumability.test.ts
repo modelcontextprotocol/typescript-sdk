@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
-import { CallToolResultSchema, McpServer } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 
@@ -220,7 +220,6 @@ describe('Zod v4', () => {
                         }
                     }
                 },
-                CallToolResultSchema,
                 {
                     resumptionToken: lastEventId,
                     onresumptiontoken: onLastEventIdUpdate

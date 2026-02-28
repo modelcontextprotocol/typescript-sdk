@@ -11,7 +11,6 @@
 import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
-    CallToolResultSchema,
     Client,
     ClientCredentialsProvider,
     createMiddleware,
@@ -492,7 +491,6 @@ async function resumptionToken_basic(client: Client) {
             method: 'tools/call',
             params: { name: 'long-running-task', arguments: {} }
         },
-        CallToolResultSchema,
         {
             resumptionToken: lastToken,
             onresumptiontoken: (token: string) => {

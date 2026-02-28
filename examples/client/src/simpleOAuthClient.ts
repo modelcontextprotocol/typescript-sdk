@@ -5,13 +5,7 @@ import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 
 import type { CallToolRequest, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ListToolsResultSchema,
-    StreamableHTTPClientTransport,
-    UnauthorizedError
-} from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import open from 'open';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
@@ -262,7 +256,7 @@ class InteractiveOAuthClient {
                 params: {}
             };
 
-            const result = await this.client.request(request, ListToolsResultSchema);
+            const result = await this.client.request(request);
 
             if (result.tools && result.tools.length > 0) {
                 console.log('\n📋 Available tools:');
@@ -320,7 +314,7 @@ class InteractiveOAuthClient {
                 }
             };
 
-            const result = await this.client.request(request, CallToolResultSchema);
+            const result = await this.client.request(request);
 
             console.log(`\n🔧 Tool '${toolName}' result:`);
             if (result.content) {

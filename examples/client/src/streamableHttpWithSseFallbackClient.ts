@@ -1,11 +1,5 @@
 import type { CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ListToolsResultSchema,
-    SSEClientTransport,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { Client, SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Simplified Backwards Compatible MCP Client
@@ -135,7 +129,7 @@ async function listTools(client: Client): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -168,7 +162,7 @@ async function startNotificationTool(client: Client): Promise<void> {
         };
 
         console.log('Calling notification tool...');
-        const result = await client.request(request, CallToolResultSchema);
+        const result = await client.request(request);
 
         console.log('Tool result:');
         for (const item of result.content) {

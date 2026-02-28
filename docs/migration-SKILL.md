@@ -203,7 +203,7 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
 
-**Unchanged APIs** (only import paths changed): `Client` constructor and methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types.
+**Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
 
 ## 6. McpServer API Changes
 
@@ -396,11 +396,39 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `ctx.mcpReq.elicitInput(params, options?)` | Elicit user input (form or URL) | `server.elicitInput(...)` from within handler |
 | `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client | `server.createMessage(...)` from within handler |
 
-## 11. Client Behavioral Changes
+## 11. Schema parameter removed from `request()`, `send()`, and `callTool()`
+
+`Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` no longer take a Zod result schema argument. The SDK resolves the schema internally from the method name.
+
+```typescript
+// v1: schema required
+import { CallToolResultSchema, ElicitResultSchema } from '@modelcontextprotocol/sdk/types.js';
+const result = await client.request({ method: 'tools/call', params: { ... } }, CallToolResultSchema);
+const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { ... } }, ElicitResultSchema);
+const tool = await client.callTool({ name: 'my-tool', arguments: {} }, CompatibilityCallToolResultSchema);
+
+// v2: no schema argument
+const result = await client.request({ method: 'tools/call', params: { ... } });
+const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { ... } });
+const tool = await client.callTool({ name: 'my-tool', arguments: {} });
+```
+
+| v1 call | v2 call |
+|---------|---------|
+| `client.request(req, ResultSchema)` | `client.request(req)` |
+| `client.request(req, ResultSchema, options)` | `client.request(req, options)` |
+| `ctx.mcpReq.send(req, ResultSchema)` | `ctx.mcpReq.send(req)` |
+| `ctx.mcpReq.send(req, ResultSchema, options)` | `ctx.mcpReq.send(req, options)` |
+| `client.callTool(params, CompatibilityCallToolResultSchema)` | `client.callTool(params)` |
+| `client.callTool(params, schema, options)` | `client.callTool(params, options)` |
+
+Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
+
+## 12. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 12. Runtime-Specific JSON Schema Validators (Enhancement)
+## 13. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 - Node.js → `AjvJsonSchemaValidator` (no change from v1)
@@ -420,7 +448,7 @@ new McpServer({ name: 'server', version: '1.0.0' }, {});
 
 Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
 
-## 13. Migration Steps (apply in this order)
+## 14. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
