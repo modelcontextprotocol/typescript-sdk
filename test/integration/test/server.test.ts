@@ -3715,3 +3715,46 @@ describe('elicitInputStream', () => {
         });
     });
 });
+
+describe('Server registerCapabilities with logging', () => {
+    test('registerCapabilities should register logging/setLevel handler', async () => {
+        const server = new Server(
+            { name: 'test-server', version: '1.0.0' }
+        );
+        server.registerCapabilities({ logging: {} });
+
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        // logging/setLevel should succeed, not throw "Method not found"
+        await expect(
+            client.setLoggingLevel('error')
+        ).resolves.not.toThrow();
+
+        await client.close();
+        await server.close();
+    });
+
+    test('logging in constructor capabilities should register logging/setLevel handler', async () => {
+        const server = new Server(
+            { name: 'test-server', version: '1.0.0' },
+            { capabilities: { logging: {} } }
+        );
+
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        await expect(
+            client.setLoggingLevel('error')
+        ).resolves.not.toThrow();
+
+        await client.close();
+        await server.close();
+    });
+});
