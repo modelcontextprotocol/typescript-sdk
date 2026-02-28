@@ -727,6 +727,88 @@ describe('StreamableHTTPClientTransport', () => {
         authSpy.mockRestore();
     });
 
+    it('accumulates scopes across multiple 403 responses for progressive authorization', async () => {
+        const message1: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/list',
+            params: {},
+            id: 'test-1'
+        };
+        const message2: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {},
+            id: 'test-2'
+        };
+
+        const fetchMock = globalThis.fetch as Mock;
+
+        // Spy on the imported auth function and mock successful authorization
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        // First request: 403 requesting "mcp:tools:read", then success
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="mcp:tools:read"'
+                }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        await transport.send(message1);
+
+        // Verify auth was called with the first scope
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({
+                scope: 'mcp:tools:read'
+            })
+        );
+
+        // Reset upscoping circuit breaker for next send
+        fetchMock.mockReset();
+        authSpy.mockClear();
+
+        // Second request: 403 requesting "mcp:tools:write", then success
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="mcp:tools:write"'
+                }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        await transport.send(message2);
+
+        // Verify auth was called with ACCUMULATED scopes (both read and write)
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({
+                scope: 'mcp:tools:read mcp:tools:write'
+            })
+        );
+
+        authSpy.mockRestore();
+    });
+
     describe('Reconnection Logic', () => {
         let transport: StreamableHTTPClientTransport;
 
