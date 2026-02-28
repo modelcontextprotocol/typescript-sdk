@@ -462,10 +462,7 @@ describe('Zod v4', () => {
          * Test: Dynamic tool registration after connect with pre-supplied capabilities
          */
         test('should allow registering tools after connect when capabilities were pre-supplied', async () => {
-            const mcpServer = new McpServer(
-                { name: 'test server', version: '1.0' },
-                { capabilities: { tools: { listChanged: true } } }
-            );
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: { listChanged: true } } });
             const client = new Client({ name: 'test client', version: '1.0' });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -476,10 +473,7 @@ describe('Zod v4', () => {
                 content: [{ type: 'text', text: 'Dynamic response' }]
             }));
 
-            const result = await client.request(
-                { method: 'tools/list' },
-                ListToolsResultSchema
-            );
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0].name).toBe('dynamic-tool');
@@ -2197,10 +2191,7 @@ describe('Zod v4', () => {
                 contents: [{ uri: 'test://dynamic', text: 'Dynamic content' }]
             }));
 
-            const result = await client.request(
-                { method: 'resources/list' },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0].name).toBe('dynamic-resource');
