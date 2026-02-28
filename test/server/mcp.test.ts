@@ -2104,9 +2104,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            mcpServer.resource('sized-file', 'file://data.csv', { description: 'A CSV file', size: 102400, mimeType: 'text/csv' }, async () => ({
-                contents: [{ uri: 'file://data.csv', text: 'col1,col2\n1,2' }]
-            }));
+            mcpServer.resource(
+                'sized-file',
+                'file://data.csv',
+                { description: 'A CSV file', size: 102400, mimeType: 'text/csv' },
+                async () => ({
+                    contents: [{ uri: 'file://data.csv', text: 'col1,col2\n1,2' }]
+                })
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
