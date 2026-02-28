@@ -190,7 +190,14 @@ export class Server extends Protocol<ServerContext> {
      */
     public registerCapabilities(capabilities: ServerCapabilities): void {
         if (this.transport) {
-            throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
+            // After connecting, allow if all requested capability keys are already present
+            // (supports dynamic handler registration when capabilities were pre-supplied at construction).
+            for (const key in capabilities) {
+                if (!(key in this._capabilities)) {
+                    throw new Error('Cannot register capabilities after connecting to transport');
+                }
+            }
+            return;
         }
         const hadLogging = !!this._capabilities.logging;
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
