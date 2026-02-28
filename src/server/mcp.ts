@@ -1024,10 +1024,22 @@ export class McpServer {
                     annotations = rest.shift() as ToolAnnotations;
                 }
             } else if (typeof firstArg === 'object' && firstArg !== null) {
-                // Not a ZodRawShapeCompat, so must be annotations in this position
-                // Case: tool(name, annotations, cb)
-                // Or: tool(name, description, annotations, cb)
-                annotations = rest.shift() as ToolAnnotations;
+                // Check if it's a ZodObject (z.object({...})) and auto-unwrap it
+                const extractedShape = extractZodObjectShape(firstArg);
+                if (extractedShape !== undefined) {
+                    inputSchema = extractedShape;
+                    rest.shift();
+
+                    // Check if the next arg is potentially annotations
+                    if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !isZodRawShapeCompat(rest[0])) {
+                        annotations = rest.shift() as ToolAnnotations;
+                    }
+                } else {
+                    // Not a ZodRawShapeCompat or ZodObject, so must be annotations in this position
+                    // Case: tool(name, annotations, cb)
+                    // Or: tool(name, description, annotations, cb)
+                    annotations = rest.shift() as ToolAnnotations;
+                }
             }
         }
         const callback = rest[0] as ToolCallback<ZodRawShapeCompat | undefined>;
@@ -1382,6 +1394,31 @@ function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
 
     // A raw shape has at least one property that is a Zod schema
     return Object.values(obj).some(isZodTypeLike);
+}
+
+/**
+ * Checks if an object is a ZodObject schema (z.object({...})) and extracts its raw shape.
+ *
+ * Supports both Zod v3 (obj.shape or obj._def.shape()) and Zod v4 (obj.shape).
+ * Returns the extracted raw shape if successful, or undefined if not a ZodObject.
+ */
+function extractZodObjectShape(obj: unknown): ZodRawShapeCompat | undefined {
+    if (typeof obj !== 'object' || obj === null || !isZodSchemaInstance(obj as object)) {
+        return undefined;
+    }
+
+    const candidate = obj as Record<string, unknown>;
+
+    // Both Zod v3 and v4 ZodObject schemas expose a `.shape` property
+    // whose values are Zod type instances (the field schemas).
+    if ('shape' in candidate && typeof candidate.shape === 'object' && candidate.shape !== null) {
+        const shape = candidate.shape as Record<string, unknown>;
+        if (Object.keys(shape).length === 0 || Object.values(shape).some(isZodTypeLike)) {
+            return shape as ZodRawShapeCompat;
+        }
+    }
+
+    return undefined;
 }
 
 /**
