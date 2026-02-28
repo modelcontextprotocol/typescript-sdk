@@ -322,6 +322,33 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Dynamic tool registration after connect with pre-supplied capabilities
+         */
+        test('should allow registering tools after connect when capabilities were pre-supplied', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { tools: { listChanged: true } } }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // This should NOT throw "Cannot register capabilities after connecting to transport"
+            mcpServer.tool('dynamic-tool', async () => ({
+                content: [{ type: 'text', text: 'Dynamic response' }]
+            }));
+
+            const result = await client.request(
+                { method: 'tools/list' },
+                ListToolsResultSchema
+            );
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].name).toBe('dynamic-tool');
+        });
+
+        /***
          * Test: Updating Existing Tool
          */
         test('should update existing tool', async () => {
@@ -2089,6 +2116,32 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0].name).toBe('test');
             expect(result.resources[0].uri).toBe('test://resource');
+        });
+
+        /***
+         * Test: Dynamic resource registration after connect with pre-supplied capabilities
+         */
+        test('should allow registering resources after connect when capabilities were pre-supplied', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { resources: { listChanged: true } } }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            mcpServer.resource('dynamic-resource', 'test://dynamic', async () => ({
+                contents: [{ uri: 'test://dynamic', text: 'Dynamic content' }]
+            }));
+
+            const result = await client.request(
+                { method: 'resources/list' },
+                ListResourcesResultSchema
+            );
+
+            expect(result.resources).toHaveLength(1);
+            expect(result.resources[0].name).toBe('dynamic-resource');
         });
 
         /***
