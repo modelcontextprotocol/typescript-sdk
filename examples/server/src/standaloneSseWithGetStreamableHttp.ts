@@ -6,16 +6,8 @@ import type { ReadResourceResult } from '@modelcontextprotocol/server';
 import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
-// Create an MCP server with implementation details
-const server = new McpServer({
-    name: 'resource-list-changed-notification-server',
-    version: '1.0.0'
-});
-
-// Store transports by session ID to send notifications
-const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
-
-const addResource = (name: string, content: string) => {
+// Helper to register a dynamic resource on a given server instance
+const addResource = (server: McpServer, name: string, content: string) => {
     const uri = `https://mcp-example.com/dynamic/${encodeURIComponent(name)}`;
     server.registerResource(
         name,
@@ -29,11 +21,28 @@ const addResource = (name: string, content: string) => {
     );
 };
 
-addResource('example-resource', 'Initial content for example-resource');
+// Create a fresh MCP server per client connection to avoid shared state between clients
+const getServer = () => {
+    const server = new McpServer({
+        name: 'resource-list-changed-notification-server',
+        version: '1.0.0'
+    });
 
+    addResource(server, 'example-resource', 'Initial content for example-resource');
+
+    return server;
+};
+
+// Store transports and their associated servers by session ID
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
+const servers: { [sessionId: string]: McpServer } = {};
+
+// Periodically add a new resource to all active server instances for testing
 const resourceChangeInterval = setInterval(() => {
     const name = randomUUID();
-    addResource(name, `Content for ${name}`);
+    for (const sessionId in servers) {
+        addResource(servers[sessionId]!, name, `Content for ${name}`);
+    }
 }, 5000); // Change resources every 5 seconds for testing
 
 const app = createMcpExpressApp();
@@ -49,18 +58,29 @@ app.post('/mcp', async (req: Request, res: Response) => {
             // Reuse existing transport
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
-            // New initialization request
+            // New initialization request - create a fresh server for this client
+            const server = getServer();
             transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: sessionId => {
-                    // Store the transport by session ID when session is initialized
+                    // Store the transport and server by session ID when session is initialized
                     // This avoids race conditions where requests might come in before the session is stored
                     console.log(`Session initialized with ID: ${sessionId}`);
                     transports[sessionId] = transport;
+                    servers[sessionId] = server;
                 }
             });
 
-            // Connect the transport to the MCP server
+            // Clean up both maps when the transport closes
+            transport.onclose = () => {
+                const sid = transport.sessionId;
+                if (sid) {
+                    delete transports[sid];
+                    delete servers[sid];
+                }
+            };
+
+            // Connect the fresh MCP server to the transport
             await server.connect(transport);
 
             // Handle the request - the onsessioninitialized callback will store the transport
@@ -124,6 +144,18 @@ app.listen(PORT, error => {
 process.on('SIGINT', async () => {
     console.log('Shutting down server...');
     clearInterval(resourceChangeInterval);
-    await server.close();
+
+    // Close all active transports to properly clean up resources
+    for (const sessionId in transports) {
+        try {
+            console.log(`Closing transport for session ${sessionId}`);
+            await transports[sessionId]!.close();
+            delete transports[sessionId];
+            delete servers[sessionId];
+        } catch (error) {
+            console.error(`Error closing transport for session ${sessionId}:`, error);
+        }
+    }
+    console.log('Server shutdown complete');
     process.exit(0);
 });
