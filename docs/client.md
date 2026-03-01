@@ -197,13 +197,16 @@ if (result.structuredContent) {
 Pass `onprogress` to receive incremental progress notifications from long-running tools. Use `resetTimeoutOnProgress` to keep the request alive while the server is actively reporting, and `maxTotalTimeout` as an absolute cap:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#callTool_progress"
-const result = await client.callTool({ name: 'long-operation', arguments: {} }, undefined, {
-    onprogress: ({ progress, total }) => {
-        console.log(`Progress: ${progress}/${total ?? '?'}`);
-    },
-    resetTimeoutOnProgress: true,
-    maxTotalTimeout: 600_000
-});
+const result = await client.callTool(
+    { name: 'long-operation', arguments: {} },
+    {
+        onprogress: ({ progress, total }: { progress: number; total?: number }) => {
+            console.log(`Progress: ${progress}/${total ?? '?'}`);
+        },
+        resetTimeoutOnProgress: true,
+        maxTotalTimeout: 600_000
+    }
+);
 console.log(result.content);
 ```
 
@@ -483,7 +486,6 @@ All requests have a 60-second default timeout. Pass a custom `timeout` in the op
 try {
     const result = await client.callTool(
         { name: 'slow-task', arguments: {} },
-        undefined,
         { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
     );
     console.log(result.content);

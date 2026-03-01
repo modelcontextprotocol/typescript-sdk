@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline';
 
 import type {
     CallToolRequest,
+    CallToolResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -654,7 +655,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         };
 
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = await client.request(request);
+        const result = (await client.request(request)) as CallToolResult;
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
@@ -758,10 +759,10 @@ async function runNotificationsToolWithResumability(interval: number, count: num
             console.log(`Updated resumption token: ${event}`);
         };
 
-        const result = await client.request(request, {
+        const result = (await client.request(request, {
             resumptionToken: notificationsToolLastEventId,
             onresumptiontoken: onLastEventIdUpdate
-        });
+        })) as CallToolResult;
 
         console.log('Tool result:');
         for (const item of result.content) {
@@ -939,7 +940,8 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
                 case 'result': {
                     console.log('Task completed!');
                     console.log('Tool result:');
-                    for (const item of message.result.content) {
+                    const toolResult = message.result as CallToolResult;
+                    for (const item of toolResult.content) {
                         if (item.type === 'text') {
                             console.log(`  ${item.text}`);
                         }

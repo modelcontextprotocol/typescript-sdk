@@ -1,4 +1,4 @@
-import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
+import type { CallToolRequest, CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
@@ -108,7 +108,7 @@ async function listTools(client: Client): Promise<void> {
 async function startParallelNotificationTools(client: Client): Promise<Record<string, CallToolResult>> {
     try {
         // Define multiple tool calls with different configurations
-        const toolCalls = [
+        const toolCalls: Array<{ caller: string; request: CallToolRequest }> = [
             {
                 caller: 'fast-notifier',
                 request: {
@@ -173,7 +173,7 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
         // Organize results by caller
         const resultsByTool: Record<string, CallToolResult> = {};
         for (const { caller, result } of results) {
-            resultsByTool[caller] = result;
+            resultsByTool[caller] = result as CallToolResult;
         }
 
         return resultsByTool;

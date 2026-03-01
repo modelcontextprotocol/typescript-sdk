@@ -180,13 +180,16 @@ async function callTool_structuredOutput(client: Client) {
 /** Example: Track progress of a long-running tool call. */
 async function callTool_progress(client: Client) {
     //#region callTool_progress
-    const result = await client.callTool({ name: 'long-operation', arguments: {} }, undefined, {
-        onprogress: ({ progress, total }) => {
-            console.log(`Progress: ${progress}/${total ?? '?'}`);
-        },
-        resetTimeoutOnProgress: true,
-        maxTotalTimeout: 600_000
-    });
+    const result = await client.callTool(
+        { name: 'long-operation', arguments: {} },
+        {
+            onprogress: ({ progress, total }: { progress: number; total?: number }) => {
+                console.log(`Progress: ${progress}/${total ?? '?'}`);
+            },
+            resetTimeoutOnProgress: true,
+            maxTotalTimeout: 600_000
+        }
+    );
     console.log(result.content);
     //#endregion callTool_progress
 }
@@ -449,7 +452,6 @@ async function errorHandling_timeout(client: Client) {
     try {
         const result = await client.callTool(
             { name: 'slow-task', arguments: {} },
-            undefined,
             { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
         );
         console.log(result.content);

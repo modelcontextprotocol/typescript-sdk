@@ -60,7 +60,7 @@ async function createAndRunClient(config: ClientConfig): Promise<{ id: string; r
             }
         };
 
-        const result = await client.request(toolRequest);
+        const result = (await client.request(toolRequest)) as CallToolResult;
         console.log(`[${config.id}] Tool call completed`);
 
         // Keep the connection open for a bit to receive notifications

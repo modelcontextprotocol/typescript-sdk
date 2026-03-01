@@ -1,4 +1,4 @@
-import type { CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/client';
+import type { CallToolRequest, CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
 import { Client, SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
@@ -162,7 +162,7 @@ async function startNotificationTool(client: Client): Promise<void> {
         };
 
         console.log('Calling notification tool...');
-        const result = await client.request(request);
+        const result = (await client.request(request)) as CallToolResult;
 
         console.log('Tool result:');
         for (const item of result.content) {

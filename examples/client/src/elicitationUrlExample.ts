@@ -10,6 +10,7 @@ import { createInterface } from 'node:readline';
 
 import type {
     CallToolRequest,
+    CallToolResult,
     ElicitRequest,
     ElicitRequestURLParams,
     ElicitResult,
@@ -695,7 +696,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         };
 
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = await client.request(request);
+        const result = (await client.request(request)) as CallToolResult;
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
