@@ -1,41 +1,52 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { isInitializeRequest, ReadResourceResult } from '../../types.js';
+import { createMcpExpressApp } from '../../server/express.js';
 
-// Create an MCP server with implementation details
-const server = new McpServer({
-    name: 'resource-list-changed-notification-server',
-    version: '1.0.0'
-});
+// Factory to create a new MCP server per session.
+// Each session needs its own server+transport pair to avoid cross-session contamination.
+const getServer = () => {
+    const server = new McpServer({
+        name: 'resource-list-changed-notification-server',
+        version: '1.0.0'
+    });
+
+    const addResource = (name: string, content: string) => {
+        const uri = `https://mcp-example.com/dynamic/${encodeURIComponent(name)}`;
+        server.registerResource(
+            name,
+            uri,
+            { mimeType: 'text/plain', description: `Dynamic resource: ${name}` },
+            async (): Promise<ReadResourceResult> => {
+                return {
+                    contents: [{ uri, text: content }]
+                };
+            }
+        );
+    };
+
+    addResource('example-resource', 'Initial content for example-resource');
+
+    // Periodically add new resources to demonstrate notifications
+    const resourceChangeInterval = setInterval(() => {
+        const name = randomUUID();
+        addResource(name, `Content for ${name}`);
+    }, 5000);
+
+    // Clean up the interval when the server closes
+    server.server.onclose = () => {
+        clearInterval(resourceChangeInterval);
+    };
+
+    return server;
+};
 
 // Store transports by session ID to send notifications
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-const addResource = (name: string, content: string) => {
-    const uri = `https://mcp-example.com/dynamic/${encodeURIComponent(name)}`;
-    server.resource(
-        name,
-        uri,
-        { mimeType: 'text/plain', description: `Dynamic resource: ${name}` },
-        async (): Promise<ReadResourceResult> => {
-            return {
-                contents: [{ uri, text: content }]
-            };
-        }
-    );
-};
-
-addResource('example-resource', 'Initial content for example-resource');
-
-const resourceChangeInterval = setInterval(() => {
-    const name = randomUUID();
-    addResource(name, `Content for ${name}`);
-}, 5000); // Change resources every 5 seconds for testing
-
-const app = express();
-app.use(express.json());
+const app = createMcpExpressApp();
 
 app.post('/mcp', async (req: Request, res: Response) => {
     console.log('Received MCP request:', req.body);
@@ -59,7 +70,8 @@ app.post('/mcp', async (req: Request, res: Response) => {
                 }
             });
 
-            // Connect the transport to the MCP server
+            // Create a new server per session and connect it to the transport
+            const server = getServer();
             await server.connect(transport);
 
             // Handle the request - the onsessioninitialized callback will store the transport
@@ -121,7 +133,9 @@ app.listen(PORT, error => {
 // Handle server shutdown
 process.on('SIGINT', async () => {
     console.log('Shutting down server...');
-    clearInterval(resourceChangeInterval);
-    await server.close();
+    for (const sessionId in transports) {
+        await transports[sessionId].close();
+        delete transports[sessionId];
+    }
     process.exit(0);
 });

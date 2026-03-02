@@ -1,17 +1,20 @@
 # MCP TypeScript SDK Examples
 
-This directory contains example implementations of MCP clients and servers using the TypeScript SDK.
+This directory contains example implementations of MCP clients and servers using the TypeScript SDK. For a high-level index of scenarios and where they live, see the **Examples** table in the root `README.md`.
 
 ## Table of Contents
 
 - [Client Implementations](#client-implementations)
     - [Streamable HTTP Client](#streamable-http-client)
     - [Backwards Compatible Client](#backwards-compatible-client)
+    - [URL Elicitation Example Client](#url-elicitation-example-client)
 - [Server Implementations](#server-implementations)
     - [Single Node Deployment](#single-node-deployment)
         - [Streamable HTTP Transport](#streamable-http-transport)
         - [Deprecated SSE Transport](#deprecated-sse-transport)
         - [Backwards Compatible Server](#streamable-http-backwards-compatible-server-with-sse)
+        - [Form Elicitation Example](#form-elicitation-example)
+        - [URL Elicitation Example](#url-elicitation-example)
     - [Multi-Node Deployment](#multi-node-deployment)
 - [Backwards Compatibility](#testing-streamable-http-backwards-compatibility-with-sse)
 
@@ -36,12 +39,18 @@ npx tsx src/examples/client/simpleStreamableHttp.ts
 Example client with OAuth:
 
 ```bash
-npx tsx src/examples/client/simpleOAuthClient.js
+npx tsx src/examples/client/simpleOAuthClient.ts <optional-server-url> <optional-client-metadata-url>
+```
+
+Client credentials (machine-to-machine) example:
+
+```bash
+npx tsx src/examples/client/simpleClientCredentials.ts
 ```
 
 ### Backwards Compatible Client
 
-A client that implements backwards compatibility according to the [MCP specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility), allowing it to work with both new and legacy servers. This client demonstrates:
+A client that implements backwards compatibility according to the [MCP specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility), allowing it to work with both new and legacy servers. This client demonstrates:
 
 - The client first POSTs an initialize request to the server URL:
     - If successful, it uses the Streamable HTTP transport
@@ -49,6 +58,19 @@ A client that implements backwards compatibility according to the [MCP specifica
 
 ```bash
 npx tsx src/examples/client/streamableHttpWithSseFallbackClient.ts
+```
+
+### URL Elicitation Example Client
+
+A client that demonstrates how to use URL elicitation to securely collect _sensitive_ user input or perform secure third-party flows.
+
+```bash
+# First, run the server:
+npx tsx src/examples/server/elicitationUrlExample.ts
+
+# Then, run the client:
+npx tsx src/examples/client/elicitationUrlExample.ts
+
 ```
 
 ## Server Implementations
@@ -61,7 +83,7 @@ These examples demonstrate how to set up an MCP server on a single node with dif
 
 ##### Simple Streamable HTTP Server
 
-A server that implements the Streamable HTTP transport (protocol version 2025-03-26).
+A server that implements the Streamable HTTP transport (protocol version 2025-11-25).
 
 - Basic server setup with Express and the Streamable HTTP transport
 - Session management with an in-memory event store for resumability
@@ -105,9 +127,35 @@ A server that demonstrates server notifications using Streamable HTTP.
 npx tsx src/examples/server/standaloneSseWithGetStreamableHttp.ts
 ```
 
+##### Form Elicitation Example
+
+A server that demonstrates using form elicitation to collect _non-sensitive_ user input.
+
+```bash
+npx tsx src/examples/server/elicitationFormExample.ts
+```
+
+##### URL Elicitation Example
+
+A comprehensive example demonstrating URL mode elicitation in a server protected by MCP authorization. This example shows:
+
+- SSE-driven URL elicitation of an API Key on session initialization: obtain sensitive user input at session init
+- Tools that require direct user interaction via URL elicitation (for payment confirmation and for third-party OAuth tokens)
+- Completion notifications for URL elicitation
+
+To run this example:
+
+```bash
+# Start the server
+npx tsx src/examples/server/elicitationUrlExample.ts
+
+# In a separate terminal, start the client
+npx tsx src/examples/client/elicitationUrlExample.ts
+```
+
 #### Deprecated SSE Transport
 
-A server that implements the deprecated HTTP+SSE transport (protocol version 2024-11-05). This example only used for testing backwards compatibility for clients.
+A server that implements the deprecated HTTP+SSE transport (protocol version 2024-11-05). This example is only used for testing backwards compatibility for clients.
 
 - Two separate endpoints: `/mcp` for the SSE stream (GET) and `/messages` for client messages (POST)
 - Tool implementation with a `start-notification-stream` tool that demonstrates sending periodic notifications
@@ -118,7 +166,7 @@ npx tsx src/examples/server/simpleSseServer.ts
 
 #### Streamable Http Backwards Compatible Server with SSE
 
-A server that supports both Streamable HTTP and SSE transports, adhering to the [MCP specification for backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility).
+A server that supports both Streamable HTTP and SSE transports, adhering to the [MCP specification for backwards compatibility](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility).
 
 - Single MCP server instance with multiple transport options
 - Support for Streamable HTTP requests at `/mcp` endpoint (GET/POST/DELETE)
@@ -289,7 +337,7 @@ To test the backwards compatibility features:
     # Legacy SSE server (protocol version 2024-11-05)
     npx tsx src/examples/server/simpleSseServer.ts
 
-    # Streamable HTTP server (protocol version 2025-03-26)
+    # Streamable HTTP server (protocol version 2025-11-25)
     npx tsx src/examples/server/simpleStreamableHttp.ts
 
     # Backwards compatible server (supports both protocols)

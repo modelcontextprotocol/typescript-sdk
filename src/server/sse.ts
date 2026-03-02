@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { IncomingMessage, ServerResponse } from 'node:http';
+import { TLSSocket } from 'node:tls';
 import { Transport } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema, MessageExtraInfo, RequestInfo } from '../types.js';
 import getRawBody from 'raw-body';
 import contentType from 'content-type';
 import { AuthInfo } from './auth/types.js';
-import { URL } from 'url';
+import { URL } from 'node:url';
 
 const MAXIMUM_MESSAGE_SIZE = '4mb';
 
@@ -16,18 +17,24 @@ export interface SSEServerTransportOptions {
     /**
      * List of allowed host header values for DNS rebinding protection.
      * If not specified, host validation is disabled.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/express.js` which includes localhost protection by default.
      */
     allowedHosts?: string[];
 
     /**
      * List of allowed origin header values for DNS rebinding protection.
      * If not specified, origin validation is disabled.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/express.js` which includes localhost protection by default.
      */
     allowedOrigins?: string[];
 
     /**
      * Enable DNS rebinding protection (requires allowedHosts and/or allowedOrigins to be configured).
      * Default is false for backwards compatibility.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/express.js` which includes localhost protection by default.
      */
     enableDnsRebindingProtection?: boolean;
 }
@@ -79,7 +86,7 @@ export class SSEServerTransport implements Transport {
         // Validate Origin header if allowedOrigins is configured
         if (this._options.allowedOrigins && this._options.allowedOrigins.length > 0) {
             const originHeader = req.headers.origin;
-            if (!originHeader || !this._options.allowedOrigins.includes(originHeader)) {
+            if (originHeader && !this._options.allowedOrigins.includes(originHeader)) {
                 return `Invalid Origin header: ${originHeader}`;
             }
         }
@@ -143,7 +150,15 @@ export class SSEServerTransport implements Transport {
         }
 
         const authInfo: AuthInfo | undefined = req.auth;
-        const requestInfo: RequestInfo = { headers: req.headers };
+
+        const host = req.headers.host;
+        const protocol = req.socket instanceof TLSSocket ? 'https' : 'http';
+        const fullUrl = host && req.url ? new URL(req.url, `${protocol}://${host}`) : undefined;
+
+        const requestInfo: RequestInfo = {
+            headers: req.headers,
+            url: fullUrl
+        };
 
         let body: string | unknown;
         try {

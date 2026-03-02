@@ -1,10 +1,10 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { CallToolResult, isInitializeRequest } from '../../types.js';
-import cors from 'cors';
+import { createMcpExpressApp } from '../../server/express.js';
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -21,11 +21,13 @@ const getServer = () => {
     );
 
     // Register a simple tool that returns a greeting
-    server.tool(
+    server.registerTool(
         'greet',
-        'A simple greeting tool',
         {
-            name: z.string().describe('Name to greet')
+            description: 'A simple greeting tool',
+            inputSchema: {
+                name: z.string().describe('Name to greet')
+            }
         },
         async ({ name }): Promise<CallToolResult> => {
             return {
@@ -40,11 +42,13 @@ const getServer = () => {
     );
 
     // Register a tool that sends multiple greetings with notifications
-    server.tool(
+    server.registerTool(
         'multi-greet',
-        'A tool that sends different greetings with delays between them',
         {
-            name: z.string().describe('Name to greet')
+            description: 'A tool that sends different greetings with delays between them',
+            inputSchema: {
+                name: z.string().describe('Name to greet')
+            }
         },
         async ({ name }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -90,16 +94,7 @@ const getServer = () => {
     return server;
 };
 
-const app = express();
-app.use(express.json());
-
-// Configure CORS to expose Mcp-Session-Id header for browser-based clients
-app.use(
-    cors({
-        origin: '*', // Allow all origins - adjust as needed for production
-        exposedHeaders: ['Mcp-Session-Id']
-    })
-);
+const app = createMcpExpressApp();
 
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};

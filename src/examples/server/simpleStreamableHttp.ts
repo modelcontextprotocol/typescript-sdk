@@ -1,12 +1,15 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
+import { createMcpExpressApp } from '../../server/express.js';
 import {
     CallToolResult,
+    ElicitResult,
+    ElicitResultSchema,
     GetPromptResult,
     isInitializeRequest,
     PrimitiveSchemaDefinition,
@@ -14,15 +17,17 @@ import {
     ResourceLink
 } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../experimental/tasks/stores/in-memory.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
 import { checkResourceAllowed } from '../../shared/auth-utils.js';
 
-import cors from 'cors';
-
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
+
+// Create shared task store for demonstration
+const taskStore = new InMemoryTaskStore();
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -33,7 +38,11 @@ const getServer = () => {
             icons: [{ src: './mcp.svg', sizes: ['512x512'], mimeType: 'image/svg+xml' }],
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
-        { capabilities: { logging: {} } }
+        {
+            capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
+            taskStore, // Enable task support
+            taskMessageQueue: new InMemoryTaskMessageQueue()
+        }
     );
 
     // Register a simple tool that returns a greeting
@@ -59,16 +68,18 @@ const getServer = () => {
     );
 
     // Register a tool that sends multiple greetings with notifications (with annotations)
-    server.tool(
+    server.registerTool(
         'multi-greet',
-        'A tool that sends different greetings with delays between them',
         {
-            name: z.string().describe('Name to greet')
-        },
-        {
-            title: 'Multiple Greeting Tool',
-            readOnlyHint: true,
-            openWorldHint: false
+            description: 'A tool that sends different greetings with delays between them',
+            inputSchema: {
+                name: z.string().describe('Name to greet')
+            },
+            annotations: {
+                title: 'Multiple Greeting Tool',
+                readOnlyHint: true,
+                openWorldHint: false
+            }
         },
         async ({ name }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -111,15 +122,17 @@ const getServer = () => {
             };
         }
     );
-    // Register a tool that demonstrates elicitation (user input collection)
+    // Register a tool that demonstrates form elicitation (user input collection with a schema)
     // This creates a closure that captures the server instance
-    server.tool(
+    server.registerTool(
         'collect-user-info',
-        'A tool that collects user information through elicitation',
         {
-            infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
+            description: 'A tool that collects user information through form elicitation',
+            inputSchema: {
+                infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
+            }
         },
-        async ({ infoType }): Promise<CallToolResult> => {
+        async ({ infoType }, extra): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -214,11 +227,18 @@ const getServer = () => {
             }
 
             try {
-                // Use the underlying server instance to elicit input from the client
-                const result = await server.server.elicitInput({
-                    message,
-                    requestedSchema
-                });
+                // Use sendRequest through the extra parameter to elicit input
+                const result = await extra.sendRequest(
+                    {
+                        method: 'elicitation/create',
+                        params: {
+                            mode: 'form',
+                            message,
+                            requestedSchema
+                        }
+                    },
+                    ElicitResultSchema
+                );
 
                 if (result.action === 'accept') {
                     return {
@@ -261,6 +281,114 @@ const getServer = () => {
         }
     );
 
+    // Register a tool that demonstrates bidirectional task support:
+    // Server creates a task, then elicits input from client using elicitInputStream
+    // Using the experimental tasks API - WARNING: may change without notice
+    server.experimental.tasks.registerToolTask(
+        'collect-user-info-task',
+        {
+            title: 'Collect Info with Task',
+            description: 'Collects user info via elicitation with task support using elicitInputStream',
+            inputSchema: {
+                infoType: z.enum(['contact', 'preferences']).describe('Type of information to collect').default('contact')
+            }
+        },
+        {
+            async createTask({ infoType }, { taskStore: createTaskStore, taskRequestedTtl }) {
+                // Create the server-side task
+                const task = await createTaskStore.createTask({
+                    ttl: taskRequestedTtl
+                });
+
+                // Perform async work that makes a nested elicitation request using elicitInputStream
+                (async () => {
+                    try {
+                        const message = infoType === 'contact' ? 'Please provide your contact information' : 'Please set your preferences';
+
+                        // Define schemas with proper typing for PrimitiveSchemaDefinition
+                        const contactSchema: {
+                            type: 'object';
+                            properties: Record<string, PrimitiveSchemaDefinition>;
+                            required: string[];
+                        } = {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', title: 'Full Name', description: 'Your full name' },
+                                email: { type: 'string', title: 'Email', description: 'Your email address' }
+                            },
+                            required: ['name', 'email']
+                        };
+
+                        const preferencesSchema: {
+                            type: 'object';
+                            properties: Record<string, PrimitiveSchemaDefinition>;
+                            required: string[];
+                        } = {
+                            type: 'object',
+                            properties: {
+                                theme: { type: 'string', title: 'Theme', enum: ['light', 'dark', 'auto'] },
+                                notifications: { type: 'boolean', title: 'Enable Notifications', default: true }
+                            },
+                            required: ['theme']
+                        };
+
+                        const requestedSchema = infoType === 'contact' ? contactSchema : preferencesSchema;
+
+                        // Use elicitInputStream to elicit input from client
+                        // This demonstrates the streaming elicitation API
+                        // Access via server.server to get the underlying Server instance
+                        const stream = server.server.experimental.tasks.elicitInputStream({
+                            mode: 'form',
+                            message,
+                            requestedSchema
+                        });
+
+                        let elicitResult: ElicitResult | undefined;
+                        for await (const msg of stream) {
+                            if (msg.type === 'result') {
+                                elicitResult = msg.result as ElicitResult;
+                            } else if (msg.type === 'error') {
+                                throw msg.error;
+                            }
+                        }
+
+                        if (!elicitResult) {
+                            throw new Error('No result received from elicitation');
+                        }
+
+                        let resultText: string;
+                        if (elicitResult.action === 'accept') {
+                            resultText = `Collected ${infoType} info: ${JSON.stringify(elicitResult.content, null, 2)}`;
+                        } else if (elicitResult.action === 'decline') {
+                            resultText = `User declined to provide ${infoType} information`;
+                        } else {
+                            resultText = 'User cancelled the request';
+                        }
+
+                        await taskStore.storeTaskResult(task.taskId, 'completed', {
+                            content: [{ type: 'text', text: resultText }]
+                        });
+                    } catch (error) {
+                        console.error('Error in collect-user-info-task:', error);
+                        await taskStore.storeTaskResult(task.taskId, 'failed', {
+                            content: [{ type: 'text', text: `Error: ${error}` }],
+                            isError: true
+                        });
+                    }
+                })();
+
+                return { task };
+            },
+            async getTask(_args, { taskId, taskStore: getTaskStore }) {
+                return await getTaskStore.getTask(taskId);
+            },
+            async getTaskResult(_args, { taskId, taskStore: getResultTaskStore }) {
+                const result = await getResultTaskStore.getTaskResult(taskId);
+                return result as CallToolResult;
+            }
+        }
+    );
+
     // Register a simple prompt with title
     server.registerPrompt(
         'greeting-template',
@@ -287,12 +415,14 @@ const getServer = () => {
     );
 
     // Register a tool specifically for testing resumability
-    server.tool(
+    server.registerTool(
         'start-notification-stream',
-        'Starts sending periodic notifications for testing resumability',
         {
-            interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-            count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
+            description: 'Starts sending periodic notifications for testing resumability',
+            inputSchema: {
+                interval: z.number().describe('Interval in milliseconds between notifications').default(100),
+                count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
+            }
         },
         async ({ interval, count }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -439,22 +569,59 @@ const getServer = () => {
         }
     );
 
+    // Register a long-running tool that demonstrates task execution
+    // Using the experimental tasks API - WARNING: may change without notice
+    server.experimental.tasks.registerToolTask(
+        'delay',
+        {
+            title: 'Delay',
+            description: 'A simple tool that delays for a specified duration, useful for testing task execution',
+            inputSchema: {
+                duration: z.number().describe('Duration in milliseconds').default(5000)
+            }
+        },
+        {
+            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+                // Create the task
+                const task = await taskStore.createTask({
+                    ttl: taskRequestedTtl
+                });
+
+                // Simulate out-of-band work
+                (async () => {
+                    await new Promise(resolve => setTimeout(resolve, duration));
+                    await taskStore.storeTaskResult(task.taskId, 'completed', {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Completed ${duration}ms delay`
+                            }
+                        ]
+                    });
+                })();
+
+                // Return CreateTaskResult with the created task
+                return {
+                    task
+                };
+            },
+            async getTask(_args, { taskId, taskStore }) {
+                return await taskStore.getTask(taskId);
+            },
+            async getTaskResult(_args, { taskId, taskStore }) {
+                const result = await taskStore.getTaskResult(taskId);
+                return result as CallToolResult;
+            }
+        }
+    );
+
     return server;
 };
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
-const app = express();
-app.use(express.json());
-
-// Allow CORS all domains, expose the Mcp-Session-Id header
-app.use(
-    cors({
-        origin: '*', // Allow all origins
-        exposedHeaders: ['Mcp-Session-Id']
-    })
-);
+const app = createMcpExpressApp();
 
 // Set up OAuth if enabled
 let authMiddleware = null;
@@ -484,7 +651,8 @@ if (useOAuth) {
             });
 
             if (!response.ok) {
-                throw new Error(`Invalid or expired token: ${await response.text()}`);
+                const text = await response.text().catch(() => null);
+                throw new Error(`Invalid or expired token: ${text}`);
             }
 
             const data = await response.json();

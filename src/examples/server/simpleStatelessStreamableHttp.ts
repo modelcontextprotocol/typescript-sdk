@@ -1,9 +1,9 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { CallToolResult, GetPromptResult, ReadResourceResult } from '../../types.js';
-import cors from 'cors';
+import { createMcpExpressApp } from '../../server/express.js';
 
 const getServer = () => {
     // Create an MCP server with implementation details
@@ -16,11 +16,13 @@ const getServer = () => {
     );
 
     // Register a simple prompt
-    server.prompt(
+    server.registerPrompt(
         'greeting-template',
-        'A simple greeting prompt template',
         {
-            name: z.string().describe('Name to include in greeting')
+            description: 'A simple greeting prompt template',
+            argsSchema: {
+                name: z.string().describe('Name to include in greeting')
+            }
         },
         async ({ name }): Promise<GetPromptResult> => {
             return {
@@ -38,12 +40,14 @@ const getServer = () => {
     );
 
     // Register a tool specifically for testing resumability
-    server.tool(
+    server.registerTool(
         'start-notification-stream',
-        'Starts sending periodic notifications for testing resumability',
         {
-            interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-            count: z.number().describe('Number of notifications to send (0 for 100)').default(10)
+            description: 'Starts sending periodic notifications for testing resumability',
+            inputSchema: {
+                interval: z.number().describe('Interval in milliseconds between notifications').default(100),
+                count: z.number().describe('Number of notifications to send (0 for 100)').default(10)
+            }
         },
         async ({ interval, count }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -78,7 +82,7 @@ const getServer = () => {
     );
 
     // Create a simple resource at a fixed URI
-    server.resource(
+    server.registerResource(
         'greeting-resource',
         'https://example.com/greetings/default',
         { mimeType: 'text/plain' },
@@ -96,16 +100,7 @@ const getServer = () => {
     return server;
 };
 
-const app = express();
-app.use(express.json());
-
-// Configure CORS to expose Mcp-Session-Id header for browser-based clients
-app.use(
-    cors({
-        origin: '*', // Allow all origins - adjust as needed for production
-        exposedHeaders: ['Mcp-Session-Id']
-    })
-);
+const app = createMcpExpressApp();
 
 app.post('/mcp', async (req: Request, res: Response) => {
     const server = getServer();
