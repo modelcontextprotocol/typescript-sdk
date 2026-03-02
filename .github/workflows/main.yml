@@ -58,11 +58,47 @@ jobs:
 
             - run: pnpm test:all
 
+    test-runtimes:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runtime: bun
+                      version: "1.x"
+                    - runtime: deno
+                      version: v2.x
+        steps:
+            - uses: actions/checkout@v6
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  run_install: false
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+            - name: Set up Bun
+              if: matrix.runtime == 'bun'
+              uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: ${{ matrix.version }}
+            - name: Set up Deno
+              if: matrix.runtime == 'deno'
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: ${{ matrix.version }}
+            - run: pnpm install
+            - run: pnpm build:all
+            - name: Run ${{ matrix.runtime }} integration tests
+              run: pnpm --filter @modelcontextprotocol/test-integration test:integration:${{ matrix.runtime }}
+
     publish:
         runs-on: ubuntu-latest
         if: github.event_name == 'release'
         environment: release
-        needs: [build, test]
+        needs: [build, test, test-runtimes]
 
         permissions:
             contents: read

@@ -29,7 +29,9 @@
         "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "client": "tsx scripts/cli.ts client",
+        "test:integration:bun": "bun test test/server/bun.test.ts",
+        "test:integration:deno": "deno test --no-check --allow-net --allow-read --allow-env test/server/deno.test.ts"
     },
     "devDependencies": {
         "@modelcontextprotocol/core": "workspace:^",
