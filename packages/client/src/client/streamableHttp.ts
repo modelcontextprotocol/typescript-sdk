@@ -222,6 +222,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const response = await (this._fetch ?? fetch)(this._url, {
+                ...this._requestInit,
                 method: 'GET',
                 headers,
                 signal: this._abortController?.signal
