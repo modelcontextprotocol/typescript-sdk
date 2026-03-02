@@ -879,7 +879,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         id: request.id,
                         error: {
                             code: Number.isSafeInteger(error['code']) ? error['code'] : ProtocolErrorCode.InternalError,
-                            message: error.message ?? 'Internal error',
+                            message: error instanceof ProtocolError ? error.rpcMessage : (error.message ?? 'Internal error'),
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     };

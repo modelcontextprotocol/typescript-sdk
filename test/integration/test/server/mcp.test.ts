@@ -1912,6 +1912,103 @@ describe('Zod v4', () => {
                 });
         });
 
+        test('should produce spec-conformant wire format for -32042 URLElicitationRequiredError', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {
+                            url: {}
+                        }
+                    }
+                }
+            );
+
+            const elicitationParams = {
+                mode: 'url' as const,
+                elicitationId: 'elicitation-123',
+                url: 'https://mcp.example.com/connect',
+                message: 'Authorization required'
+            };
+            const wireMessage = 'Confirmation required';
+
+            mcpServer.registerTool('needs-authorization', {}, async () => {
+                throw new UrlElicitationRequiredError([elicitationParams], wireMessage);
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            const serverToClientMessages: unknown[] = [];
+            const originalSend = serverTransport.send.bind(serverTransport);
+            vi.spyOn(serverTransport, 'send').mockImplementation(async (message, options) => {
+                serverToClientMessages.push(structuredClone(message));
+                return originalSend(message, options);
+            });
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            let clientError: unknown;
+            try {
+                await client.callTool({
+                    name: 'needs-authorization'
+                });
+                throw new Error('Expected callTool to throw UrlElicitationRequiredError');
+            } catch (error) {
+                clientError = error;
+            }
+
+            const wireErrorResponse = serverToClientMessages.find(
+                message =>
+                    typeof message === 'object' &&
+                    message !== null &&
+                    'error' in message &&
+                    typeof (message as { error?: { code?: unknown } }).error === 'object' &&
+                    (message as { error: { code?: unknown } }).error.code === -32_042
+            ) as
+                | {
+                      error: {
+                          code: number;
+                          message: string;
+                          data?: {
+                              elicitations?: unknown;
+                          };
+                      };
+                  }
+                | undefined;
+
+            expect(wireErrorResponse).toBeDefined();
+            expect(wireErrorResponse?.error.code).toBe(-32_042);
+            expect(wireErrorResponse?.error.message).toBe(wireMessage);
+            expect(wireErrorResponse?.error.message).not.toContain('MCP error -32042:');
+            expect(wireErrorResponse?.error.data).toMatchObject({
+                elicitations: [
+                    {
+                        mode: 'url',
+                        elicitationId: 'elicitation-123',
+                        url: 'https://mcp.example.com/connect',
+                        message: 'Authorization required'
+                    }
+                ]
+            });
+            expect(Array.isArray(wireErrorResponse?.error.data?.elicitations)).toBe(true);
+
+            expect(clientError).toBeInstanceOf(UrlElicitationRequiredError);
+            if (clientError instanceof UrlElicitationRequiredError) {
+                expect(clientError.code).toBe(-32_042);
+                expect(clientError.elicitations).toEqual([elicitationParams]);
+                expect(clientError.message).toBe('MCP error -32042: Confirmation required');
+                expect((clientError.message.match(/MCP error -32042:/g) ?? []).length).toBe(1);
+            }
+        });
+
         /***
          * Test: Tool Registration with _meta field
          */
