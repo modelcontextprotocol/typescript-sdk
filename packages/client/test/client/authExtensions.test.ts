@@ -1,10 +1,11 @@
 import { createMockOAuthFetch } from '@modelcontextprotocol/test-helpers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { auth } from '../../src/client/auth.js';
 import {
     ClientCredentialsProvider,
     createPrivateKeyJwtAuth,
+    CrossAppAccessProvider,
     PrivateKeyJwtProvider,
     StaticPrivateKeyJwtProvider
 } from '../../src/client/authExtensions.js';
@@ -328,5 +329,301 @@ describe('createPrivateKeyJwtAuth', () => {
         await expect(addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)).rejects.toThrow(
             /Key for the RS256 algorithm must be one of type CryptoKey, KeyObject, or JSON Web Key/
         );
+    });
+});
+
+describe('CrossAppAccessProvider', () => {
+    const RESOURCE_SERVER_URL = 'https://mcp.chat.example/';
+    const AUTH_SERVER_URL = 'https://auth.chat.example';
+    const IDP_URL = 'https://idp.example.com';
+
+    it('successfully authenticates using Cross-App Access flow', async () => {
+        let assertionCallbackInvoked = false;
+        let jwtGrantUsed = '';
+
+        const provider = new CrossAppAccessProvider({
+            assertion: async ctx => {
+                assertionCallbackInvoked = true;
+                expect(ctx.authorizationServerUrl).toBe(AUTH_SERVER_URL);
+                expect(ctx.resourceUrl).toBe(RESOURCE_SERVER_URL);
+                expect(ctx.scope).toBeUndefined();
+                expect(ctx.fetchFn).toBeDefined();
+                return 'jwt-authorization-grant-token';
+            },
+            clientId: 'my-mcp-client',
+            clientSecret: 'my-mcp-secret',
+            clientName: 'xaa-test-client'
+        });
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params).toBeInstanceOf(URLSearchParams);
+                expect(params.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+
+                jwtGrantUsed = params.get('assertion') || '';
+                expect(jwtGrantUsed).toBe('jwt-authorization-grant-token');
+
+                // Verify client authentication
+                const headers = new Headers(init?.headers);
+                const authHeader = headers.get('Authorization');
+                expect(authHeader).toBeTruthy();
+
+                const expectedCredentials = Buffer.from('my-mcp-client:my-mcp-secret').toString('base64');
+                expect(authHeader).toBe(`Basic ${expectedCredentials}`);
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
+        expect(assertionCallbackInvoked).toBe(true);
+        expect(jwtGrantUsed).toBe('jwt-authorization-grant-token');
+
+        const tokens = provider.tokens();
+        expect(tokens).toBeTruthy();
+        expect(tokens?.access_token).toBe('test-access-token');
+    });
+
+    it('passes scope to assertion callback', async () => {
+        let capturedScope: string | undefined;
+
+        const provider = new CrossAppAccessProvider({
+            assertion: async ctx => {
+                capturedScope = ctx.scope;
+                return 'jwt-grant';
+            },
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL
+        });
+
+        await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            scope: 'chat.read chat.history',
+            fetchFn: fetchMock
+        });
+
+        expect(capturedScope).toBe('chat.read chat.history');
+    });
+
+    it('passes custom fetchFn to assertion callback', async () => {
+        let capturedFetchFn: unknown;
+
+        const customFetch = vi.fn(fetch);
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL
+        });
+
+        // Wrap the mock to track calls
+        const wrappedFetch = vi.fn((...args: Parameters<typeof fetchMock>) => fetchMock(...args));
+
+        const provider = new CrossAppAccessProvider({
+            assertion: async ctx => {
+                capturedFetchFn = ctx.fetchFn;
+                return 'jwt-grant';
+            },
+            clientId: 'client',
+            clientSecret: 'secret',
+            fetchFn: customFetch
+        });
+
+        await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: wrappedFetch
+        });
+
+        // The assertion callback should receive the custom fetch function
+        expect(capturedFetchFn).toBe(customFetch);
+    });
+
+    it('throws error when authorization server URL is not available', async () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        // Try to call prepareTokenRequest without going through auth()
+        await expect(provider.prepareTokenRequest()).rejects.toThrow(
+            'Authorization server URL not available. Ensure auth() has been called first.'
+        );
+    });
+
+    it('throws error when resource URL is not available', async () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        // Manually set authorization server URL but not resource URL
+        provider.saveAuthorizationServerUrl?.(AUTH_SERVER_URL);
+
+        await expect(provider.prepareTokenRequest()).rejects.toThrow('Resource URL not available. Ensure auth() has been called first.');
+    });
+
+    it('stores and retrieves authorization server URL', () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        expect(provider.authorizationServerUrl?.()).toBeUndefined();
+
+        provider.saveAuthorizationServerUrl?.(AUTH_SERVER_URL);
+        expect(provider.authorizationServerUrl?.()).toBe(AUTH_SERVER_URL);
+    });
+
+    it('stores and retrieves resource URL', () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        expect(provider.resourceUrl?.()).toBeUndefined();
+
+        provider.saveResourceUrl?.(RESOURCE_SERVER_URL);
+        expect(provider.resourceUrl?.()).toBe(RESOURCE_SERVER_URL);
+    });
+
+    it('has correct client metadata', () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret',
+            clientName: 'custom-xaa-client'
+        });
+
+        const metadata = provider.clientMetadata;
+        expect(metadata.client_name).toBe('custom-xaa-client');
+        expect(metadata.redirect_uris).toEqual([]);
+        expect(metadata.grant_types).toEqual(['urn:ietf:params:oauth:grant-type:jwt-bearer']);
+        expect(metadata.token_endpoint_auth_method).toBe('client_secret_basic');
+    });
+
+    it('uses default client name when not provided', () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        expect(provider.clientMetadata.client_name).toBe('cross-app-access-client');
+    });
+
+    it('returns undefined for redirectUrl (non-interactive flow)', () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        expect(provider.redirectUrl).toBeUndefined();
+    });
+
+    it('throws error for redirectToAuthorization (not used in jwt-bearer)', () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        expect(() => provider.redirectToAuthorization()).toThrow('redirectToAuthorization is not used for jwt-bearer flow');
+    });
+
+    it('throws error for codeVerifier (not used in jwt-bearer)', () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        expect(() => provider.codeVerifier()).toThrow('codeVerifier is not used for jwt-bearer flow');
+    });
+
+    it('handles assertion callback errors gracefully', async () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => {
+                throw new Error('Failed to get ID token from IdP');
+            },
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL
+        });
+
+        await expect(
+            auth(provider, {
+                serverUrl: RESOURCE_SERVER_URL,
+                fetchFn: fetchMock
+            })
+        ).rejects.toThrow('Failed to get ID token from IdP');
+    });
+
+    it('allows assertion callback to return a promise', async () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: ctx => {
+                return new Promise(resolve => {
+                    setTimeout(() => resolve('async-jwt-grant'), 10);
+                });
+            },
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params.get('assertion')).toBe('async-jwt-grant');
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
+    });
+
+    it('includes scope in token request params when provided', async () => {
+        const provider = new CrossAppAccessProvider({
+            assertion: async () => 'jwt-grant',
+            clientId: 'client',
+            clientSecret: 'secret'
+        });
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params.get('scope')).toBe('chat.read chat.write');
+            }
+        });
+
+        await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            scope: 'chat.read chat.write',
+            fetchFn: fetchMock
+        });
     });
 });
