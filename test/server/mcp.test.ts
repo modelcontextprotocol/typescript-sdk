@@ -2092,6 +2092,39 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Resource with size field
+         */
+        test('should include size field in resource listing when provided', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.resource(
+                'sized-file',
+                'file://data.csv',
+                { description: 'A CSV file', size: 102400, mimeType: 'text/csv' },
+                async () => ({
+                    contents: [{ uri: 'file://data.csv', text: 'col1,col2\n1,2' }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+
+            expect(result.resources).toHaveLength(1);
+            expect(result.resources[0].name).toBe('sized-file');
+            expect(result.resources[0].size).toBe(102400);
+            expect(result.resources[0].mimeType).toBe('text/csv');
+        });
+
+        /***
          * Test: Update Resource with URI
          */
         test('should update resource with uri', async () => {
