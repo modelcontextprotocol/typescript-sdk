@@ -17,7 +17,7 @@ import {
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../../src/server/auth/errors.js';
-import { AuthorizationServerMetadata, OAuthTokens } from '../../src/shared/auth.js';
+import { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
 
 // Mock pkce-challenge
@@ -1297,6 +1297,27 @@ describe('OAuth Authorization', () => {
             const authMethod = selectClientAuthMethod(clientInfo, supportedMethods);
             expect(authMethod).toBe('none');
         });
+        it('defaults to client_secret_basic when server omits token_endpoint_auth_methods_supported (RFC 8414 §2)', () => {
+            // RFC 8414 §2: if omitted, the default is client_secret_basic.
+            // RFC 6749 §2.3.1: servers MUST support HTTP Basic for clients with a secret.
+            const clientInfo = { client_id: 'test-client-id', client_secret: 'test-client-secret' };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('client_secret_basic');
+        });
+        it('defaults to none for public clients when server omits token_endpoint_auth_methods_supported', () => {
+            const clientInfo = { client_id: 'test-client-id' };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('none');
+        });
+        it('honors DCR-returned token_endpoint_auth_method even when server metadata omits supported methods', () => {
+            const clientInfo = {
+                client_id: 'test-client-id',
+                client_secret: 'test-client-secret',
+                token_endpoint_auth_method: 'client_secret_post'
+            };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('client_secret_post');
+        });
     });
 
     describe('startAuthorization', () => {
@@ -1513,8 +1534,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1552,8 +1575,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1675,8 +1700,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect((options.headers as Headers).get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1735,8 +1762,10 @@ describe('OAuth Authorization', () => {
             const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
@@ -1869,6 +1898,43 @@ describe('OAuth Authorization', () => {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(validClientMetadata)
+                })
+            );
+        });
+
+        it('includes scope in registration body when provided, overriding clientMetadata.scope', async () => {
+            const clientMetadataWithScope: OAuthClientMetadata = {
+                ...validClientMetadata,
+                scope: 'should-be-overridden'
+            };
+
+            const expectedClientInfo = {
+                ...validClientInfo,
+                scope: 'openid profile'
+            };
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => expectedClientInfo
+            });
+
+            const clientInfo = await registerClient('https://auth.example.com', {
+                clientMetadata: clientMetadataWithScope,
+                scope: 'openid profile'
+            });
+
+            expect(clientInfo).toEqual(expectedClientInfo);
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/register'
+                }),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ...validClientMetadata, scope: 'openid profile' })
                 })
             );
         });
@@ -2746,6 +2812,12 @@ describe('OAuth Authorization', () => {
             const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
             const authUrl: URL = redirectCall[0];
             expect(authUrl.searchParams.get('scope')).toBe('mcp:read mcp:write mcp:admin');
+
+            // Verify the same scope was also used in the DCR request body
+            const registerCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/register'));
+            expect(registerCall).toBeDefined();
+            const registerBody = JSON.parse(registerCall![1].body);
+            expect(registerBody.scope).toBe('mcp:read mcp:write mcp:admin');
         });
 
         it('prefers explicit scope parameter over scopes_supported from PRM', async () => {
@@ -3090,7 +3162,7 @@ describe('OAuth Authorization', () => {
             expect(body.get('client_secret')).toBeNull();
         });
 
-        it('defaults to client_secret_post when no auth methods specified', async () => {
+        it('defaults to client_secret_basic when no auth methods specified (RFC 8414 §2)', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -3107,13 +3179,15 @@ describe('OAuth Authorization', () => {
             expect(tokens).toEqual(validTokens);
             const request = mockFetch.mock.calls[0][1];
 
-            // Check headers
-            expect(request.headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
-            expect(request.headers.get('Authorization')).toBeNull();
+            // RFC 8414 §2: when token_endpoint_auth_methods_supported is omitted,
+            // the default is client_secret_basic (HTTP Basic auth, not body params)
+            const authHeader = request.headers.get('Authorization');
+            const expected = 'Basic ' + btoa('client123:secret123');
+            expect(authHeader).toBe(expected);
 
             const body = request.body as URLSearchParams;
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
         });
     });
 
