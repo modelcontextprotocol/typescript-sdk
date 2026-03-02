@@ -927,6 +927,92 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Tool Registration with z.object() as inputSchema (auto-unwrap)
+         */
+        test('should auto-unwrap z.object() passed as inputSchema', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // This is the common mistake: passing z.object({...}) instead of just {...}
+            mcpServer.tool(
+                'test',
+                'A tool using z.object()',
+                z.object({ message: z.string() }) as any,
+                async ({ message }: { message: string }) => ({
+                    content: [{ type: 'text' as const, text: `Echo: ${message}` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].name).toBe('test');
+            expect(result.tools[0].description).toBe('A tool using z.object()');
+            expect(result.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: { message: { type: 'string' } }
+            });
+
+            // Verify the tool actually receives arguments
+            const callResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: { name: 'test', arguments: { message: 'hello' } }
+                },
+                CallToolResultSchema
+            );
+
+            expect(callResult.content).toEqual([{ type: 'text', text: 'Echo: hello' }]);
+        });
+
+        test('should auto-unwrap z.object() with annotations', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.tool(
+                'test',
+                'A tool with z.object() and annotations',
+                z.object({ name: z.string() }) as any,
+                { title: 'Test Tool', readOnlyHint: true },
+                async ({ name }: { name: string }) => ({
+                    content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: { name: { type: 'string' } }
+            });
+            expect(result.tools[0].annotations).toEqual({
+                title: 'Test Tool',
+                readOnlyHint: true
+            });
+        });
+
+        /***
          * Test: Tool Registration with Description, Empty Parameters, and Annotations
          */
         test('should register tool with description, empty params, and annotations', async () => {
