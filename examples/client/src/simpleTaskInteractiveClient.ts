@@ -9,7 +9,7 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
+import type { CallToolResult, CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
 import { Client, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
@@ -135,7 +135,8 @@ async function run(url: string): Promise<void> {
                 break;
             }
             case 'result': {
-                console.log(`Result: ${getTextContent(message.result)}`);
+                const toolResult = message.result as CallToolResult;
+                console.log(`Result: ${getTextContent(toolResult)}`);
                 break;
             }
             case 'error': {
@@ -165,7 +166,8 @@ async function run(url: string): Promise<void> {
                 break;
             }
             case 'result': {
-                console.log(`Result:\n${getTextContent(message.result)}`);
+                const toolResult = message.result as CallToolResult;
+                console.log(`Result:\n${getTextContent(toolResult)}`);
                 break;
             }
             case 'error': {

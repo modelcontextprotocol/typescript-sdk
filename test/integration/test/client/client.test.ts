@@ -2,11 +2,9 @@ import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/clie
 import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
-    CreateTaskResultSchema,
     ElicitResultSchema,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
-    ListToolsResultSchema,
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
@@ -857,23 +855,20 @@ test('should reject missing-mode elicitation when client only supports URL mode'
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.request(
-            {
-                method: 'elicitation/create',
-                params: {
-                    message: 'Please provide data',
-                    requestedSchema: {
-                        type: 'object',
-                        properties: {
-                            username: {
-                                type: 'string'
-                            }
+        server.request({
+            method: 'elicitation/create',
+            params: {
+                message: 'Please provide data',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        username: {
+                            type: 'string'
                         }
                     }
                 }
-            },
-            ElicitResultSchema
-        )
+            }
+        })
     ).rejects.toThrow('Client does not support form-mode elicitation requests');
 
     expect(handler).not.toHaveBeenCalled();
@@ -2305,11 +2300,14 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Client creates task on server via tool call
-            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: {
-                    ttl: 60_000
+            await client.callTool(
+                { name: 'test-tool', arguments: {} },
+                {
+                    task: {
+                        ttl: 60_000
+                    }
                 }
-            });
+            );
 
             // Verify task was created successfully by listing tasks
             const taskList = await client.experimental.tasks.listTasks();
@@ -2381,9 +2379,12 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task
-            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: { ttl: 60_000 }
-            });
+            await client.callTool(
+                { name: 'test-tool', arguments: {} },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             // Query task status by listing tasks and getting the first one
             const taskList = await client.experimental.tasks.listTasks();
@@ -2545,9 +2546,12 @@ describe('Task-based execution', () => {
             const createdTaskIds: string[] = [];
 
             for (let i = 0; i < 2; i++) {
-                await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                    task: { ttl: 60_000 }
-                });
+                await client.callTool(
+                    { name: 'test-tool', arguments: {} },
+                    {
+                        task: { ttl: 60_000 }
+                    }
+                );
 
                 // Get the task ID from the task list
                 const taskList = await client.experimental.tasks.listTasks();
@@ -2661,7 +2665,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -2751,7 +2754,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -2843,7 +2845,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -2936,7 +2937,6 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    CreateTaskResultSchema,
                     { task: { ttl: 60_000 } }
                 );
 
@@ -3043,9 +3043,12 @@ describe('Task-based execution', () => {
         const createdTaskIds: string[] = [];
 
         for (let i = 0; i < 3; i++) {
-            await client.callTool({ name: 'test-tool', arguments: { id: `task-${i + 1}` } }, CallToolResultSchema, {
-                task: { ttl: 60_000 }
-            });
+            await client.callTool(
+                { name: 'test-tool', arguments: { id: `task-${i + 1}` } },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             // Get the task ID from the task list
             const taskList = await client.experimental.tasks.listTasks();
@@ -3314,21 +3317,21 @@ test('should respect server task capabilities', async () => {
 
     // These should work because server supports tasks
     await expect(
-        client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-            task: { ttl: 60_000 }
-        })
+        client.callTool(
+            { name: 'test-tool', arguments: {} },
+            {
+                task: { ttl: 60_000 }
+            }
+        )
     ).resolves.not.toThrow();
     await expect(client.experimental.tasks.listTasks()).resolves.not.toThrow();
 
     // tools/list doesn't support task creation, but it shouldn't throw - it should just ignore the task metadata
     await expect(
-        client.request(
-            {
-                method: 'tools/list',
-                params: {}
-            },
-            ListToolsResultSchema
-        )
+        client.request({
+            method: 'tools/list',
+            params: {}
+        })
     ).resolves.not.toThrow();
 
     serverTaskStore.cleanup();
@@ -3375,13 +3378,10 @@ test('should expose requestStream() method for streaming responses', async () =>
     expect(regularResult.content).toEqual([{ type: 'text', text: 'Tool result' }]);
 
     // Test requestStream with non-task request (should yield only result)
-    const stream = client.experimental.tasks.requestStream(
-        {
-            method: 'tools/call',
-            params: { name: 'test-tool', arguments: {} }
-        },
-        CallToolResultSchema
-    );
+    const stream = client.experimental.tasks.requestStream({
+        method: 'tools/call',
+        params: { name: 'test-tool', arguments: {} }
+    });
 
     const messages = [];
     for await (const message of stream) {

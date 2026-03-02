@@ -1,5 +1,5 @@
-import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
-import { CallToolResultSchema, Client, ListToolsResultSchema, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { CallToolRequest, CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Parallel Tool Calls MCP Client
@@ -86,7 +86,7 @@ async function listTools(client: Client): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -108,7 +108,7 @@ async function listTools(client: Client): Promise<void> {
 async function startParallelNotificationTools(client: Client): Promise<Record<string, CallToolResult>> {
     try {
         // Define multiple tool calls with different configurations
-        const toolCalls = [
+        const toolCalls: Array<{ caller: string; request: CallToolRequest }> = [
             {
                 caller: 'fast-notifier',
                 request: {
@@ -159,7 +159,7 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
         const toolPromises = toolCalls.map(({ caller, request }) => {
             console.log(`Starting tool call for ${caller}...`);
             return client
-                .request(request, CallToolResultSchema)
+                .request(request)
                 .then(result => ({ caller, result }))
                 .catch(error => {
                     console.error(`Error in tool call for ${caller}:`, error);
@@ -173,7 +173,7 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
         // Organize results by caller
         const resultsByTool: Record<string, CallToolResult> = {};
         for (const { caller, result } of results) {
-            resultsByTool[caller] = result;
+            resultsByTool[caller] = result as CallToolResult;
         }
 
         return resultsByTool;

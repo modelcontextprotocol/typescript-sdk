@@ -16,13 +16,7 @@ import type {
     ReadResourceResult,
     ResourceLink
 } from '@modelcontextprotocol/server';
-import {
-    ElicitResultSchema,
-    InMemoryTaskMessageQueue,
-    InMemoryTaskStore,
-    isInitializeRequest,
-    McpServer
-} from '@modelcontextprotocol/server';
+import { InMemoryTaskMessageQueue, InMemoryTaskStore, isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -222,17 +216,14 @@ const getServer = () => {
 
             try {
                 // Use sendRequest through the ctx parameter to elicit input
-                const result = await ctx.mcpReq.send(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            mode: 'form',
-                            message,
-                            requestedSchema
-                        }
-                    },
-                    ElicitResultSchema
-                );
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        mode: 'form',
+                        message,
+                        requestedSchema
+                    }
+                });
 
                 if (result.action === 'accept') {
                     return {

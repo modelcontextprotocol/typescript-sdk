@@ -4,14 +4,7 @@ import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import {
-    CallToolResultSchema,
-    LATEST_PROTOCOL_VERSION,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListToolsResultSchema,
-    McpServer
-} from '@modelcontextprotocol/server';
+import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 
@@ -123,13 +116,10 @@ describe('Zod v4', () => {
                 expect(transport1.sessionId).toBeUndefined();
 
                 // List available tools
-                await client1.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                await client1.request({
+                    method: 'tools/list',
+                    params: {}
+                });
 
                 const client2 = new Client({
                     name: 'test-client',
@@ -143,13 +133,10 @@ describe('Zod v4', () => {
                 expect(transport2.sessionId).toBeUndefined();
 
                 // List available tools
-                await client2.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                await client2.request({
+                    method: 'tools/list',
+                    params: {}
+                });
             });
             it('should operate without session management', async () => {
                 // Create and connect a client
@@ -165,13 +152,10 @@ describe('Zod v4', () => {
                 expect(transport.sessionId).toBeUndefined();
 
                 // List available tools
-                const toolsResult = await client.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                const toolsResult = await client.request({
+                    method: 'tools/list',
+                    params: {}
+                });
 
                 // Verify tools are accessible
                 expect(toolsResult.tools).toContainEqual(
@@ -181,25 +165,19 @@ describe('Zod v4', () => {
                 );
 
                 // List available resources
-                const resourcesResult = await client.request(
-                    {
-                        method: 'resources/list',
-                        params: {}
-                    },
-                    ListResourcesResultSchema
-                );
+                const resourcesResult = await client.request({
+                    method: 'resources/list',
+                    params: {}
+                });
 
                 // Verify resources result structure
                 expect(resourcesResult).toHaveProperty('resources');
 
                 // List available prompts
-                const promptsResult = await client.request(
-                    {
-                        method: 'prompts/list',
-                        params: {}
-                    },
-                    ListPromptsResultSchema
-                );
+                const promptsResult = await client.request({
+                    method: 'prompts/list',
+                    params: {}
+                });
 
                 // Verify prompts result structure
                 expect(promptsResult).toHaveProperty('prompts');
@@ -210,18 +188,15 @@ describe('Zod v4', () => {
                 );
 
                 // Call the greeting tool
-                const greetingResult = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: {
-                            name: 'greet',
-                            arguments: {
-                                name: 'Stateless Transport'
-                            }
+                const greetingResult = await client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'greet',
+                        arguments: {
+                            name: 'Stateless Transport'
                         }
-                    },
-                    CallToolResultSchema
-                );
+                    }
+                });
 
                 // Verify tool result
                 expect(greetingResult.content).toEqual([{ type: 'text', text: 'Hello, Stateless Transport!' }]);
@@ -288,13 +263,10 @@ describe('Zod v4', () => {
                 expect(typeof transport.sessionId).toBe('string');
 
                 // List available tools
-                const toolsResult = await client.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                const toolsResult = await client.request({
+                    method: 'tools/list',
+                    params: {}
+                });
 
                 // Verify tools are accessible
                 expect(toolsResult.tools).toContainEqual(
@@ -304,25 +276,19 @@ describe('Zod v4', () => {
                 );
 
                 // List available resources
-                const resourcesResult = await client.request(
-                    {
-                        method: 'resources/list',
-                        params: {}
-                    },
-                    ListResourcesResultSchema
-                );
+                const resourcesResult = await client.request({
+                    method: 'resources/list',
+                    params: {}
+                });
 
                 // Verify resources result structure
                 expect(resourcesResult).toHaveProperty('resources');
 
                 // List available prompts
-                const promptsResult = await client.request(
-                    {
-                        method: 'prompts/list',
-                        params: {}
-                    },
-                    ListPromptsResultSchema
-                );
+                const promptsResult = await client.request({
+                    method: 'prompts/list',
+                    params: {}
+                });
 
                 // Verify prompts result structure
                 expect(promptsResult).toHaveProperty('prompts');
@@ -333,18 +299,15 @@ describe('Zod v4', () => {
                 );
 
                 // Call the greeting tool
-                const greetingResult = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: {
-                            name: 'greet',
-                            arguments: {
-                                name: 'Stateful Transport'
-                            }
+                const greetingResult = await client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'greet',
+                        arguments: {
+                            name: 'Stateful Transport'
                         }
-                    },
-                    CallToolResultSchema
-                );
+                    }
+                });
 
                 // Verify tool result
                 expect(greetingResult.content).toEqual([{ type: 'text', text: 'Hello, Stateful Transport!' }]);

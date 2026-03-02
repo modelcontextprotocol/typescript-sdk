@@ -12,7 +12,7 @@
  * Run with: pnpm tsx src/ssePollingClient.ts
  * Requires: ssePollingExample.ts server running on port 3001
  */
-import { CallToolResultSchema, Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 const SERVER_URL = 'http://localhost:3001/mcp';
 
@@ -78,7 +78,6 @@ async function main(): Promise<void> {
                     arguments: {}
                 }
             },
-            CallToolResultSchema,
             {
                 // Track resumption tokens for debugging
                 onresumptiontoken: token => {

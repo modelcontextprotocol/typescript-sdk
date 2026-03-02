@@ -7,7 +7,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import { CallToolResultSchema, InMemoryTransport } from '@modelcontextprotocol/core';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
@@ -45,16 +45,13 @@ describe('Issue #400: Zod v4', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call tool without arguments (arguments is undefined)
-        const result = await client.request(
-            {
-                method: 'tools/call',
-                params: {
-                    name: 'optional-params-tool'
-                    // arguments is intentionally omitted (undefined)
-                }
-            },
-            CallToolResultSchema
-        );
+        const result = await client.request({
+            method: 'tools/call',
+            params: {
+                name: 'optional-params-tool'
+                // arguments is intentionally omitted (undefined)
+            }
+        });
 
         expect(result.isError).toBeUndefined();
         expect(result.content).toEqual([

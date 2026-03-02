@@ -6,16 +6,12 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { TaskRequestOptions } from '@modelcontextprotocol/server';
 import {
-    CallToolResultSchema,
-    CreateTaskResultSchema,
-    ElicitResultSchema,
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     McpServer,
     ProtocolError,
     ProtocolErrorCode,
-    RELATED_TASK_META_KEY,
-    TaskSchema
+    RELATED_TASK_META_KEY
 } from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
@@ -150,7 +146,6 @@ describe('Task Lifecycle Integration Tests', () => {
                                         }
                                     }
                                 },
-                                ElicitResultSchema,
                                 { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
                             );
 
@@ -219,22 +214,19 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'long-task',
-                        arguments: {
-                            duration: 500,
-                            shouldFail: false
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'long-task',
+                    arguments: {
+                        duration: 500,
+                        shouldFail: false
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             // Verify CreateTaskResult structure
             expect(createResult).toHaveProperty('task');
@@ -275,22 +267,19 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task that will fail
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'long-task',
-                        arguments: {
-                            duration: 300,
-                            shouldFail: true
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'long-task',
+                    arguments: {
+                        duration: 300,
+                        shouldFail: true
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
@@ -320,21 +309,18 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a long-running task
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'long-task',
-                        arguments: {
-                            duration: 5000
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'long-task',
+                    arguments: {
+                        duration: 5000
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
@@ -369,21 +355,18 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a quick task
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'long-task',
-                        arguments: {
-                            duration: 100
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'long-task',
+                    arguments: {
+                        duration: 100
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
@@ -447,7 +430,6 @@ describe('Task Lifecycle Integration Tests', () => {
                                             }
                                         }
                                     },
-                                    ElicitResultSchema,
                                     { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
                                 );
 
@@ -521,21 +503,18 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task that will send 3 requests
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'multi-request-task',
-                        arguments: {
-                            requestCount: 3
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'multi-request-task',
+                    arguments: {
+                        requestCount: 3
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
@@ -544,13 +523,10 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Call tasks/result to receive all queued messages
             // This should deliver all 3 elicitation requests in order
-            const result = await client.request(
-                {
-                    method: 'tasks/result',
-                    params: { taskId }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tasks/result',
+                params: { taskId }
+            });
 
             // Verify all messages were delivered in order
             expect(receivedMessages.length).toBe(3);
@@ -562,13 +538,10 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(result.content).toEqual([{ type: 'text', text: 'Received responses: Response 1, Response 2, Response 3' }]);
 
             // Verify task is completed
-            const task = await client.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            const task = await client.request({
+                method: 'tasks/get',
+                params: { taskId }
+            });
             expect(task.status).toBe('completed');
 
             await transport.close();
@@ -619,19 +592,16 @@ describe('Task Lifecycle Integration Tests', () => {
             await elicitClient.connect(transport);
 
             // Phase 1: Create task
-            const createResult = await elicitClient.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'input-task',
-                        arguments: {},
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await elicitClient.request({
+                method: 'tools/call',
+                params: {
+                    name: 'input-task',
+                    arguments: {},
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
             expect(createResult.task.status).toBe('working');
@@ -639,13 +609,10 @@ describe('Task Lifecycle Integration Tests', () => {
             // Phase 2: Wait for server to queue elicitation and update status
             const task = await waitForTaskStatus(
                 id =>
-                    elicitClient.request(
-                        {
-                            method: 'tasks/get',
-                            params: { taskId: id }
-                        },
-                        TaskSchema
-                    ),
+                    elicitClient.request({
+                        method: 'tasks/get',
+                        params: { taskId: id }
+                    }),
                 taskId,
                 'input_required',
                 {
@@ -662,13 +629,10 @@ describe('Task Lifecycle Integration Tests', () => {
             // - Client handler responds
             // - Server receives response, completes task
             // - Return final result
-            const result = await elicitClient.request(
-                {
-                    method: 'tasks/result',
-                    params: { taskId }
-                },
-                CallToolResultSchema
-            );
+            const result = await elicitClient.request({
+                method: 'tasks/result',
+                params: { taskId }
+            });
 
             // Verify elicitation was received and processed
             expect(elicitationReceived).toBe(true);
@@ -681,13 +645,10 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(result.content).toEqual([{ type: 'text', text: 'Hello, TestUser!' }]);
 
             // Verify task is now completed
-            const finalTask = await elicitClient.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            const finalTask = await elicitClient.request({
+                method: 'tasks/get',
+                params: { taskId }
+            });
             expect(finalTask.status).toBe('completed');
 
             await transport.close();
@@ -707,21 +668,18 @@ describe('Task Lifecycle Integration Tests', () => {
             // Create multiple tasks
             const taskIds: string[] = [];
             for (let i = 0; i < 3; i++) {
-                const createResult = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: {
-                            name: 'long-task',
-                            arguments: {
-                                duration: 1000
-                            },
-                            task: {
-                                ttl: 60_000
-                            }
+                const createResult = await client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 1000
+                        },
+                        task: {
+                            ttl: 60_000
                         }
-                    },
-                    CreateTaskResultSchema
-                );
+                    }
+                });
                 taskIds.push(createResult.task.taskId);
             }
 
@@ -745,21 +703,18 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Create 15 tasks (more than page size of 10)
             for (let i = 0; i < 15; i++) {
-                await client.request(
-                    {
-                        method: 'tools/call',
-                        params: {
-                            name: 'long-task',
-                            arguments: {
-                                duration: 5000
-                            },
-                            task: {
-                                ttl: 60_000
-                            }
+                await client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 5000
+                        },
+                        task: {
+                            ttl: 60_000
                         }
-                    },
-                    CreateTaskResultSchema
-                );
+                    }
+                });
             }
 
             // Get first page using taskStore
@@ -829,13 +784,10 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Try to get result of non-existent task via tasks/result request
             await expect(
-                client.request(
-                    {
-                        method: 'tasks/result',
-                        params: { taskId: 'non-existent-task-id' }
-                    },
-                    CallToolResultSchema
-                )
+                client.request({
+                    method: 'tasks/result',
+                    params: { taskId: 'non-existent-task-id' }
+                })
             ).rejects.toSatisfy((error: ProtocolError) => {
                 expect(error).toBeInstanceOf(ProtocolError);
                 expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
@@ -858,21 +810,18 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task with specific TTL
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'long-task',
-                        arguments: {
-                            duration: 100
-                        },
-                        task: {
-                            ttl: 5000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'long-task',
+                    arguments: {
+                        duration: 100
+                    },
+                    task: {
+                        ttl: 5000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
@@ -880,13 +829,10 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(createResult.task.ttl).toBe(60_000); // The task store uses 60000 as default
 
             // Task should exist
-            const task = await client.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            const task = await client.request({
+                method: 'tasks/get',
+                params: { taskId }
+            });
             expect(task).toBeDefined();
             expect(task.ttl).toBe(60_000);
 
@@ -937,7 +883,6 @@ describe('Task Lifecycle Integration Tests', () => {
                                                     }
                                                 }
                                             },
-                                            ElicitResultSchema,
                                             { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
                                         )
                                         .catch(() => {
@@ -1000,21 +945,18 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task that will queue messages
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'cancellable-task',
-                        arguments: {
-                            messageCount: 2
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'cancellable-task',
+                    arguments: {
+                        messageCount: 2
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
@@ -1022,33 +964,24 @@ describe('Task Lifecycle Integration Tests', () => {
             await new Promise(resolve => setTimeout(resolve, 200));
 
             // Verify task is in input_required state and messages are queued
-            let task = await client.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            let task = await client.request({
+                method: 'tasks/get',
+                params: { taskId }
+            });
             expect(task.status).toBe('input_required');
 
             // Cancel the task before calling tasks/result using the proper tasks/cancel request
             // This will trigger queue cleanup via _clearTaskQueue in the handler
-            await client.request(
-                {
-                    method: 'tasks/cancel',
-                    params: { taskId }
-                },
-                z.object({ _meta: z.record(z.string(), z.unknown()).optional() })
-            );
+            await client.request({
+                method: 'tasks/cancel',
+                params: { taskId }
+            });
 
             // Verify task is cancelled
-            task = await client.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            task = await client.request({
+                method: 'tasks/get',
+                params: { taskId }
+            });
             expect(task.status).toBe('cancelled');
 
             // Attempt to call tasks/result
@@ -1056,13 +989,10 @@ describe('Task Lifecycle Integration Tests', () => {
             // and reject any pending message delivery promises, meaning no further
             // messages should be delivered for a cancelled task.
             try {
-                await client.request(
-                    {
-                        method: 'tasks/result',
-                        params: { taskId }
-                    },
-                    CallToolResultSchema
-                );
+                await client.request({
+                    method: 'tasks/result',
+                    params: { taskId }
+                });
             } catch {
                 // tasks/result might throw an error for cancelled tasks without a result
                 // This is acceptable behavior
@@ -1073,13 +1003,10 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Verify queue remains cleared on subsequent calls
             try {
-                await client.request(
-                    {
-                        method: 'tasks/result',
-                        params: { taskId }
-                    },
-                    CallToolResultSchema
-                );
+                await client.request({
+                    method: 'tasks/result',
+                    params: { taskId }
+                });
             } catch {
                 // Expected - task is cancelled
             }
@@ -1136,7 +1063,6 @@ describe('Task Lifecycle Integration Tests', () => {
                                                 }
                                             }
                                         },
-                                        ElicitResultSchema,
                                         { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
                                     );
 
@@ -1227,45 +1153,36 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task that will send messages over time
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'streaming-task',
-                        arguments: {
-                            messageCount: 3,
-                            delayBetweenMessages: 300
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'streaming-task',
+                    arguments: {
+                        messageCount: 3,
+                        delayBetweenMessages: 300
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
             // Verify task is in working status
-            let task = await client.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            let task = await client.request({
+                method: 'tasks/get',
+                params: { taskId }
+            });
             expect(task.status).toBe('working');
 
             // Call tasks/result immediately (before messages are queued)
             // This should block and deliver messages as they arrive
             tasksResultStartTime = Date.now();
-            const resultPromise = client.request(
-                {
-                    method: 'tasks/result',
-                    params: { taskId }
-                },
-                CallToolResultSchema
-            );
+            const resultPromise = client.request({
+                method: 'tasks/result',
+                params: { taskId }
+            });
 
             // Wait for the task to complete and get the result
             const result = await resultPromise;
@@ -1295,13 +1212,10 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(result.content).toEqual([{ type: 'text', text: 'Received all responses: Response 1, Response 2, Response 3' }]);
 
             // Verify task is now completed
-            task = await client.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            task = await client.request({
+                method: 'tasks/get',
+                params: { taskId }
+            });
             expect(task.status).toBe('completed');
 
             await transport.close();
@@ -1351,7 +1265,6 @@ describe('Task Lifecycle Integration Tests', () => {
                                                     }
                                                 }
                                             },
-                                            ElicitResultSchema,
                                             { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
                                         )
                                         .catch(() => {});
@@ -1433,21 +1346,18 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task that will complete quickly with queued messages
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'quick-complete-task',
-                        arguments: {
-                            messageCount: 2
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'quick-complete-task',
+                    arguments: {
+                        messageCount: 2
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
@@ -1458,13 +1368,10 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(task.status).toBe('completed');
 
             // Call tasks/result - should deliver queued messages followed by final result
-            const result = await client.request(
-                {
-                    method: 'tasks/result',
-                    params: { taskId }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tasks/result',
+                params: { taskId }
+            });
 
             // Verify all queued messages were delivered before the final result
             expect(receivedMessages.length).toBe(2);
@@ -1477,13 +1384,10 @@ describe('Task Lifecycle Integration Tests', () => {
             // Verify queue is cleaned up - calling tasks/result again should only return the result
             receivedMessages.length = 0; // Clear the array
 
-            const result2 = await client.request(
-                {
-                    method: 'tasks/result',
-                    params: { taskId }
-                },
-                CallToolResultSchema
-            );
+            const result2 = await client.request({
+                method: 'tasks/result',
+                params: { taskId }
+            });
 
             // No messages should be delivered on second call (queue was cleaned up)
             expect(receivedMessages.length).toBe(0);
@@ -1505,21 +1409,18 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Create multiple tasks concurrently
             const promises = Array.from({ length: 5 }, () =>
-                client.request(
-                    {
-                        method: 'tools/call',
-                        params: {
-                            name: 'long-task',
-                            arguments: {
-                                duration: 500
-                            },
-                            task: {
-                                ttl: 60_000
-                            }
+                client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 500
+                        },
+                        task: {
+                            ttl: 60_000
                         }
-                    },
-                    CreateTaskResultSchema
-                )
+                    }
+                })
             );
 
             const results = await Promise.all(promises);
@@ -1546,33 +1447,27 @@ describe('Task Lifecycle Integration Tests', () => {
             await client.connect(transport);
 
             // Create a task
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'long-task',
-                        arguments: {
-                            duration: 2000
-                        },
-                        task: {
-                            ttl: 60_000
-                        }
+            const createResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'long-task',
+                    arguments: {
+                        duration: 2000
+                    },
+                    task: {
+                        ttl: 60_000
                     }
-                },
-                CreateTaskResultSchema
-            );
+                }
+            });
 
             const taskId = createResult.task.taskId;
 
             // Perform multiple concurrent gets
             const getPromises = Array.from({ length: 5 }, () =>
-                client.request(
-                    {
-                        method: 'tasks/get',
-                        params: { taskId }
-                    },
-                    TaskSchema
-                )
+                client.request({
+                    method: 'tasks/get',
+                    params: { taskId }
+                })
             );
 
             const tasks = await Promise.all(getPromises);
