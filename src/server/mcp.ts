@@ -146,6 +146,10 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: (() => {
+                                if (isLikelyJsonSchema(tool.inputSchema)) {
+                                    return tool.inputSchema as Tool['inputSchema'];
+                                }
+
                                 const obj = normalizeObjectSchema(tool.inputSchema);
                                 return obj
                                     ? (toJsonSchemaCompat(obj, {
@@ -996,7 +1000,7 @@ export class McpServer {
         }
 
         let description: string | undefined;
-        let inputSchema: ZodRawShapeCompat | undefined;
+        let inputSchema: ZodRawShapeCompat | AnySchema | undefined;
         let outputSchema: ZodRawShapeCompat | undefined;
         let annotations: ToolAnnotations | undefined;
 
@@ -1013,20 +1017,25 @@ export class McpServer {
             // We have at least one more arg before the callback
             const firstArg = rest[0];
 
-            if (isZodRawShapeCompat(firstArg)) {
-                // We have a params schema as the first arg
+            if (isZodRawShapeCompat(firstArg) || isLikelyJsonSchema(firstArg)) {
+                // We have an input schema (Zod raw shape shorthand or plain JSON Schema) as the first arg
                 inputSchema = rest.shift() as ZodRawShapeCompat;
 
                 // Check if the next arg is potentially annotations
-                if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !isZodRawShapeCompat(rest[0])) {
+                if (rest.length > 1 && isToolAnnotations(rest[0])) {
                     // Case: tool(name, paramsSchema, annotations, cb)
                     // Or: tool(name, description, paramsSchema, annotations, cb)
                     annotations = rest.shift() as ToolAnnotations;
                 }
             } else if (typeof firstArg === 'object' && firstArg !== null) {
-                // Not a ZodRawShapeCompat, so must be annotations in this position
+                // Non-schema object in this position must be ToolAnnotations.
                 // Case: tool(name, annotations, cb)
                 // Or: tool(name, description, annotations, cb)
+                if (!isToolAnnotations(firstArg)) {
+                    throw new Error(
+                        `Invalid third argument for tool '${name}': expected input schema (Zod raw shape or JSON Schema) or ToolAnnotations`
+                    );
+                }
                 annotations = rest.shift() as ToolAnnotations;
             }
         }
@@ -1382,6 +1391,53 @@ function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
 
     // A raw shape has at least one property that is a Zod schema
     return Object.values(obj).some(isZodTypeLike);
+}
+
+function isToolAnnotations(obj: unknown): obj is ToolAnnotations {
+    if (typeof obj !== 'object' || obj === null) {
+        return false;
+    }
+
+    const allowedKeys = ['title', 'readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'];
+    const keys = Object.keys(obj);
+
+    // Empty object is valid for backwards compatibility in old tool() API.
+    if (keys.length === 0) {
+        return true;
+    }
+
+    // ToolAnnotations only supports these optional hint keys.
+    if (!keys.every(key => allowedKeys.includes(key))) {
+        return false;
+    }
+
+    const record = obj as Record<string, unknown>;
+
+    if (record.title !== undefined && typeof record.title !== 'string') {
+        return false;
+    }
+
+    for (const key of ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as const) {
+        if (record[key] !== undefined && typeof record[key] !== 'boolean') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function isLikelyJsonSchema(obj: unknown): boolean {
+    if (typeof obj !== 'object' || obj === null) {
+        return false;
+    }
+
+    // Exclude Zod schemas (including transformed/object schemas) first.
+    if (isZodSchemaInstance(obj)) {
+        return false;
+    }
+
+    const schema = obj as Record<string, unknown>;
+    return schema.type === 'object' || schema.properties !== undefined;
 }
 
 /**

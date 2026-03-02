@@ -994,6 +994,71 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Tool Registration with JSON Schema
+         */
+        test('should treat plain JSON Schema as params schema instead of annotations', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            (mcpServer.tool as any)(
+                'test-json-schema',
+                'JSON schema tool',
+                {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' }
+                    },
+                    required: ['name']
+                },
+                async ({ name }: { name: string }) => ({
+                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].name).toBe('test-json-schema');
+            expect(result.tools[0].description).toBe('JSON schema tool');
+            expect(result.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    name: { type: 'string' }
+                },
+                required: ['name']
+            });
+            expect(result.tools[0].annotations).toBeUndefined();
+        });
+
+        /***
+         * Test: Tool Registration with Invalid Object Argument
+         */
+        test('should throw when non-schema object is not valid ToolAnnotations', () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            expect(() =>
+                (mcpServer.tool as any)(
+                    'invalid-arg',
+                    'Invalid object arg',
+                    { foo: 'bar' },
+                    async () => ({ content: [{ type: 'text', text: 'ok' }] })
+                )
+            ).toThrow("Invalid third argument for tool 'invalid-arg': expected input schema (Zod raw shape or JSON Schema) or ToolAnnotations");
+        });
+
+        /***
          * Test: Tool Argument Validation
          */
         test('should validate tool args', async () => {
