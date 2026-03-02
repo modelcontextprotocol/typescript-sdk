@@ -287,7 +287,30 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Override request handler registration to enforce client-side validation for elicitation.
+     * Registers a handler for server-initiated requests (sampling, elicitation, roots).
+     * The client must declare the corresponding capability for the handler to be accepted.
+     * Replaces any previously registered handler for the same method.
+     *
+     * For `sampling/createMessage` and `elicitation/create`, the handler is automatically
+     * wrapped with schema validation for both the incoming request and the returned result.
+     *
+     * @example Handling a sampling request
+     * ```ts source="./client.examples.ts#Client_setRequestHandler_sampling"
+     * client.setRequestHandler('sampling/createMessage', async request => {
+     *     const lastMessage = request.params.messages.at(-1);
+     *     console.log('Sampling request:', lastMessage);
+     *
+     *     // In production, send messages to your LLM here
+     *     return {
+     *         model: 'my-model',
+     *         role: 'assistant' as const,
+     *         content: {
+     *             type: 'text' as const,
+     *             text: 'Response from the model'
+     *         }
+     *     };
+     * });
+     * ```
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
@@ -416,6 +439,35 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
+    /**
+     * Connects to a server via the given transport and performs the MCP initialization handshake.
+     *
+     * @example Basic usage (stdio)
+     * ```ts source="./client.examples.ts#Client_connect_stdio"
+     * const client = new Client({ name: 'my-client', version: '1.0.0' });
+     * const transport = new StdioClientTransport({ command: 'my-mcp-server' });
+     * await client.connect(transport);
+     * ```
+     *
+     * @example Streamable HTTP with SSE fallback
+     * ```ts source="./client.examples.ts#Client_connect_sseFallback"
+     * const baseUrl = new URL(url);
+     *
+     * try {
+     *     // Try modern Streamable HTTP transport first
+     *     const client = new Client({ name: 'my-client', version: '1.0.0' });
+     *     const transport = new StreamableHTTPClientTransport(baseUrl);
+     *     await client.connect(transport);
+     *     return { client, transport };
+     * } catch {
+     *     // Fall back to legacy SSE transport
+     *     const client = new Client({ name: 'my-client', version: '1.0.0' });
+     *     const transport = new SSEClientTransport(baseUrl);
+     *     await client.connect(transport);
+     *     return { client, transport };
+     * }
+     * ```
+     */
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
@@ -655,22 +707,47 @@ export class Client extends Protocol<ClientContext> {
         assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
     }
 
+    /** Sends a ping to the server to check connectivity. */
     async ping(options?: RequestOptions) {
         return this.request({ method: 'ping' }, EmptyResultSchema, options);
     }
 
+    /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
     async complete(params: CompleteRequest['params'], options?: RequestOptions) {
         return this.request({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
+    /** Sets the minimum severity level for log messages sent by the server. */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
         return this.request({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
+    /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
         return this.request({ method: 'prompts/get', params }, GetPromptResultSchema, options);
     }
 
+    /**
+     * Lists available prompts. Results may be paginated — loop on `nextCursor` to collect all pages.
+     *
+     * Returns an empty list if the server does not advertise prompts capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     *
+     * @example
+     * ```ts source="./client.examples.ts#Client_listPrompts_pagination"
+     * const allPrompts: Prompt[] = [];
+     * let cursor: string | undefined;
+     * do {
+     *     const { prompts, nextCursor } = await client.listPrompts({ cursor });
+     *     allPrompts.push(...prompts);
+     *     cursor = nextCursor;
+     * } while (cursor);
+     * console.log(
+     *     'Available prompts:',
+     *     allPrompts.map(p => p.name)
+     * );
+     * ```
+     */
     async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
@@ -680,6 +757,27 @@ export class Client extends Protocol<ClientContext> {
         return this.request({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
     }
 
+    /**
+     * Lists available resources. Results may be paginated — loop on `nextCursor` to collect all pages.
+     *
+     * Returns an empty list if the server does not advertise resources capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     *
+     * @example
+     * ```ts source="./client.examples.ts#Client_listResources_pagination"
+     * const allResources: Resource[] = [];
+     * let cursor: string | undefined;
+     * do {
+     *     const { resources, nextCursor } = await client.listResources({ cursor });
+     *     allResources.push(...resources);
+     *     cursor = nextCursor;
+     * } while (cursor);
+     * console.log(
+     *     'Available resources:',
+     *     allResources.map(r => r.name)
+     * );
+     * ```
+     */
     async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
@@ -689,6 +787,12 @@ export class Client extends Protocol<ClientContext> {
         return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
     }
 
+    /**
+     * Lists available resource URI templates for dynamic resources. Results may be paginated — see {@linkcode listResources | listResources()} for the cursor pattern.
+     *
+     * Returns an empty list if the server does not advertise resources capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     */
     async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
@@ -700,22 +804,59 @@ export class Client extends Protocol<ClientContext> {
         return this.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
     }
 
+    /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
         return this.request({ method: 'resources/read', params }, ReadResourceResultSchema, options);
     }
 
+    /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
         return this.request({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
+    /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
         return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
     /**
-     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an `outputSchema`.
+     * Calls a tool on the connected server and returns the result. Automatically validates structured output
+     * if the tool has an `outputSchema`.
+     *
+     * Tool results have two error surfaces: `result.isError` for tool-level failures (the tool ran but reported
+     * a problem), and thrown {@linkcode ProtocolError} for protocol-level failures or {@linkcode SdkError} for
+     * SDK-level issues (timeouts, missing capabilities).
      *
      * For task-based execution with streaming behavior, use {@linkcode ExperimentalClientTasks.callToolStream | client.experimental.tasks.callToolStream()} instead.
+     *
+     * @example Basic usage
+     * ```ts source="./client.examples.ts#Client_callTool_basic"
+     * const result = await client.callTool({
+     *     name: 'calculate-bmi',
+     *     arguments: { weightKg: 70, heightM: 1.75 }
+     * });
+     *
+     * // Tool-level errors are returned in the result, not thrown
+     * if (result.isError) {
+     *     console.error('Tool error:', result.content);
+     *     return;
+     * }
+     *
+     * console.log(result.content);
+     * ```
+     *
+     * @example Structured output
+     * ```ts source="./client.examples.ts#Client_callTool_structuredOutput"
+     * const result = await client.callTool({
+     *     name: 'calculate-bmi',
+     *     arguments: { weightKg: 70, heightM: 1.75 }
+     * });
+     *
+     * // Machine-readable output for the client application
+     * if (result.structuredContent) {
+     *     console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+     * }
+     * ```
      */
     async callTool(
         params: CallToolRequest['params'],
@@ -820,6 +961,27 @@ export class Client extends Protocol<ClientContext> {
         return this._cachedToolOutputValidators.get(toolName);
     }
 
+    /**
+     * Lists available tools. Results may be paginated — loop on `nextCursor` to collect all pages.
+     *
+     * Returns an empty list if the server does not advertise tools capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     *
+     * @example
+     * ```ts source="./client.examples.ts#Client_listTools_pagination"
+     * const allTools: Tool[] = [];
+     * let cursor: string | undefined;
+     * do {
+     *     const { tools, nextCursor } = await client.listTools({ cursor });
+     *     allTools.push(...tools);
+     *     cursor = nextCursor;
+     * } while (cursor);
+     * console.log(
+     *     'Available tools:',
+     *     allTools.map(t => t.name)
+     * );
+     * ```
+     */
     async listTools(params?: ListToolsRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
@@ -894,6 +1056,7 @@ export class Client extends Protocol<ClientContext> {
         this.setNotificationHandler(notificationMethod, handler);
     }
 
+    /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
     }
