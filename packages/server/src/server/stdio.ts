@@ -19,6 +19,7 @@ import { process } from '@modelcontextprotocol/server/_shims';
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _closed = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -37,6 +38,17 @@ export class StdioServerTransport implements Transport {
     _onerror = (error: Error) => {
         this.onerror?.(error);
     };
+    _onstdouterror = (error: Error) => {
+        // Handle stdout broken pipe when client disconnects.
+        if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
+            this.close().catch(() => {
+                // Ignore errors during close
+            });
+            return;
+        }
+
+        this.onerror?.(error);
+    };
 
     /**
      * Starts listening for messages on `stdin`.
@@ -51,6 +63,7 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._stdout.on('error', this._onstdouterror);
     }
 
     private processReadBuffer() {
@@ -69,9 +82,15 @@ export class StdioServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
+        this._stdout.off('error', this._onstdouterror);
 
         // Check if we were the only data listener
         const remainingDataListeners = this._stdin.listenerCount('data');
@@ -87,12 +106,54 @@ export class StdioServerTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-            if (this._stdout.write(json)) {
+            let settled = false;
+
+            const cleanup = () => {
+                this._stdout.off('error', onError);
+                this._stdout.off('drain', onDrain);
+            };
+
+            const onDrain = () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
                 resolve();
-            } else {
-                this._stdout.once('drain', resolve);
+            };
+
+            const onError = (error: Error) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+
+                if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
+                    this.close().catch(() => {
+                        // Ignore errors during close
+                    });
+                    resolve();
+                    return;
+                }
+
+                reject(error);
+            };
+
+            this._stdout.once('error', onError);
+
+            try {
+                if (this._stdout.write(json)) {
+                    settled = true;
+                    cleanup();
+                    resolve();
+                } else {
+                    this._stdout.once('drain', onDrain);
+                }
+            } catch (error) {
+                onError(error as Error);
             }
         });
     }

@@ -102,3 +102,54 @@ test('should read multiple messages', async () => {
     await finished;
     expect(readMessages).toEqual(messages);
 });
+
+test('should handle EPIPE from stdout error event and close gracefully', async () => {
+    const epipeOutput = new Writable({
+        write(_chunk, _encoding, callback) {
+            callback();
+        }
+    });
+
+    const server = new StdioServerTransport(input, epipeOutput);
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+
+    epipeOutput.emit('error', Object.assign(new Error('broken pipe'), { code: 'EPIPE' }));
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(didClose).toBeTruthy();
+});
+
+test('should resolve send and close on EPIPE write failure', async () => {
+    const epipeWriteOutput = new Writable({
+        write(_chunk, _encoding, callback) {
+            callback(Object.assign(new Error('broken pipe'), { code: 'EPIPE' }));
+        }
+    });
+
+    const server = new StdioServerTransport(input, epipeWriteOutput);
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+
+    await expect(
+        server.send({
+            jsonrpc: '2.0',
+            method: 'notifications/initialized'
+        })
+    ).resolves.toBeUndefined();
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(didClose).toBeTruthy();
+});
