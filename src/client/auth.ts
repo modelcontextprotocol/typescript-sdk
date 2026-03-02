@@ -505,6 +505,13 @@ async function authInternal(
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
+    // Apply scope selection strategy (SEP-835):
+    // 1. WWW-Authenticate scope (passed via `scope` param)
+    // 2. PRM scopes_supported
+    // 3. Client metadata scope (user-configured fallback)
+    // The resolved scope is used consistently for both DCR and the authorization request.
+    const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
+
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
     if (!clientInformation) {
@@ -538,6 +545,7 @@ async function authInternal(
             const fullInformation = await registerClient(authorizationServerUrl, {
                 metadata,
                 clientMetadata: provider.clientMetadata,
+                scope: resolvedScope,
                 fetchFn
             });
 
@@ -598,7 +606,7 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
+        scope: resolvedScope,
         resource
     });
 
@@ -1420,16 +1428,22 @@ export async function fetchToken(
 
 /**
  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
+ *
+ * If `scope` is provided, it overrides `clientMetadata.scope` in the registration
+ * request body. This allows callers to apply the Scope Selection Strategy (SEP-835)
+ * consistently across both DCR and the subsequent authorization request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
     {
         metadata,
         clientMetadata,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         clientMetadata: OAuthClientMetadata;
+        scope?: string;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthClientInformationFull> {
@@ -1450,7 +1464,10 @@ export async function registerClient(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(clientMetadata)
+        body: JSON.stringify({
+            ...clientMetadata,
+            ...(scope !== undefined ? { scope } : {})
+        })
     });
 
     if (!response.ok) {
