@@ -138,5 +138,8 @@ dist/
 .idea/
 .cursor/
 
+# Git worktrees for local doc generation
+.worktrees/
+
 # Conformance test results
 results/
