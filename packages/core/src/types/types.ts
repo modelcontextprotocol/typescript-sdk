@@ -429,7 +429,7 @@ const FormElicitationCapabilitySchema = z.intersection(
     z.object({
         applyDefaults: z.boolean().optional()
     }),
-    z.record(z.string(), z.unknown())
+    JSONObjectSchema
 );
 
 const ElicitationCapabilitySchema = z.preprocess(
@@ -444,7 +444,7 @@ const ElicitationCapabilitySchema = z.preprocess(
             form: FormElicitationCapabilitySchema.optional(),
             url: JSONObjectSchema.optional()
         }),
-        z.record(z.string(), z.unknown()).optional()
+        JSONObjectSchema.optional()
     )
 );
 
@@ -2638,31 +2638,6 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
-
-/* ResultResponse types */
-type TypedResultResponse<R extends Result> = JSONRPCResultResponse & { result: R };
-
-export type InitializeResultResponse = TypedResultResponse<InitializeResult>;
-export type PingResultResponse = TypedResultResponse<EmptyResult>;
-export type ListResourcesResultResponse = TypedResultResponse<ListResourcesResult>;
-export type ListResourceTemplatesResultResponse = TypedResultResponse<ListResourceTemplatesResult>;
-export type ReadResourceResultResponse = TypedResultResponse<ReadResourceResult>;
-export type SubscribeResultResponse = TypedResultResponse<EmptyResult>;
-export type UnsubscribeResultResponse = TypedResultResponse<EmptyResult>;
-export type ListPromptsResultResponse = TypedResultResponse<ListPromptsResult>;
-export type GetPromptResultResponse = TypedResultResponse<GetPromptResult>;
-export type ListToolsResultResponse = TypedResultResponse<ListToolsResult>;
-export type CallToolResultResponse = TypedResultResponse<CallToolResult>;
-export type CreateTaskResultResponse = TypedResultResponse<CreateTaskResult>;
-export type GetTaskResultResponse = TypedResultResponse<GetTaskResult>;
-export type GetTaskPayloadResultResponse = TypedResultResponse<GetTaskPayloadResult>;
-export type CancelTaskResultResponse = TypedResultResponse<CancelTaskResult>;
-export type ListTasksResultResponse = TypedResultResponse<ListTasksResult>;
-export type SetLevelResultResponse = TypedResultResponse<EmptyResult>;
-export type CreateMessageResultResponse = TypedResultResponse<CreateMessageResult>;
-export type CompleteResultResponse = TypedResultResponse<CompleteResult>;
-export type ListRootsResultResponse = TypedResultResponse<ListRootsResult>;
-export type ElicitResultResponse = TypedResultResponse<ElicitResult>;
 
 /* Protocol type maps */
 type MethodToTypeMap<U> = {
