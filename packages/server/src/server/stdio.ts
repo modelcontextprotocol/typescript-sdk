@@ -19,6 +19,7 @@ import { process } from '@modelcontextprotocol/server/_shims';
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _closed = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -37,6 +38,9 @@ export class StdioServerTransport implements Transport {
     _onerror = (error: Error) => {
         this.onerror?.(error);
     };
+    _onclose = () => {
+        this.close();
+    };
 
     /**
      * Starts listening for messages on `stdin`.
@@ -51,6 +55,7 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._stdin.on('end', this._onclose);
     }
 
     private processReadBuffer() {
@@ -69,9 +74,15 @@ export class StdioServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
+        this._stdin.off('end', this._onclose);
 
         // Check if we were the only data listener
         const remainingDataListeners = this._stdin.listenerCount('data');
