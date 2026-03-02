@@ -17,7 +17,7 @@ import {
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../../src/server/auth/errors.js';
-import { AuthorizationServerMetadata, OAuthClientMetadata, OAuthProtectedResourceMetadata, OAuthTokens } from '../../src/shared/auth.js';
+import { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
 
 // Mock pkce-challenge
@@ -1873,15 +1873,10 @@ describe('OAuth Authorization', () => {
             );
         });
 
-        it('registers client with scopes_supported from resourceMetadata if scope is not provided', async () => {
-            const resourceMetadata: OAuthProtectedResourceMetadata = {
-                scopes_supported: ['openid', 'profile'],
-                resource: 'https://api.example.com/mcp-server'
-            };
-
-            const validClientMetadataWithoutScope: OAuthClientMetadata = {
+        it('includes scope in registration body when provided, overriding clientMetadata.scope', async () => {
+            const clientMetadataWithScope: OAuthClientMetadata = {
                 ...validClientMetadata,
-                scope: undefined
+                scope: 'should-be-overridden'
             };
 
             const expectedClientInfo = {
@@ -1896,8 +1891,8 @@ describe('OAuth Authorization', () => {
             });
 
             const clientInfo = await registerClient('https://auth.example.com', {
-                clientMetadata: validClientMetadataWithoutScope,
-                resourceMetadata
+                clientMetadata: clientMetadataWithScope,
+                scope: 'openid profile'
             });
 
             expect(clientInfo).toEqual(expectedClientInfo);
@@ -2788,6 +2783,12 @@ describe('OAuth Authorization', () => {
             const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
             const authUrl: URL = redirectCall[0];
             expect(authUrl.searchParams.get('scope')).toBe('mcp:read mcp:write mcp:admin');
+
+            // Verify the same scope was also used in the DCR request body
+            const registerCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/register'));
+            expect(registerCall).toBeDefined();
+            const registerBody = JSON.parse(registerCall![1].body);
+            expect(registerBody.scope).toBe('mcp:read mcp:write mcp:admin');
         });
 
         it('prefers explicit scope parameter over scopes_supported from PRM', async () => {
