@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/express",
     "private": false,
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0",
     "description": "Express adapters for the Model Context Protocol TypeScript server SDK - Express middleware",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
