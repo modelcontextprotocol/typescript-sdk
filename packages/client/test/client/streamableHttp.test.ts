@@ -122,6 +122,33 @@ describe('StreamableHTTPClientTransport', () => {
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
     });
 
+    it('should accept protocolVersion constructor option and include it in request headers', async () => {
+        // When reconnecting with a preserved sessionId, users need to also preserve the
+        // negotiated protocol version so the required mcp-protocol-version header is sent.
+        const reconnectTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'preserved-session-id',
+            protocolVersion: '2025-11-25'
+        });
+
+        expect(reconnectTransport.sessionId).toBe('preserved-session-id');
+        expect(reconnectTransport.protocolVersion).toBe('2025-11-25');
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await reconnectTransport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+
+        const calls = (globalThis.fetch as Mock).mock.calls;
+        const lastCall = calls.at(-1)!;
+        expect(lastCall[1].headers.get('mcp-session-id')).toBe('preserved-session-id');
+        expect(lastCall[1].headers.get('mcp-protocol-version')).toBe('2025-11-25');
+
+        await reconnectTransport.close().catch(() => {});
+    });
+
     it('should terminate session with DELETE request', async () => {
         // First, simulate getting a session ID
         const message: JSONRPCMessage = {
