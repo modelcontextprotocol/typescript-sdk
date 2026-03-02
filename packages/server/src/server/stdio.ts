@@ -19,6 +19,7 @@ import { process } from '@modelcontextprotocol/server/_shims';
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _closed = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -38,11 +39,14 @@ export class StdioServerTransport implements Transport {
         this.onerror?.(error);
     };
     _onstdouterror = (error: Error) => {
-        // Handle stdout errors (e.g., EPIPE when client disconnects)
-        // Trigger close to clean up gracefully
-        this.close().catch(() => {
-            // Ignore errors during close
-        });
+        // Handle stdout broken pipe when client disconnects.
+        if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
+            this.close().catch(() => {
+                // Ignore errors during close
+            });
+            return;
+        }
+
         this.onerror?.(error);
     };
 
@@ -78,6 +82,11 @@ export class StdioServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
@@ -99,23 +108,52 @@ export class StdioServerTransport implements Transport {
     send(message: JSONRPCMessage): Promise<void> {
         return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-            
-            // Handle write errors (e.g., EPIPE when client disconnects)
-            const onError = (error: Error) => {
+            let settled = false;
+
+            const cleanup = () => {
                 this._stdout.off('error', onError);
+                this._stdout.off('drain', onDrain);
+            };
+
+            const onDrain = () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                resolve();
+            };
+
+            const onError = (error: Error) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+
+                if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
+                    this.close().catch(() => {
+                        // Ignore errors during close
+                    });
+                    resolve();
+                    return;
+                }
+
                 reject(error);
             };
-            
+
             this._stdout.once('error', onError);
-            
-            if (this._stdout.write(json)) {
-                this._stdout.off('error', onError);
-                resolve();
-            } else {
-                this._stdout.once('drain', () => {
-                    this._stdout.off('error', onError);
+
+            try {
+                if (this._stdout.write(json)) {
+                    settled = true;
+                    cleanup();
                     resolve();
-                });
+                } else {
+                    this._stdout.once('drain', onDrain);
+                }
+            } catch (error) {
+                onError(error as Error);
             }
         });
     }
