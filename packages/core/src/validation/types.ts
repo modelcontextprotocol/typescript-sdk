@@ -36,19 +36,15 @@ export type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResu
  * - Provide clear error messages on validation failure
  *
  * @example
- * ```typescript
+ * ```ts source="./types.examples.ts#jsonSchemaValidator_implementation"
  * class MyValidatorProvider implements jsonSchemaValidator {
- *   getValidator<T>(schema: JsonSchemaType<T>): JsonSchemaValidator<T> {
- *     // Compile/cache validator from schema
- *     return (input: unknown) => {
- *       // Validate input against schema
- *       if (valid) {
- *         return { valid: true, data: input as T, errorMessage: undefined };
- *       } else {
- *         return { valid: false, data: undefined, errorMessage: 'Error details' };
- *       }
- *     };
- *   }
+ *     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+ *         // Compile/cache validator from schema
+ *         return (input: unknown) =>
+ *             isValid(schema, input)
+ *                 ? { valid: true, data: input as T, errorMessage: undefined }
+ *                 : { valid: false, data: undefined, errorMessage: 'Error details' };
+ *     }
  * }
  * ```
  */

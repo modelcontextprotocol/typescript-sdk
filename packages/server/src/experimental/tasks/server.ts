@@ -33,7 +33,7 @@ import type { Server } from '../../server/server.js';
  * const stream = server.experimental.tasks.requestStream(request, schema, options);
  * ```
  *
- * For high-level server usage with task-based tools, use `McpServer.experimental.tasks` instead.
+ * For high-level server usage with task-based tools, use {@linkcode index.McpServer | McpServer}.experimental.tasks instead.
  *
  * @experimental
  */
@@ -42,7 +42,7 @@ export class ExperimentalServerTasks {
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.
@@ -50,7 +50,7 @@ export class ExperimentalServerTasks {
      * @param request - The request to send
      * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */

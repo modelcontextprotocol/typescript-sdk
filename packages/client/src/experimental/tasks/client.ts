@@ -21,7 +21,7 @@ import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelco
 import type { Client } from '../../client/client.js';
 
 /**
- * Internal interface for accessing Client's private methods.
+ * Internal interface for accessing {@linkcode Client}'s private methods.
  * @internal
  */
 interface ClientInternal {
@@ -50,37 +50,40 @@ export class ExperimentalClientTasks {
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to tool execution, allowing you to
      * observe intermediate task status updates for long-running tool calls.
-     * Automatically validates structured output if the tool has an outputSchema.
+     * Automatically validates structured output if the tool has an `outputSchema`.
      *
      * @example
-     * ```typescript
+     * ```ts source="./client.examples.ts#ExperimentalClientTasks_callToolStream"
      * const stream = client.experimental.tasks.callToolStream({ name: 'myTool', arguments: {} });
      * for await (const message of stream) {
-     *   switch (message.type) {
-     *     case 'taskCreated':
-     *       console.log('Tool execution started:', message.task.taskId);
-     *       break;
-     *     case 'taskStatus':
-     *       console.log('Tool status:', message.task.status);
-     *       break;
-     *     case 'result':
-     *       console.log('Tool result:', message.result);
-     *       break;
-     *     case 'error':
-     *       console.error('Tool error:', message.error);
-     *       break;
-     *   }
+     *     switch (message.type) {
+     *         case 'taskCreated': {
+     *             console.log('Tool execution started:', message.task.taskId);
+     *             break;
+     *         }
+     *         case 'taskStatus': {
+     *             console.log('Tool status:', message.task.status);
+     *             break;
+     *         }
+     *         case 'result': {
+     *             console.log('Tool result:', message.result);
+     *             break;
+     *         }
+     *         case 'error': {
+     *             console.error('Tool error:', message.error);
+     *             break;
+     *         }
+     *     }
      * }
      * ```
      *
      * @param params - Tool call parameters (name and arguments)
-     * @param resultSchema - Zod schema for validating the result (defaults to CallToolResultSchema)
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
@@ -235,15 +238,40 @@ export class ExperimentalClientTasks {
 
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     * The generator is guaranteed to end with either a `'result'` or `'error'` message.
      *
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.
      *
+     * @example
+     * ```ts source="./client.examples.ts#ExperimentalClientTasks_requestStream"
+     * const stream = client.experimental.tasks.requestStream(request, CallToolResultSchema, options);
+     * for await (const message of stream) {
+     *     switch (message.type) {
+     *         case 'taskCreated': {
+     *             console.log('Task created:', message.task.taskId);
+     *             break;
+     *         }
+     *         case 'taskStatus': {
+     *             console.log('Task status:', message.task.status);
+     *             break;
+     *         }
+     *         case 'result': {
+     *             console.log('Final result:', message.result);
+     *             break;
+     *         }
+     *         case 'error': {
+     *             console.error('Error:', message.error);
+     *             break;
+     *         }
+     *     }
+     * }
+     * ```
+     *
      * @param request - The request to send
      * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
+     * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */

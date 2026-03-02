@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { exec } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
@@ -13,6 +12,7 @@ import {
     StreamableHTTPClientTransport,
     UnauthorizedError
 } from '@modelcontextprotocol/client';
+import open from 'open';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
@@ -49,17 +49,27 @@ class InteractiveOAuthClient {
     /**
      * Opens the authorization URL in the user's default browser
      */
+    private static readonly ALLOWED_SCHEMES = new Set(['http:', 'https:']);
+
     private async openBrowser(url: string): Promise<void> {
         console.log(`🌐 Opening browser for authorization: ${url}`);
 
-        const command = `open "${url}"`;
-
-        exec(command, error => {
-            if (error) {
-                console.error(`Failed to open browser: ${error.message}`);
-                console.log(`Please manually open: ${url}`);
+        try {
+            const parsed = new URL(url);
+            if (!InteractiveOAuthClient.ALLOWED_SCHEMES.has(parsed.protocol)) {
+                console.error(`Refusing to open URL with unsupported scheme '${parsed.protocol}': ${url}`);
+                return;
             }
-        });
+        } catch {
+            console.error(`Invalid URL: ${url}`);
+            return;
+        }
+
+        try {
+            await open(url);
+        } catch {
+            console.log(`Please manually open: ${url}`);
+        }
     }
     /**
      * Example OAuth callback handler - in production, use a more robust approach
