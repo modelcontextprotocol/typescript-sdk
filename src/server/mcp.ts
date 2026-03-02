@@ -1024,9 +1024,10 @@ export class McpServer {
                     annotations = rest.shift() as ToolAnnotations;
                 }
             } else if (typeof firstArg === 'object' && firstArg !== null) {
-                // Not a ZodRawShapeCompat, so must be annotations in this position
-                // Case: tool(name, annotations, cb)
-                // Or: tool(name, description, annotations, cb)
+                // ToolAnnotations values are primitives. Nested objects indicate a misplaced schema
+                if (Object.values(firstArg).some(v => typeof v === 'object' && v !== null)) {
+                    throw new Error(`Tool ${name} expected a Zod schema or ToolAnnotations, but received an unrecognized object`);
+                }
                 annotations = rest.shift() as ToolAnnotations;
             }
         }
@@ -1386,7 +1387,7 @@ function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
 
 /**
  * Converts a provided Zod schema to a Zod object if it is a ZodRawShapeCompat,
- * otherwise returns the schema as is.
+ * otherwise returns the schema as is. Throws if the value is not a valid Zod schema.
  */
 function getZodSchemaObject(schema: ZodRawShapeCompat | AnySchema | undefined): AnySchema | undefined {
     if (!schema) {
@@ -1395,6 +1396,10 @@ function getZodSchemaObject(schema: ZodRawShapeCompat | AnySchema | undefined): 
 
     if (isZodRawShapeCompat(schema)) {
         return objectFromShape(schema);
+    }
+
+    if (!isZodSchemaInstance(schema as object)) {
+        throw new Error('inputSchema must be a Zod schema or raw shape, received an unrecognized object');
     }
 
     return schema;

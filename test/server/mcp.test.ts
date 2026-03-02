@@ -2050,6 +2050,37 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Clean up spies
             warnSpy.mockRestore();
         });
+
+        test('should reject plain JSON Schema objects passed as inputSchema', () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const jsonSchema = {
+                type: 'object',
+                properties: {
+                    directory_id: {
+                        type: 'string',
+                        format: 'uuid',
+                        description: 'The UUID of the directory'
+                    }
+                },
+                required: ['directory_id']
+            } as any;
+
+            const cb = async ({ directory_id }: any) => ({
+                content: [{ type: 'text' as const, text: `Got: ${directory_id}` }]
+            });
+
+            expect(() => {
+                mcpServer.tool('test', 'A tool', jsonSchema, cb);
+            }).toThrow(/unrecognized object/);
+
+            expect(() => {
+                mcpServer.registerTool('test', { description: 'A tool', inputSchema: jsonSchema }, cb);
+            }).toThrow(/unrecognized object/);
+        });
     });
 
     describe('resource()', () => {
