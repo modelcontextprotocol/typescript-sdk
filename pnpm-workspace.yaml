@@ -40,11 +40,11 @@ catalogs:
         content-type: ^1.0.5
         cors: ^2.8.5
         express: ^5.2.1
-        hono: ^4.11.4
+        hono: ^4.11.10
         raw-body: ^3.0.0
     runtimeShared:
         '@cfworker/json-schema': ^4.1.1
-        ajv: ^8.17.1
+        ajv: ^6.14.0
         ajv-formats: ^3.0.1
         json-schema-typed: ^8.0.2
         pkce-challenge: ^5.0.0
