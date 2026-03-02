@@ -17,7 +17,7 @@ import {
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../../src/server/auth/errors.js';
-import { AuthorizationServerMetadata, OAuthTokens } from '../../src/shared/auth.js';
+import { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
 
 // Mock pkce-challenge
@@ -1873,6 +1873,43 @@ describe('OAuth Authorization', () => {
             );
         });
 
+        it('includes scope in registration body when provided, overriding clientMetadata.scope', async () => {
+            const clientMetadataWithScope: OAuthClientMetadata = {
+                ...validClientMetadata,
+                scope: 'should-be-overridden'
+            };
+
+            const expectedClientInfo = {
+                ...validClientInfo,
+                scope: 'openid profile'
+            };
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => expectedClientInfo
+            });
+
+            const clientInfo = await registerClient('https://auth.example.com', {
+                clientMetadata: clientMetadataWithScope,
+                scope: 'openid profile'
+            });
+
+            expect(clientInfo).toEqual(expectedClientInfo);
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/register'
+                }),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ...validClientMetadata, scope: 'openid profile' })
+                })
+            );
+        });
+
         it('validates client information response schema', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -2746,6 +2783,12 @@ describe('OAuth Authorization', () => {
             const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
             const authUrl: URL = redirectCall[0];
             expect(authUrl.searchParams.get('scope')).toBe('mcp:read mcp:write mcp:admin');
+
+            // Verify the same scope was also used in the DCR request body
+            const registerCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/register'));
+            expect(registerCall).toBeDefined();
+            const registerBody = JSON.parse(registerCall![1].body);
+            expect(registerBody.scope).toBe('mcp:read mcp:write mcp:admin');
         });
 
         it('prefers explicit scope parameter over scopes_supported from PRM', async () => {
