@@ -16,6 +16,18 @@ import { EventSourceParserStream } from 'eventsource-parser/stream';
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
 
+function mergeScopes(existing?: string, incoming?: string): string | undefined {
+    if (!existing) {
+        return incoming;
+    }
+
+    if (!incoming) {
+        return existing;
+    }
+
+    return Array.from(new Set(`${existing} ${incoming}`.split(/\s+/).filter(Boolean))).join(' ');
+}
+
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
     initialReconnectionDelay: 1000,
@@ -504,7 +516,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                     this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
+                    this._scope = mergeScopes(this._scope, scope);
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
@@ -537,7 +549,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
 
                         if (scope) {
-                            this._scope = scope;
+                            this._scope = mergeScopes(this._scope, scope);
                         }
 
                         if (resourceMetadataUrl) {

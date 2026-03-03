@@ -635,6 +635,50 @@ describe('StreamableHTTPClientTransport', () => {
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
     });
 
+    it('accumulates scopes on 401 auth challenge', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const fetchMock = globalThis.fetch as Mock;
+        (transport as unknown as { _scope?: string })._scope = 'existing_scope';
+
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer scope="new_scope", resource_metadata="http://example.com/resource"'
+                }),
+                text: () => Promise.resolve('Unauthorized')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.send(message);
+
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({
+                scope: 'existing_scope new_scope',
+                resourceMetadataUrl: new URL('http://example.com/resource')
+            })
+        );
+
+        authSpy.mockRestore();
+    });
+
     it('attempts upscoping on 403 with WWW-Authenticate header', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
@@ -644,6 +688,7 @@ describe('StreamableHTTPClientTransport', () => {
         };
 
         const fetchMock = globalThis.fetch as Mock;
+        (transport as unknown as { _scope?: string })._scope = 'existing_scope';
         fetchMock
             // First call: returns 403 with insufficient_scope
             .mockResolvedValueOnce({
@@ -673,11 +718,11 @@ describe('StreamableHTTPClientTransport', () => {
         // Verify fetch was called twice
         expect(fetchMock).toHaveBeenCalledTimes(2);
 
-        // Verify auth was called with the new scope
+        // Verify auth was called with accumulated scope
         expect(authSpy).toHaveBeenCalledWith(
             mockAuthProvider,
             expect.objectContaining({
-                scope: 'new_scope',
+                scope: 'existing_scope new_scope',
                 resourceMetadataUrl: new URL('http://example.com/resource')
             })
         );
