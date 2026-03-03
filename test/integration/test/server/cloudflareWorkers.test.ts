@@ -160,8 +160,8 @@ export default {
                 await client.connect(transport);
                 lastError = undefined;
                 break;
-            } catch (err) {
-                lastError = err;
+            } catch (error) {
+                lastError = error;
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
