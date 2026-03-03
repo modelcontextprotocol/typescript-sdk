@@ -39,3 +39,13 @@ function createMcpExpressApp_allowedHosts() {
     //#endregion createMcpExpressApp_allowedHosts
     return app;
 }
+
+/**
+ * Example: Custom JSON body parser options.
+ */
+function createMcpExpressApp_jsonOptions() {
+    //#region createMcpExpressApp_jsonOptions
+    const app = createMcpExpressApp({ jsonOptions: { limit: '5mb' } });
+    //#endregion createMcpExpressApp_jsonOptions
+    return app;
+}

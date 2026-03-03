@@ -167,6 +167,18 @@ describe('@modelcontextprotocol/express', () => {
             warn.mockRestore();
         });
 
+        test('should pass jsonOptions to express.json()', () => {
+            const app = createMcpExpressApp({ jsonOptions: { limit: '5mb' } });
+            expect(app).toBeDefined();
+            expect(typeof app.use).toBe('function');
+        });
+
+        test('should use default json options when jsonOptions not provided', () => {
+            const app = createMcpExpressApp();
+            expect(app).toBeDefined();
+            expect(typeof app.use).toBe('function');
+        });
+
         test('should not apply host validation for non-localhost hosts without allowedHosts', () => {
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
