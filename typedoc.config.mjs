@@ -28,7 +28,17 @@ export default {
     entryPointStrategy: 'packages',
     entryPoints,
     packageOptions: {
-        blockTags: [...OptionDefaults.blockTags, '@format'],
+        // Extra block tags from the MCP spec (@format, @minimum, @maximum,
+        // @TJS-type) and the schema generator (@description) appear in
+        // generated type files reachable via the public API surface.
+        blockTags: [
+            ...OptionDefaults.blockTags,
+            '@format',
+            '@description',
+            '@minimum',
+            '@maximum',
+            '@TJS-type'
+        ],
         exclude: ['**/*.examples.ts']
     },
     highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],

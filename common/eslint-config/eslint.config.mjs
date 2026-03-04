@@ -96,7 +96,7 @@ export default defineConfig(
     },
     {
         // Ignore generated protocol types everywhere
-        ignores: ['**/spec.types.ts']
+        ignores: ['**/spec.types.ts', '**/src/types/generated/**']
     },
     {
         files: ['packages/client/**/*.ts', 'packages/server/**/*.ts'],

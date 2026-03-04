@@ -17,7 +17,6 @@ import type {
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
-    JSONRPCResponse,
     JSONRPCResultResponse,
     LoggingLevel,
     MessageExtraInfo,
@@ -437,7 +436,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
      */
-    fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
+    fallbackNotificationHandler?: (notification: JSONRPCNotification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
@@ -854,7 +853,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         return;
                     }
 
-                    const response: JSONRPCResponse = {
+                    const response: JSONRPCResultResponse = {
                         result,
                         jsonrpc: '2.0',
                         id: request.id
@@ -938,7 +937,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         handler(params);
     }
 
-    private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
+    private _onresponse(response: JSONRPCResultResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
 
         // Check if this is a response to a queued request
