@@ -2638,7 +2638,39 @@ export type ResultTypeMap = {
     'tasks/cancel': CancelTaskResult;
 };
 
-/* Runtime schema lookup */
+/* Runtime schema lookup — result schemas by method */
+const resultSchemas: Record<string, z.core.$ZodType> = {
+    ping: EmptyResultSchema,
+    initialize: InitializeResultSchema,
+    'completion/complete': CompleteResultSchema,
+    'logging/setLevel': EmptyResultSchema,
+    'prompts/get': GetPromptResultSchema,
+    'prompts/list': ListPromptsResultSchema,
+    'resources/list': ListResourcesResultSchema,
+    'resources/templates/list': ListResourceTemplatesResultSchema,
+    'resources/read': ReadResourceResultSchema,
+    'resources/subscribe': EmptyResultSchema,
+    'resources/unsubscribe': EmptyResultSchema,
+    'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
+    'tools/list': ListToolsResultSchema,
+    'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
+    'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
+    'roots/list': ListRootsResultSchema,
+    'tasks/get': GetTaskResultSchema,
+    'tasks/result': ResultSchema,
+    'tasks/list': ListTasksResultSchema,
+    'tasks/cancel': CancelTaskResultSchema
+};
+
+/**
+ * Gets the Zod schema for validating results of a given request method.
+ * @see getRequestSchema for explanation of the internal type assertion.
+ */
+export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> {
+    return resultSchemas[method] as unknown as z.ZodType<ResultTypeMap[M]>;
+}
+
+/* Runtime schema lookup — request schemas by method */
 type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
 type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
 

@@ -460,7 +460,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async ping() {
-        return this.request({ method: 'ping' }, EmptyResultSchema);
+        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
     }
 
     /**
@@ -540,9 +540,9 @@ export class Server extends Protocol<ServerContext> {
 
         // Use different schemas based on whether tools are provided
         if (params.tools) {
-            return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+            return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
-        return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**
@@ -562,7 +562,7 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
-                return this.request({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
@@ -572,7 +572,11 @@ export class Server extends Protocol<ServerContext> {
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+                const result = await this._requestWithSchema(
+                    { method: 'elicitation/create', params: formParams },
+                    ElicitResultSchema,
+                    options
+                );
 
                 if (result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
@@ -629,7 +633,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'roots/list', params }, ListRootsResultSchema, options);
+        return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 
     /**
