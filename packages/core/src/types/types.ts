@@ -2304,6 +2304,12 @@ export const ServerResultSchema = z.union([
  * They use numeric error codes from the {@linkcode ProtocolErrorCode} enum.
  */
 export class ProtocolError extends Error {
+    /**
+     * The original message without the "MCP error" prefix,
+     * suitable for use as the JSON-RPC `error.message` on the wire.
+     */
+    public readonly rpcMessage: string;
+
     constructor(
         public readonly code: number,
         message: string,
@@ -2311,6 +2317,7 @@ export class ProtocolError extends Error {
     ) {
         super(`MCP error ${code}: ${message}`);
         this.name = 'ProtocolError';
+        this.rpcMessage = message;
     }
 
     /**
