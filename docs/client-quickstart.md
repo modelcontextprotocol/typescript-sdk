@@ -109,7 +109,7 @@ First, let's set up our imports and create the basic client class in `src/index.
 
 ```ts source="../examples/client-quickstart/src/index.ts#prelude"
 import Anthropic from '@anthropic-ai/sdk';
-import { Client, StdioClientTransport, type CallToolResult } from '@modelcontextprotocol/client';
+import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
 import readline from 'readline/promises';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
@@ -201,7 +201,7 @@ Now let's add the core functionality for processing queries and handling tool ca
         const result = await this.mcp.callTool({
           name: toolName,
           arguments: toolArgs,
-        }) as CallToolResult;
+        });
 
         finalText.push(`[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`);
 

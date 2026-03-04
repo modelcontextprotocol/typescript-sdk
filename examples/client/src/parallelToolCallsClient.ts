@@ -1,4 +1,4 @@
-import type { CallToolRequest, CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
+import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
@@ -108,47 +108,29 @@ async function listTools(client: Client): Promise<void> {
 async function startParallelNotificationTools(client: Client): Promise<Record<string, CallToolResult>> {
     try {
         // Define multiple tool calls with different configurations
-        const toolCalls: Array<{ caller: string; request: CallToolRequest }> = [
+        const toolCalls = [
             {
                 caller: 'fast-notifier',
-                request: {
-                    method: 'tools/call',
-                    params: {
-                        name: 'start-notification-stream',
-                        arguments: {
-                            interval: 2, // 0.5 second between notifications
-                            count: 10, // Send 10 notifications
-                            caller: 'fast-notifier' // Identify this tool call
-                        }
-                    }
+                args: {
+                    interval: 2, // 0.5 second between notifications
+                    count: 10, // Send 10 notifications
+                    caller: 'fast-notifier' // Identify this tool call
                 }
             },
             {
                 caller: 'slow-notifier',
-                request: {
-                    method: 'tools/call',
-                    params: {
-                        name: 'start-notification-stream',
-                        arguments: {
-                            interval: 5, // 2 seconds between notifications
-                            count: 5, // Send 5 notifications
-                            caller: 'slow-notifier' // Identify this tool call
-                        }
-                    }
+                args: {
+                    interval: 5, // 2 seconds between notifications
+                    count: 5, // Send 5 notifications
+                    caller: 'slow-notifier' // Identify this tool call
                 }
             },
             {
                 caller: 'burst-notifier',
-                request: {
-                    method: 'tools/call',
-                    params: {
-                        name: 'start-notification-stream',
-                        arguments: {
-                            interval: 1, // 0.1 second between notifications
-                            count: 3, // Send just 3 notifications
-                            caller: 'burst-notifier' // Identify this tool call
-                        }
-                    }
+                args: {
+                    interval: 1, // 0.1 second between notifications
+                    count: 3, // Send just 3 notifications
+                    caller: 'burst-notifier' // Identify this tool call
                 }
             }
         ];
@@ -156,10 +138,10 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
         console.log(`Starting ${toolCalls.length} notification tools in parallel...`);
 
         // Start all tool calls in parallel
-        const toolPromises = toolCalls.map(({ caller, request }) => {
+        const toolPromises = toolCalls.map(({ caller, args }) => {
             console.log(`Starting tool call for ${caller}...`);
             return client
-                .request(request)
+                .callTool({ name: 'start-notification-stream', arguments: args })
                 .then(result => ({ caller, result }))
                 .catch(error => {
                     console.error(`Error in tool call for ${caller}:`, error);
@@ -173,7 +155,7 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
         // Organize results by caller
         const resultsByTool: Record<string, CallToolResult> = {};
         for (const { caller, result } of results) {
-            resultsByTool[caller] = result as CallToolResult;
+            resultsByTool[caller] = result;
         }
 
         return resultsByTool;
