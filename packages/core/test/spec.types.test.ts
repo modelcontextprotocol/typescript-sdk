@@ -523,6 +523,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    StringArraySchema: (sdk: SDKTypes.StringArraySchema, spec: SpecTypes.StringArraySchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
     JSONRPCErrorResponse: (sdk: SDKTypes.JSONRPCErrorResponse, spec: SpecTypes.JSONRPCErrorResponse) => {
         sdk = spec;
         spec = sdk;
@@ -629,6 +633,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    FileInputDescriptor: (sdk: SDKTypes.FileInputDescriptor, spec: SpecTypes.FileInputDescriptor) => {
+        sdk = spec;
+        spec = sdk;
+    },
     TaskStatus: (sdk: SDKTypes.TaskStatus, spec: SpecTypes.TaskStatus) => {
         sdk = spec;
         spec = sdk;
@@ -714,7 +722,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(145);
+        expect(specTypes).toHaveLength(147);
     });
 
     it('should have up to date list of missing sdk types', () => {

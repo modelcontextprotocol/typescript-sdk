@@ -14,7 +14,10 @@ import {
     ToolChoiceSchema,
     ToolResultContentSchema,
     ToolSchema,
-    ToolUseContentSchema
+    ToolUseContentSchema,
+    FileInputDescriptorSchema,
+    StringArraySchemaSchema,
+    ElicitRequestFormParamsSchema
 } from '../src/types/types.js';
 
 describe('Types', () => {
@@ -980,6 +983,144 @@ describe('Types', () => {
             if (result.success) {
                 expect(result.data.sampling?.context).toBeDefined();
                 expect(result.data.sampling?.tools).toBeDefined();
+            }
+        });
+    });
+
+    describe('File inputs (SEP)', () => {
+        test('FileInputDescriptor: should validate full descriptor', () => {
+            const descriptor = {
+                accept: ['image/png', 'image/*', 'application/pdf'],
+                maxSize: 10485760
+            };
+            const result = FileInputDescriptorSchema.safeParse(descriptor);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.accept).toEqual(['image/png', 'image/*', 'application/pdf']);
+                expect(result.data.maxSize).toBe(10485760);
+            }
+        });
+
+        test('FileInputDescriptor: should validate empty descriptor (all fields optional)', () => {
+            const result = FileInputDescriptorSchema.safeParse({});
+            expect(result.success).toBe(true);
+        });
+
+        test('FileInputDescriptor: should reject non-integer maxSize', () => {
+            const result = FileInputDescriptorSchema.safeParse({ maxSize: 1.5 });
+            expect(result.success).toBe(false);
+        });
+
+        test('ClientCapabilities: should validate fileInputs capability', () => {
+            const capabilities = {
+                fileInputs: {}
+            };
+            const result = ClientCapabilitiesSchema.safeParse(capabilities);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.fileInputs).toBeDefined();
+            }
+        });
+
+        test('Tool: should validate inputFiles round-trip', () => {
+            const tool = {
+                name: 'analyze_image',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        image: { type: 'string', format: 'uri' },
+                        caption: { type: 'string' }
+                    },
+                    required: ['image']
+                },
+                inputFiles: {
+                    image: {
+                        accept: ['image/*'],
+                        maxSize: 5242880
+                    }
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.inputFiles?.image?.accept).toEqual(['image/*']);
+                expect(result.data.inputFiles?.image?.maxSize).toBe(5242880);
+            }
+        });
+
+        test('Tool: should validate inputFiles with empty descriptor', () => {
+            const tool = {
+                name: 'upload',
+                inputSchema: { type: 'object' },
+                inputFiles: {
+                    attachment: {}
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+        });
+
+        test('StringArraySchema: should validate multi-file schema', () => {
+            const schema = {
+                type: 'array',
+                items: { type: 'string', format: 'uri' },
+                title: 'Attachments',
+                description: 'Upload up to 5 files',
+                minItems: 1,
+                maxItems: 5
+            };
+            const result = StringArraySchemaSchema.safeParse(schema);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.type).toBe('array');
+                expect(result.data.items.type).toBe('string');
+                expect(result.data.items.format).toBe('uri');
+                expect(result.data.maxItems).toBe(5);
+            }
+        });
+
+        test('StringArraySchema: should reject wrong type literal', () => {
+            const result = StringArraySchemaSchema.safeParse({
+                type: 'object',
+                items: { type: 'string' }
+            });
+            expect(result.success).toBe(false);
+        });
+
+        test('StringArraySchema: should reject non-string items', () => {
+            const result = StringArraySchemaSchema.safeParse({
+                type: 'array',
+                items: { type: 'number' }
+            });
+            expect(result.success).toBe(false);
+        });
+
+        test('ElicitRequestFormParams: should validate requestedFiles', () => {
+            const params = {
+                message: 'Please upload your documents',
+                mode: 'form',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        document: { type: 'string', format: 'uri' },
+                        attachments: {
+                            type: 'array',
+                            items: { type: 'string', format: 'uri' },
+                            maxItems: 3
+                        }
+                    },
+                    required: ['document']
+                },
+                requestedFiles: {
+                    document: { accept: ['application/pdf'], maxSize: 1048576 },
+                    attachments: { accept: ['image/*'] }
+                }
+            };
+            const result = ElicitRequestFormParamsSchema.safeParse(params);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.requestedFiles?.document?.accept).toEqual(['application/pdf']);
+                expect(result.data.requestedFiles?.attachments?.accept).toEqual(['image/*']);
             }
         });
     });

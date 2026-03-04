@@ -379,6 +379,12 @@ export interface ClientCapabilities {
             };
         };
     };
+    /**
+     * Present if the client supports declarative file inputs for tools and
+     * elicitation. When declared, servers MAY include `inputFiles` on {@link Tool}
+     * definitions and `requestedFiles` on {@link ElicitRequestFormParams}.
+     */
+    fileInputs?: object;
 }
 
 /**
@@ -1294,9 +1300,46 @@ export interface Tool extends BaseMetadata, Icons {
     annotations?: ToolAnnotations;
 
     /**
+     * Declares which arguments in `inputSchema` are file inputs. Keys MUST match
+     * property names in `inputSchema.properties`, and the corresponding schema
+     * properties MUST be `{"type": "string", "format": "uri"}` or an array thereof.
+     *
+     * Servers MUST NOT include this field unless the client declared the
+     * `fileInputs` capability during initialization.
+     *
+     * Clients SHOULD render a native file picker for these arguments. Selected files
+     * are encoded as RFC 2397 data URIs: `data:<mediatype>;name=<filename>;base64,<data>`,
+     * where the `name=` parameter (percent-encoded) carries the original filename.
+     */
+    inputFiles?: { [argName: string]: FileInputDescriptor };
+
+    /**
      * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
      */
     _meta?: { [key: string]: unknown };
+}
+
+/**
+ * Describes a single file input argument for a tool or elicitation form.
+ * Provides optional hints for client-side file picker filtering and validation.
+ * All fields are advisory; servers MUST still validate inputs independently.
+ *
+ * @category `tools/list`
+ */
+export interface FileInputDescriptor {
+    /**
+     * MIME type patterns that the server will accept for this input.
+     * Supports exact types (e.g., `"image/png"`) and wildcard subtypes
+     * (e.g., `"image/*"`). If omitted, any file type is accepted.
+     */
+    accept?: string[];
+
+    /**
+     * Maximum file size in bytes (decoded size, per file). Servers SHOULD reject
+     * larger files with JSON-RPC `-32602` (Invalid Params) and the structured reason
+     * `"file_too_large"`.
+     */
+    maxSize?: number;
 }
 
 /* Tasks */
@@ -2159,6 +2202,21 @@ export interface ElicitRequestFormParams extends TaskAugmentedRequestParams {
         };
         required?: string[];
     };
+
+    /**
+     * Declares which fields in `requestedSchema` are file inputs. Keys MUST match
+     * property names in `requestedSchema.properties`, and the corresponding schema
+     * properties MUST be a {@link StringSchema} with `format: "uri"` or a
+     * {@link StringArraySchema} whose `items` has `format: "uri"`.
+     *
+     * Servers MUST NOT include this field unless the client declared the
+     * `fileInputs` capability during initialization.
+     *
+     * Clients SHOULD render a native file picker for these fields. Selected files
+     * are encoded as RFC 2397 data URIs: `data:<mediatype>;name=<filename>;base64,<data>`,
+     * where the `name=` parameter (percent-encoded) carries the original filename.
+     */
+    requestedFiles?: { [fieldName: string]: FileInputDescriptor };
 }
 
 /**
@@ -2209,12 +2267,12 @@ export interface ElicitRequest extends JSONRPCRequest {
 }
 
 /**
- * Restricted schema definitions that only allow primitive types
- * without nested objects or arrays.
+ * Restricted schema definitions that only allow primitive types and
+ * flat arrays of strings (for multi-file inputs), without nested objects.
  *
  * @category `elicitation/create`
  */
-export type PrimitiveSchemaDefinition = StringSchema | NumberSchema | BooleanSchema | EnumSchema;
+export type PrimitiveSchemaDefinition = StringSchema | NumberSchema | BooleanSchema | EnumSchema | StringArraySchema;
 
 /**
  * @category `elicitation/create`
@@ -2432,6 +2490,22 @@ export interface LegacyTitledEnumSchema {
  */
 // Union type for all enum schemas
 export type EnumSchema = SingleSelectEnumSchema | MultiSelectEnumSchema | LegacyTitledEnumSchema;
+
+/**
+ * Schema for a flat array of strings. Intended primarily for multi-file
+ * inputs in elicitation forms, where each item is a data URI string with
+ * `format: "uri"`. Items MUST use {@link StringSchema}; nesting is not permitted.
+ *
+ * @category `elicitation/create`
+ */
+export interface StringArraySchema {
+    type: 'array';
+    items: StringSchema;
+    title?: string;
+    description?: string;
+    minItems?: number;
+    maxItems?: number;
+}
 
 /**
  * The client's response to an elicitation request.
