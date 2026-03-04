@@ -22,6 +22,10 @@ export interface CreateMcpExpressAppOptions {
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
+    /**
+     * Controls the maximum request body size.
+     */
+    limit?: string;
 }
 
 /**
@@ -51,10 +55,10 @@ export interface CreateMcpExpressAppOptions {
  * ```
  */
 export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): Express {
-    const { host = '127.0.0.1', allowedHosts } = options;
+    const { host = '127.0.0.1', allowedHosts, limit } = options;
 
     const app = express();
-    app.use(express.json());
+    app.use(limit ? express.json({ limit }) : express.json());
 
     // If allowedHosts is explicitly provided, use that for validation
     if (allowedHosts) {
