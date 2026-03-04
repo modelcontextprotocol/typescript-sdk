@@ -166,15 +166,17 @@ export class McpServer {
         );
 
         this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
-            try {
-                const tool = this._registeredTools[request.params.name];
-                if (!tool) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
-                }
-                if (!tool.enabled) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
-                }
+            // Unknown/disabled tool is a protocol error per MCP spec.
+            // Check before try/catch so it propagates as a JSON-RPC error, not a CallToolResult with isError.
+            const tool = this._registeredTools[request.params.name];
+            if (!tool) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+            }
+            if (!tool.enabled) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+            }
 
+            try {
                 const isTaskRequest = !!request.params.task;
                 const taskSupport = tool.execution?.taskSupport;
                 const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<AnySchema>);
@@ -506,7 +508,7 @@ export class McpServer {
                 }
             }
 
-            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} not found`);
+            throw new ProtocolError(ProtocolErrorCode.ResourceNotFound, `Resource ${uri} not found`);
         });
 
         this._resourceHandlersInitialized = true;
