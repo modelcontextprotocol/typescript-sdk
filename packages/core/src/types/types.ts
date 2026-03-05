@@ -489,6 +489,10 @@ export const ServerTasksCapabilitySchema = z.looseObject({
  */
 export const ClientCapabilitiesSchema = z.object({
     /**
+     * Present if the client supports extensions (SEP-1724).
+     */
+    extensions: z.record(z.string(), AssertObjectSchema).optional(),
+    /**
      * Experimental, non-standard capabilities that the client supports.
      */
     experimental: z.record(z.string(), AssertObjectSchema).optional(),
@@ -551,6 +555,10 @@ export const isInitializeRequest = (value: unknown): value is InitializeRequest 
  * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
  */
 export const ServerCapabilitiesSchema = z.object({
+    /**
+     * Present if the server supports extensions (SEP-1724).
+     */
+    extensions: z.record(z.string(), AssertObjectSchema).optional(),
     /**
      * Experimental, non-standard capabilities that the server supports.
      */
