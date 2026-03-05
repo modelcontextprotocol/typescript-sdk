@@ -866,7 +866,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._responseHandlers.delete(messageId);
                 this.#progressManager.removeHandler(messageId);
                 this.#timeoutManager.cleanup(messageId);
-                const error = McpError.fromError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+                const error = new SdkError(SdkErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
                     maxTotalTimeout: resetResult.maxTotalTimeoutExceeded.maxTotalTimeout,
                     totalElapsed: resetResult.maxTotalTimeoutExceeded.elapsed
                 });
