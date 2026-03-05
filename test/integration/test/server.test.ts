@@ -14,9 +14,6 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
-    CreateMessageRequestSchema,
-    CreateMessageResultSchema,
-    CreateTaskResultSchema,
     ElicitResultSchema,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
@@ -2613,23 +2610,20 @@ describe('Task-based execution', () => {
                     // Perform async work that makes a nested request
                     (async () => {
                         // During tool execution, make a nested request to the client using ctx.mcpReq.send
-                        const elicitResult = await ctx.mcpReq.send(
-                            {
-                                method: 'elicitation/create',
-                                params: {
-                                    mode: 'form',
-                                    message: 'Please provide your username',
-                                    requestedSchema: {
-                                        type: 'object',
-                                        properties: {
-                                            username: { type: 'string' }
-                                        },
-                                        required: ['username']
-                                    }
+                        const elicitResult = await ctx.mcpReq.send({
+                            method: 'elicitation/create',
+                            params: {
+                                mode: 'form',
+                                message: 'Please provide your username',
+                                requestedSchema: {
+                                    type: 'object',
+                                    properties: {
+                                        username: { type: 'string' }
+                                    },
+                                    required: ['username']
                                 }
-                            },
-                            ElicitResultSchema
-                        );
+                            }
+                        });
 
                         const result = {
                             content: [
@@ -2778,7 +2772,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -2855,7 +2848,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -2937,7 +2929,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -3030,7 +3021,6 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    CreateTaskResultSchema,
                     { task: { ttl: 60_000 } }
                 );
 
@@ -3141,9 +3131,12 @@ describe('Task-based execution', () => {
 
         // Create multiple tasks concurrently
         const pendingRequests = Array.from({ length: 4 }, (_, index) =>
-            client.callTool({ name: 'async-tool', arguments: { delay: 10 + index * 5, taskNum: index + 1 } }, CallToolResultSchema, {
-                task: { ttl: 60_000 }
-            })
+            client.callTool(
+                { name: 'async-tool', arguments: { delay: 10 + index * 5, taskNum: index + 1 } },
+                {
+                    task: { ttl: 60_000 }
+                }
+            )
         );
 
         // Wait for all tasks to complete
@@ -3386,7 +3379,6 @@ test('should respect client task capabilities', async () => {
                 }
             }
         },
-        CreateTaskResultSchema,
         { task: { ttl: 60_000 } }
     );
 
@@ -3408,7 +3400,6 @@ test('should respect client task capabilities', async () => {
                     maxTokens: 10
                 }
             },
-            CreateMessageResultSchema,
             { task: { taskId: 'test-task-2', keepAlive: 60_000 } }
         )
     ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
@@ -3532,7 +3523,6 @@ describe('elicitInputStream', () => {
                 method: 'elicitation/create',
                 params: expect.objectContaining({ mode: 'form' })
             }),
-            ElicitResultSchema,
             undefined
         );
     });

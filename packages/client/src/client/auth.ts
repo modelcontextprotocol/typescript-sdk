@@ -257,19 +257,23 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
 export function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
     const hasClientSecret = clientInformation.client_secret !== undefined;
 
-    // If server doesn't specify supported methods, use RFC 6749 defaults
-    if (supportedMethods.length === 0) {
-        return hasClientSecret ? 'client_secret_post' : 'none';
-    }
-
-    // Prefer the method returned by the server during client registration if valid and supported
+    // Prefer the method returned by the server during client registration, if valid.
+    // When server metadata is present we also require the method to be listed as supported;
+    // when supportedMethods is empty (metadata omitted the field) the DCR hint stands alone.
     if (
         'token_endpoint_auth_method' in clientInformation &&
         clientInformation.token_endpoint_auth_method &&
         isClientAuthMethod(clientInformation.token_endpoint_auth_method) &&
-        supportedMethods.includes(clientInformation.token_endpoint_auth_method)
+        (supportedMethods.length === 0 || supportedMethods.includes(clientInformation.token_endpoint_auth_method))
     ) {
         return clientInformation.token_endpoint_auth_method;
+    }
+
+    // If server metadata omits token_endpoint_auth_methods_supported, RFC 8414 §2 says the
+    // default is client_secret_basic. RFC 6749 §2.3.1 also requires servers to support HTTP
+    // Basic authentication for clients with a secret, making it the safest default.
+    if (supportedMethods.length === 0) {
+        return hasClientSecret ? 'client_secret_basic' : 'none';
     }
 
     // Try methods in priority order (most secure first)
@@ -499,6 +503,13 @@ async function authInternal(
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
+    // Apply scope selection strategy (SEP-835):
+    // 1. WWW-Authenticate scope (passed via `scope` param)
+    // 2. PRM scopes_supported
+    // 3. Client metadata scope (user-configured fallback)
+    // The resolved scope is used consistently for both DCR and the authorization request.
+    const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
+
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
     if (!clientInformation) {
@@ -533,6 +544,7 @@ async function authInternal(
             const fullInformation = await registerClient(authorizationServerUrl, {
                 metadata,
                 clientMetadata: provider.clientMetadata,
+                scope: resolvedScope,
                 fetchFn
             });
 
@@ -593,7 +605,7 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
+        scope: resolvedScope,
         resource
     });
 
@@ -1433,16 +1445,22 @@ export async function fetchToken(
 /**
  * Performs OAuth 2.0 Dynamic Client Registration according to
  * {@link https://datatracker.ietf.org/doc/html/rfc7591 | RFC 7591}.
+ *
+ * If `scope` is provided, it overrides `clientMetadata.scope` in the registration
+ * request body. This allows callers to apply the Scope Selection Strategy (SEP-835)
+ * consistently across both DCR and the subsequent authorization request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
     {
         metadata,
         clientMetadata,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         clientMetadata: OAuthClientMetadata;
+        scope?: string;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthClientInformationFull> {
@@ -1463,7 +1481,10 @@ export async function registerClient(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(clientMetadata)
+        body: JSON.stringify({
+            ...clientMetadata,
+            ...(scope === undefined ? {} : { scope })
+        })
     });
 
     if (!response.ok) {
