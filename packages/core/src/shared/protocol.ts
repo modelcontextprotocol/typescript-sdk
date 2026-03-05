@@ -60,6 +60,7 @@ import {
 } from '../types/types.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
+export type { ProgressCallback } from './progressManager.js';
 import type { ProgressCallback } from './progressManager.js';
 import { ProgressManager } from './progressManager.js';
 import type { ResponseMessage } from './responseMessage.js';

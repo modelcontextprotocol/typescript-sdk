@@ -165,7 +165,8 @@ export class TimeoutManager {
         const elapsed = Date.now() - info.startTime;
 
         // Check if max total timeout has been exceeded
-        if (info.maxTotalTimeout !== undefined && elapsed >= info.maxTotalTimeout) {
+        // Uses falsy check: maxTotalTimeout of 0 is treated as "no limit" for backwards compatibility
+        if (info.maxTotalTimeout && elapsed >= info.maxTotalTimeout) {
             return {
                 success: false,
                 maxTotalTimeoutExceeded: {
@@ -227,17 +228,6 @@ export class TimeoutManager {
             return undefined;
         }
         return Date.now() - info.startTime;
-    }
-
-    /**
-     * Clears all timeouts.
-     * Typically called when the connection is closed.
-     */
-    clearAll(): void {
-        for (const info of this.#timeoutInfo.values()) {
-            clearTimeout(info.timeoutId);
-        }
-        this.#timeoutInfo.clear();
     }
 
     /**
