@@ -604,7 +604,11 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Present if the server supports task creation.
      */
-    tasks: ServerTasksCapabilitySchema.optional()
+    tasks: ServerTasksCapabilitySchema.optional(),
+    /**
+     * Extensions that the server supports. Keys are extension URIs.
+     */
+    extensions: z.record(z.string(), AssertObjectSchema).optional()
 });
 
 /**

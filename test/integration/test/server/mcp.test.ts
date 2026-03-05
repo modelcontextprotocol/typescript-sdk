@@ -338,6 +338,33 @@ describe('Zod v4', () => {
                 message: 'Completed step 3 of 3'
             });
         });
+
+        /***
+         * Test: Extensions capability registration
+         */
+        test('should register and advertise extensions capability', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.server.registerCapabilities({
+                extensions: {
+                    'io.modelcontextprotocol/grouping': { listChanged: true }
+                }
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.extensions).toBeDefined();
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/grouping']).toEqual({ listChanged: true });
+        });
     });
 
     describe('ResourceTemplate', () => {
