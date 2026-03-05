@@ -3,7 +3,7 @@
  * WARNING: These APIs are experimental and may change without notice.
  */
 
-import type { RequestHandlerExtra, RequestTaskStore } from '../../shared/protocol.js';
+import type { RequestTaskStore, ServerContext } from '../../shared/protocol.js';
 import type {
     JSONRPCErrorResponse,
     JSONRPCNotification,
@@ -12,8 +12,6 @@ import type {
     Request,
     RequestId,
     Result,
-    ServerNotification,
-    ServerRequest,
     Task,
     ToolExecution
 } from '../../types/types.js';
@@ -23,25 +21,24 @@ import type {
 // ============================================================================
 
 /**
- * Extended handler extra with task store for task creation.
+ * Server context with guaranteed task store for task creation.
  * @experimental
  */
-export interface CreateTaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskStore: RequestTaskStore;
-}
+export type CreateTaskServerContext = ServerContext & {
+    task: { store: RequestTaskStore; requestedTtl?: number | null };
+};
 
 /**
- * Extended handler extra with task ID and store for task operations.
+ * Server context with guaranteed task ID and store for task operations.
  * @experimental
  */
-export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskId: string;
-    taskStore: RequestTaskStore;
-}
+export type TaskServerContext = ServerContext & {
+    task: { id: string; store: RequestTaskStore; requestedTtl?: number | null };
+};
 
 /**
  * Task-specific execution configuration.
- * taskSupport cannot be 'forbidden' for task-based tools.
+ * `taskSupport` cannot be `'forbidden'` for task-based tools.
  * @experimental
  */
 export type TaskToolExecution<TaskSupport = ToolExecution['taskSupport']> = Omit<ToolExecution, 'taskSupport'> & {
@@ -90,7 +87,7 @@ export interface QueuedError extends BaseQueuedMessage {
 /**
  * Interface for managing per-task FIFO message queues.
  *
- * Similar to TaskStore, this allows pluggable queue implementations
+ * Similar to {@linkcode TaskStore}, this allows pluggable queue implementations
  * (in-memory, Redis, other distributed queues, etc.).
  *
  * Each method accepts taskId and optional sessionId parameters to enable
@@ -98,8 +95,9 @@ export interface QueuedError extends BaseQueuedMessage {
  * isolation based on task ID and session ID.
  *
  * All methods are async to support external storage implementations.
- * All data in QueuedMessage must be JSON-serializable.
+ * All data in {@linkcode QueuedMessage} must be JSON-serializable.
  *
+ * @see {@linkcode InMemoryTaskMessageQueue} for a reference implementation
  * @experimental
  */
 export interface TaskMessageQueue {
@@ -118,7 +116,7 @@ export interface TaskMessageQueue {
      * Removes and returns the first message from the queue for a specific task.
      * @param taskId The task identifier
      * @param sessionId Optional session ID for binding the query to a specific session
-     * @returns The first message, or undefined if the queue is empty
+     * @returns The first message, or `undefined` if the queue is empty
      */
     dequeue(taskId: string, sessionId?: string): Promise<QueuedMessage | undefined>;
 
@@ -139,7 +137,7 @@ export interface TaskMessageQueue {
 export interface CreateTaskOptions {
     /**
      * Time in milliseconds to keep task results available after completion.
-     * If null, the task has unlimited lifetime until manually cleaned up.
+     * If `null`, the task has unlimited lifetime until manually cleaned up.
      */
     ttl?: number | null;
 
@@ -157,9 +155,10 @@ export interface CreateTaskOptions {
 /**
  * Interface for storing and retrieving task state and results.
  *
- * Similar to Transport, this allows pluggable task storage implementations
+ * Similar to {@linkcode Transport}, this allows pluggable task storage implementations
  * (in-memory, database, distributed cache, etc.).
  *
+ * @see {@linkcode InMemoryTaskStore} for a reference implementation
  * @experimental
  */
 export interface TaskStore {
@@ -168,17 +167,17 @@ export interface TaskStore {
      * The implementation must generate a unique taskId and createdAt timestamp.
      *
      * TTL Management:
-     * - The implementation receives the TTL suggested by the requestor via taskParams.ttl
+     * - The implementation receives the TTL suggested by the requestor via `taskParams.ttl`
      * - The implementation MAY override the requested TTL (e.g., to enforce limits)
-     * - The actual TTL used MUST be returned in the Task object
-     * - Null TTL indicates unlimited task lifetime (no automatic cleanup)
+     * - The actual TTL used MUST be returned in the {@linkcode Task} object
+     * - `null` TTL indicates unlimited task lifetime (no automatic cleanup)
      * - Cleanup SHOULD occur automatically after TTL expires, regardless of task status
      *
      * @param taskParams - The task creation parameters from the request (ttl, pollInterval)
      * @param requestId - The JSON-RPC request ID
      * @param request - The original request that triggered task creation
      * @param sessionId - Optional session ID for binding the task to a specific session
-     * @returns The created task object
+     * @returns The created {@linkcode Task} object
      */
     createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task>;
 
@@ -187,7 +186,7 @@ export interface TaskStore {
      *
      * @param taskId - The task identifier
      * @param sessionId - Optional session ID for binding the query to a specific session
-     * @returns The task object, or null if it does not exist
+     * @returns The {@linkcode Task} object, or `null` if it does not exist
      */
     getTask(taskId: string, sessionId?: string): Promise<Task | null>;
 
@@ -195,7 +194,7 @@ export interface TaskStore {
      * Stores the result of a task and sets its final status.
      *
      * @param taskId - The task identifier
-     * @param status - The final status: 'completed' for success, 'failed' for errors
+     * @param status - The final status: `'completed'` for success, `'failed'` for errors
      * @param result - The result to store
      * @param sessionId - Optional session ID for binding the operation to a specific session
      */
@@ -211,7 +210,7 @@ export interface TaskStore {
     getTaskResult(taskId: string, sessionId?: string): Promise<Result>;
 
     /**
-     * Updates a task's status (e.g., to 'cancelled', 'failed', 'completed').
+     * Updates a task's status (e.g., to `'cancelled'`, `'failed'`, `'completed'`).
      *
      * @param taskId - The task identifier
      * @param status - The new status
@@ -235,7 +234,7 @@ export interface TaskStore {
  * Terminal states are those where the task has finished and will not change.
  *
  * @param status - The task status to check
- * @returns True if the status is terminal (completed, failed, or cancelled)
+ * @returns `true` if the status is terminal (`completed`, `failed`, or `cancelled`)
  * @experimental
  */
 export function isTerminal(status: Task['status']): boolean {

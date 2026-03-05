@@ -26,7 +26,7 @@ server.registerTool(
     {
         title: 'Greeting Tool',
         description: 'A simple greeting tool',
-        inputSchema: { name: z.string().describe('Name to greet') }
+        inputSchema: z.object({ name: z.string().describe('Name to greet') })
     },
     async ({ name }): Promise<CallToolResult> => {
         return {

@@ -22,17 +22,18 @@ function createDefaultAjvInstance(): Ajv {
 }
 
 /**
- * @example
- * ```typescript
- * // Use with default AJV instance (recommended)
- * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+ * @example Use with default AJV instance (recommended)
+ * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_default"
  * const validator = new AjvJsonSchemaValidator();
+ * ```
  *
- * // Use with custom AJV instance
- * import { Ajv } from 'ajv';
+ * @example Use with custom AJV instance
+ * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_customInstance"
  * const ajv = new Ajv({ strict: true, allErrors: true });
  * const validator = new AjvJsonSchemaValidator(ajv);
  * ```
+ *
+ * @see {@linkcode CfWorkerJsonSchemaValidator} for an edge-runtime-compatible alternative
  */
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajv: Ajv;
@@ -42,16 +43,13 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      *
      * @param ajv - Optional pre-configured AJV instance. If not provided, a default instance will be created.
      *
-     * @example
-     * ```typescript
-     * // Use default configuration (recommended for most cases)
-     * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+     * @example Use default configuration (recommended for most cases)
+     * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_default"
      * const validator = new AjvJsonSchemaValidator();
+     * ```
      *
-     * // Or provide custom AJV instance for advanced configuration
-     * import { Ajv } from 'ajv';
-     * import addFormats from 'ajv-formats';
-     *
+     * @example Provide custom AJV instance for advanced configuration
+     * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_constructor_withFormats"
      * const ajv = new Ajv({ validateFormats: true });
      * addFormats(ajv);
      * const validator = new AjvJsonSchemaValidator(ajv);
@@ -65,7 +63,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      * Create a validator for the given JSON Schema
      *
      * The validator is compiled once and can be reused multiple times.
-     * If the schema has an $id, it will be cached by AJV automatically.
+     * If the schema has an `$id`, it will be cached by AJV automatically.
      *
      * @param schema - Standard JSON Schema object
      * @returns A validator function that validates input data

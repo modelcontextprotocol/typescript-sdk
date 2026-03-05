@@ -647,6 +647,105 @@ describe('InMemoryTaskStore', () => {
         });
     });
 
+    describe('session isolation', () => {
+        const baseRequest: Request = { method: 'tools/call', params: { name: 'demo' } };
+
+        it('should not allow session-b to list tasks created by session-a', async () => {
+            await store.createTask({}, 1, baseRequest, 'session-a');
+            await store.createTask({}, 2, baseRequest, 'session-a');
+
+            const result = await store.listTasks(undefined, 'session-b');
+            expect(result.tasks).toHaveLength(0);
+        });
+
+        it('should not allow session-b to read a task created by session-a', async () => {
+            const task = await store.createTask({}, 1, baseRequest, 'session-a');
+
+            const result = await store.getTask(task.taskId, 'session-b');
+            expect(result).toBeNull();
+        });
+
+        it('should not allow session-b to update a task created by session-a', async () => {
+            const task = await store.createTask({}, 1, baseRequest, 'session-a');
+
+            await expect(store.updateTaskStatus(task.taskId, 'cancelled', undefined, 'session-b')).rejects.toThrow('not found');
+        });
+
+        it('should not allow session-b to store a result on session-a task', async () => {
+            const task = await store.createTask({}, 1, baseRequest, 'session-a');
+
+            await expect(store.storeTaskResult(task.taskId, 'completed', { content: [] }, 'session-b')).rejects.toThrow('not found');
+        });
+
+        it('should not allow session-b to get the result of session-a task', async () => {
+            const task = await store.createTask({}, 1, baseRequest, 'session-a');
+            await store.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'secret' }] }, 'session-a');
+
+            await expect(store.getTaskResult(task.taskId, 'session-b')).rejects.toThrow('not found');
+        });
+
+        it('should allow the owning session to access its own tasks', async () => {
+            const task = await store.createTask({}, 1, baseRequest, 'session-a');
+
+            const retrieved = await store.getTask(task.taskId, 'session-a');
+            expect(retrieved).toBeDefined();
+            expect(retrieved?.taskId).toBe(task.taskId);
+        });
+
+        it('should list only tasks belonging to the requesting session', async () => {
+            await store.createTask({}, 1, baseRequest, 'session-a');
+            await store.createTask({}, 2, baseRequest, 'session-b');
+            await store.createTask({}, 3, baseRequest, 'session-a');
+
+            const resultA = await store.listTasks(undefined, 'session-a');
+            expect(resultA.tasks).toHaveLength(2);
+
+            const resultB = await store.listTasks(undefined, 'session-b');
+            expect(resultB.tasks).toHaveLength(1);
+        });
+
+        it('should allow access when no sessionId is provided (backward compatibility)', async () => {
+            const task = await store.createTask({}, 1, baseRequest, 'session-a');
+
+            // No sessionId on read = no filtering
+            const retrieved = await store.getTask(task.taskId);
+            expect(retrieved).toBeDefined();
+        });
+
+        it('should allow access when task was created without sessionId', async () => {
+            const task = await store.createTask({}, 1, baseRequest);
+
+            // Any sessionId on read should still see the task
+            const retrieved = await store.getTask(task.taskId, 'session-b');
+            expect(retrieved).toBeDefined();
+        });
+
+        it('should paginate correctly within a session', async () => {
+            // Create 15 tasks for session-a, 5 for session-b
+            for (let i = 1; i <= 15; i++) {
+                await store.createTask({}, i, baseRequest, 'session-a');
+            }
+            for (let i = 16; i <= 20; i++) {
+                await store.createTask({}, i, baseRequest, 'session-b');
+            }
+
+            // First page for session-a should have 10
+            const page1 = await store.listTasks(undefined, 'session-a');
+            expect(page1.tasks).toHaveLength(10);
+            expect(page1.nextCursor).toBeDefined();
+
+            // Second page for session-a should have 5
+            const page2 = await store.listTasks(page1.nextCursor, 'session-a');
+            expect(page2.tasks).toHaveLength(5);
+            expect(page2.nextCursor).toBeUndefined();
+
+            // session-b should only see its 5
+            const resultB = await store.listTasks(undefined, 'session-b');
+            expect(resultB.tasks).toHaveLength(5);
+            expect(resultB.nextCursor).toBeUndefined();
+        });
+    });
+
     describe('cleanup', () => {
         it('should clear all timers and tasks', async () => {
             await store.createTask({ ttl: 1000 }, 1, {

@@ -5,12 +5,12 @@
 // URL elicitation allows servers to prompt the end-user to open a URL in their browser
 // to collect sensitive information.
 
-import { exec } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 
 import type {
     CallToolRequest,
+    CallToolResult,
     ElicitRequest,
     ElicitRequestURLParams,
     ElicitResult,
@@ -19,16 +19,15 @@ import type {
     ResourceLink
 } from '@modelcontextprotocol/client';
 import {
-    CallToolResultSchema,
     Client,
-    ErrorCode,
     getDisplayName,
-    ListToolsResultSchema,
-    McpError,
+    ProtocolError,
+    ProtocolErrorCode,
     StreamableHTTPClientTransport,
     UnauthorizedError,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/client';
+import open from 'open';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
@@ -272,15 +271,25 @@ async function elicitationLoop(): Promise<void> {
     }
 }
 
-async function openBrowser(url: string): Promise<void> {
-    const command = `open "${url}"`;
+const ALLOWED_SCHEMES = new Set(['http:', 'https:']);
 
-    exec(command, error => {
-        if (error) {
-            console.error(`Failed to open browser: ${error.message}`);
-            console.log(`Please manually open: ${url}`);
+async function openBrowser(url: string): Promise<void> {
+    try {
+        const parsed = new URL(url);
+        if (!ALLOWED_SCHEMES.has(parsed.protocol)) {
+            console.error(`Refusing to open URL with unsupported scheme '${parsed.protocol}': ${url}`);
+            return;
         }
-    });
+    } catch {
+        console.error(`Invalid URL: ${url}`);
+        return;
+    }
+
+    try {
+        await open(url);
+    } catch {
+        console.log(`Please manually open: ${url}`);
+    }
 }
 
 /**
@@ -337,7 +346,7 @@ async function handleElicitationRequest(request: ElicitRequest): Promise<ElicitR
     } else {
         // Should not happen because the client declares its capabilities to the server,
         // but being defensive is a good practice:
-        throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${mode}`);
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${mode}`);
     }
 }
 
@@ -656,7 +665,7 @@ async function listTools(): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -687,7 +696,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         };
 
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = await client.request(request, CallToolResultSchema);
+        const result = (await client.request(request)) as CallToolResult;
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];

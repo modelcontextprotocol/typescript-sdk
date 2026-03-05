@@ -6,6 +6,7 @@
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
+            "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
             "@modelcontextprotocol/core": [
                 "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core/src/index.ts"
             ],
