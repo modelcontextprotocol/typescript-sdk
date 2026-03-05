@@ -19,9 +19,12 @@ This quickstart assumes you have familiarity with:
 
 Before starting, ensure your system meets these requirements:
 
-- Node.js 20 or higher installed
+- Node.js 20 or higher installed (or **Bun** / **Deno** — the SDK supports all three runtimes)
 - Latest version of `npm` installed
 - An Anthropic API key from the [Anthropic Console](https://console.anthropic.com/settings/keys)
+
+> [!TIP]
+> This tutorial uses Node.js and npm, but you can substitute `bun` or `deno` commands where appropriate. For example, use `bun add` instead of `npm install`, or run the client with `bun run` / `deno run`.
 
 ## Set up your environment
 
@@ -109,7 +112,7 @@ First, let's set up our imports and create the basic client class in `src/index.
 
 ```ts source="../examples/client-quickstart/src/index.ts#prelude"
 import Anthropic from '@anthropic-ai/sdk';
-import { Client, StdioClientTransport, type CallToolResult } from '@modelcontextprotocol/client';
+import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
 import readline from 'readline/promises';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
@@ -201,7 +204,7 @@ Now let's add the core functionality for processing queries and handling tool ca
         const result = await this.mcp.callTool({
           name: toolName,
           arguments: toolArgs,
-        }) as CallToolResult;
+        });
 
         finalText.push(`[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`);
 

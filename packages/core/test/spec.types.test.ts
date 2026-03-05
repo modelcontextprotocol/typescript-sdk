@@ -1,7 +1,7 @@
 /**
  * This contains:
  * - Static type checks to verify the Spec's types are compatible with the SDK's types
- *   (mutually assignable, w/ slight affordances to get rid of ZodObject.passthrough() index signatures, etc)
+ *   (mutually assignable — no type-level workarounds should be needed)
  * - Runtime checks to verify each Spec type has a static check
  *   (note: a few don't have SDK types, see MISSING_SDK_TYPES below)
  */
@@ -12,7 +12,6 @@ import type * as SpecTypes from '../src/types/spec.types.js';
 import type * as SDKTypes from '../src/types/types.js';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-function-type */
 
 // Adds the `jsonrpc` property to a type, to match the on-wire format of notifications.
 type WithJSONRPC<T> = T & { jsonrpc: '2.0' };
@@ -20,71 +19,12 @@ type WithJSONRPC<T> = T & { jsonrpc: '2.0' };
 // Adds the `jsonrpc` and `id` properties to a type, to match the on-wire format of requests.
 type WithJSONRPCRequest<T> = T & { jsonrpc: '2.0'; id: SDKTypes.RequestId };
 
-type IsUnknown<T> = [unknown] extends [T] ? ([T] extends [unknown] ? true : false) : false;
-
-// Turns {x?: unknown} into {x: unknown} but keeps {_meta?: unknown} unchanged (and leaves other optional properties unchanged, e.g. {x?: string}).
-// This works around an apparent quirk of ZodObject.unknown() (makes fields optional)
-type MakeUnknownsNotOptional<T> =
-    IsUnknown<T> extends true
-        ? unknown
-        : T extends object
-          ? T extends Array<infer U>
-              ? Array<MakeUnknownsNotOptional<U>>
-              : T extends Function
-                ? T
-                : Pick<T, never> & {
-                      // Start with empty object to avoid duplicates
-                      // Make unknown properties required (except _meta)
-                      [K in keyof T as '_meta' extends K ? never : IsUnknown<T[K]> extends true ? K : never]-?: unknown;
-                  } & Pick<
-                          T,
-                          {
-                              // Pick all _meta and non-unknown properties with original modifiers
-                              [K in keyof T]: '_meta' extends K ? K : IsUnknown<T[K]> extends true ? never : K;
-                          }[keyof T]
-                      > & {
-                          // Recurse on the picked properties
-                          [K in keyof Pick<
-                              T,
-                              {
-                                  [K in keyof T]: '_meta' extends K ? K : IsUnknown<T[K]> extends true ? never : K;
-                              }[keyof T]
-                          >]: MakeUnknownsNotOptional<T[K]>;
-                      }
-          : T;
-
-// Targeted fix: in spec, treat ClientCapabilities.elicitation?: object as Record<string, unknown>
-type FixSpecClientCapabilities<T> = T extends { elicitation?: object }
-    ? Omit<T, 'elicitation'> & { elicitation?: Record<string, unknown> }
-    : T;
-
-// Targeted fix: in spec, ServerCapabilities needs index signature to match SDK's passthrough
-type FixSpecServerCapabilities<T> = T & { [x: string]: unknown };
-
-type FixSpecInitializeResult<T> = T extends { capabilities: infer C } ? T & { capabilities: FixSpecServerCapabilities<C> } : T;
-
-type FixSpecInitializeRequestParams<T> = T extends { capabilities: infer C }
-    ? Omit<T, 'capabilities'> & { capabilities: FixSpecClientCapabilities<C> }
-    : T;
-
-type FixSpecInitializeRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
-
-type FixSpecClientRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
-
-// Targeted fix: CreateMessageResult in SDK uses single content for v1.x backwards compat.
-// The full array-capable type is CreateMessageResultWithTools.
-// This will be aligned with schema in v2.0.
-// Narrows content from SamplingMessageContentBlock (includes tool types) to basic content types only.
-type NarrowToBasicContent<C> = C extends { type: 'text' | 'image' | 'audio' } ? C : never;
-type FixSpecCreateMessageResult<T> = T extends { content: infer C; role: infer R; model: infer M }
-    ? {
-          _meta?: { [key: string]: unknown };
-          model: M;
-          role: R;
-          stopReason?: string;
-          content: C extends (infer U)[] ? NarrowToBasicContent<U> : NarrowToBasicContent<C>;
-      }
-    : T;
+// The spec defines typed *ResultResponse interfaces (e.g. InitializeResultResponse) that pair a
+// JSONRPCResultResponse envelope with a specific result type. The SDK doesn't export these because
+// nothing in the SDK needs the combined type — Protocol._onresponse() unwraps the envelope and
+// validates the inner result separately. We define this locally to verify the composition still
+// type-checks against the spec without polluting the SDK's public API.
+type TypedResultResponse<R extends SDKTypes.Result> = SDKTypes.JSONRPCResultResponse & { result: R };
 
 const sdkTypeChecks = {
     RequestParams: (sdk: SDKTypes.RequestParams, spec: SpecTypes.RequestParams) => {
@@ -99,10 +39,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeRequestParams: (
-        sdk: SDKTypes.InitializeRequestParams,
-        spec: FixSpecInitializeRequestParams<SpecTypes.InitializeRequestParams>
-    ) => {
+    InitializeRequestParams: (sdk: SDKTypes.InitializeRequestParams, spec: SpecTypes.InitializeRequestParams) => {
         sdk = spec;
         spec = sdk;
     },
@@ -146,7 +83,7 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     LoggingMessageNotificationParams: (
-        sdk: MakeUnknownsNotOptional<SDKTypes.LoggingMessageNotificationParams>,
+        sdk: SDKTypes.LoggingMessageNotificationParams,
         spec: SpecTypes.LoggingMessageNotificationParams
     ) => {
         sdk = spec;
@@ -360,7 +297,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageResult: (sdk: SDKTypes.CreateMessageResult, spec: FixSpecCreateMessageResult<SpecTypes.CreateMessageResult>) => {
+    CreateMessageResult: (sdk: SDKTypes.CreateMessageResultWithTools, spec: SpecTypes.CreateMessageResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -539,26 +476,23 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeRequest: (
-        sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>,
-        spec: FixSpecInitializeRequest<SpecTypes.InitializeRequest>
-    ) => {
+    InitializeRequest: (sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>, spec: SpecTypes.InitializeRequest) => {
         sdk = spec;
         spec = sdk;
     },
-    InitializeResult: (sdk: SDKTypes.InitializeResult, spec: FixSpecInitializeResult<SpecTypes.InitializeResult>) => {
+    InitializeResult: (sdk: SDKTypes.InitializeResult, spec: SpecTypes.InitializeResult) => {
         sdk = spec;
         spec = sdk;
     },
-    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: FixSpecClientCapabilities<SpecTypes.ClientCapabilities>) => {
+    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: SpecTypes.ClientCapabilities) => {
         sdk = spec;
         spec = sdk;
     },
-    ServerCapabilities: (sdk: SDKTypes.ServerCapabilities, spec: FixSpecServerCapabilities<SpecTypes.ServerCapabilities>) => {
+    ServerCapabilities: (sdk: SDKTypes.ServerCapabilities, spec: SpecTypes.ServerCapabilities) => {
         sdk = spec;
         spec = sdk;
     },
-    ClientRequest: (sdk: WithJSONRPCRequest<SDKTypes.ClientRequest>, spec: FixSpecClientRequest<SpecTypes.ClientRequest>) => {
+    ClientRequest: (sdk: WithJSONRPCRequest<SDKTypes.ClientRequest>, spec: SpecTypes.ClientRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -566,14 +500,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    LoggingMessageNotification: (
-        sdk: MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.LoggingMessageNotification>>,
-        spec: SpecTypes.LoggingMessageNotification
-    ) => {
+    LoggingMessageNotification: (sdk: WithJSONRPC<SDKTypes.LoggingMessageNotification>, spec: SpecTypes.LoggingMessageNotification) => {
         sdk = spec;
         spec = sdk;
     },
-    ServerNotification: (sdk: MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.ServerNotification>>, spec: SpecTypes.ServerNotification) => {
+    ServerNotification: (sdk: WithJSONRPC<SDKTypes.ServerNotification>, spec: SpecTypes.ServerNotification) => {
         sdk = spec;
         spec = sdk;
     },
@@ -688,6 +619,147 @@ const sdkTypeChecks = {
     TaskStatusNotification: (sdk: WithJSONRPC<SDKTypes.TaskStatusNotification>, spec: SpecTypes.TaskStatusNotification) => {
         sdk = spec;
         spec = sdk;
+    },
+
+    /* JSON primitives */
+    JSONValue: (sdk: SDKTypes.JSONValue, spec: SpecTypes.JSONValue) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    JSONObject: (sdk: SDKTypes.JSONObject, spec: SpecTypes.JSONObject) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    JSONArray: (sdk: SDKTypes.JSONArray, spec: SpecTypes.JSONArray) => {
+        sdk = spec;
+        spec = sdk;
+    },
+
+    /* Meta types */
+    MetaObject: (sdk: SDKTypes.MetaObject, spec: SpecTypes.MetaObject) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    RequestMetaObject: (sdk: SDKTypes.RequestMetaObject, spec: SpecTypes.RequestMetaObject) => {
+        sdk = spec;
+        spec = sdk;
+    },
+
+    /* Error types */
+    ParseError: (sdk: SDKTypes.ParseError, spec: SpecTypes.ParseError) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InvalidRequestError: (sdk: SDKTypes.InvalidRequestError, spec: SpecTypes.InvalidRequestError) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    MethodNotFoundError: (sdk: SDKTypes.MethodNotFoundError, spec: SpecTypes.MethodNotFoundError) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InvalidParamsError: (sdk: SDKTypes.InvalidParamsError, spec: SpecTypes.InvalidParamsError) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InternalError: (sdk: SDKTypes.InternalError, spec: SpecTypes.InternalError) => {
+        sdk = spec;
+        spec = sdk;
+    },
+
+    /* ResultResponse types — see TypedResultResponse comment above */
+    InitializeResultResponse: (sdk: TypedResultResponse<SDKTypes.InitializeResult>, spec: SpecTypes.InitializeResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    PingResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.PingResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourcesResultResponse: (sdk: TypedResultResponse<SDKTypes.ListResourcesResult>, spec: SpecTypes.ListResourcesResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourceTemplatesResultResponse: (
+        sdk: TypedResultResponse<SDKTypes.ListResourceTemplatesResult>,
+        spec: SpecTypes.ListResourceTemplatesResultResponse
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ReadResourceResultResponse: (sdk: TypedResultResponse<SDKTypes.ReadResourceResult>, spec: SpecTypes.ReadResourceResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SubscribeResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.SubscribeResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    UnsubscribeResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.UnsubscribeResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListPromptsResultResponse: (sdk: TypedResultResponse<SDKTypes.ListPromptsResult>, spec: SpecTypes.ListPromptsResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetPromptResultResponse: (sdk: TypedResultResponse<SDKTypes.GetPromptResult>, spec: SpecTypes.GetPromptResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListToolsResultResponse: (sdk: TypedResultResponse<SDKTypes.ListToolsResult>, spec: SpecTypes.ListToolsResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CallToolResultResponse: (sdk: TypedResultResponse<SDKTypes.CallToolResult>, spec: SpecTypes.CallToolResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CreateTaskResultResponse: (sdk: TypedResultResponse<SDKTypes.CreateTaskResult>, spec: SpecTypes.CreateTaskResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetTaskResultResponse: (sdk: TypedResultResponse<SDKTypes.GetTaskResult>, spec: SpecTypes.GetTaskResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetTaskPayloadResultResponse: (
+        sdk: TypedResultResponse<SDKTypes.GetTaskPayloadResult>,
+        spec: SpecTypes.GetTaskPayloadResultResponse
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CancelTaskResultResponse: (sdk: TypedResultResponse<SDKTypes.CancelTaskResult>, spec: SpecTypes.CancelTaskResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListTasksResultResponse: (sdk: TypedResultResponse<SDKTypes.ListTasksResult>, spec: SpecTypes.ListTasksResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SetLevelResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.SetLevelResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CreateMessageResultResponse: (
+        sdk: TypedResultResponse<SDKTypes.CreateMessageResultWithTools>,
+        spec: SpecTypes.CreateMessageResultResponse
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CompleteResultResponse: (sdk: TypedResultResponse<SDKTypes.CompleteResult>, spec: SpecTypes.CompleteResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListRootsResultResponse: (sdk: TypedResultResponse<SDKTypes.ListRootsResult>, spec: SpecTypes.ListRootsResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ElicitResultResponse: (sdk: TypedResultResponse<SDKTypes.ElicitResult>, spec: SpecTypes.ElicitResultResponse) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -714,7 +786,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(145);
+        expect(specTypes).toHaveLength(176);
     });
 
     it('should have up to date list of missing sdk types', () => {

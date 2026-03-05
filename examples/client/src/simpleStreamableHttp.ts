@@ -1,7 +1,6 @@
 import { createInterface } from 'node:readline';
 
 import type {
-    CallToolRequest,
     CallToolResult,
     GetPromptRequest,
     ListPromptsRequest,
@@ -646,16 +645,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     }
 
     try {
-        const request: CallToolRequest = {
-            method: 'tools/call',
-            params: {
-                name,
-                arguments: args
-            }
-        };
-
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = (await client.request(request)) as CallToolResult;
+        const result = await client.callTool({ name, arguments: args });
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
@@ -746,23 +737,18 @@ async function runNotificationsToolWithResumability(interval: number, count: num
         console.log(`Starting notification stream with resumability: interval=${interval}ms, count=${count || 'unlimited'}`);
         console.log(`Using resumption token: ${notificationsToolLastEventId || 'none'}`);
 
-        const request: CallToolRequest = {
-            method: 'tools/call',
-            params: {
-                name: 'start-notification-stream',
-                arguments: { interval, count }
-            }
-        };
-
         const onLastEventIdUpdate = (event: string) => {
             notificationsToolLastEventId = event;
             console.log(`Updated resumption token: ${event}`);
         };
 
-        const result = (await client.request(request, {
-            resumptionToken: notificationsToolLastEventId,
-            onresumptiontoken: onLastEventIdUpdate
-        })) as CallToolResult;
+        const result = await client.callTool(
+            { name: 'start-notification-stream', arguments: { interval, count } },
+            {
+                resumptionToken: notificationsToolLastEventId,
+                onresumptiontoken: onLastEventIdUpdate
+            }
+        );
 
         console.log('Tool result:');
         for (const item of result.content) {
