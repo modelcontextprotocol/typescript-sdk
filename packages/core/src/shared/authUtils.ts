@@ -4,7 +4,8 @@
 
 /**
  * Converts a server URL to a resource URL by removing the fragment.
- * RFC 8707 section 2 states that resource URIs "MUST NOT include a fragment component".
+ * {@link https://datatracker.ietf.org/doc/html/rfc8707#section-2 | RFC 8707 section 2}
+ * states that resource URIs "MUST NOT include a fragment component".
  * Keeps everything else unchanged (scheme, domain, port, path, query).
  */
 export function resourceUrlFromServerUrl(url: URL | string): URL {

@@ -1,37 +1,33 @@
-import type {
-    AnyObjectSchema,
-    GetPromptResult,
-    Icon,
-    Prompt,
-    PromptArgument,
-    RequestHandlerExtra,
-    ServerNotification,
-    ServerRequest,
-    ShapeOutput,
-    ZodRawShapeCompat
+import type { AnySchema, GetPromptResult, Icon, Prompt, PromptArgument, SchemaOutput, ServerContext } from '@modelcontextprotocol/core';
+import {
+    getSchemaDescription,
+    getSchemaShape,
+    isOptionalSchema,
+    parseSchemaAsync,
+    ProtocolError,
+    ProtocolErrorCode
 } from '@modelcontextprotocol/core';
-import { getObjectShape, getSchemaDescription, isSchemaOptional, objectFromShape } from '@modelcontextprotocol/core';
 
 import type { OnRemove, OnRename, OnUpdate } from './types.js';
 
 /**
  * Raw shape type for prompt arguments (Zod schema shape).
  */
-export type PromptArgsRawShape = ZodRawShapeCompat;
+export type PromptArgsRawShape = AnySchema;
 
 /**
  * Callback for a prompt handler registered with McpServer.registerPrompt().
  */
-export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (args: ShapeOutput<Args>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+export type PromptCallback<Args extends AnySchema | undefined = undefined> = Args extends AnySchema
+    ? (args: SchemaOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
+    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
 /**
  * Protocol fields for Prompt, derived from the Prompt type.
- * Uses argsSchema (Zod shape) instead of arguments array (converted in toProtocolPrompt).
+ * Uses argsSchema (Zod schema) instead of arguments array (converted in toProtocolPrompt).
  */
 export type PromptProtocolFields = Omit<Prompt, 'arguments'> & {
-    argsSchema?: AnyObjectSchema;
+    argsSchema?: AnySchema;
 };
 
 /**
@@ -39,18 +35,18 @@ export type PromptProtocolFields = Omit<Prompt, 'arguments'> & {
  * Combines protocol fields with SDK-specific callback.
  */
 export type PromptConfig = PromptProtocolFields & {
-    callback: PromptCallback<undefined | PromptArgsRawShape>;
+    callback: PromptCallback<AnySchema | undefined>;
 };
 
 /**
  * Converts a Zod object schema to an array of PromptArguments.
  */
-function promptArgumentsFromSchema(schema: AnyObjectSchema): PromptArgument[] {
-    const shape = getObjectShape(schema);
+function promptArgumentsFromSchema(schema: AnySchema): PromptArgument[] {
+    const shape = getSchemaShape(schema);
     if (!shape) return [];
     return Object.entries(shape).map(([name, field]): PromptArgument => {
         const description = getSchemaDescription(field);
-        const isOptional = isSchemaOptional(field);
+        const isOptional = isOptionalSchema(field);
         return {
             name,
             description,
@@ -68,7 +64,7 @@ export class RegisteredPrompt {
     #protocolFields: PromptProtocolFields;
 
     // SDK-specific fields - separate from protocol
-    #callback: PromptCallback<undefined | PromptArgsRawShape>;
+    #callback: PromptCallback<AnySchema | undefined>;
     #enabled: boolean = true;
 
     // Callbacks for McpServer communication
@@ -100,7 +96,7 @@ export class RegisteredPrompt {
     get icons(): Icon[] | undefined {
         return this.#protocolFields.icons;
     }
-    get argsSchema(): AnyObjectSchema | undefined {
+    get argsSchema(): AnySchema | undefined {
         return this.#protocolFields.argsSchema;
     }
     get _meta(): Record<string, unknown> | undefined {
@@ -108,7 +104,7 @@ export class RegisteredPrompt {
     }
 
     // SDK-specific getters
-    get callback(): PromptCallback<undefined | PromptArgsRawShape> {
+    get callback(): PromptCallback<AnySchema | undefined> {
         return this.#callback;
     }
     get enabled(): boolean {
@@ -164,7 +160,7 @@ export class RegisteredPrompt {
      * Updates the prompt's properties.
      * @param updates - The properties to update
      */
-    update<Args extends PromptArgsRawShape>(
+    update<Args extends AnySchema>(
         updates: {
             name?: string | null;
             argsSchema?: Args;
@@ -186,14 +182,14 @@ export class RegisteredPrompt {
         void _name; // Already handled above
         Object.assign(this.#protocolFields, protocolUpdates);
 
-        // Convert argsSchema from raw shape to object schema if provided
+        // Update argsSchema if provided
         if (argsSchema !== undefined) {
-            this.#protocolFields.argsSchema = objectFromShape(argsSchema);
+            this.#protocolFields.argsSchema = argsSchema;
         }
 
         // Update SDK-specific fields
         if (callback !== undefined) {
-            this.#callback = callback as PromptCallback<undefined | PromptArgsRawShape>;
+            this.#callback = callback as PromptCallback<AnySchema | undefined>;
         }
 
         // Handle enabled (triggers its own notification)
@@ -204,6 +200,31 @@ export class RegisteredPrompt {
         } else {
             this.disable();
         }
+    }
+
+    /**
+     * Executes the prompt handler with the given arguments and context.
+     * Handles schema validation when argsSchema is defined.
+     */
+    public async handler(args: Record<string, unknown> | undefined, ctx: ServerContext): Promise<GetPromptResult> {
+        if (this.#protocolFields.argsSchema) {
+            const typedCallback = this.#callback as (
+                args: SchemaOutput<AnySchema>,
+                ctx: ServerContext
+            ) => GetPromptResult | Promise<GetPromptResult>;
+            const parseResult = await parseSchemaAsync(this.#protocolFields.argsSchema, args);
+            if (!parseResult.success) {
+                const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+                throw new ProtocolError(
+                    ProtocolErrorCode.InvalidParams,
+                    `Invalid arguments for prompt ${this.#protocolFields.name}: ${errorMessage}`
+                );
+            }
+            return typedCallback(parseResult.data as SchemaOutput<AnySchema>, ctx);
+        }
+
+        const typedCallback = this.#callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        return typedCallback(ctx);
     }
 
     /**

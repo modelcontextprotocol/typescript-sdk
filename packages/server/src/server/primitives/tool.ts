@@ -1,19 +1,17 @@
 import type {
     AnySchema,
     CallToolResult,
+    CreateTaskResult,
+    CreateTaskServerContext,
     Icon,
-    RequestHandlerExtra,
     Result,
     SchemaOutput,
-    ServerNotification,
-    ServerRequest,
-    ShapeOutput,
+    ServerContext,
     Tool,
     ToolAnnotations,
-    ToolExecution,
-    ZodRawShapeCompat
+    ToolExecution
 } from '@modelcontextprotocol/core';
-import { normalizeObjectSchema, toJsonSchemaCompat, validateAndWarnToolName } from '@modelcontextprotocol/core';
+import { schemaToJson, validateAndWarnToolName } from '@modelcontextprotocol/core';
 
 import type { ToolTaskHandler } from '../../experimental/tasks/interfaces.js';
 import type { OnRemove, OnRename, OnUpdate } from './types.js';
@@ -23,13 +21,11 @@ import type { OnRemove, OnRename, OnUpdate } from './types.js';
  */
 export type BaseToolCallback<
     SendResultT extends Result,
-    Extra extends RequestHandlerExtra<ServerRequest, ServerNotification>,
-    Args extends undefined | ZodRawShapeCompat | AnySchema
-> = Args extends ZodRawShapeCompat
-    ? (args: ShapeOutput<Args>, extra: Extra) => SendResultT | Promise<SendResultT>
-    : Args extends AnySchema
-      ? (args: SchemaOutput<Args>, extra: Extra) => SendResultT | Promise<SendResultT>
-      : (extra: Extra) => SendResultT | Promise<SendResultT>;
+    Ctx extends ServerContext,
+    Args extends AnySchema | undefined
+> = Args extends AnySchema
+    ? (args: SchemaOutput<Args>, ctx: Ctx) => SendResultT | Promise<SendResultT>
+    : (ctx: Ctx) => SendResultT | Promise<SendResultT>;
 
 /**
  * Callback for a tool handler registered with McpServer.registerTool().
@@ -41,16 +37,12 @@ export type BaseToolCallback<
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = BaseToolCallback<
-    CallToolResult,
-    RequestHandlerExtra<ServerRequest, ServerNotification>,
-    Args
->;
+export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
 
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
-export type AnyToolHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends AnySchema | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
 /**
  * Protocol fields for Tool, derived from the Tool type.
@@ -66,7 +58,7 @@ export type ToolProtocolFields = Omit<Tool, 'inputSchema' | 'outputSchema'> & {
  * Combines protocol fields with SDK-specific handler.
  */
 export type ToolConfig = ToolProtocolFields & {
-    handler: AnyToolHandler<undefined | ZodRawShapeCompat>;
+    handler: AnyToolHandler<AnySchema | undefined>;
 };
 
 const EMPTY_OBJECT_JSON_SCHEMA = {
@@ -83,7 +75,7 @@ export class RegisteredTool {
     #protocolFields: ToolProtocolFields;
 
     // SDK-specific fields - separate from protocol
-    #handler: AnyToolHandler<undefined | ZodRawShapeCompat>;
+    #handler: AnyToolHandler<AnySchema | undefined>;
     #enabled: boolean = true;
 
     // Callbacks for McpServer communication
@@ -134,7 +126,7 @@ export class RegisteredTool {
     }
 
     // SDK-specific getters
-    get handler(): AnyToolHandler<undefined | ZodRawShapeCompat> {
+    get handler(): AnyToolHandler<AnySchema | undefined> {
         return this.#handler;
     }
     get enabled(): boolean {
@@ -219,6 +211,37 @@ export class RegisteredTool {
     }
 
     /**
+     * Executes the tool handler with the given arguments and context.
+     * Handles both regular callbacks and task-based handlers.
+     */
+    public async executor(args: unknown, ctx: ServerContext): Promise<CallToolResult | CreateTaskResult> {
+        const handler = this.#handler;
+        const isTaskHandler = typeof handler === 'object' && handler !== null && 'createTask' in handler;
+
+        if (isTaskHandler) {
+            type TaskCreateFn = (args: unknown, ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>;
+            type TaskCreateNoArgsFn = (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>;
+            const taskHandler = handler as { createTask: TaskCreateFn | TaskCreateNoArgsFn };
+            if (!ctx.task?.store) {
+                throw new Error('No task store provided.');
+            }
+            const taskCtx: CreateTaskServerContext = { ...ctx, task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } };
+            if (this.#protocolFields.inputSchema) {
+                return (taskHandler.createTask as TaskCreateFn)(args, taskCtx);
+            }
+            return (taskHandler.createTask as TaskCreateNoArgsFn)(taskCtx);
+        }
+
+        if (this.#protocolFields.inputSchema) {
+            const callback = handler as (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+            return callback(args, ctx);
+        }
+
+        const callback = handler as (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+        return callback(ctx);
+    }
+
+    /**
      * Converts to the Tool protocol type (for list responses).
      * Converts Zod schemas to JSON Schema format.
      */
@@ -226,19 +249,11 @@ export class RegisteredTool {
         return {
             ...this.#protocolFields,
             // Override schemas with JSON Schema conversion
-            inputSchema: (() => {
-                const obj = normalizeObjectSchema(this.#protocolFields.inputSchema);
-                return obj
-                    ? (toJsonSchemaCompat(obj, { strictUnions: true, pipeStrategy: 'input' }) as Tool['inputSchema'])
-                    : EMPTY_OBJECT_JSON_SCHEMA;
-            })(),
+            inputSchema: this.#protocolFields.inputSchema
+                ? (schemaToJson(this.#protocolFields.inputSchema, { io: 'input' }) as Tool['inputSchema'])
+                : EMPTY_OBJECT_JSON_SCHEMA,
             outputSchema: this.#protocolFields.outputSchema
-                ? (() => {
-                      const obj = normalizeObjectSchema(this.#protocolFields.outputSchema);
-                      return obj
-                          ? (toJsonSchemaCompat(obj, { strictUnions: true, pipeStrategy: 'output' }) as Tool['outputSchema'])
-                          : undefined;
-                  })()
+                ? (schemaToJson(this.#protocolFields.outputSchema, { io: 'output' }) as Tool['outputSchema'])
                 : undefined
         };
     }

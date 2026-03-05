@@ -2,10 +2,8 @@ import type {
     Icon,
     ListResourcesResult,
     ReadResourceResult,
-    RequestHandlerExtra,
     ResourceTemplateType,
-    ServerNotification,
-    ServerRequest,
+    ServerContext,
     Variables
 } from '@modelcontextprotocol/core';
 import { UriTemplate } from '@modelcontextprotocol/core';
@@ -16,9 +14,7 @@ import type { OnRemove, OnRename, OnUpdate } from './types.js';
 /**
  * Callback to list all resources matching a given template.
  */
-export type ListResourcesCallback = (
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-) => ListResourcesResult | Promise<ListResourcesResult>;
+export type ListResourcesCallback = (ctx: ServerContext) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
  * Callback to read a resource at a given URI, following a filled-in URI template.
@@ -26,7 +22,7 @@ export type ListResourcesCallback = (
 export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    ctx: ServerContext
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 /**

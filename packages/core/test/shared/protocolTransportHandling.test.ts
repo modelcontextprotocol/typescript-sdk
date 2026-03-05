@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 
+import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
 import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
@@ -28,16 +29,19 @@ class MockTransport implements Transport {
 }
 
 describe('Protocol transport handling bug', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transportA: MockTransport;
     let transportB: MockTransport;
 
     beforeEach(() => {
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<BaseContext> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected buildContext(ctx: BaseContext): BaseContext {
+                return ctx;
+            }
             protected assertTaskHandlerCapability(): void {}
         })();
 
@@ -86,8 +90,8 @@ describe('Protocol transport handling bug', () => {
         const results: { transport: string; response: JSONRPCMessage[] }[] = [];
 
         // Set up handler with variable delay based on request id
-        protocol.setRequestHandler('ping', async (_request, extra) => {
-            const delay = extra.requestId === 1 ? 50 : 10;
+        protocol.setRequestHandler('ping', async (_request, ctx) => {
+            const delay = ctx.mcpReq.id === 1 ? 50 : 10;
             await new Promise(resolve => setTimeout(resolve, delay));
             return {};
         });

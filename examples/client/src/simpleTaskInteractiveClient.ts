@@ -9,14 +9,8 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ProtocolError,
-    ProtocolErrorCode,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import type { CallToolResult, CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
+import { Client, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -127,7 +121,6 @@ async function run(url: string): Promise<void> {
 
     const confirmStream = client.experimental.tasks.callToolStream(
         { name: 'confirm_delete', arguments: { filename: 'important.txt' } },
-        CallToolResultSchema,
         { task: { ttl: 60_000 } }
     );
 
@@ -142,7 +135,8 @@ async function run(url: string): Promise<void> {
                 break;
             }
             case 'result': {
-                console.log(`Result: ${getTextContent(message.result)}`);
+                const toolResult = message.result as CallToolResult;
+                console.log(`Result: ${getTextContent(toolResult)}`);
                 break;
             }
             case 'error': {
@@ -158,10 +152,7 @@ async function run(url: string): Promise<void> {
 
     const haikuStream = client.experimental.tasks.callToolStream(
         { name: 'write_haiku', arguments: { topic: 'autumn leaves' } },
-        CallToolResultSchema,
-        {
-            task: { ttl: 60_000 }
-        }
+        { task: { ttl: 60_000 } }
     );
 
     for await (const message of haikuStream) {
@@ -175,7 +166,8 @@ async function run(url: string): Promise<void> {
                 break;
             }
             case 'result': {
-                console.log(`Result:\n${getTextContent(message.result)}`);
+                const toolResult = message.result as CallToolResult;
+                console.log(`Result:\n${getTextContent(toolResult)}`);
                 break;
             }
             case 'error': {

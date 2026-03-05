@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
-import { ElicitResultSchema, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -200,10 +200,10 @@ function createMcpServer() {
         'test_tool_with_logging',
         {
             description: 'Tests tool that emits log messages during execution',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
-        async (_args, extra): Promise<CallToolResult> => {
-            await extra.sendNotification({
+        async (_args, ctx): Promise<CallToolResult> => {
+            await ctx.mcpReq.notify({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -212,7 +212,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -221,7 +221,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/message',
                 params: {
                     level: 'info',
@@ -239,12 +239,12 @@ function createMcpServer() {
         'test_tool_with_progress',
         {
             description: 'Tests tool that reports progress notifications',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
-        async (_args, extra): Promise<CallToolResult> => {
-            const progressToken = extra._meta?.progressToken ?? 0;
+        async (_args, ctx): Promise<CallToolResult> => {
+            const progressToken = ctx.mcpReq._meta?.progressToken ?? 0;
             console.log('Progress token:', progressToken);
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -255,7 +255,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -266,7 +266,7 @@ function createMcpServer() {
             });
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: {
                     progressToken,
@@ -299,25 +299,25 @@ function createMcpServer() {
         {
             description:
                 'Tests SSE stream disconnection and client reconnection (SEP-1699). Server will close the stream mid-call and send the result after client reconnects.',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
-        async (_args, extra): Promise<CallToolResult> => {
+        async (_args, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            console.log(`[${extra.sessionId}] Starting test_reconnection tool...`);
+            console.log(`[${ctx.sessionId}] Starting test_reconnection tool...`);
 
             // Get the transport for this session
-            const transport = extra.sessionId ? transports[extra.sessionId] : undefined;
-            if (transport && extra.requestId) {
+            const transport = ctx.sessionId ? transports[ctx.sessionId] : undefined;
+            if (transport && ctx.mcpReq.id) {
                 // Close the SSE stream to trigger client reconnection
-                console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-                transport.closeSSEStream(extra.requestId);
+                console.log(`[${ctx.sessionId}] Closing SSE stream to trigger client polling...`);
+                transport.closeSSEStream(ctx.mcpReq.id);
             }
 
             // Wait for client to reconnect (should respect retry field)
             await sleep(100);
 
-            console.log(`[${extra.sessionId}] test_reconnection tool complete`);
+            console.log(`[${ctx.sessionId}] test_reconnection tool complete`);
 
             return {
                 content: [
@@ -335,31 +335,28 @@ function createMcpServer() {
         'test_sampling',
         {
             description: 'Tests server-initiated sampling (LLM completion request)',
-            inputSchema: {
+            inputSchema: z.object({
                 prompt: z.string().describe('The prompt to send to the LLM')
-            }
+            })
         },
-        async (args: { prompt: string }, extra): Promise<CallToolResult> => {
+        async (args: { prompt: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request sampling from client
-                const result = (await extra.sendRequest(
-                    {
-                        method: 'sampling/createMessage',
-                        params: {
-                            messages: [
-                                {
-                                    role: 'user',
-                                    content: {
-                                        type: 'text',
-                                        text: args.prompt
-                                    }
+                const result = (await ctx.mcpReq.send({
+                    method: 'sampling/createMessage',
+                    params: {
+                        messages: [
+                            {
+                                role: 'user',
+                                content: {
+                                    type: 'text',
+                                    text: args.prompt
                                 }
-                            ],
-                            maxTokens: 100
-                        }
-                    },
-                    z.object({ method: z.literal('sampling/createMessage') }).passthrough()
-                )) as { content?: { text?: string }; message?: { content?: { text?: string } } };
+                            }
+                        ],
+                        maxTokens: 100
+                    }
+                })) as { content?: { text?: string }; message?: { content?: { text?: string } } };
 
                 const modelResponse = result.content?.text || result.message?.content?.text || 'No response';
 
@@ -389,32 +386,29 @@ function createMcpServer() {
         'test_elicitation',
         {
             description: 'Tests server-initiated elicitation (user input request)',
-            inputSchema: {
+            inputSchema: z.object({
                 message: z.string().describe('The message to show the user')
-            }
+            })
         },
-        async (args: { message: string }, extra): Promise<CallToolResult> => {
+        async (args: { message: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input from client
-                const result = await extra.sendRequest(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            message: args.message,
-                            requestedSchema: {
-                                type: 'object',
-                                properties: {
-                                    response: {
-                                        type: 'string',
-                                        description: "User's response"
-                                    }
-                                },
-                                required: ['response']
-                            }
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        message: args.message,
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                response: {
+                                    type: 'string',
+                                    description: "User's response"
+                                }
+                            },
+                            required: ['response']
                         }
-                    },
-                    ElicitResultSchema
-                );
+                    }
+                });
 
                 const elicitResult = result as { action?: string; content?: unknown };
                 return {
@@ -443,52 +437,49 @@ function createMcpServer() {
         'test_elicitation_sep1034_defaults',
         {
             description: 'Tests elicitation with default values per SEP-1034',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
-        async (_args, extra): Promise<CallToolResult> => {
+        async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with default values for all primitive types
-                const result = await extra.sendRequest(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            message: 'Please review and update the form fields with defaults',
-                            requestedSchema: {
-                                type: 'object',
-                                properties: {
-                                    name: {
-                                        type: 'string',
-                                        description: 'User name',
-                                        default: 'John Doe'
-                                    },
-                                    age: {
-                                        type: 'integer',
-                                        description: 'User age',
-                                        default: 30
-                                    },
-                                    score: {
-                                        type: 'number',
-                                        description: 'User score',
-                                        default: 95.5
-                                    },
-                                    status: {
-                                        type: 'string',
-                                        description: 'User status',
-                                        enum: ['active', 'inactive', 'pending'],
-                                        default: 'active'
-                                    },
-                                    verified: {
-                                        type: 'boolean',
-                                        description: 'Verification status',
-                                        default: true
-                                    }
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        message: 'Please review and update the form fields with defaults',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                name: {
+                                    type: 'string',
+                                    description: 'User name',
+                                    default: 'John Doe'
                                 },
-                                required: []
-                            }
+                                age: {
+                                    type: 'integer',
+                                    description: 'User age',
+                                    default: 30
+                                },
+                                score: {
+                                    type: 'number',
+                                    description: 'User score',
+                                    default: 95.5
+                                },
+                                status: {
+                                    type: 'string',
+                                    description: 'User status',
+                                    enum: ['active', 'inactive', 'pending'],
+                                    default: 'active'
+                                },
+                                verified: {
+                                    type: 'boolean',
+                                    description: 'Verification status',
+                                    default: true
+                                }
+                            },
+                            required: []
                         }
-                    },
-                    ElicitResultSchema
-                );
+                    }
+                });
 
                 const elicitResult = result as { action?: string; content?: unknown };
                 return {
@@ -517,74 +508,71 @@ function createMcpServer() {
         'test_elicitation_sep1330_enums',
         {
             description: 'Tests elicitation with enum schema improvements per SEP-1330',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
-        async (_args, extra): Promise<CallToolResult> => {
+        async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with all 5 enum schema variants
-                const result = await extra.sendRequest(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            message: 'Please select options from the enum fields',
-                            requestedSchema: {
-                                type: 'object',
-                                properties: {
-                                    // Untitled single-select enum (basic)
-                                    untitledSingle: {
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        message: 'Please select options from the enum fields',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                // Untitled single-select enum (basic)
+                                untitledSingle: {
+                                    type: 'string',
+                                    description: 'Select one option',
+                                    enum: ['option1', 'option2', 'option3']
+                                },
+                                // Titled single-select enum (using oneOf with const/title)
+                                titledSingle: {
+                                    type: 'string',
+                                    description: 'Select one option with titles',
+                                    oneOf: [
+                                        { const: 'value1', title: 'First Option' },
+                                        { const: 'value2', title: 'Second Option' },
+                                        { const: 'value3', title: 'Third Option' }
+                                    ]
+                                },
+                                // Legacy titled enum (using enumNames - deprecated)
+                                legacyEnum: {
+                                    type: 'string',
+                                    description: 'Select one option (legacy)',
+                                    enum: ['opt1', 'opt2', 'opt3'],
+                                    enumNames: ['Option One', 'Option Two', 'Option Three']
+                                },
+                                // Untitled multi-select enum
+                                untitledMulti: {
+                                    type: 'array',
+                                    description: 'Select multiple options',
+                                    minItems: 1,
+                                    maxItems: 3,
+                                    items: {
                                         type: 'string',
-                                        description: 'Select one option',
                                         enum: ['option1', 'option2', 'option3']
-                                    },
-                                    // Titled single-select enum (using oneOf with const/title)
-                                    titledSingle: {
-                                        type: 'string',
-                                        description: 'Select one option with titles',
-                                        oneOf: [
-                                            { const: 'value1', title: 'First Option' },
-                                            { const: 'value2', title: 'Second Option' },
-                                            { const: 'value3', title: 'Third Option' }
-                                        ]
-                                    },
-                                    // Legacy titled enum (using enumNames - deprecated)
-                                    legacyEnum: {
-                                        type: 'string',
-                                        description: 'Select one option (legacy)',
-                                        enum: ['opt1', 'opt2', 'opt3'],
-                                        enumNames: ['Option One', 'Option Two', 'Option Three']
-                                    },
-                                    // Untitled multi-select enum
-                                    untitledMulti: {
-                                        type: 'array',
-                                        description: 'Select multiple options',
-                                        minItems: 1,
-                                        maxItems: 3,
-                                        items: {
-                                            type: 'string',
-                                            enum: ['option1', 'option2', 'option3']
-                                        }
-                                    },
-                                    // Titled multi-select enum (using anyOf with const/title)
-                                    titledMulti: {
-                                        type: 'array',
-                                        description: 'Select multiple options with titles',
-                                        minItems: 1,
-                                        maxItems: 3,
-                                        items: {
-                                            anyOf: [
-                                                { const: 'value1', title: 'First Choice' },
-                                                { const: 'value2', title: 'Second Choice' },
-                                                { const: 'value3', title: 'Third Choice' }
-                                            ]
-                                        }
                                     }
                                 },
-                                required: []
-                            }
+                                // Titled multi-select enum (using anyOf with const/title)
+                                titledMulti: {
+                                    type: 'array',
+                                    description: 'Select multiple options with titles',
+                                    minItems: 1,
+                                    maxItems: 3,
+                                    items: {
+                                        anyOf: [
+                                            { const: 'value1', title: 'First Choice' },
+                                            { const: 'value2', title: 'Second Choice' },
+                                            { const: 'value3', title: 'Third Choice' }
+                                        ]
+                                    }
+                                }
+                            },
+                            required: []
                         }
-                    },
-                    ElicitResultSchema
-                );
+                    }
+                });
 
                 const elicitResult = result as { action?: string; content?: unknown };
                 return {
@@ -613,7 +601,7 @@ function createMcpServer() {
         'json_schema_2020_12_tool',
         {
             description: 'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613)',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().optional(),
                 address: z
                     .object({
@@ -621,7 +609,7 @@ function createMcpServer() {
                         city: z.string().optional()
                     })
                     .optional()
-            }
+            })
         },
         async (args: { name?: string; address?: { street?: string; city?: string } }): Promise<CallToolResult> => {
             return {
@@ -775,10 +763,10 @@ function createMcpServer() {
         {
             title: 'Prompt With Arguments',
             description: 'A prompt with required arguments',
-            argsSchema: {
+            argsSchema: z.object({
                 arg1: z.string().describe('First test argument'),
                 arg2: z.string().describe('Second test argument')
-            }
+            })
         },
         async (args: { arg1: string; arg2: string }): Promise<GetPromptResult> => {
             return {
@@ -801,9 +789,9 @@ function createMcpServer() {
         {
             title: 'Prompt With Embedded Resource',
             description: 'A prompt that includes an embedded resource',
-            argsSchema: {
+            argsSchema: z.object({
                 resourceUri: z.string().describe('URI of the resource to embed')
-            }
+            })
         },
         async (args: { resourceUri: string }): Promise<GetPromptResult> => {
             return {

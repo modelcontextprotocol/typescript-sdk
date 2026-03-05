@@ -3,8 +3,8 @@ import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/types
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 /**
- * Normalizes HeadersInit to a plain Record<string, string> for manipulation.
- * Handles Headers objects, arrays of tuples, and plain objects.
+ * Normalizes `HeadersInit` to a plain `Record<string, string>` for manipulation.
+ * Handles `Headers` objects, arrays of tuples, and plain objects.
  */
 export function normalizeHeaders(headers: RequestInit['headers'] | undefined): Record<string, string> {
     if (!headers) return {};
@@ -21,11 +21,11 @@ export function normalizeHeaders(headers: RequestInit['headers'] | undefined): R
 }
 
 /**
- * Creates a fetch function that includes base RequestInit options.
+ * Creates a fetch function that includes base `RequestInit` options.
  * This ensures requests inherit settings like credentials, mode, headers, etc. from the base init.
  *
- * @param baseFetch - The base fetch function to wrap (defaults to global fetch)
- * @param baseInit - The base RequestInit to merge with each request
+ * @param baseFetch - The base fetch function to wrap (defaults to global `fetch`)
+ * @param baseInit - The base `RequestInit` to merge with each request
  * @returns A wrapped fetch function that merges base options with call-specific options
  */
 export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: RequestInit): FetchLike {
@@ -77,7 +77,7 @@ export interface Transport {
      *
      * This method should only be called after callbacks are installed, or else messages may be lost.
      *
-     * NOTE: This method should not be called explicitly when using Client, Server, or Protocol classes, as they will implicitly call start().
+     * NOTE: This method should not be called explicitly when using {@linkcode @modelcontextprotocol/client!client/client.Client | Client}, {@linkcode @modelcontextprotocol/server!server/server.Server | Server}, or {@linkcode @modelcontextprotocol/server!index.Protocol | Protocol} classes, as they will implicitly call {@linkcode Transport.start | start()}.
      */
     start(): Promise<void>;
 
@@ -96,7 +96,7 @@ export interface Transport {
     /**
      * Callback for when the connection is closed for any reason.
      *
-     * This should be invoked when close() is called as well.
+     * This should be invoked when {@linkcode Transport.close | close()} is called as well.
      */
     onclose?: () => void;
 
@@ -110,9 +110,9 @@ export interface Transport {
     /**
      * Callback for when a message (request or response) is received over the connection.
      *
-     * Includes the requestInfo and authInfo if the transport is authenticated.
+     * Includes the {@linkcode MessageExtraInfo.requestInfo | requestInfo} and {@linkcode MessageExtraInfo.authInfo | authInfo} if the transport is authenticated.
      *
-     * The requestInfo can be used to get the original request information (headers, etc.)
+     * The {@linkcode MessageExtraInfo.requestInfo | requestInfo} can be used to get the original request information (headers, etc.)
      */
     onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
 

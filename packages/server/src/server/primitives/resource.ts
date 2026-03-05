@@ -1,11 +1,4 @@
-import type {
-    Icon,
-    ReadResourceResult,
-    RequestHandlerExtra,
-    Resource,
-    ServerNotification,
-    ServerRequest
-} from '@modelcontextprotocol/core';
+import type { Icon, ReadResourceResult, Resource, ServerContext } from '@modelcontextprotocol/core';
 
 import type { OnRemove, OnRename, OnUpdate } from './types.js';
 
@@ -17,10 +10,7 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
 /**
  * Callback to read a resource at a given URI.
  */
-export type ReadResourceCallback = (
-    uri: URL,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-) => ReadResourceResult | Promise<ReadResourceResult>;
+export type ReadResourceCallback = (uri: URL, ctx: ServerContext) => ReadResourceResult | Promise<ReadResourceResult>;
 
 /**
  * Protocol fields for Resource, derived from the Resource type.
