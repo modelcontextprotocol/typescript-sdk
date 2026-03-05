@@ -526,7 +526,13 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports task creation.
      */
-    tasks: ClientTasksCapabilitySchema.optional()
+    tasks: ClientTasksCapabilitySchema.optional(),
+    /**
+     * Present if the client supports declarative file inputs for tools and
+     * elicitation. When declared, servers MAY include `inputFiles` on {@linkcode Tool}
+     * definitions and `requestedFiles` on form-mode elicitation parameters.
+     */
+    fileInputs: AssertObjectSchema.optional()
 });
 
 export const InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -1375,6 +1381,26 @@ export const ToolExecutionSchema = z.object({
 });
 
 /**
+ * Describes a single file input argument for a tool or elicitation form.
+ * Provides optional hints for client-side file picker filtering and validation.
+ * All fields are advisory; servers MUST still validate inputs independently.
+ */
+export const FileInputDescriptorSchema = z.object({
+    /**
+     * MIME type patterns that the server will accept for this input.
+     * Supports exact types (e.g., `"image/png"`) and wildcard subtypes
+     * (e.g., `"image/*"`). If omitted, any file type is accepted.
+     */
+    accept: z.array(z.string()).optional(),
+    /**
+     * Maximum file size in bytes (decoded size, per file). Servers SHOULD reject
+     * larger files with JSON-RPC `-32602` (Invalid Params) and the structured
+     * reason `"file_too_large"`.
+     */
+    maxSize: z.number().int().optional()
+});
+
+/**
  * Definition for a tool the client can call.
  */
 export const ToolSchema = z.object({
@@ -1416,6 +1442,19 @@ export const ToolSchema = z.object({
      * Execution-related properties for this tool.
      */
     execution: ToolExecutionSchema.optional(),
+    /**
+     * Declares which arguments in `inputSchema` are file inputs. Keys MUST match
+     * property names in `inputSchema.properties`, and the corresponding schema
+     * properties MUST be `{"type": "string", "format": "uri"}` or an array thereof.
+     *
+     * Servers MUST NOT include this field unless the client declared the
+     * `fileInputs` capability during initialization.
+     *
+     * Clients SHOULD render a native file picker for these arguments. Selected files
+     * are encoded as RFC 2397 data URIs: `data:<mediatype>;name=<filename>;base64,<data>`,
+     * where the `name=` parameter (percent-encoded) carries the original filename.
+     */
+    inputFiles: z.record(z.string(), FileInputDescriptorSchema).optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1971,9 +2010,29 @@ export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchem
 export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
 
 /**
+ * Schema for a flat array of strings. Intended primarily for multi-file
+ * inputs in elicitation forms, where each item is a data URI string with
+ * `format: "uri"`. Items MUST use {@linkcode StringSchema}; nesting is not permitted.
+ */
+export const StringArraySchemaSchema = z.object({
+    type: z.literal('array'),
+    items: StringSchemaSchema,
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().int().optional(),
+    maxItems: z.number().int().optional()
+});
+
+/**
  * Union of all primitive schema definitions.
  */
-export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
+export const PrimitiveSchemaDefinitionSchema = z.union([
+    EnumSchemaSchema,
+    BooleanSchemaSchema,
+    StringSchemaSchema,
+    NumberSchemaSchema,
+    StringArraySchemaSchema
+]);
 
 /**
  * Parameters for an `elicitation/create` request for form-based elicitation.
@@ -1997,7 +2056,21 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
         type: z.literal('object'),
         properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
         required: z.array(z.string()).optional()
-    })
+    }),
+    /**
+     * Declares which fields in `requestedSchema` are file inputs. Keys MUST match
+     * property names in `requestedSchema.properties`, and the corresponding schema
+     * properties MUST be a {@linkcode StringSchema} with `format: "uri"` or a
+     * {@linkcode StringArraySchema} whose `items` has `format: "uri"`.
+     *
+     * Servers MUST NOT include this field unless the client declared the
+     * `fileInputs` capability during initialization.
+     *
+     * Clients SHOULD render a native file picker for these fields. Selected files
+     * are encoded as RFC 2397 data URIs: `data:<mediatype>;name=<filename>;base64,<data>`,
+     * where the `name=` parameter (percent-encoded) carries the original filename.
+     */
+    requestedFiles: z.record(z.string(), FileInputDescriptorSchema).optional()
 });
 
 /**
@@ -2516,6 +2589,7 @@ export type PromptListChangedNotification = Infer<typeof PromptListChangedNotifi
 /* Tools */
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 export type ToolExecution = Infer<typeof ToolExecutionSchema>;
+export type FileInputDescriptor = Infer<typeof FileInputDescriptorSchema>;
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
@@ -2570,6 +2644,7 @@ export type UntitledMultiSelectEnumSchema = Infer<typeof UntitledMultiSelectEnum
 export type TitledMultiSelectEnumSchema = Infer<typeof TitledMultiSelectEnumSchemaSchema>;
 export type SingleSelectEnumSchema = Infer<typeof SingleSelectEnumSchemaSchema>;
 export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
+export type StringArraySchema = Infer<typeof StringArraySchemaSchema>;
 
 export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
 export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
