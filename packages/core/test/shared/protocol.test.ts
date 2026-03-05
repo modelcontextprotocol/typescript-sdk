@@ -38,7 +38,10 @@ interface TestProtocol {
     _taskMessageQueue?: TaskMessageQueue;
     _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
     _responseHandlers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
-    _taskProgressTokens: Map<string, number>;
+    getProgressManager(): {
+        getTaskProgressToken(taskId: string): number | undefined;
+        cleanupTaskProgressHandler(taskId: string): void;
+    };
     _clearTaskQueue: (taskId: string, sessionId?: string) => Promise<void>;
     requestTaskStore: (request: Request, authInfo: unknown) => TaskStore;
     // Protected methods (exposed for testing)
@@ -1070,7 +1073,7 @@ describe('Task-based execution', () => {
 
             void testRequest(protocol, request, resultSchema, {
                 task: {
-                    ttl: 30000,
+                    ttl: 30_000,
                     pollInterval: 1000
                 }
             }).catch(() => {
@@ -1083,7 +1086,7 @@ describe('Task-based execution', () => {
                     params: {
                         name: 'test-tool',
                         task: {
-                            ttl: 30000,
+                            ttl: 30_000,
                             pollInterval: 1000
                         }
                     }
@@ -1111,7 +1114,7 @@ describe('Task-based execution', () => {
 
             void testRequest(protocol, request, resultSchema, {
                 task: {
-                    ttl: 60000
+                    ttl: 60_000
                 }
             }).catch(() => {
                 // May not complete, ignore error
@@ -1125,7 +1128,7 @@ describe('Task-based execution', () => {
                             customField: 'customValue'
                         },
                         task: {
-                            ttl: 60000
+                            ttl: 60_000
                         }
                     }
                 }),
@@ -1147,7 +1150,7 @@ describe('Task-based execution', () => {
 
             const resultPromise = testRequest(protocol, request, resultSchema, {
                 task: {
-                    ttl: 30000
+                    ttl: 30_000
                 }
             });
 
@@ -1234,7 +1237,7 @@ describe('Task-based execution', () => {
             // Start the request (don't await completion, just let it send)
             void testRequest(protocol, request, resultSchema, {
                 task: {
-                    ttl: 60000,
+                    ttl: 60_000,
                     pollInterval: 1000
                 },
                 relatedTask: {
@@ -1261,7 +1264,7 @@ describe('Task-based execution', () => {
             expect(queuedMessage.message.params).toMatchObject({
                 name: 'test-tool',
                 task: {
-                    ttl: 60000,
+                    ttl: 60_000,
                     pollInterval: 1000
                 },
                 _meta: {
@@ -1301,7 +1304,7 @@ describe('Task-based execution', () => {
             protocol.setRequestHandler('tools/call', async request => {
                 // Tool implementor can access task creation parameters from request.params.task
                 expect(request.params.task).toEqual({
-                    ttl: 60000,
+                    ttl: 60_000,
                     pollInterval: 1000
                 });
                 return { content: [{ type: 'text', text: 'success' }] };
@@ -1315,7 +1318,7 @@ describe('Task-based execution', () => {
                     name: 'test',
                     arguments: {},
                     task: {
-                        ttl: 60000,
+                        ttl: 60_000,
                         pollInterval: 1000
                     }
                 }
@@ -1347,7 +1350,7 @@ describe('Task-based execution', () => {
 
             const task2 = await mockTaskStore.createTask(
                 {
-                    ttl: 60000,
+                    ttl: 60_000,
                     pollInterval: 1000
                 },
                 2,
@@ -1396,7 +1399,7 @@ describe('Task-based execution', () => {
                 {
                     taskId: task2.taskId,
                     status: 'working',
-                    ttl: 60000,
+                    ttl: 60_000,
                     createdAt: expect.any(String),
                     lastUpdatedAt: expect.any(String),
                     pollInterval: 1000
@@ -1536,7 +1539,7 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(4);
             expect(sentMessage.error).toBeDefined();
-            expect(sentMessage.error.code).toBe(-32602); // InvalidParams error code
+            expect(sentMessage.error.code).toBe(-32_602); // InvalidParams error code
             expect(sentMessage.error.message).toContain('Failed to list tasks');
             expect(sentMessage.error.message).toContain('Invalid cursor');
         });
@@ -1596,7 +1599,7 @@ describe('Task-based execution', () => {
                             {
                                 taskId: 'task-11',
                                 status: 'working',
-                                ttl: 30000,
+                                ttl: 30_000,
                                 createdAt: '2024-01-01T00:00:00Z',
                                 lastUpdatedAt: '2024-01-01T00:00:00Z',
                                 pollInterval: 1000
@@ -1721,7 +1724,7 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(6);
             expect(sentMessage.error).toBeDefined();
-            expect(sentMessage.error.code).toBe(-32602); // InvalidParams error code
+            expect(sentMessage.error.code).toBe(-32_602); // InvalidParams error code
             expect(sentMessage.error.message).toContain('Task not found');
         });
 
@@ -1772,7 +1775,7 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(7);
             expect(sentMessage.error).toBeDefined();
-            expect(sentMessage.error.code).toBe(-32602); // InvalidParams error code
+            expect(sentMessage.error.code).toBe(-32_602); // InvalidParams error code
             expect(sentMessage.error.message).toContain('Cannot cancel task in terminal status');
         });
 
@@ -1790,7 +1793,7 @@ describe('Task-based execution', () => {
                         _meta: {},
                         taskId: 'task-to-delete',
                         status: 'cancelled',
-                        ttl: 60000,
+                        ttl: 60_000,
                         createdAt: new Date().toISOString(),
                         lastUpdatedAt: new Date().toISOString()
                     }
@@ -2211,7 +2214,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+            const task = await taskStore.createTask({ ttl: 60_000 }, 'req-1', {
                 method: 'test/method',
                 params: {}
             });
@@ -2243,7 +2246,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+            const task = await taskStore.createTask({ ttl: 60_000 }, 'req-1', {
                 method: 'test/method',
                 params: {}
             });
@@ -2277,7 +2280,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             const sendSpy = vi.spyOn(transport, 'send');
 
             // Create a task and mark it as completed
-            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+            const task = await taskStore.createTask({ ttl: 60_000 }, 'req-1', {
                 method: 'test/method',
                 params: {}
             });
@@ -2349,7 +2352,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+            const task = await taskStore.createTask({ ttl: 60_000 }, 'req-1', {
                 method: 'test/method',
                 params: {}
             });
@@ -2385,7 +2388,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             });
 
             // Create a task (simulating a long-running tools/call)
-            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+            const task = await taskStore.createTask({ ttl: 60_000 }, 'req-1', {
                 method: 'tools/call',
                 params: { name: 'long-running-tool', arguments: {} }
             });
@@ -2483,7 +2486,7 @@ describe('Progress notification support for tasks', () => {
 
         // Start a task-augmented request with progress callback
         void testRequest(protocol, request, resultSchema, {
-            task: { ttl: 60000 },
+            task: { ttl: 60_000 },
             onprogress: progressCallback
         }).catch(() => {
             // May not complete, ignore error
@@ -2509,7 +2512,7 @@ describe('Progress notification support for tasks', () => {
                     task: {
                         taskId,
                         status: 'working',
-                        ttl: 60000,
+                        ttl: 60_000,
                         createdAt: new Date().toISOString()
                     }
                 }
@@ -2563,7 +2566,7 @@ describe('Progress notification support for tasks', () => {
         // Set up a request handler that will complete the task
         protocol.setRequestHandler('tools/call', async (_request, ctx) => {
             if (ctx.task?.store) {
-                const task = await ctx.task.store.createTask({ ttl: 60000 });
+                const task = await ctx.task.store.createTask({ ttl: 60_000 });
 
                 // Simulate async work then complete the task
                 const taskStore = ctx.task.store;
@@ -2595,7 +2598,7 @@ describe('Progress notification support for tasks', () => {
 
         // Start a task-augmented request with progress callback
         void testRequest(protocol, request, resultSchema, {
-            task: { ttl: 60000 },
+            task: { ttl: 60_000 },
             onprogress: progressCallback
         }).catch(() => {
             // May not complete, ignore error
@@ -2609,7 +2612,7 @@ describe('Progress notification support for tasks', () => {
         const progressToken = sentRequest.params._meta.progressToken;
 
         // Create a task in the mock store first so it exists when we try to get it later
-        const createdTask = await taskStore.createTask({ ttl: 60000 }, messageId, request);
+        const createdTask = await taskStore.createTask({ ttl: 60_000 }, messageId, request);
         const taskId = createdTask.taskId;
 
         // Simulate CreateTaskResult response
@@ -2644,9 +2647,8 @@ describe('Progress notification support for tasks', () => {
         expect(progressCallback).toHaveBeenCalledTimes(1);
 
         // Verify the task-progress association was created
-        const taskProgressTokens = (protocol as unknown as TestProtocol)._taskProgressTokens as Map<string, number>;
-        expect(taskProgressTokens.has(taskId)).toBe(true);
-        expect(taskProgressTokens.get(taskId)).toBe(progressToken);
+        const progressManager = (protocol as unknown as TestProtocol).getProgressManager();
+        expect(progressManager.getTaskProgressToken(taskId)).toBe(progressToken);
 
         // Simulate task completion by calling through the protocol's task store
         // This will trigger the cleanup logic
@@ -2658,7 +2660,7 @@ describe('Progress notification support for tasks', () => {
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Verify the association was cleaned up
-        expect(taskProgressTokens.has(taskId)).toBe(false);
+        expect(progressManager.getTaskProgressToken(taskId)).toBeUndefined();
 
         // Try to send progress notification after task completion - should be ignored
         progressCallback.mockClear();
@@ -2713,7 +2715,7 @@ describe('Progress notification support for tasks', () => {
         });
 
         void testRequest(protocol, request, resultSchema, {
-            task: { ttl: 60000 },
+            task: { ttl: 60_000 },
             onprogress: progressCallback
         });
 
@@ -2731,7 +2733,7 @@ describe('Progress notification support for tasks', () => {
                     task: {
                         taskId,
                         status: 'working',
-                        ttl: 60000,
+                        ttl: 60_000,
                         createdAt: new Date().toISOString()
                     }
                 }
@@ -2754,7 +2756,7 @@ describe('Progress notification support for tasks', () => {
                 params: {
                     taskId,
                     status: 'failed',
-                    ttl: 60000,
+                    ttl: 60_000,
                     createdAt: new Date().toISOString(),
                     lastUpdatedAt: new Date().toISOString(),
                     statusMessage: 'Task failed'
@@ -2814,7 +2816,7 @@ describe('Progress notification support for tasks', () => {
         });
 
         void testRequest(protocol, request, resultSchema, {
-            task: { ttl: 60000 },
+            task: { ttl: 60_000 },
             onprogress: progressCallback
         });
 
@@ -2832,7 +2834,7 @@ describe('Progress notification support for tasks', () => {
                     task: {
                         taskId,
                         status: 'working',
-                        ttl: 60000,
+                        ttl: 60_000,
                         createdAt: new Date().toISOString()
                     }
                 }
@@ -2852,7 +2854,7 @@ describe('Progress notification support for tasks', () => {
                 params: {
                     taskId,
                     status: 'cancelled',
-                    ttl: 60000,
+                    ttl: 60_000,
                     createdAt: new Date().toISOString(),
                     lastUpdatedAt: new Date().toISOString(),
                     statusMessage: 'User cancelled'
@@ -2912,7 +2914,7 @@ describe('Progress notification support for tasks', () => {
         });
 
         void testRequest(protocol, request, resultSchema, {
-            task: { ttl: 60000 },
+            task: { ttl: 60_000 },
             onprogress: progressCallback
         });
 
@@ -2930,7 +2932,7 @@ describe('Progress notification support for tasks', () => {
                     task: {
                         taskId,
                         status: 'working',
-                        ttl: 60000,
+                        ttl: 60_000,
                         createdAt: new Date().toISOString()
                     }
                 }
@@ -2984,7 +2986,7 @@ describe('Progress notification support for tasks', () => {
 
         void testRequest(protocol, request, resultSchema, {
             task: {
-                ttl: 60000
+                ttl: 60_000
             },
             onprogress: onProgressMock
         });
@@ -3009,7 +3011,7 @@ describe('Progress notification support for tasks', () => {
 
         void testRequest(protocol, request, resultSchema, {
             task: {
-                ttl: 30000
+                ttl: 30_000
             },
             onprogress: onProgressMock
         });
@@ -3059,7 +3061,7 @@ describe('Progress notification support for tasks', () => {
 
         void testRequest(protocol, request, resultSchema, {
             task: {
-                ttl: 30000
+                ttl: 30_000
             },
             onprogress: onProgressMock
         });
@@ -3076,7 +3078,7 @@ describe('Progress notification support for tasks', () => {
                     task: {
                         taskId: 'task-123',
                         status: 'working',
-                        ttl: 30000,
+                        ttl: 30_000,
                         createdAt: new Date().toISOString()
                     }
                 }
@@ -3167,7 +3169,7 @@ describe('Message interception for task-related notifications', () => {
         await server.connect(transport);
 
         // Create a task first
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a notification with related task metadata
         await server.notification(
@@ -3237,7 +3239,7 @@ describe('Message interception for task-related notifications', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Fill the queue to max capacity (100 messages)
         for (let i = 0; i < 100; i++) {
@@ -3323,7 +3325,7 @@ describe('Message interception for task-related notifications', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send multiple notifications
         for (let i = 0; i < 5; i++) {
@@ -3368,7 +3370,7 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task first
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata (don't await - we're testing queuing)
         const requestPromise = testRequest(
@@ -3467,7 +3469,7 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata
         const requestPromise = testRequest(
@@ -3524,7 +3526,7 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata
         const requestPromise = testRequest(
@@ -3598,7 +3600,7 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata
         void testRequest(
@@ -3673,7 +3675,7 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+        const task = await taskStore.createTask({ ttl: 60_000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Fill the queue to max capacity (100 messages)
         const promises: Promise<unknown>[] = [];
@@ -5075,7 +5077,7 @@ describe('Error handling for missing resolvers', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             // Enqueue a response message without a corresponding resolver
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5120,7 +5122,7 @@ describe('Error handling for missing resolvers', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             // Enqueue a response with missing resolver, then a valid notification
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5161,7 +5163,7 @@ describe('Error handling for missing resolvers', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             // Enqueue a request without storing a resolver
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5191,7 +5193,7 @@ describe('Error handling for missing resolvers', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             const requestId = 42;
             const resolverMock = vi.fn();
@@ -5231,7 +5233,7 @@ describe('Error handling for missing resolvers', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             const testProtocol = protocol as unknown as TestProtocol;
 
@@ -5335,7 +5337,7 @@ describe('Error handling for missing resolvers', () => {
         it('should not throw when processing response with missing resolver', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             await taskMessageQueue.enqueue(task.taskId, {
                 type: 'response',
@@ -5367,7 +5369,7 @@ describe('Error handling for missing resolvers', () => {
         it('should not throw during task cleanup with missing resolvers', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             await taskMessageQueue.enqueue(task.taskId, {
                 type: 'request',
@@ -5391,7 +5393,7 @@ describe('Error handling for missing resolvers', () => {
         it('should route error messages to resolvers correctly', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
             const requestId = 42;
             const resolverMock = vi.fn();
 
@@ -5444,7 +5446,7 @@ describe('Error handling for missing resolvers', () => {
         it('should log error for unknown request ID in error messages', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             // Enqueue an error message without a corresponding resolver
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5488,7 +5490,7 @@ describe('Error handling for missing resolvers', () => {
         it('should handle error messages with data field', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
             const requestId = 42;
             const resolverMock = vi.fn();
 
@@ -5537,7 +5539,7 @@ describe('Error handling for missing resolvers', () => {
         it('should not throw when processing error with missing resolver', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
 
             await taskMessageQueue.enqueue(task.taskId, {
                 type: 'error',
@@ -5574,7 +5576,7 @@ describe('Error handling for missing resolvers', () => {
         it('should handle mixed response and error messages in queue', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
             const testProtocol = protocol as unknown as TestProtocol;
 
             // Set up resolvers for multiple requests
@@ -5660,7 +5662,7 @@ describe('Error handling for missing resolvers', () => {
         it('should maintain FIFO order when processing responses and errors', async () => {
             await protocol.connect(transport);
 
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const task = await taskStore.createTask({ ttl: 60_000 }, 1, { method: 'test', params: {} });
             const testProtocol = protocol as unknown as TestProtocol;
 
             const callOrder: number[] = [];
@@ -5684,7 +5686,7 @@ describe('Error handling for missing resolvers', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 2,
-                    error: { code: -32600, message: 'Error' }
+                    error: { code: -32_600, message: 'Error' }
                 },
                 timestamp: 2000
             });
