@@ -765,4 +765,264 @@ describe('Zod v4', () => {
             await expect(transport.start()).rejects.toThrow('Transport already started');
         });
     });
+
+    describe('HTTPServerTransport - onerror callback', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+        let sessionId: string;
+        let onerrorSpy: ReturnType<typeof vi.fn>;
+
+        beforeEach(async () => {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.registerTool(
+                'greet',
+                {
+                    description: 'A simple greeting tool',
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
+                },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+
+            onerrorSpy = vi.fn();
+            transport.onerror = onerrorSpy;
+
+            await mcpServer.connect(transport);
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        async function initializeServer(): Promise<string> {
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+            const response = await transport.handleRequest(request);
+            expect(response.status).toBe(200);
+            const newSessionId = response.headers.get('mcp-session-id');
+            expect(newSessionId).toBeDefined();
+            return newSessionId as string;
+        }
+
+        it('should call onerror for POST with wrong Accept header', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.initialize, { accept: 'application/json' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(406);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Not Acceptable/)
+                })
+            );
+        });
+
+        it('should call onerror for POST with wrong Content-Type', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'text/plain'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(415);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Unsupported Media Type/)
+                })
+            );
+        });
+
+        it('should call onerror for invalid JSON body', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body: 'not valid json'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Parse error.*Invalid JSON/)
+                })
+            );
+        });
+
+        it('should call onerror for invalid JSON-RPC message', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ not: 'a valid jsonrpc message' })
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Parse error.*Invalid JSON-RPC/)
+                })
+            );
+        });
+
+        it('should call onerror for duplicate initialization', async () => {
+            sessionId = await initializeServer();
+
+            // Reset spy after init (which succeeds without error)
+            onerrorSpy.mockClear();
+
+            const request = createRequest('POST', { ...TEST_MESSAGES.initialize, id: 'second-init' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Server already initialized/)
+                })
+            );
+        });
+
+        it('should call onerror for batch initialization', async () => {
+            const batchInit: JSONRPCMessage[] = [TEST_MESSAGES.initialize, { ...TEST_MESSAGES.initialize, id: 'init-2' }];
+
+            const request = createRequest('POST', batchInit);
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Only one initialization request/)
+                })
+            );
+        });
+
+        it('should call onerror for missing session ID', async () => {
+            await initializeServer();
+            onerrorSpy.mockClear();
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList);
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Mcp-Session-Id header is required/)
+                })
+            );
+        });
+
+        it('should call onerror for invalid session ID', async () => {
+            await initializeServer();
+            onerrorSpy.mockClear();
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, { sessionId: 'invalid-session' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(404);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Session not found/)
+                })
+            );
+        });
+
+        it('should call onerror for unsupported protocol version', async () => {
+            sessionId = await initializeServer();
+            onerrorSpy.mockClear();
+
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': 'unsupported-version'
+                },
+                body: JSON.stringify(TEST_MESSAGES.toolsList)
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Unsupported protocol version/)
+                })
+            );
+        });
+
+        it('should call onerror for unsupported HTTP method', async () => {
+            const request = new Request('http://localhost/mcp', { method: 'PUT' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(405);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Method not allowed/)
+                })
+            );
+        });
+
+        it('should call onerror for GET without Accept: text/event-stream', async () => {
+            sessionId = await initializeServer();
+            onerrorSpy.mockClear();
+
+            const request = createRequest('GET', undefined, { sessionId, accept: 'application/json' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(406);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Not Acceptable/)
+                })
+            );
+        });
+
+        it('should call onerror for duplicate GET SSE stream', async () => {
+            sessionId = await initializeServer();
+
+            // First SSE stream
+            const request1 = createRequest('GET', undefined, { sessionId });
+            const response1 = await transport.handleRequest(request1);
+            expect(response1.status).toBe(200);
+
+            onerrorSpy.mockClear();
+
+            // Second SSE stream should trigger onerror
+            const request2 = createRequest('GET', undefined, { sessionId });
+            const response2 = await transport.handleRequest(request2);
+
+            expect(response2.status).toBe(409);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Conflict/)
+                })
+            );
+        });
+
+        it('should call onerror for server not initialized', async () => {
+            // Don't initialize - just send a request that requires session
+            const request = createRequest('GET', undefined, { sessionId: 'some-session' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(onerrorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringMatching(/Server not initialized/)
+                })
+            );
+        });
+    });
 });
