@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
-import { ElicitResultSchema, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -342,24 +342,21 @@ function createMcpServer() {
         async (args: { prompt: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request sampling from client
-                const result = (await ctx.mcpReq.send(
-                    {
-                        method: 'sampling/createMessage',
-                        params: {
-                            messages: [
-                                {
-                                    role: 'user',
-                                    content: {
-                                        type: 'text',
-                                        text: args.prompt
-                                    }
+                const result = (await ctx.mcpReq.send({
+                    method: 'sampling/createMessage',
+                    params: {
+                        messages: [
+                            {
+                                role: 'user',
+                                content: {
+                                    type: 'text',
+                                    text: args.prompt
                                 }
-                            ],
-                            maxTokens: 100
-                        }
-                    },
-                    z.object({ method: z.literal('sampling/createMessage') }).passthrough()
-                )) as { content?: { text?: string }; message?: { content?: { text?: string } } };
+                            }
+                        ],
+                        maxTokens: 100
+                    }
+                })) as { content?: { text?: string }; message?: { content?: { text?: string } } };
 
                 const modelResponse = result.content?.text || result.message?.content?.text || 'No response';
 
@@ -396,25 +393,22 @@ function createMcpServer() {
         async (args: { message: string }, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input from client
-                const result = await ctx.mcpReq.send(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            message: args.message,
-                            requestedSchema: {
-                                type: 'object',
-                                properties: {
-                                    response: {
-                                        type: 'string',
-                                        description: "User's response"
-                                    }
-                                },
-                                required: ['response']
-                            }
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        message: args.message,
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                response: {
+                                    type: 'string',
+                                    description: "User's response"
+                                }
+                            },
+                            required: ['response']
                         }
-                    },
-                    ElicitResultSchema
-                );
+                    }
+                });
 
                 const elicitResult = result as { action?: string; content?: unknown };
                 return {
@@ -448,47 +442,44 @@ function createMcpServer() {
         async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with default values for all primitive types
-                const result = await ctx.mcpReq.send(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            message: 'Please review and update the form fields with defaults',
-                            requestedSchema: {
-                                type: 'object',
-                                properties: {
-                                    name: {
-                                        type: 'string',
-                                        description: 'User name',
-                                        default: 'John Doe'
-                                    },
-                                    age: {
-                                        type: 'integer',
-                                        description: 'User age',
-                                        default: 30
-                                    },
-                                    score: {
-                                        type: 'number',
-                                        description: 'User score',
-                                        default: 95.5
-                                    },
-                                    status: {
-                                        type: 'string',
-                                        description: 'User status',
-                                        enum: ['active', 'inactive', 'pending'],
-                                        default: 'active'
-                                    },
-                                    verified: {
-                                        type: 'boolean',
-                                        description: 'Verification status',
-                                        default: true
-                                    }
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        message: 'Please review and update the form fields with defaults',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                name: {
+                                    type: 'string',
+                                    description: 'User name',
+                                    default: 'John Doe'
                                 },
-                                required: []
-                            }
+                                age: {
+                                    type: 'integer',
+                                    description: 'User age',
+                                    default: 30
+                                },
+                                score: {
+                                    type: 'number',
+                                    description: 'User score',
+                                    default: 95.5
+                                },
+                                status: {
+                                    type: 'string',
+                                    description: 'User status',
+                                    enum: ['active', 'inactive', 'pending'],
+                                    default: 'active'
+                                },
+                                verified: {
+                                    type: 'boolean',
+                                    description: 'Verification status',
+                                    default: true
+                                }
+                            },
+                            required: []
                         }
-                    },
-                    ElicitResultSchema
-                );
+                    }
+                });
 
                 const elicitResult = result as { action?: string; content?: unknown };
                 return {
@@ -522,69 +513,66 @@ function createMcpServer() {
         async (_args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input with all 5 enum schema variants
-                const result = await ctx.mcpReq.send(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            message: 'Please select options from the enum fields',
-                            requestedSchema: {
-                                type: 'object',
-                                properties: {
-                                    // Untitled single-select enum (basic)
-                                    untitledSingle: {
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        message: 'Please select options from the enum fields',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                // Untitled single-select enum (basic)
+                                untitledSingle: {
+                                    type: 'string',
+                                    description: 'Select one option',
+                                    enum: ['option1', 'option2', 'option3']
+                                },
+                                // Titled single-select enum (using oneOf with const/title)
+                                titledSingle: {
+                                    type: 'string',
+                                    description: 'Select one option with titles',
+                                    oneOf: [
+                                        { const: 'value1', title: 'First Option' },
+                                        { const: 'value2', title: 'Second Option' },
+                                        { const: 'value3', title: 'Third Option' }
+                                    ]
+                                },
+                                // Legacy titled enum (using enumNames - deprecated)
+                                legacyEnum: {
+                                    type: 'string',
+                                    description: 'Select one option (legacy)',
+                                    enum: ['opt1', 'opt2', 'opt3'],
+                                    enumNames: ['Option One', 'Option Two', 'Option Three']
+                                },
+                                // Untitled multi-select enum
+                                untitledMulti: {
+                                    type: 'array',
+                                    description: 'Select multiple options',
+                                    minItems: 1,
+                                    maxItems: 3,
+                                    items: {
                                         type: 'string',
-                                        description: 'Select one option',
                                         enum: ['option1', 'option2', 'option3']
-                                    },
-                                    // Titled single-select enum (using oneOf with const/title)
-                                    titledSingle: {
-                                        type: 'string',
-                                        description: 'Select one option with titles',
-                                        oneOf: [
-                                            { const: 'value1', title: 'First Option' },
-                                            { const: 'value2', title: 'Second Option' },
-                                            { const: 'value3', title: 'Third Option' }
-                                        ]
-                                    },
-                                    // Legacy titled enum (using enumNames - deprecated)
-                                    legacyEnum: {
-                                        type: 'string',
-                                        description: 'Select one option (legacy)',
-                                        enum: ['opt1', 'opt2', 'opt3'],
-                                        enumNames: ['Option One', 'Option Two', 'Option Three']
-                                    },
-                                    // Untitled multi-select enum
-                                    untitledMulti: {
-                                        type: 'array',
-                                        description: 'Select multiple options',
-                                        minItems: 1,
-                                        maxItems: 3,
-                                        items: {
-                                            type: 'string',
-                                            enum: ['option1', 'option2', 'option3']
-                                        }
-                                    },
-                                    // Titled multi-select enum (using anyOf with const/title)
-                                    titledMulti: {
-                                        type: 'array',
-                                        description: 'Select multiple options with titles',
-                                        minItems: 1,
-                                        maxItems: 3,
-                                        items: {
-                                            anyOf: [
-                                                { const: 'value1', title: 'First Choice' },
-                                                { const: 'value2', title: 'Second Choice' },
-                                                { const: 'value3', title: 'Third Choice' }
-                                            ]
-                                        }
                                     }
                                 },
-                                required: []
-                            }
+                                // Titled multi-select enum (using anyOf with const/title)
+                                titledMulti: {
+                                    type: 'array',
+                                    description: 'Select multiple options with titles',
+                                    minItems: 1,
+                                    maxItems: 3,
+                                    items: {
+                                        anyOf: [
+                                            { const: 'value1', title: 'First Choice' },
+                                            { const: 'value2', title: 'Second Choice' },
+                                            { const: 'value3', title: 'Third Choice' }
+                                        ]
+                                    }
+                                }
+                            },
+                            required: []
                         }
-                    },
-                    ElicitResultSchema
-                );
+                    }
+                });
 
                 const elicitResult = result as { action?: string; content?: unknown };
                 return {

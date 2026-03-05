@@ -10,6 +10,7 @@ import { createInterface } from 'node:readline';
 
 import type {
     CallToolRequest,
+    CallToolResult,
     ElicitRequest,
     ElicitRequestURLParams,
     ElicitResult,
@@ -18,10 +19,8 @@ import type {
     ResourceLink
 } from '@modelcontextprotocol/client';
 import {
-    CallToolResultSchema,
     Client,
     getDisplayName,
-    ListToolsResultSchema,
     ProtocolError,
     ProtocolErrorCode,
     StreamableHTTPClientTransport,
@@ -666,7 +665,7 @@ async function listTools(): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -697,7 +696,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
         };
 
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = await client.request(request, CallToolResultSchema);
+        const result = (await client.request(request)) as CallToolResult;
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
