@@ -1,0 +1,47 @@
+# lefthook.yml
+# Configuration reference: https://lefthook.dev/configuration/
+
+assert_lefthook_installed: true
+
+output:
+    - meta # Print lefthook version
+    - summary # Print summary block (successful and failed steps)
+    - empty_summary # Print summary heading when there are no steps to run
+    - success # Print successful steps
+    - failure # Print failed steps printing
+    - execution # Print any execution logs (but prints if the execution failed)
+    - execution_out # Print execution output (but still prints failed commands output)
+    - execution_info # Print `EXECUTE > ...` logging
+    - skips # Print "skip" (i.e. no files matched)
+
+pre-push:
+    follow: true
+    parallel: true
+    jobs:
+        - name: 'Typecheck'
+          run: pnpm run typecheck:all
+          fail_text: |
+              💡 To catch typechecking issues earlier, enable the pre-commit hook:
+              cp lefthook-local.example.yml lefthook-local.yml
+
+        - name: 'Lint'
+          run: pnpm run lint:all
+          fail_text: |
+              💡 To catch linting issues earlier, enable the pre-commit hook:
+              cp lefthook-local.example.yml lefthook-local.yml
+
+        - name: 'Build'
+          run: pnpm run build:all
+          fail_text: |
+              💡 To catch build issues earlier, enable the pre-commit hook:
+              cp lefthook-local.example.yml lefthook-local.yml
+
+post-checkout:
+    jobs:
+        - name: 'Install Dependencies'
+          run: pnpm install
+
+post-merge:
+    jobs:
+        - name: 'Install Dependencies'
+          run: pnpm install
