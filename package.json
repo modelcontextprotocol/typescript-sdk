@@ -13,8 +13,7 @@
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
     },
     "engines": {
-        "node": ">=20",
-        "pnpm": ">=10.24.0"
+        "node": ">=20"
     },
     "packageManager": "pnpm@10.26.1",
     "keywords": [
@@ -23,15 +22,17 @@
     ],
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
+        "sync:snippets": "tsx scripts/sync-snippets.ts",
         "examples:simple-server:w": "pnpm --filter @modelcontextprotocol/examples-server exec tsx --watch src/simpleStreamableHttp.ts --oauth",
         "docs": "typedoc",
-        "docs:check": "typedoc --emit none",
+        "docs:multi": "bash scripts/generate-multidoc.sh",
+        "docs:check": "typedoc",
         "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",
         "prepack:all": "pnpm -r prepack",
-        "lint:all": "pnpm -r lint",
-        "lint:fix:all": "pnpm -r lint:fix",
-        "check:all": "pnpm -r typecheck && pnpm -r lint",
+        "lint:all": "pnpm sync:snippets --check && pnpm -r lint",
+        "lint:fix:all": "pnpm sync:snippets && pnpm -r lint:fix",
+        "check:all": "pnpm -r typecheck && pnpm -r lint && pnpm run docs:check",
         "test:all": "pnpm -r test",
         "prepare": "npx --no-install lefthook install",
         "test:conformance:client": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client",

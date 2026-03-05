@@ -1,0 +1,53 @@
+name: Deploy Docs
+
+on:
+    push:
+        branches:
+            - main
+            - v1.x
+    workflow_dispatch:
+
+concurrency:
+    group: deploy-docs
+    cancel-in-progress: true
+
+jobs:
+    deploy-docs:
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: read
+            pages: write
+            id-token: write
+
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  run_install: false
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Generate multi-version docs
+              run: bash scripts/generate-multidoc.sh tmp/docs-combined
+
+            - name: Configure Pages
+              uses: actions/configure-pages@v5
+
+            - name: Upload Pages artifact
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: tmp/docs-combined
+
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v4

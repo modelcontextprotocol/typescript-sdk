@@ -11,3 +11,7 @@ pnpm-lock.yaml
 
 # Ignore generated files
 src/spec.types.ts
+
+# Quickstart examples uses 2-space indent to match ecosystem conventions
+examples/client-quickstart/
+examples/server-quickstart/

@@ -25,20 +25,19 @@ pnpm tsx src/simpleStreamableHttp.ts
 
 ## Example index
 
-| Scenario                                            | Description                                                                                     | File                                                                                         |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Streamable HTTP server (stateful)                   | Feature-rich server with tools/resources/prompts, logging, tasks, sampling, and optional OAuth. | [`src/simpleStreamableHttp.ts`](src/simpleStreamableHttp.ts)                                 |
-| Streamable HTTP server (stateless)                  | No session tracking; good for simple API-style servers.                                         | [`src/simpleStatelessStreamableHttp.ts`](src/simpleStatelessStreamableHttp.ts)               |
-| JSON response mode (no SSE)                         | Streamable HTTP with JSON-only responses and limited notifications.                             | [`src/jsonResponseStreamableHttp.ts`](src/jsonResponseStreamableHttp.ts)                     |
-| Server notifications over Streamable HTTP           | Demonstrates server-initiated notifications via GET+SSE.                                        | [`src/standaloneSseWithGetStreamableHttp.ts`](src/standaloneSseWithGetStreamableHttp.ts)     |
-| Deprecated HTTP+SSE server (legacy)                 | Legacy HTTP+SSE transport for backwards-compatibility testing.                                  | [`src/simpleSseServer.ts`](src/simpleSseServer.ts)                                           |
-| Backwards-compatible server (Streamable HTTP + SSE) | One server that supports both Streamable HTTP and legacy SSE clients.                           | [`src/sseAndStreamableHttpCompatibleServer.ts`](src/sseAndStreamableHttpCompatibleServer.ts) |
-| Form elicitation server                             | Collects **non-sensitive** user input via schema-driven forms.                                  | [`src/elicitationFormExample.ts`](src/elicitationFormExample.ts)                             |
-| URL elicitation server                              | Secure browser-based flows for **sensitive** input (API keys, OAuth, payments).                 | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                               |
-| Sampling + tasks server                             | Demonstrates sampling and experimental task-based execution.                                    | [`src/toolWithSampleServer.ts`](src/toolWithSampleServer.ts)                                 |
-| Task interactive server                             | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                               |
-| Hono Streamable HTTP server                         | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)               |
-| SSE polling demo server                             | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                       |
+| Scenario                                  | Description                                                                                     | File                                                                                     |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Streamable HTTP server (stateful)         | Feature-rich server with tools/resources/prompts, logging, tasks, sampling, and optional OAuth. | [`src/simpleStreamableHttp.ts`](src/simpleStreamableHttp.ts)                             |
+| Streamable HTTP server (stateless)        | No session tracking; good for simple API-style servers.                                         | [`src/simpleStatelessStreamableHttp.ts`](src/simpleStatelessStreamableHttp.ts)           |
+| JSON response mode (no SSE)               | Streamable HTTP with JSON-only responses and limited notifications.                             | [`src/jsonResponseStreamableHttp.ts`](src/jsonResponseStreamableHttp.ts)                 |
+| Server notifications over Streamable HTTP | Demonstrates server-initiated notifications via GET+SSE.                                        | [`src/standaloneSseWithGetStreamableHttp.ts`](src/standaloneSseWithGetStreamableHttp.ts) |
+| Output schema server                      | Demonstrates tool output validation with structured output schemas.                             | [`src/mcpServerOutputSchema.ts`](src/mcpServerOutputSchema.ts)                           |
+| Form elicitation server                   | Collects **non-sensitive** user input via schema-driven forms.                                  | [`src/elicitationFormExample.ts`](src/elicitationFormExample.ts)                         |
+| URL elicitation server                    | Secure browser-based flows for **sensitive** input (API keys, OAuth, payments).                 | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                           |
+| Sampling + tasks server                   | Demonstrates sampling and experimental task-based execution.                                    | [`src/toolWithSampleServer.ts`](src/toolWithSampleServer.ts)                             |
+| Task interactive server                   | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                           |
+| Hono Streamable HTTP server               | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)           |
+| SSE polling demo server                   | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                   |
 
 ## OAuth demo flags (Streamable HTTP server)
 
@@ -161,12 +160,10 @@ For scenarios where local in-memory state must be maintained on specific nodes, 
 
 ## Backwards compatibility (Streamable HTTP ↔ legacy SSE)
 
-Start one of the servers:
+Start the server:
 
 ```bash
-pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleSseServer.ts
 pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
-pnpm --filter @modelcontextprotocol/examples-server exec tsx src/sseAndStreamableHttpCompatibleServer.ts
 ```
 
 Then run the backwards-compatible client:

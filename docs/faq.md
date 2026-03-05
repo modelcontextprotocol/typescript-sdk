@@ -82,4 +82,4 @@ wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
 
 ### Where do v1 documentation and v1-specific fixes live?
 
-The v1 generation of this SDK is maintained on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). If you’re using v1, refer to that branch for documentation and any v1-specific fixes.
+The v1 API documentation is available at [`https://ts.sdk.modelcontextprotocol.io/`](https://ts.sdk.modelcontextprotocol.io/). The v1 source code and any v1-specific fixes live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). V2 API docs are at [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).

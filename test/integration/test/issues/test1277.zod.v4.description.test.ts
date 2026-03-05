@@ -7,14 +7,11 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport, ListPromptsResultSchema } from '@modelcontextprotocol/core';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
-describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Issue #1277: Zod v4', () => {
     test('should preserve argument descriptions from .describe()', async () => {
         const mcpServer = new McpServer({
             name: 'test server',
@@ -28,10 +25,10 @@ describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixE
         mcpServer.registerPrompt(
             'test',
             {
-                argsSchema: {
+                argsSchema: z.object({
                     name: z.string().describe('The user name'),
                     value: z.string().describe('The value to set')
-                }
+                })
             },
             async ({ name, value }) => ({
                 messages: [
@@ -50,12 +47,9 @@ describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixE
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        const result = await client.request(
-            {
-                method: 'prompts/list'
-            },
-            ListPromptsResultSchema
-        );
+        const result = await client.request({
+            method: 'prompts/list'
+        });
 
         expect(result.prompts).toHaveLength(1);
         expect(result.prompts[0]!.name).toBe('test');

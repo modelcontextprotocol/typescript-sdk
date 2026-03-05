@@ -4,6 +4,8 @@
  * This provider uses @cfworker/json-schema for validation without code generation,
  * making it compatible with edge runtimes like Cloudflare Workers that restrict
  * eval and new Function.
+ *
+ * @see {@linkcode AjvJsonSchemaValidator} for the Node.js alternative
  */
 
 import { Validator } from '@cfworker/json-schema';
@@ -17,15 +19,16 @@ export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
 
 /**
  *
- * @example
- * ```typescript
- * // Use with default configuration (2020-12, shortcircuit)
+ * @example Use with default configuration (2020-12, shortcircuit)
+ * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_default"
  * const validator = new CfWorkerJsonSchemaValidator();
+ * ```
  *
- * // Use with custom configuration
+ * @example Use with custom configuration
+ * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_customConfig"
  * const validator = new CfWorkerJsonSchemaValidator({
- *   draft: '2020-12',
- *   shortcircuit: false // Report all errors
+ *     draft: '2020-12',
+ *     shortcircuit: false // Report all errors
  * });
  * ```
  */
@@ -37,8 +40,8 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      * Create a validator
      *
      * @param options - Configuration options
-     * @param options.shortcircuit - If true, stop validation after first error (default: true)
-     * @param options.draft - JSON Schema draft version to use (default: '2020-12')
+     * @param options.shortcircuit - If `true`, stop validation after first error (default: `true`)
+     * @param options.draft - JSON Schema draft version to use (default: `'2020-12'`)
      */
     constructor(options?: { shortcircuit?: boolean; draft?: CfWorkerSchemaDraft }) {
         this.shortcircuit = options?.shortcircuit ?? true;

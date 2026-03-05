@@ -1,10 +1,12 @@
+import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims';
 import type {
+    BaseContext,
     CallToolRequest,
     ClientCapabilities,
+    ClientContext,
     ClientNotification,
     ClientRequest,
     ClientResult,
-    CompatibilityCallToolResultSchema,
     CompleteRequest,
     GetPromptRequest,
     Implementation,
@@ -18,16 +20,14 @@ import type {
     ListResourceTemplatesRequest,
     ListToolsRequest,
     LoggingLevel,
-    Notification,
+    MessageExtraInfo,
     NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
-    Request,
-    RequestHandlerExtra,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
-    Result,
+    ResultTypeMap,
     ServerCapabilities,
     SubscribeRequest,
     Tool,
@@ -35,7 +35,6 @@ import type {
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
-    AjvJsonSchemaValidator,
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
     CallToolResultSchema,
@@ -56,11 +55,11 @@ import {
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
+    parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
-    safeParse,
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
@@ -68,7 +67,7 @@ import {
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 
 /**
- * Elicitation default application helper. Applies defaults to the data based on the schema.
+ * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
  *
  * @param schema - The schema to apply defaults to.
  * @param data - The data to apply defaults to.
@@ -153,28 +152,7 @@ export type ClientOptions = ProtocolOptions & {
      * The validator is used to validate structured content returned by tools
      * against their declared output schemas.
      *
-     * @default AjvJsonSchemaValidator
-     *
-     * @example
-     * ```typescript
-     * // ajv
-     * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
-     *   }
-     * );
-     *
-     * // @cfworker/json-schema
-     * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
-     *   }
-     * );
-     * ```
+     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 
@@ -182,25 +160,25 @@ export type ClientOptions = ProtocolOptions & {
      * Configure handlers for list changed notifications (tools, prompts, resources).
      *
      * @example
-     * ```typescript
+     * ```ts source="./client.examples.ts#ClientOptions_listChanged"
      * const client = new Client(
-     *   { name: 'my-client', version: '1.0.0' },
-     *   {
-     *     listChanged: {
-     *       tools: {
-     *         onChanged: (error, tools) => {
-     *           if (error) {
-     *             console.error('Failed to refresh tools:', error);
-     *             return;
-     *           }
-     *           console.log('Tools updated:', tools);
+     *     { name: 'my-client', version: '1.0.0' },
+     *     {
+     *         listChanged: {
+     *             tools: {
+     *                 onChanged: (error, tools) => {
+     *                     if (error) {
+     *                         console.error('Failed to refresh tools:', error);
+     *                         return;
+     *                     }
+     *                     console.log('Tools updated:', tools);
+     *                 }
+     *             },
+     *             prompts: {
+     *                 onChanged: (error, prompts) => console.log('Prompts updated:', prompts)
+     *             }
      *         }
-     *       },
-     *       prompts: {
-     *         onChanged: (error, prompts) => console.log('Prompts updated:', prompts)
-     *       }
      *     }
-     *   }
      * );
      * ```
      */
@@ -210,33 +188,10 @@ export type ClientOptions = ProtocolOptions & {
 /**
  * An MCP client on top of a pluggable transport.
  *
- * The client will automatically begin the initialization flow with the server when connect() is called.
+ * The client will automatically begin the initialization flow with the server when {@linkcode connect} is called.
  *
- * To use with custom types, extend the base Request/Notification/Result types and pass them as type parameters:
- *
- * ```typescript
- * // Custom schemas
- * const CustomRequestSchema = RequestSchema.extend({...})
- * const CustomNotificationSchema = NotificationSchema.extend({...})
- * const CustomResultSchema = ResultSchema.extend({...})
- *
- * // Type aliases
- * type CustomRequest = z.infer<typeof CustomRequestSchema>
- * type CustomNotification = z.infer<typeof CustomNotificationSchema>
- * type CustomResult = z.infer<typeof CustomResultSchema>
- *
- * // Create typed client
- * const client = new Client<CustomRequest, CustomNotification, CustomResult>({
- *   name: "CustomClient",
- *   version: "1.0.0"
- * })
- * ```
  */
-export class Client<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
+export class Client extends Protocol<ClientContext> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
@@ -245,7 +200,7 @@ export class Client<
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
-    private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
+    private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -259,13 +214,17 @@ export class Client<
     ) {
         super(options);
         this._capabilities = options?.capabilities ?? {};
-        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
             this._pendingListChangedConfig = options.listChanged;
         }
+    }
+
+    protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
+        return ctx;
     }
 
     /**
@@ -304,7 +263,7 @@ export class Client<
      *
      * @experimental
      */
-    get experimental(): { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> } {
+    get experimental(): { tasks: ExperimentalClientTasks } {
         if (!this._experimental) {
             this._experimental = {
                 tasks: new ExperimentalClientTasks(this)
@@ -327,21 +286,38 @@ export class Client<
     }
 
     /**
-     * Override request handler registration to enforce client-side validation for elicitation.
+     * Registers a handler for server-initiated requests (sampling, elicitation, roots).
+     * The client must declare the corresponding capability for the handler to be accepted.
+     * Replaces any previously registered handler for the same method.
+     *
+     * For `sampling/createMessage` and `elicitation/create`, the handler is automatically
+     * wrapped with schema validation for both the incoming request and the returned result.
+     *
+     * @example Handling a sampling request
+     * ```ts source="./client.examples.ts#Client_setRequestHandler_sampling"
+     * client.setRequestHandler('sampling/createMessage', async request => {
+     *     const lastMessage = request.params.messages.at(-1);
+     *     console.log('Sampling request:', lastMessage);
+     *
+     *     // In production, send messages to your LLM here
+     *     return {
+     *         model: 'my-model',
+     *         role: 'assistant' as const,
+     *         content: {
+     *             type: 'text' as const,
+     *             text: 'Response from the model'
+     *         }
+     *     };
+     * });
+     * ```
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (
-            request: RequestTypeMap[M],
-            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
-        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+        handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void {
         if (method === 'elicitation/create') {
-            const wrappedHandler = async (
-                request: RequestTypeMap[M],
-                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
-            ): Promise<ClientResult | ResultT> => {
-                const validatedRequest = safeParse(ElicitRequestSchema, request);
+            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
+                const validatedRequest = parseSchema(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -361,11 +337,11 @@ export class Client<
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -377,7 +353,7 @@ export class Client<
                 }
 
                 // For non-task requests, validate against ElicitResultSchema
-                const validationResult = safeParse(ElicitResultSchema, result);
+                const validationResult = parseSchema(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -406,15 +382,12 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler);
         }
 
         if (method === 'sampling/createMessage') {
-            const wrappedHandler = async (
-                request: RequestTypeMap[M],
-                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
-            ): Promise<ClientResult | ResultT> => {
-                const validatedRequest = safeParse(CreateMessageRequestSchema, request);
+            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
+                const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -423,11 +396,11 @@ export class Client<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handler(request, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -441,7 +414,7 @@ export class Client<
                 // For non-task requests, validate against appropriate schema based on tools presence
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
-                const validationResult = safeParse(resultSchema, result);
+                const validationResult = parseSchema(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
@@ -452,7 +425,7 @@ export class Client<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(method, wrappedHandler);
         }
 
         // Other handlers use default behavior
@@ -465,6 +438,35 @@ export class Client<
         }
     }
 
+    /**
+     * Connects to a server via the given transport and performs the MCP initialization handshake.
+     *
+     * @example Basic usage (stdio)
+     * ```ts source="./client.examples.ts#Client_connect_stdio"
+     * const client = new Client({ name: 'my-client', version: '1.0.0' });
+     * const transport = new StdioClientTransport({ command: 'my-mcp-server' });
+     * await client.connect(transport);
+     * ```
+     *
+     * @example Streamable HTTP with SSE fallback
+     * ```ts source="./client.examples.ts#Client_connect_sseFallback"
+     * const baseUrl = new URL(url);
+     *
+     * try {
+     *     // Try modern Streamable HTTP transport first
+     *     const client = new Client({ name: 'my-client', version: '1.0.0' });
+     *     const transport = new StreamableHTTPClientTransport(baseUrl);
+     *     await client.connect(transport);
+     *     return { client, transport };
+     * } catch {
+     *     // Fall back to legacy SSE transport
+     *     const client = new Client({ name: 'my-client', version: '1.0.0' });
+     *     const transport = new SSEClientTransport(baseUrl);
+     *     await client.connect(transport);
+     *     return { client, transport };
+     * }
+     * ```
+     */
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
@@ -473,7 +475,7 @@ export class Client<
             return;
         }
         try {
-            const result = await this.request(
+            const result = await this._requestWithSchema(
                 {
                     method: 'initialize',
                     params: {
@@ -540,7 +542,7 @@ export class Client<
         return this._instructions;
     }
 
-    protected assertCapabilityForMethod(method: RequestT['method']): void {
+    protected assertCapabilityForMethod(method: RequestMethod): void {
         switch (method as ClientRequest['method']) {
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
@@ -603,7 +605,7 @@ export class Client<
         }
     }
 
-    protected assertNotificationCapability(method: NotificationT['method']): void {
+    protected assertNotificationCapability(method: NotificationMethod): void {
         switch (method as ClientNotification['method']) {
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {
@@ -704,40 +706,92 @@ export class Client<
         assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
     }
 
+    /** Sends a ping to the server to check connectivity. */
     async ping(options?: RequestOptions) {
-        return this.request({ method: 'ping' }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
 
+    /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
     async complete(params: CompleteRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'completion/complete', params }, CompleteResultSchema, options);
+        return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
+    /** Sets the minimum severity level for log messages sent by the server. */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
-        return this.request({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
+    /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
     }
 
+    /**
+     * Lists available prompts. Results may be paginated — loop on `nextCursor` to collect all pages.
+     *
+     * Returns an empty list if the server does not advertise prompts capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     *
+     * @example
+     * ```ts source="./client.examples.ts#Client_listPrompts_pagination"
+     * const allPrompts: Prompt[] = [];
+     * let cursor: string | undefined;
+     * do {
+     *     const { prompts, nextCursor } = await client.listPrompts({ cursor });
+     *     allPrompts.push(...prompts);
+     *     cursor = nextCursor;
+     * } while (cursor);
+     * console.log(
+     *     'Available prompts:',
+     *     allPrompts.map(p => p.name)
+     * );
+     * ```
+     */
     async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this.request({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
+        return this._requestWithSchema({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
     }
 
+    /**
+     * Lists available resources. Results may be paginated — loop on `nextCursor` to collect all pages.
+     *
+     * Returns an empty list if the server does not advertise resources capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     *
+     * @example
+     * ```ts source="./client.examples.ts#Client_listResources_pagination"
+     * const allResources: Resource[] = [];
+     * let cursor: string | undefined;
+     * do {
+     *     const { resources, nextCursor } = await client.listResources({ cursor });
+     *     allResources.push(...resources);
+     *     cursor = nextCursor;
+     * } while (cursor);
+     * console.log(
+     *     'Available resources:',
+     *     allResources.map(r => r.name)
+     * );
+     * ```
+     */
     async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/list', params }, ListResourcesResultSchema, options);
     }
 
+    /**
+     * Lists available resource URI templates for dynamic resources. Results may be paginated — see {@linkcode listResources | listResources()} for the cursor pattern.
+     *
+     * Returns an empty list if the server does not advertise resources capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     */
     async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
@@ -746,31 +800,64 @@ export class Client<
             );
             return { resourceTemplates: [] };
         }
-        return this.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
     }
 
+    /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
     }
 
+    /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
+    /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
     /**
-     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an outputSchema.
+     * Calls a tool on the connected server and returns the result. Automatically validates structured output
+     * if the tool has an `outputSchema`.
      *
-     * For task-based execution with streaming behavior, use client.experimental.tasks.callToolStream() instead.
+     * Tool results have two error surfaces: `result.isError` for tool-level failures (the tool ran but reported
+     * a problem), and thrown {@linkcode ProtocolError} for protocol-level failures or {@linkcode SdkError} for
+     * SDK-level issues (timeouts, missing capabilities).
+     *
+     * For task-based execution with streaming behavior, use {@linkcode ExperimentalClientTasks.callToolStream | client.experimental.tasks.callToolStream()} instead.
+     *
+     * @example Basic usage
+     * ```ts source="./client.examples.ts#Client_callTool_basic"
+     * const result = await client.callTool({
+     *     name: 'calculate-bmi',
+     *     arguments: { weightKg: 70, heightM: 1.75 }
+     * });
+     *
+     * // Tool-level errors are returned in the result, not thrown
+     * if (result.isError) {
+     *     console.error('Tool error:', result.content);
+     *     return;
+     * }
+     *
+     * console.log(result.content);
+     * ```
+     *
+     * @example Structured output
+     * ```ts source="./client.examples.ts#Client_callTool_structuredOutput"
+     * const result = await client.callTool({
+     *     name: 'calculate-bmi',
+     *     arguments: { weightKg: 70, heightM: 1.75 }
+     * });
+     *
+     * // Machine-readable output for the client application
+     * if (result.structuredContent) {
+     *     console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+     * }
+     * ```
      */
-    async callTool(
-        params: CallToolRequest['params'],
-        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
-        options?: RequestOptions
-    ) {
+    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
         // Guard: required-task tools need experimental API
         if (this.isToolTaskRequired(params.name)) {
             throw new ProtocolError(
@@ -779,7 +866,7 @@ export class Client<
             );
         }
 
-        const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
+        const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
@@ -829,7 +916,7 @@ export class Client<
 
     /**
      * Check if a tool requires task-based execution.
-     * Unlike isToolTask which includes 'optional' tools, this only checks for 'required'.
+     * Unlike {@linkcode isToolTask} which includes `'optional'` tools, this only checks for `'required'`.
      */
     private isToolTaskRequired(toolName: string): boolean {
         return this._cachedRequiredTaskTools.has(toolName);
@@ -837,7 +924,7 @@ export class Client<
 
     /**
      * Cache validators for tool output schemas.
-     * Called after listTools() to pre-compile validators for better performance.
+     * Called after {@linkcode listTools | listTools()} to pre-compile validators for better performance.
      */
     private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
@@ -869,13 +956,34 @@ export class Client<
         return this._cachedToolOutputValidators.get(toolName);
     }
 
+    /**
+     * Lists available tools. Results may be paginated — loop on `nextCursor` to collect all pages.
+     *
+     * Returns an empty list if the server does not advertise tools capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     *
+     * @example
+     * ```ts source="./client.examples.ts#Client_listTools_pagination"
+     * const allTools: Tool[] = [];
+     * let cursor: string | undefined;
+     * do {
+     *     const { tools, nextCursor } = await client.listTools({ cursor });
+     *     allTools.push(...tools);
+     *     cursor = nextCursor;
+     * } while (cursor);
+     * console.log(
+     *     'Available tools:',
+     *     allTools.map(t => t.name)
+     * );
+     * ```
+     */
     async listTools(params?: ListToolsRequest['params'], options?: RequestOptions) {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
+        const result = await this._requestWithSchema({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
         this.cacheToolMetadata(result.tools);
@@ -894,7 +1002,7 @@ export class Client<
         fetcher: () => Promise<T[]>
     ): void {
         // Validate options using Zod schema (validates autoRefresh and debounceMs)
-        const parseResult = ListChangedOptionsBaseSchema.safeParse(options);
+        const parseResult = parseSchema(ListChangedOptionsBaseSchema, options);
         if (!parseResult.success) {
             throw new Error(`Invalid ${listType} listChanged options: ${parseResult.error.message}`);
         }
@@ -943,6 +1051,7 @@ export class Client<
         this.setNotificationHandler(notificationMethod, handler);
     }
 
+    /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
     }

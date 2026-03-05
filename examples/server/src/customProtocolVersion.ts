@@ -31,8 +31,7 @@ server.registerTool(
     'get-protocol-info',
     {
         title: 'Protocol Info',
-        description: 'Returns protocol version configuration',
-        inputSchema: {}
+        description: 'Returns protocol version configuration'
     },
     async (): Promise<CallToolResult> => ({
         content: [
