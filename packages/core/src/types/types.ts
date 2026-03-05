@@ -606,7 +606,7 @@ export const ServerCapabilitiesSchema = z.object({
      */
     tasks: ServerTasksCapabilitySchema.optional(),
     /**
-     * Extensions that the server supports. Keys are extension URIs.
+     * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
      */
     extensions: z.record(z.string(), AssertObjectSchema).optional()
 });
