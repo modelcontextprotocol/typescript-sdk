@@ -354,7 +354,7 @@ describe('Zod v4', () => {
 
             mcpServer.server.registerCapabilities({
                 extensions: {
-                    'io.modelcontextprotocol/grouping': { listChanged: true }
+                    'io.modelcontextprotocol/test-extension': { listChanged: true }
                 }
             });
 
@@ -363,7 +363,7 @@ describe('Zod v4', () => {
 
             const capabilities = client.getServerCapabilities();
             expect(capabilities?.extensions).toBeDefined();
-            expect(capabilities?.extensions?.['io.modelcontextprotocol/grouping']).toEqual({ listChanged: true });
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ listChanged: true });
         });
     });
 
