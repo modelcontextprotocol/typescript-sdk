@@ -3,6 +3,6 @@ import { mergeConfig } from 'vitest/config';
 
 export default mergeConfig(baseConfig, {
     test: {
-        setupFiles: ['./vitest.setup.js']
+        setupFiles: ['./vitest.setup.ts']
     }
 });
