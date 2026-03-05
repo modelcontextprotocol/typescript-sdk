@@ -1993,11 +1993,14 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
      * A restricted subset of JSON Schema.
      * Only top-level properties are allowed, without nesting.
      */
-    requestedSchema: z.object({
-        type: z.literal('object'),
-        properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
-        required: z.array(z.string()).optional()
-    })
+    requestedSchema: z
+        .object({
+            $schema: z.string().optional(),
+            type: z.literal('object'),
+            properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
+            required: z.array(z.string()).optional()
+        })
+        .passthrough()
 });
 
 /**
