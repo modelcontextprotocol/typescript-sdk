@@ -115,17 +115,21 @@ export class Server extends Protocol<ServerContext> {
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler('logging/setLevel', async (request, ctx) => {
-                const transportSessionId: string | undefined =
-                    ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
-                const { level } = request.params;
-                const parseResult = parseSchema(LoggingLevelSchema, level);
-                if (parseResult.success) {
-                    this._loggingLevels.set(transportSessionId, parseResult.data);
-                }
-                return {};
-            });
+            this._registerLoggingHandler();
         }
+    }
+
+    private _registerLoggingHandler(): void {
+        this.setRequestHandler('logging/setLevel', async (request, ctx) => {
+            const transportSessionId: string | undefined =
+                ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
+            const { level } = request.params;
+            const parseResult = parseSchema(LoggingLevelSchema, level);
+            if (parseResult.success) {
+                this._loggingLevels.set(transportSessionId, parseResult.data);
+            }
+            return {};
+        });
     }
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
@@ -188,7 +192,11 @@ export class Server extends Protocol<ServerContext> {
         if (this.transport) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
+        const hadLogging = !!this._capabilities.logging;
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+        if (!hadLogging && this._capabilities.logging) {
+            this._registerLoggingHandler();
+        }
     }
 
     /**
@@ -460,7 +468,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async ping() {
-        return this.request({ method: 'ping' }, EmptyResultSchema);
+        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
     }
 
     /**
@@ -540,9 +548,9 @@ export class Server extends Protocol<ServerContext> {
 
         // Use different schemas based on whether tools are provided
         if (params.tools) {
-            return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+            return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
-        return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**
@@ -562,7 +570,7 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
-                return this.request({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
@@ -572,7 +580,11 @@ export class Server extends Protocol<ServerContext> {
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+                const result = await this._requestWithSchema(
+                    { method: 'elicitation/create', params: formParams },
+                    ElicitResultSchema,
+                    options
+                );
 
                 if (result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
@@ -629,7 +641,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'roots/list', params }, ListRootsResultSchema, options);
+        return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 
     /**
