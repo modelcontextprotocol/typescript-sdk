@@ -13,7 +13,7 @@ import type {
     TaskServerContext
 } from '@modelcontextprotocol/core';
 
-import type { BaseToolCallback } from '../../server/mcp.js';
+import type { BaseToolCallback } from '../../server/primitives/index.js';
 
 // ============================================================================
 // Task Handler Types (for registerToolTask)

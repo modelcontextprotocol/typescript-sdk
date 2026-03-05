@@ -199,7 +199,7 @@ server.registerResource(
 );
 ```
 
-Dynamic resources use {@linkcode @modelcontextprotocol/server!server/mcp.ResourceTemplate | ResourceTemplate} and can support completions on path parameters:
+Dynamic resources use {@linkcode @modelcontextprotocol/server!server/primitives/resourceTemplate.ResourceTemplate | ResourceTemplate} and can support completions on path parameters:
 
 ```ts source="../examples/server/src/serverGuide.examples.ts#registerResource_template"
 server.registerResource(

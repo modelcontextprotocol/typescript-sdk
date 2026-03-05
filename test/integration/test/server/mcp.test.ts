@@ -487,7 +487,7 @@ describe('Zod v4', () => {
 
             // Update the tool
             tool.update({
-                callback: async () => ({
+                handler: async () => ({
                     content: [
                         {
                             type: 'text',
@@ -557,11 +557,11 @@ describe('Zod v4', () => {
 
             // Update the tool with a different schema
             tool.update({
-                paramsSchema: z.object({
+                inputSchema: z.object({
                     name: z.string(),
                     value: z.number()
                 }),
-                callback: async ({ name, value }) => ({
+                handler: async ({ name, value }) => ({
                     content: [
                         {
                             type: 'text',
@@ -649,7 +649,7 @@ describe('Zod v4', () => {
                     result: z.number(),
                     sum: z.number()
                 }),
-                callback: async () => ({
+                handler: async () => ({
                     content: [{ type: 'text', text: '' }],
                     structuredContent: {
                         result: 42,
@@ -728,7 +728,7 @@ describe('Zod v4', () => {
 
             // Now update the tool
             tool.update({
-                callback: async () => ({
+                handler: async () => ({
                     content: [
                         {
                             type: 'text',

@@ -424,11 +424,42 @@ const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
-## 12. Client Behavioral Changes
+## 12. Registered Primitives API Changes
+
+`RegisteredTool`, `RegisteredPrompt`, `RegisteredResource`, `RegisteredResourceTemplate` are now proper classes. The `update()` method signature changed:
+
+| v1 (update field) | v2 (update field) | Applies to                                                                   |
+| ----------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `paramsSchema`    | `inputSchema`     | RegisteredTool                                                               |
+| `callback`        | `handler`         | RegisteredTool                                                               |
+| `callback`        | `callback`        | RegisteredPrompt, RegisteredResource, RegisteredResourceTemplate (unchanged) |
+
+```typescript
+// v1
+tool.update({ paramsSchema: { name: z.string() }, callback: handler });
+
+// v2
+tool.update({ inputSchema: { name: z.string() }, handler: handler });
+```
+
+**Note:** In v1, `paramsSchema` inconsistently differed from `inputSchema` used in `registerTool()`. Fixed in v2.
+
+**New:** `RegisteredTool` now supports `icons` field (parity with protocol `Tool` type).
+
+New getter methods on `McpServer`:
+
+| Getter | Returns |
+|--------|---------|
+| `mcpServer.tools` | `ReadonlyMap<string, RegisteredTool>` |
+| `mcpServer.prompts` | `ReadonlyMap<string, RegisteredPrompt>` |
+| `mcpServer.resources` | `ReadonlyMap<string, RegisteredResource>` |
+| `mcpServer.resourceTemplates` | `ReadonlyMap<string, RegisteredResourceTemplate>` |
+
+## 13. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 13. Runtime-Specific JSON Schema Validators (Enhancement)
+## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 - Node.js → `AjvJsonSchemaValidator` (no change from v1)
@@ -448,7 +479,7 @@ new McpServer({ name: 'server', version: '1.0.0' }, {});
 
 Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
 
-## 14. Migration Steps (apply in this order)
+## 15. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`

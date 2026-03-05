@@ -7,7 +7,8 @@
 
 import type { AnySchema, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
 
-import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
+import type { McpServer } from '../../server/mcp.js';
+import type { AnyToolHandler, RegisteredTool } from '../../server/primitives/index.js';
 import type { ToolTaskHandler } from './interfaces.js';
 
 /**
@@ -72,7 +73,7 @@ export class ExperimentalMcpServerTasks {
      * @param name - The tool name
      * @param config - Tool configuration (description, schemas, etc.)
      * @param handler - Task handler with {@linkcode ToolTaskHandler.createTask | createTask}, {@linkcode ToolTaskHandler.getTask | getTask}, {@linkcode ToolTaskHandler.getTaskResult | getTaskResult} methods
-     * @returns {@linkcode server/mcp.RegisteredTool | RegisteredTool} for managing the tool's lifecycle
+     * @returns {@linkcode server/primitives/tool.RegisteredTool | RegisteredTool} for managing the tool's lifecycle
      *
      * @experimental
      */

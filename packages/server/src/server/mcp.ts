@@ -7,46 +7,42 @@ import type {
     CompleteRequestResourceTemplate,
     CompleteResult,
     CreateTaskResult,
-    CreateTaskServerContext,
     GetPromptResult,
     Implementation,
     ListPromptsResult,
-    ListResourcesResult,
     ListToolsResult,
     LoggingMessageNotification,
-    Prompt,
-    PromptArgument,
     PromptReference,
-    ReadResourceResult,
     Resource,
     ResourceTemplateReference,
-    Result,
     SchemaOutput,
     ServerContext,
-    Tool,
     ToolAnnotations,
     ToolExecution,
-    Transport,
-    Variables
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
-    getSchemaDescription,
     getSchemaShape,
-    isOptionalSchema,
     parseSchemaAsync,
     ProtocolError,
     ProtocolErrorCode,
-    schemaToJson,
-    unwrapOptionalSchema,
-    UriTemplate,
-    validateAndWarnToolName
+    unwrapOptionalSchema
 } from '@modelcontextprotocol/core';
 
-import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
+import type {
+    AnyToolHandler,
+    PromptCallback,
+    ReadResourceCallback,
+    ReadResourceTemplateCallback,
+    ResourceMetadata,
+    ResourceTemplate,
+    ToolCallback
+} from './primitives/index.js';
+import { RegisteredPrompt, RegisteredResource, RegisteredResourceTemplate, RegisteredTool } from './primitives/index.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
@@ -98,6 +94,38 @@ export class McpServer {
     }
 
     /**
+     * Gets all registered tools.
+     * @returns A read-only map of tool names to RegisteredTool instances
+     */
+    get tools(): ReadonlyMap<string, RegisteredTool> {
+        return new Map(Object.entries(this._registeredTools));
+    }
+
+    /**
+     * Gets all registered prompts.
+     * @returns A read-only map of prompt names to RegisteredPrompt instances
+     */
+    get prompts(): ReadonlyMap<string, RegisteredPrompt> {
+        return new Map(Object.entries(this._registeredPrompts));
+    }
+
+    /**
+     * Gets all registered resources.
+     * @returns A read-only map of resource URIs to RegisteredResource instances
+     */
+    get resources(): ReadonlyMap<string, RegisteredResource> {
+        return new Map(Object.entries(this._registeredResources));
+    }
+
+    /**
+     * Gets all registered resource templates.
+     * @returns A read-only map of template names to RegisteredResourceTemplate instances
+     */
+    get resourceTemplates(): ReadonlyMap<string, RegisteredResourceTemplate> {
+        return new Map(Object.entries(this._registeredResourceTemplates));
+    }
+
+    /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
      * The `server` object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
@@ -139,29 +167,9 @@ export class McpServer {
         this.server.setRequestHandler(
             'tools/list',
             (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: tool.inputSchema
-                                ? (schemaToJson(tool.inputSchema, { io: 'input' }) as Tool['inputSchema'])
-                                : EMPTY_OBJECT_JSON_SCHEMA,
-                            annotations: tool.annotations,
-                            execution: tool.execution,
-                            _meta: tool._meta
-                        };
-
-                        if (tool.outputSchema) {
-                            toolDefinition.outputSchema = schemaToJson(tool.outputSchema, {
-                                io: 'output'
-                            }) as Tool['outputSchema'];
-                        }
-
-                        return toolDefinition;
-                    })
+                tools: Object.values(this._registeredTools)
+                    .filter(tool => tool.enabled)
+                    .map(tool => tool.toProtocolTool())
             })
         );
 
@@ -449,13 +457,9 @@ export class McpServer {
         });
 
         this.server.setRequestHandler('resources/list', async (_request, ctx) => {
-            const resources = Object.entries(this._registeredResources)
-                .filter(([_, resource]) => resource.enabled)
-                .map(([uri, resource]) => ({
-                    uri,
-                    name: resource.name,
-                    ...resource.metadata
-                }));
+            const resources = Object.values(this._registeredResources)
+                .filter(resource => resource.enabled)
+                .map(resource => resource.toProtocolResource());
 
             const templateResources: Resource[] = [];
             for (const template of Object.values(this._registeredResourceTemplates)) {
@@ -477,11 +481,9 @@ export class McpServer {
         });
 
         this.server.setRequestHandler('resources/templates/list', async () => {
-            const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
-                name,
-                uriTemplate: template.resourceTemplate.uriTemplate.toString(),
-                ...template.metadata
-            }));
+            const resourceTemplates = Object.values(this._registeredResourceTemplates).map(template =>
+                template.toProtocolResourceTemplate()
+            );
 
             return { resourceTemplates };
         });
@@ -531,16 +533,9 @@ export class McpServer {
         this.server.setRequestHandler(
             'prompts/list',
             (): ListPromptsResult => ({
-                prompts: Object.entries(this._registeredPrompts)
-                    .filter(([, prompt]) => prompt.enabled)
-                    .map(([name, prompt]): Prompt => {
-                        return {
-                            name,
-                            title: prompt.title,
-                            description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
-                        };
-                    })
+                prompts: Object.values(this._registeredPrompts)
+                    .filter(prompt => prompt.enabled)
+                    .map(prompt => prompt.toProtocolPrompt())
             })
         );
 
@@ -635,30 +630,27 @@ export class McpServer {
         metadata: ResourceMetadata | undefined,
         readCallback: ReadResourceCallback
     ): RegisteredResource {
-        const registeredResource: RegisteredResource = {
-            name,
-            title,
-            metadata,
-            readCallback,
-            enabled: true,
-            disable: () => registeredResource.update({ enabled: false }),
-            enable: () => registeredResource.update({ enabled: true }),
-            remove: () => registeredResource.update({ uri: null }),
-            update: updates => {
-                if (updates.uri !== undefined && updates.uri !== uri) {
-                    delete this._registeredResources[uri];
-                    if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
-                }
-                if (updates.name !== undefined) registeredResource.name = updates.name;
-                if (updates.title !== undefined) registeredResource.title = updates.title;
-                if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
-                if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
-                if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
+        const resource = new RegisteredResource(
+            {
+                name,
+                title,
+                uri,
+                ...metadata,
+                readCallback
+            },
+            () => this.sendResourceListChanged(),
+            (oldUri, newUri, r) => {
+                delete this._registeredResources[oldUri];
+                this._registeredResources[newUri] = r;
+                this.sendResourceListChanged();
+            },
+            resourceUri => {
+                delete this._registeredResources[resourceUri];
                 this.sendResourceListChanged();
             }
-        };
-        this._registeredResources[uri] = registeredResource;
-        return registeredResource;
+        );
+        this._registeredResources[uri] = resource;
+        return resource;
     }
 
     private _createRegisteredResourceTemplate(
@@ -668,29 +660,26 @@ export class McpServer {
         metadata: ResourceMetadata | undefined,
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate {
-        const registeredResourceTemplate: RegisteredResourceTemplate = {
-            resourceTemplate: template,
-            title,
-            metadata,
-            readCallback,
-            enabled: true,
-            disable: () => registeredResourceTemplate.update({ enabled: false }),
-            enable: () => registeredResourceTemplate.update({ enabled: true }),
-            remove: () => registeredResourceTemplate.update({ name: null }),
-            update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    delete this._registeredResourceTemplates[name];
-                    if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
-                }
-                if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
-                if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
-                if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
-                if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
-                if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
+        const resourceTemplate = new RegisteredResourceTemplate(
+            {
+                name,
+                title,
+                resourceTemplate: template,
+                ...metadata,
+                readCallback
+            },
+            () => this.sendResourceListChanged(),
+            (oldName, newName, rt) => {
+                delete this._registeredResourceTemplates[oldName];
+                this._registeredResourceTemplates[newName] = rt;
+                this.sendResourceListChanged();
+            },
+            templateName => {
+                delete this._registeredResourceTemplates[templateName];
                 this.sendResourceListChanged();
             }
-        };
-        this._registeredResourceTemplates[name] = registeredResourceTemplate;
+        );
+        this._registeredResourceTemplates[name] = resourceTemplate;
 
         // If the resource template has any completion callbacks, enable completions capability
         const variableNames = template.uriTemplate.variableNames;
@@ -699,7 +688,7 @@ export class McpServer {
             this.setCompletionRequestHandler();
         }
 
-        return registeredResourceTemplate;
+        return resourceTemplate;
     }
 
     private _createRegisteredPrompt(
@@ -709,47 +698,26 @@ export class McpServer {
         argsSchema: AnySchema | undefined,
         callback: PromptCallback<AnySchema | undefined>
     ): RegisteredPrompt {
-        // Track current schema and callback for handler regeneration
-        let currentArgsSchema = argsSchema;
-        let currentCallback = callback;
-
-        const registeredPrompt: RegisteredPrompt = {
-            title,
-            description,
-            argsSchema,
-            handler: createPromptHandler(name, argsSchema, callback),
-            enabled: true,
-            disable: () => registeredPrompt.update({ enabled: false }),
-            enable: () => registeredPrompt.update({ enabled: true }),
-            remove: () => registeredPrompt.update({ name: null }),
-            update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    delete this._registeredPrompts[name];
-                    if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
-                }
-                if (updates.title !== undefined) registeredPrompt.title = updates.title;
-                if (updates.description !== undefined) registeredPrompt.description = updates.description;
-
-                // Track if we need to regenerate the handler
-                let needsHandlerRegen = false;
-                if (updates.argsSchema !== undefined) {
-                    registeredPrompt.argsSchema = updates.argsSchema;
-                    currentArgsSchema = updates.argsSchema;
-                    needsHandlerRegen = true;
-                }
-                if (updates.callback !== undefined) {
-                    currentCallback = updates.callback as PromptCallback<AnySchema | undefined>;
-                    needsHandlerRegen = true;
-                }
-                if (needsHandlerRegen) {
-                    registeredPrompt.handler = createPromptHandler(name, currentArgsSchema, currentCallback);
-                }
-
-                if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
+        const prompt = new RegisteredPrompt(
+            {
+                name,
+                title,
+                description,
+                argsSchema,
+                callback
+            },
+            () => this.sendPromptListChanged(),
+            (oldName, newName, p) => {
+                delete this._registeredPrompts[oldName];
+                this._registeredPrompts[newName] = p;
+                this.sendPromptListChanged();
+            },
+            promptName => {
+                delete this._registeredPrompts[promptName];
                 this.sendPromptListChanged();
             }
-        };
-        this._registeredPrompts[name] = registeredPrompt;
+        );
+        this._registeredPrompts[name] = prompt;
 
         // If any argument uses a Completable schema, enable completions capability
         if (argsSchema) {
@@ -765,7 +733,7 @@ export class McpServer {
             }
         }
 
-        return registeredPrompt;
+        return prompt;
     }
 
     private _createRegisteredTool(
@@ -779,65 +747,35 @@ export class McpServer {
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<AnySchema | undefined>
     ): RegisteredTool {
-        // Validate tool name according to SEP specification
-        validateAndWarnToolName(name);
-
-        // Track current handler for executor regeneration
-        let currentHandler = handler;
-
-        const registeredTool: RegisteredTool = {
-            title,
-            description,
-            inputSchema,
-            outputSchema,
-            annotations,
-            execution,
-            _meta,
-            handler: handler,
-            executor: createToolExecutor(inputSchema, handler),
-            enabled: true,
-            disable: () => registeredTool.update({ enabled: false }),
-            enable: () => registeredTool.update({ enabled: true }),
-            remove: () => registeredTool.update({ name: null }),
-            update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    if (typeof updates.name === 'string') {
-                        validateAndWarnToolName(updates.name);
-                    }
-                    delete this._registeredTools[name];
-                    if (updates.name) this._registeredTools[updates.name] = registeredTool;
-                }
-                if (updates.title !== undefined) registeredTool.title = updates.title;
-                if (updates.description !== undefined) registeredTool.description = updates.description;
-
-                // Track if we need to regenerate the executor
-                let needsExecutorRegen = false;
-                if (updates.paramsSchema !== undefined) {
-                    registeredTool.inputSchema = updates.paramsSchema;
-                    needsExecutorRegen = true;
-                }
-                if (updates.callback !== undefined) {
-                    registeredTool.handler = updates.callback;
-                    currentHandler = updates.callback as AnyToolHandler<AnySchema | undefined>;
-                    needsExecutorRegen = true;
-                }
-                if (needsExecutorRegen) {
-                    registeredTool.executor = createToolExecutor(registeredTool.inputSchema, currentHandler);
-                }
-
-                if (updates.outputSchema !== undefined) registeredTool.outputSchema = updates.outputSchema;
-                if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
-                if (updates._meta !== undefined) registeredTool._meta = updates._meta;
-                if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
+        const tool = new RegisteredTool(
+            {
+                name,
+                title,
+                description,
+                inputSchema,
+                outputSchema,
+                annotations,
+                execution,
+                _meta,
+                handler
+            },
+            () => this.sendToolListChanged(),
+            (oldName, newName, t) => {
+                delete this._registeredTools[oldName];
+                this._registeredTools[newName] = t;
+                this.sendToolListChanged();
+            },
+            toolName => {
+                delete this._registeredTools[toolName];
                 this.sendToolListChanged();
             }
-        };
-        this._registeredTools[name] = registeredTool;
+        );
+        this._registeredTools[name] = tool;
 
         this.setToolRequestHandlers();
         this.sendToolListChanged();
 
-        return registeredTool;
+        return tool;
     }
 
     /**
@@ -1004,288 +942,6 @@ export class McpServer {
             this.server.sendPromptListChanged();
         }
     }
-}
-
-/**
- * A callback to complete one variable within a resource template's URI template.
- */
-export type CompleteResourceTemplateCallback = (
-    value: string,
-    context?: {
-        arguments?: Record<string, string>;
-    }
-) => string[] | Promise<string[]>;
-
-/**
- * A resource template combines a URI pattern with optional functionality to enumerate
- * all resources matching that pattern.
- */
-export class ResourceTemplate {
-    private _uriTemplate: UriTemplate;
-
-    constructor(
-        uriTemplate: string | UriTemplate,
-        private _callbacks: {
-            /**
-             * A callback to list all resources matching this template. This is required to be specified, even if `undefined`, to avoid accidentally forgetting resource listing.
-             */
-            list: ListResourcesCallback | undefined;
-
-            /**
-             * An optional callback to autocomplete variables within the URI template. Useful for clients and users to discover possible values.
-             */
-            complete?: {
-                [variable: string]: CompleteResourceTemplateCallback;
-            };
-        }
-    ) {
-        this._uriTemplate = typeof uriTemplate === 'string' ? new UriTemplate(uriTemplate) : uriTemplate;
-    }
-
-    /**
-     * Gets the URI template pattern.
-     */
-    get uriTemplate(): UriTemplate {
-        return this._uriTemplate;
-    }
-
-    /**
-     * Gets the list callback, if one was provided.
-     */
-    get listCallback(): ListResourcesCallback | undefined {
-        return this._callbacks.list;
-    }
-
-    /**
-     * Gets the callback for completing a specific URI template variable, if one was provided.
-     */
-    completeCallback(variable: string): CompleteResourceTemplateCallback | undefined {
-        return this._callbacks.complete?.[variable];
-    }
-}
-
-export type BaseToolCallback<ResultT extends Result, Ctx extends ServerContext, Args extends AnySchema | undefined> = Args extends AnySchema
-    ? (args: SchemaOutput<Args>, ctx: Ctx) => ResultT | Promise<ResultT>
-    : (ctx: Ctx) => ResultT | Promise<ResultT>;
-
-/**
- * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
- */
-export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
-
-/**
- * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
- */
-export type AnyToolHandler<Args extends AnySchema | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
-
-/**
- * Internal executor type that encapsulates handler invocation with proper types.
- */
-type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | CreateTaskResult>;
-
-export type RegisteredTool = {
-    title?: string;
-    description?: string;
-    inputSchema?: AnySchema;
-    outputSchema?: AnySchema;
-    annotations?: ToolAnnotations;
-    execution?: ToolExecution;
-    _meta?: Record<string, unknown>;
-    handler: AnyToolHandler<AnySchema | undefined>;
-    /** @hidden */
-    executor: ToolExecutor;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update(updates: {
-        name?: string | null;
-        title?: string;
-        description?: string;
-        paramsSchema?: AnySchema;
-        outputSchema?: AnySchema;
-        annotations?: ToolAnnotations;
-        _meta?: Record<string, unknown>;
-        callback?: ToolCallback<AnySchema>;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
-
-/**
- * Creates an executor that invokes the handler with the appropriate arguments.
- * When `inputSchema` is defined, the handler is called with `(args, ctx)`.
- * When `inputSchema` is undefined, the handler is called with just `(ctx)`.
- */
-function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyToolHandler<AnySchema | undefined>): ToolExecutor {
-    const isTaskHandler = 'createTask' in handler;
-
-    if (isTaskHandler) {
-        const taskHandler = handler as TaskHandlerInternal;
-        return async (args, ctx) => {
-            if (!ctx.task?.store) {
-                throw new Error('No task store provided.');
-            }
-            const taskCtx: CreateTaskServerContext = { ...ctx, task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } };
-            if (inputSchema) {
-                return taskHandler.createTask(args, taskCtx);
-            }
-            // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-            return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
-        };
-    }
-
-    if (inputSchema) {
-        const callback = handler as ToolCallbackInternal;
-        return async (args, ctx) => callback(args, ctx);
-    }
-
-    // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-    const callback = handler as (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
-    return async (_args, ctx) => callback(ctx);
-}
-
-const EMPTY_OBJECT_JSON_SCHEMA = {
-    type: 'object' as const,
-    properties: {}
-};
-
-/**
- * Additional, optional information for annotating a resource.
- */
-export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
-
-/**
- * Callback to list all resources matching a given template.
- */
-export type ListResourcesCallback = (ctx: ServerContext) => ListResourcesResult | Promise<ListResourcesResult>;
-
-/**
- * Callback to read a resource at a given URI.
- */
-export type ReadResourceCallback = (uri: URL, ctx: ServerContext) => ReadResourceResult | Promise<ReadResourceResult>;
-
-export type RegisteredResource = {
-    name: string;
-    title?: string;
-    metadata?: ResourceMetadata;
-    readCallback: ReadResourceCallback;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update(updates: {
-        name?: string;
-        title?: string;
-        uri?: string | null;
-        metadata?: ResourceMetadata;
-        callback?: ReadResourceCallback;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
-
-/**
- * Callback to read a resource at a given URI, following a filled-in URI template.
- */
-export type ReadResourceTemplateCallback = (
-    uri: URL,
-    variables: Variables,
-    ctx: ServerContext
-) => ReadResourceResult | Promise<ReadResourceResult>;
-
-export type RegisteredResourceTemplate = {
-    resourceTemplate: ResourceTemplate;
-    title?: string;
-    metadata?: ResourceMetadata;
-    readCallback: ReadResourceTemplateCallback;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update(updates: {
-        name?: string | null;
-        title?: string;
-        template?: ResourceTemplate;
-        metadata?: ResourceMetadata;
-        callback?: ReadResourceTemplateCallback;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
-
-export type PromptCallback<Args extends AnySchema | undefined = undefined> = Args extends AnySchema
-    ? (args: SchemaOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
-
-/**
- * Internal handler type that encapsulates parsing and callback invocation.
- * This allows type-safe handling without runtime type assertions.
- */
-type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult>;
-
-type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
-
-type TaskHandlerInternal = {
-    createTask: (args: unknown, ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>;
-};
-
-export type RegisteredPrompt = {
-    title?: string;
-    description?: string;
-    argsSchema?: AnySchema;
-    /** @hidden */
-    handler: PromptHandler;
-    enabled: boolean;
-    enable(): void;
-    disable(): void;
-    update<Args extends AnySchema>(updates: {
-        name?: string | null;
-        title?: string;
-        description?: string;
-        argsSchema?: Args;
-        callback?: PromptCallback<Args>;
-        enabled?: boolean;
-    }): void;
-    remove(): void;
-};
-
-/**
- * Creates a type-safe prompt handler that captures the schema and callback in a closure.
- * This eliminates the need for type assertions at the call site.
- */
-function createPromptHandler(
-    name: string,
-    argsSchema: AnySchema | undefined,
-    callback: PromptCallback<AnySchema | undefined>
-): PromptHandler {
-    if (argsSchema) {
-        const typedCallback = callback as (args: SchemaOutput<AnySchema>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
-
-        return async (args, ctx) => {
-            const parseResult = await parseSchemaAsync(argsSchema, args);
-            if (!parseResult.success) {
-                const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${errorMessage}`);
-            }
-            return typedCallback(parseResult.data as SchemaOutput<AnySchema>, ctx);
-        };
-    } else {
-        const typedCallback = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
-
-        return async (_args, ctx) => {
-            return typedCallback(ctx);
-        };
-    }
-}
-
-function promptArgumentsFromSchema(schema: AnySchema): PromptArgument[] {
-    const shape = getSchemaShape(schema);
-    if (!shape) return [];
-    return Object.entries(shape).map(([name, field]): PromptArgument => {
-        return {
-            name,
-            description: getSchemaDescription(field),
-            required: !isOptionalSchema(field)
-        };
-    });
 }
 
 function createCompletionResult(suggestions: readonly unknown[]): CompleteResult {
