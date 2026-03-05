@@ -259,7 +259,7 @@ server.registerPrompt(
 );
 ```
 
-Config object fields: `title?`, `description?`, `argsSchema?`, `_meta?`
+Config object fields: `title?`, `description?`, `argsSchema?`
 
 ### Resources
 
