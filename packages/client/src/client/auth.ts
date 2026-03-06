@@ -818,7 +818,7 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-    return !response || (response.status >= 400 && response.status < 500 && pathname !== '/');
+    return !response || (!response.ok && pathname !== '/');
 }
 
 /**
@@ -845,7 +845,7 @@ async function discoverMetadataWithFallback(
 
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
-    // If path-aware discovery fails with 404 and we're not already at root, try fallback to root discovery
+    // If path-aware discovery fails (any non-OK status) and we're not already at root, try fallback to root discovery
     if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
         const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
@@ -1013,13 +1013,7 @@ export async function discoverAuthorizationServerMetadata(
 
         if (!response.ok) {
             await response.text?.().catch(() => {});
-            // Continue looking for any 4xx response code.
-            if (response.status >= 400 && response.status < 500) {
-                continue; // Try next URL
-            }
-            throw new Error(
-                `HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`
-            );
+            continue; // Try next URL for any non-OK response (4xx, 5xx)
         }
 
         // Parse and validate based on type
