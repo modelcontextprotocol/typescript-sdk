@@ -236,8 +236,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 }
 
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
-                // This is an expected case that should not trigger an error
-                if (response.status === 405) {
+                // 404 indicates the endpoint does not exist, 406 indicates the content type is not accepted
+                // All three are expected cases that should not trigger an error
+                if (response.status === 405 || response.status === 404 || response.status === 406) {
                     return;
                 }
 
