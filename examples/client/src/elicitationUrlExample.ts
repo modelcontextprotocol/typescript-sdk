@@ -9,8 +9,6 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 
 import type {
-    CallToolRequest,
-    CallToolResult,
     ElicitRequest,
     ElicitRequestURLParams,
     ElicitResult,
@@ -687,16 +685,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     }
 
     try {
-        const request: CallToolRequest = {
-            method: 'tools/call',
-            params: {
-                name,
-                arguments: args
-            }
-        };
-
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = (await client.request(request)) as CallToolResult;
+        const result = await client.callTool({ name, arguments: args });
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
