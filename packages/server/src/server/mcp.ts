@@ -538,7 +538,8 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
+                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined,
+                            _meta: prompt._meta
                         };
                     })
             })
@@ -707,6 +708,7 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: AnySchema | undefined,
+        _meta: Record<string, unknown> | undefined,
         callback: PromptCallback<AnySchema | undefined>
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
@@ -717,6 +719,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
@@ -729,6 +732,7 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
                 let needsHandlerRegen = false;
@@ -929,6 +933,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
     ): RegisteredPrompt {
@@ -936,13 +941,14 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema } = config;
+        const { title, description, argsSchema, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
             title,
             description,
             argsSchema,
+            _meta,
             cb as PromptCallback<AnySchema | undefined>
         );
 
@@ -1231,6 +1237,7 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: AnySchema;
+    _meta?: Record<string, unknown>;
     /** @hidden */
     handler: PromptHandler;
     enabled: boolean;
@@ -1241,6 +1248,7 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
         enabled?: boolean;
     }): void;
