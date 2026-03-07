@@ -560,7 +560,7 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
      */
-    extensions: z.record(z.string(), AssertObjectSchema).optional()
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
 export const InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -642,7 +642,7 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
      */
-    extensions: z.record(z.string(), AssertObjectSchema).optional()
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
 /**
