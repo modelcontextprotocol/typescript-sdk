@@ -140,6 +140,26 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     return { supportsFormMode, supportsUrlMode };
 }
 
+/**
+ * Configuration options for periodic ping to monitor connection health.
+ *
+ * According to the MCP specification, implementations SHOULD periodically issue
+ * pings to detect connection health.
+ */
+export interface PingConfig {
+    /**
+     * Whether periodic pings are enabled.
+     * @default false
+     */
+    enabled?: boolean;
+
+    /**
+     * Interval between periodic pings in milliseconds.
+     * @default 30000 (30 seconds)
+     */
+    intervalMs?: number;
+}
+
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
@@ -183,6 +203,27 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     listChanged?: ListChangedHandlers;
+
+    /**
+     * Configure periodic ping to monitor connection health.
+     *
+     * When enabled, the client will automatically send ping requests at the
+     * specified interval after successfully connecting to the server.
+     *
+     * @example
+     * ```ts
+     * const client = new Client(
+     *     { name: 'my-client', version: '1.0.0' },
+     *     {
+     *         ping: {
+     *             enabled: true,
+     *             intervalMs: 60000 // Ping every 60 seconds
+     *         }
+     *     }
+     * );
+     * ```
+     */
+    ping?: PingConfig;
 };
 
 /**
@@ -204,6 +245,8 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    private _pingConfig: PingConfig;
+    private _pingInterval?: ReturnType<typeof setInterval>;
 
     /**
      * Initializes this client with the given name and version information.
@@ -216,6 +259,10 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+        this._pingConfig = {
+            enabled: options?.ping?.enabled ?? false,
+            intervalMs: options?.ping?.intervalMs ?? 30000,
+        };
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -514,6 +561,9 @@ export class Client extends Protocol<ClientContext> {
                 this._setupListChangedHandlers(this._pendingListChangedConfig);
                 this._pendingListChangedConfig = undefined;
             }
+
+            // Start periodic ping if enabled
+            this._startPeriodicPing();
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
@@ -540,6 +590,46 @@ export class Client extends Protocol<ClientContext> {
      */
     getInstructions(): string | undefined {
         return this._instructions;
+    }
+
+    /**
+     * Closes the connection and stops periodic ping if running.
+     */
+    override async close(): Promise<void> {
+        this._stopPeriodicPing();
+        await super.close();
+    }
+
+    /**
+     * Starts periodic ping to monitor connection health.
+     * @internal
+     */
+    private _startPeriodicPing(): void {
+        if (!this._pingConfig.enabled || this._pingInterval) {
+            return;
+        }
+
+        this._pingInterval = setInterval(async () => {
+            try {
+                await this.ping();
+            } catch (error) {
+                // Ping failed - connection may be unhealthy
+                // Emit error but don't stop the interval - let it retry
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                this.onerror?.(new Error(`Periodic ping failed: ${errorMessage}`));
+            }
+        }, this._pingConfig.intervalMs);
+    }
+
+    /**
+     * Stops periodic ping.
+     * @internal
+     */
+    private _stopPeriodicPing(): void {
+        if (this._pingInterval) {
+            clearInterval(this._pingInterval);
+            this._pingInterval = undefined;
+        }
     }
 
     protected assertCapabilityForMethod(method: RequestMethod): void {
