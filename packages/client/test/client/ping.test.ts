@@ -71,7 +71,9 @@ describe('Client periodic ping', () => {
 
         // Mock the internal _requestWithSchema to track ping calls
         const originalRequest = (client as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema;
-        (client as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema = async (...args: unknown[]) => {
+        (client as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema = async (
+            ...args: unknown[]
+        ) => {
             const request = args[0] as { method: string };
             if (request?.method === 'ping') {
                 pingCalls++;
@@ -148,8 +150,11 @@ describe('Client periodic ping', () => {
         );
 
         let customPingCalls = 0;
-        const originalRequest = (customIntervalClient as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema;
-        (customIntervalClient as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema = async (...args: unknown[]) => {
+        const originalRequest = (customIntervalClient as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })
+            ._requestWithSchema;
+        (customIntervalClient as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema = async (
+            ...args: unknown[]
+        ) => {
             const request = args[0] as { method: string };
             if (request?.method === 'ping') {
                 customPingCalls++;
@@ -179,7 +184,9 @@ describe('Client periodic ping', () => {
 
         // Mock ping to fail
         const originalRequest = (client as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema;
-        (client as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema = async (...args: unknown[]) => {
+        (client as unknown as { _requestWithSchema: (...args: unknown[]) => Promise<unknown> })._requestWithSchema = async (
+            ...args: unknown[]
+        ) => {
             const request = args[0] as { method: string };
             if (request?.method === 'ping') {
                 throw new Error('Ping failed');

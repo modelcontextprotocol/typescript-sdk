@@ -261,7 +261,7 @@ export class Client extends Protocol<ClientContext> {
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
         this._pingConfig = {
             enabled: options?.ping?.enabled ?? false,
-            intervalMs: options?.ping?.intervalMs ?? 30000,
+            intervalMs: options?.ping?.intervalMs ?? 30_000
         };
 
         // Store list changed config for setup after connection (when we know server capabilities)
