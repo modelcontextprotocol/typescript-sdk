@@ -37,6 +37,10 @@ export class StdioServerTransport implements Transport {
     _onerror = (error: Error) => {
         this.onerror?.(error);
     };
+    _onstdouterror = (error: Error) => {
+        this.onerror?.(error);
+        void this.close();
+    };
 
     /**
      * Starts listening for messages on `stdin`.
@@ -51,6 +55,7 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._stdout.on('error', this._onstdouterror);
     }
 
     private processReadBuffer() {
@@ -72,6 +77,7 @@ export class StdioServerTransport implements Transport {
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
+        this._stdout.off('error', this._onstdouterror);
 
         // Check if we were the only data listener
         const remainingDataListeners = this._stdin.listenerCount('data');
@@ -87,12 +93,16 @@ export class StdioServerTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-            if (this._stdout.write(json)) {
-                resolve();
-            } else {
-                this._stdout.once('drain', resolve);
+            try {
+                if (this._stdout.write(json)) {
+                    resolve();
+                } else {
+                    this._stdout.once('drain', resolve);
+                }
+            } catch (error) {
+                reject(error);
             }
         });
     }

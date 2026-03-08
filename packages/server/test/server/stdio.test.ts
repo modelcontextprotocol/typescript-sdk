@@ -102,3 +102,64 @@ test('should read multiple messages', async () => {
     await finished;
     expect(readMessages).toEqual(messages);
 });
+
+test('should handle stdout write errors gracefully', async () => {
+    const brokenOutput = new Writable({
+        write(_chunk, _encoding, callback) {
+            callback(new Error('write EPIPE'));
+        }
+    });
+
+    const server = new StdioServerTransport(input, brokenOutput);
+
+    const errors: Error[] = [];
+    server.onerror = error => {
+        errors.push(error);
+    };
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+
+    const message: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {}
+    };
+
+    // The send itself should resolve (write returns true before async error),
+    // but the error handler on the stream should fire and trigger close.
+    await server.send(message);
+
+    // Allow the async error callback to fire
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.message).toContain('EPIPE');
+    expect(didClose).toBe(true);
+});
+
+test('should handle synchronous stdout write throws gracefully', async () => {
+    const throwingOutput = new Writable({
+        write() {
+            throw new Error('write EPIPE');
+        }
+    });
+
+    const server = new StdioServerTransport(input, throwingOutput);
+    server.onerror = () => {};
+
+    await server.start();
+
+    const message: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {}
+    };
+
+    // send() should reject instead of crashing the process
+    await expect(server.send(message)).rejects.toThrow('EPIPE');
+});
