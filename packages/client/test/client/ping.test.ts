@@ -3,7 +3,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { Client } from '../../src/client/client.js';
 import type { Transport, TransportSendOptions } from '@modelcontextprotocol/core';
 
-// Mock Transport class
+// Mock Transport class that responds to initialize requests
 class MockTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -14,7 +14,33 @@ class MockTransport implements Transport {
     async close(): Promise<void> {
         this.onclose?.();
     }
-    async send(_message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {}
+    async send(message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {
+        // Respond to initialize requests so connect() doesn't hang
+        if ('method' in message && message.method === 'initialize' && 'id' in message) {
+            // Use queueMicrotask to simulate async response
+            queueMicrotask(() => {
+                this.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: message.id as string | number,
+                    result: {
+                        protocolVersion: '2024-11-05',
+                        capabilities: {},
+                        serverInfo: { name: 'test-server', version: '1.0.0' }
+                    }
+                });
+            });
+        }
+        // Respond to ping requests
+        if ('method' in message && message.method === 'ping' && 'id' in message) {
+            queueMicrotask(() => {
+                this.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: message.id as string | number,
+                    result: {}
+                });
+            });
+        }
+    }
 }
 
 // Helper interface to access private members for testing
