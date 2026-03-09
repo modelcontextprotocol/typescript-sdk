@@ -1,4 +1,4 @@
-# `@modelcontextprotocol/hono`
+# `@hono/mcp`
 
 Hono adapters for the MCP TypeScript server SDK.
 
@@ -13,7 +13,7 @@ It does **not** implement MCP itself. Instead, it helps you:
 ## Install
 
 ```bash
-npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono
+npm install @modelcontextprotocol/server @hono/mcp hono
 ```
 
 ## Exports
@@ -28,7 +28,7 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono
 
 ```ts
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { createMcpHonoApp } from '@modelcontextprotocol/hono';
+import { createMcpHonoApp } from '@hono/mcp';
 
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -41,7 +41,7 @@ app.all('/mcp', c => transport.handleRequest(c.req.raw, { parsedBody: c.get('par
 ### Host header validation (DNS rebinding protection)
 
 ```ts
-import { localhostHostValidation } from '@modelcontextprotocol/hono';
+import { localhostHostValidation } from '@hono/mcp';
 
 const app = createMcpHonoApp();
 app.use('*', localhostHostValidation());
