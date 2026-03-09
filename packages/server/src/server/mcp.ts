@@ -246,7 +246,7 @@ export class McpServer {
                 if (error instanceof ToolError) {
                     return this.createToolError(error.message);
                 }
-                return this.createToolError("Internal error");
+                return this.createToolError('Internal error');
             }
         });
 
