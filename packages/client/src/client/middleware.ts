@@ -1,7 +1,7 @@
 import type { FetchLike } from '@modelcontextprotocol/core';
 
 import type { OAuthClientProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError, validateClientMetadataUrl } from './auth.js';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -36,8 +36,11 @@ export type Middleware = (next: FetchLike) => FetchLike;
  * @returns A fetch middleware function
  */
 export const withOAuth =
-    (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware =>
-    next => {
+    (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware => {
+    // Validate clientMetadataUrl at factory creation time (fail-fast)
+    validateClientMetadataUrl(provider.clientMetadataUrl);
+
+    return next => {
         return async (input, init) => {
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
@@ -95,6 +98,7 @@ export const withOAuth =
             return response;
         };
     };
+};
 
 /**
  * Logger function type for HTTP requests

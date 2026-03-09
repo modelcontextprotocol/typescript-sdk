@@ -11,6 +11,67 @@ import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import { SSEClientTransport } from '../../src/client/sse.js';
 
+describe('SSEClientTransport clientMetadataUrl validation', () => {
+    it('throws OAuthError when authProvider.clientMetadataUrl is an invalid HTTP URL', () => {
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientMetadataUrl: 'http://example.com/metadata',
+            clientInformation: vi.fn(),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn()
+        };
+
+        expect(() => new SSEClientTransport(new URL('https://server.example.com/sse'), { authProvider: provider })).toThrow(OAuthError);
+    });
+
+    it('succeeds when clientMetadataUrl is a valid HTTPS URL', () => {
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientMetadataUrl: 'https://client.example.com/.well-known/oauth-client',
+            clientInformation: vi.fn(),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn()
+        };
+
+        expect(() => new SSEClientTransport(new URL('https://server.example.com/sse'), { authProvider: provider })).not.toThrow();
+    });
+
+    it('succeeds when clientMetadataUrl is undefined', () => {
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientInformation: vi.fn(),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn()
+        };
+
+        expect(() => new SSEClientTransport(new URL('https://server.example.com/sse'), { authProvider: provider })).not.toThrow();
+    });
+});
+
 /**
  * Parses HTTP Basic auth from a request's Authorization header.
  * Returns the decoded client_id and client_secret, or undefined if the header is absent or malformed.

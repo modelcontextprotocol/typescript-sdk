@@ -7,6 +7,77 @@ import { UnauthorizedError } from '../../src/client/auth.js';
 import type { StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
+describe('StreamableHTTPClientTransport clientMetadataUrl validation', () => {
+    it('throws OAuthError when authProvider.clientMetadataUrl is an invalid HTTP URL', () => {
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientMetadataUrl: 'http://example.com/metadata',
+            clientInformation: vi.fn(),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn()
+        };
+
+        expect(() => new StreamableHTTPClientTransport(new URL('https://server.example.com/mcp'), { authProvider: provider })).toThrow(
+            OAuthError
+        );
+    });
+
+    it('succeeds when clientMetadataUrl is a valid HTTPS URL', () => {
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientMetadataUrl: 'https://client.example.com/.well-known/oauth-client',
+            clientInformation: vi.fn(),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn()
+        };
+
+        expect(
+            () => new StreamableHTTPClientTransport(new URL('https://server.example.com/mcp'), { authProvider: provider })
+        ).not.toThrow();
+    });
+
+    it('succeeds when clientMetadataUrl is undefined', () => {
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientInformation: vi.fn(),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn()
+        };
+
+        expect(
+            () => new StreamableHTTPClientTransport(new URL('https://server.example.com/mcp'), { authProvider: provider })
+        ).not.toThrow();
+    });
+
+    it('succeeds when no authProvider is provided', () => {
+        expect(() => new StreamableHTTPClientTransport(new URL('https://server.example.com/mcp'))).not.toThrow();
+    });
+});
+
 describe('StreamableHTTPClientTransport', () => {
     let transport: StreamableHTTPClientTransport;
     let mockAuthProvider: Mocked<OAuthClientProvider>;

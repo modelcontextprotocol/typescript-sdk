@@ -404,6 +404,9 @@ export async function auth(
         fetchFn?: FetchLike;
     }
 ): Promise<AuthResult> {
+    // Validate clientMetadataUrl before any network calls
+    validateClientMetadataUrl(provider.clientMetadataUrl);
+
     try {
         return await authInternal(provider, options);
     } catch (error) {
@@ -612,6 +615,29 @@ async function authInternal(
     await provider.saveCodeVerifier(codeVerifier);
     await provider.redirectToAuthorization(authorizationUrl);
     return 'REDIRECT';
+}
+
+/**
+ * Validates that the given `clientMetadataUrl` is a valid HTTPS URL with a non-root pathname.
+ *
+ * This function is a no-op when `url` is `undefined` or empty (providers that do not use
+ * URL-based client IDs are unaffected). When the value is defined but invalid, it throws
+ * an {@linkcode OAuthError} with code {@linkcode OAuthErrorCode.InvalidClientMetadata}.
+ *
+ * SDK transports and the `auth()` function call this automatically. Consumers who implement
+ * {@linkcode OAuthClientProvider} directly can call this in their own constructors for
+ * early validation.
+ *
+ * @param url - The `clientMetadataUrl` value to validate (from `OAuthClientProvider.clientMetadataUrl`)
+ * @throws {OAuthError} When `url` is defined but is not a valid HTTPS URL with a non-root pathname
+ */
+export function validateClientMetadataUrl(url: string | undefined): void {
+    if (url && !isHttpsUrl(url)) {
+        throw new OAuthError(
+            OAuthErrorCode.InvalidClientMetadata,
+            `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${url}`
+        );
+    }
 }
 
 /**

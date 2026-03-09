@@ -4,7 +4,7 @@ import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError, validateClientMetadataUrl } from './auth.js';
 
 export class SseError extends Error {
     constructor(
@@ -81,6 +81,11 @@ export class SSEClientTransport implements Transport {
     onmessage?: (message: JSONRPCMessage) => void;
 
     constructor(url: URL, opts?: SSEClientTransportOptions) {
+        // Validate clientMetadataUrl at construction time (fail-fast)
+        if (opts?.authProvider) {
+            validateClientMetadataUrl(opts.authProvider.clientMetadataUrl);
+        }
+
         this._url = url;
         this._resourceMetadataUrl = undefined;
         this._scope = undefined;
