@@ -35,8 +35,7 @@ export type Middleware = (next: FetchLike) => FetchLike;
  * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL domain)
  * @returns A fetch middleware function
  */
-export const withOAuth =
-    (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware => {
+export const withOAuth = (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware => {
     // Validate clientMetadataUrl at factory creation time (fail-fast)
     validateClientMetadataUrl(provider.clientMetadataUrl);
 
