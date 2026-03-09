@@ -4,6 +4,3 @@
 client:
     - auth/pre-registration
     - auth/cross-app-access-complete-flow
-
-server:
-    - dns-rebinding-protection
