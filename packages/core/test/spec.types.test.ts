@@ -773,10 +773,7 @@ const sdkTypeChecks = {
 
 /** Strip index signatures, keeping only explicitly-named keys. */
 type KnownKeys<T> = keyof {
-    [K in keyof T as string extends K ? never
-        : number extends K ? never
-        : symbol extends K ? never
-        : K]: T[K];
+    [K in keyof T as string extends K ? never : number extends K ? never : symbol extends K ? never : K]: T[K];
 };
 
 /**
@@ -784,12 +781,11 @@ type KnownKeys<T> = keyof {
  * Resolves to `true` on match; a descriptive error type on mismatch.
  */
 type AssertExactKeys<
-    A, B,
+    A,
+    B,
     Extra extends PropertyKey = Exclude<KnownKeys<A>, KnownKeys<B>>,
     Missing extends PropertyKey = Exclude<KnownKeys<B>, KnownKeys<A>>
-> = [Extra, Missing] extends [never, never]
-    ? true
-    : { _brand: 'KeyMismatch'; extra: Extra; missing: Missing };
+> = [Extra, Missing] extends [never, never] ? true : { _brand: 'KeyMismatch'; extra: Extra; missing: Missing };
 
 /** Constraint: T must resolve to `true`. */
 type Assert<T extends true> = T;
@@ -819,11 +815,15 @@ type _K_ResourceRequestParams = Assert<AssertExactKeys<SDKTypes.ResourceRequestP
 type _K_ReadResourceRequestParams = Assert<AssertExactKeys<SDKTypes.ReadResourceRequestParams, SpecTypes.ReadResourceRequestParams>>;
 type _K_SubscribeRequestParams = Assert<AssertExactKeys<SDKTypes.SubscribeRequestParams, SpecTypes.SubscribeRequestParams>>;
 type _K_UnsubscribeRequestParams = Assert<AssertExactKeys<SDKTypes.UnsubscribeRequestParams, SpecTypes.UnsubscribeRequestParams>>;
-type _K_ResourceUpdatedNotificationParams = Assert<AssertExactKeys<SDKTypes.ResourceUpdatedNotificationParams, SpecTypes.ResourceUpdatedNotificationParams>>;
+type _K_ResourceUpdatedNotificationParams = Assert<
+    AssertExactKeys<SDKTypes.ResourceUpdatedNotificationParams, SpecTypes.ResourceUpdatedNotificationParams>
+>;
 type _K_GetPromptRequestParams = Assert<AssertExactKeys<SDKTypes.GetPromptRequestParams, SpecTypes.GetPromptRequestParams>>;
 type _K_CallToolRequestParams = Assert<AssertExactKeys<SDKTypes.CallToolRequestParams, SpecTypes.CallToolRequestParams>>;
 type _K_SetLevelRequestParams = Assert<AssertExactKeys<SDKTypes.SetLevelRequestParams, SpecTypes.SetLevelRequestParams>>;
-type _K_LoggingMessageNotificationParams = Assert<AssertExactKeys<SDKTypes.LoggingMessageNotificationParams, SpecTypes.LoggingMessageNotificationParams>>;
+type _K_LoggingMessageNotificationParams = Assert<
+    AssertExactKeys<SDKTypes.LoggingMessageNotificationParams, SpecTypes.LoggingMessageNotificationParams>
+>;
 type _K_CreateMessageRequestParams = Assert<AssertExactKeys<SDKTypes.CreateMessageRequestParams, SpecTypes.CreateMessageRequestParams>>;
 type _K_CompleteRequestParams = Assert<AssertExactKeys<SDKTypes.CompleteRequestParams, SpecTypes.CompleteRequestParams>>;
 type _K_ElicitRequestFormParams = Assert<AssertExactKeys<SDKTypes.ElicitRequestFormParams, SpecTypes.ElicitRequestFormParams>>;
@@ -872,9 +872,15 @@ type _K_PromptMessage = Assert<AssertExactKeys<SDKTypes.PromptMessage, SpecTypes
 type _K_BooleanSchema = Assert<AssertExactKeys<SDKTypes.BooleanSchema, SpecTypes.BooleanSchema>>;
 type _K_StringSchema = Assert<AssertExactKeys<SDKTypes.StringSchema, SpecTypes.StringSchema>>;
 type _K_NumberSchema = Assert<AssertExactKeys<SDKTypes.NumberSchema, SpecTypes.NumberSchema>>;
-type _K_UntitledSingleSelectEnumSchema = Assert<AssertExactKeys<SDKTypes.UntitledSingleSelectEnumSchema, SpecTypes.UntitledSingleSelectEnumSchema>>;
-type _K_TitledSingleSelectEnumSchema = Assert<AssertExactKeys<SDKTypes.TitledSingleSelectEnumSchema, SpecTypes.TitledSingleSelectEnumSchema>>;
-type _K_UntitledMultiSelectEnumSchema = Assert<AssertExactKeys<SDKTypes.UntitledMultiSelectEnumSchema, SpecTypes.UntitledMultiSelectEnumSchema>>;
+type _K_UntitledSingleSelectEnumSchema = Assert<
+    AssertExactKeys<SDKTypes.UntitledSingleSelectEnumSchema, SpecTypes.UntitledSingleSelectEnumSchema>
+>;
+type _K_TitledSingleSelectEnumSchema = Assert<
+    AssertExactKeys<SDKTypes.TitledSingleSelectEnumSchema, SpecTypes.TitledSingleSelectEnumSchema>
+>;
+type _K_UntitledMultiSelectEnumSchema = Assert<
+    AssertExactKeys<SDKTypes.UntitledMultiSelectEnumSchema, SpecTypes.UntitledMultiSelectEnumSchema>
+>;
 type _K_TitledMultiSelectEnumSchema = Assert<AssertExactKeys<SDKTypes.TitledMultiSelectEnumSchema, SpecTypes.TitledMultiSelectEnumSchema>>;
 type _K_LegacyTitledEnumSchema = Assert<AssertExactKeys<SDKTypes.LegacyTitledEnumSchema, SpecTypes.LegacyTitledEnumSchema>>;
 type _K_JSONRPCErrorResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCErrorResponse, SpecTypes.JSONRPCErrorResponse>>;
@@ -903,7 +909,9 @@ type _K_GetTaskResult = Assert<AssertExactKeys<SDKTypes.GetTaskResult, SpecTypes
 type _K_ListTasksResult = Assert<AssertExactKeys<SDKTypes.ListTasksResult, SpecTypes.ListTasksResult>>;
 type _K_CancelTaskResult = Assert<AssertExactKeys<SDKTypes.CancelTaskResult, SpecTypes.CancelTaskResult>>;
 type _K_GetTaskPayloadResult = Assert<AssertExactKeys<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;
-type _K_TaskStatusNotificationParams = Assert<AssertExactKeys<SDKTypes.TaskStatusNotificationParams, SpecTypes.TaskStatusNotificationParams>>;
+type _K_TaskStatusNotificationParams = Assert<
+    AssertExactKeys<SDKTypes.TaskStatusNotificationParams, SpecTypes.TaskStatusNotificationParams>
+>;
 type _K_JSONObject = Assert<AssertExactKeys<SDKTypes.JSONObject, SpecTypes.JSONObject>>;
 type _K_MetaObject = Assert<AssertExactKeys<SDKTypes.MetaObject, SpecTypes.MetaObject>>;
 // @ts-expect-error Genuine mismatch: SDK RequestMetaObject has extra 'io.modelcontextprotocol/related-task' not in spec
@@ -918,15 +926,29 @@ type _K_InternalError = Assert<AssertExactKeys<SDKTypes.InternalError, SpecTypes
 // SDK notification types do not include `jsonrpc` — the spec types do. We wrap
 // with WithJSONRPC<> to add the missing field before comparing keys.
 
-type _K_ElicitationCompleteNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.ElicitationCompleteNotification>, SpecTypes.ElicitationCompleteNotification>>;
+type _K_ElicitationCompleteNotification = Assert<
+    AssertExactKeys<WithJSONRPC<SDKTypes.ElicitationCompleteNotification>, SpecTypes.ElicitationCompleteNotification>
+>;
 type _K_CancelledNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.CancelledNotification>, SpecTypes.CancelledNotification>>;
 type _K_ProgressNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.ProgressNotification>, SpecTypes.ProgressNotification>>;
-type _K_ToolListChangedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.ToolListChangedNotification>, SpecTypes.ToolListChangedNotification>>;
-type _K_ResourceListChangedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.ResourceListChangedNotification>, SpecTypes.ResourceListChangedNotification>>;
-type _K_PromptListChangedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.PromptListChangedNotification>, SpecTypes.PromptListChangedNotification>>;
-type _K_RootsListChangedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.RootsListChangedNotification>, SpecTypes.RootsListChangedNotification>>;
-type _K_ResourceUpdatedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.ResourceUpdatedNotification>, SpecTypes.ResourceUpdatedNotification>>;
-type _K_LoggingMessageNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.LoggingMessageNotification>, SpecTypes.LoggingMessageNotification>>;
+type _K_ToolListChangedNotification = Assert<
+    AssertExactKeys<WithJSONRPC<SDKTypes.ToolListChangedNotification>, SpecTypes.ToolListChangedNotification>
+>;
+type _K_ResourceListChangedNotification = Assert<
+    AssertExactKeys<WithJSONRPC<SDKTypes.ResourceListChangedNotification>, SpecTypes.ResourceListChangedNotification>
+>;
+type _K_PromptListChangedNotification = Assert<
+    AssertExactKeys<WithJSONRPC<SDKTypes.PromptListChangedNotification>, SpecTypes.PromptListChangedNotification>
+>;
+type _K_RootsListChangedNotification = Assert<
+    AssertExactKeys<WithJSONRPC<SDKTypes.RootsListChangedNotification>, SpecTypes.RootsListChangedNotification>
+>;
+type _K_ResourceUpdatedNotification = Assert<
+    AssertExactKeys<WithJSONRPC<SDKTypes.ResourceUpdatedNotification>, SpecTypes.ResourceUpdatedNotification>
+>;
+type _K_LoggingMessageNotification = Assert<
+    AssertExactKeys<WithJSONRPC<SDKTypes.LoggingMessageNotification>, SpecTypes.LoggingMessageNotification>
+>;
 type _K_InitializedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.InitializedNotification>, SpecTypes.InitializedNotification>>;
 type _K_TaskStatusNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.TaskStatusNotification>, SpecTypes.TaskStatusNotification>>;
 
@@ -945,13 +967,17 @@ type _K_CallToolRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.Cal
 type _K_SetLevelRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.SetLevelRequest>, SpecTypes.SetLevelRequest>>;
 type _K_PingRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.PingRequest>, SpecTypes.PingRequest>>;
 type _K_ListResourcesRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.ListResourcesRequest>, SpecTypes.ListResourcesRequest>>;
-type _K_ListResourceTemplatesRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.ListResourceTemplatesRequest>, SpecTypes.ListResourceTemplatesRequest>>;
+type _K_ListResourceTemplatesRequest = Assert<
+    AssertExactKeys<WithJSONRPCRequest<SDKTypes.ListResourceTemplatesRequest>, SpecTypes.ListResourceTemplatesRequest>
+>;
 type _K_ReadResourceRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.ReadResourceRequest>, SpecTypes.ReadResourceRequest>>;
 type _K_ListPromptsRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.ListPromptsRequest>, SpecTypes.ListPromptsRequest>>;
 type _K_GetPromptRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetPromptRequest>, SpecTypes.GetPromptRequest>>;
 type _K_CreateMessageRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, SpecTypes.CreateMessageRequest>>;
 type _K_InitializeRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.InitializeRequest>, SpecTypes.InitializeRequest>>;
-type _K_GetTaskPayloadRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetTaskPayloadRequest>, SpecTypes.GetTaskPayloadRequest>>;
+type _K_GetTaskPayloadRequest = Assert<
+    AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetTaskPayloadRequest>, SpecTypes.GetTaskPayloadRequest>
+>;
 type _K_ListTasksRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.ListTasksRequest>, SpecTypes.ListTasksRequest>>;
 type _K_CancelTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.CancelTaskRequest>, SpecTypes.CancelTaskRequest>>;
 type _K_GetTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetTaskRequest>, SpecTypes.GetTaskRequest>>;
@@ -961,24 +987,42 @@ type _K_GetTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetT
 // with a specific result. We compare TypedResultResponse<SDKInnerType> against the
 // spec's combined type.
 
-type _K_InitializeResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.InitializeResult>, SpecTypes.InitializeResultResponse>>;
+type _K_InitializeResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.InitializeResult>, SpecTypes.InitializeResultResponse>
+>;
 type _K_PingResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.PingResultResponse>>;
-type _K_ListResourcesResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListResourcesResult>, SpecTypes.ListResourcesResultResponse>>;
-type _K_ListResourceTemplatesResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListResourceTemplatesResult>, SpecTypes.ListResourceTemplatesResultResponse>>;
-type _K_ReadResourceResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ReadResourceResult>, SpecTypes.ReadResourceResultResponse>>;
+type _K_ListResourcesResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.ListResourcesResult>, SpecTypes.ListResourcesResultResponse>
+>;
+type _K_ListResourceTemplatesResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.ListResourceTemplatesResult>, SpecTypes.ListResourceTemplatesResultResponse>
+>;
+type _K_ReadResourceResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.ReadResourceResult>, SpecTypes.ReadResourceResultResponse>
+>;
 type _K_SubscribeResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.SubscribeResultResponse>>;
 type _K_UnsubscribeResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.UnsubscribeResultResponse>>;
-type _K_ListPromptsResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListPromptsResult>, SpecTypes.ListPromptsResultResponse>>;
+type _K_ListPromptsResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.ListPromptsResult>, SpecTypes.ListPromptsResultResponse>
+>;
 type _K_GetPromptResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.GetPromptResult>, SpecTypes.GetPromptResultResponse>>;
 type _K_ListToolsResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListToolsResult>, SpecTypes.ListToolsResultResponse>>;
 type _K_CallToolResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.CallToolResult>, SpecTypes.CallToolResultResponse>>;
-type _K_CreateTaskResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.CreateTaskResult>, SpecTypes.CreateTaskResultResponse>>;
+type _K_CreateTaskResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.CreateTaskResult>, SpecTypes.CreateTaskResultResponse>
+>;
 type _K_GetTaskResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.GetTaskResult>, SpecTypes.GetTaskResultResponse>>;
-type _K_GetTaskPayloadResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.GetTaskPayloadResult>, SpecTypes.GetTaskPayloadResultResponse>>;
-type _K_CancelTaskResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.CancelTaskResult>, SpecTypes.CancelTaskResultResponse>>;
+type _K_GetTaskPayloadResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.GetTaskPayloadResult>, SpecTypes.GetTaskPayloadResultResponse>
+>;
+type _K_CancelTaskResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.CancelTaskResult>, SpecTypes.CancelTaskResultResponse>
+>;
 type _K_ListTasksResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListTasksResult>, SpecTypes.ListTasksResultResponse>>;
 type _K_SetLevelResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.SetLevelResultResponse>>;
-type _K_CreateMessageResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.CreateMessageResultWithTools>, SpecTypes.CreateMessageResultResponse>>;
+type _K_CreateMessageResultResponse = Assert<
+    AssertExactKeys<TypedResultResponse<SDKTypes.CreateMessageResultWithTools>, SpecTypes.CreateMessageResultResponse>
+>;
 type _K_CompleteResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.CompleteResult>, SpecTypes.CompleteResultResponse>>;
 type _K_ListRootsResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListRootsResult>, SpecTypes.ListRootsResultResponse>>;
 type _K_ElicitResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ElicitResult>, SpecTypes.ElicitResultResponse>>;
