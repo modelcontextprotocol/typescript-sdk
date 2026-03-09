@@ -53,7 +53,7 @@ cd weather
 npm init -y
 
 # Install dependencies
-npm install @modelcontextprotocol/server zod
+npm install @modelcontextprotocol/sdk zod
 npm install -D @types/node typescript
 
 # Create our files
@@ -72,7 +72,7 @@ cd weather
 npm init -y
 
 # Install dependencies
-npm install @modelcontextprotocol/server zod
+npm install @modelcontextprotocol/sdk zod
 npm install -D @types/node typescript
 
 # Create our files
@@ -124,7 +124,7 @@ Now let's dive into building your server.
 Add these to the top of your `src/index.ts`:
 
 ```ts source="../examples/server-quickstart/src/index.ts#prelude"
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/sdk';
 import * as z from 'zod/v4';
 
 const NWS_API_BASE = 'https://api.weather.gov';
@@ -212,7 +212,7 @@ interface ForecastResponse {
 
 ### Registering tools
 
-Each tool is registered with {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#registerTool | server.registerTool()}, which takes the tool name, a configuration object (with description and input schema), and a callback that implements the tool logic. Let's register our two weather tools:
+Each tool is registered with {@linkcode @modelcontextprotocol/sdk!server/mcp.McpServer#registerTool | server.registerTool()}, which takes the tool name, a configuration object (with description and input schema), and a callback that implements the tool logic. Let's register our two weather tools:
 
 ```ts source="../examples/server-quickstart/src/index.ts#registerTools"
 // Register weather tools
