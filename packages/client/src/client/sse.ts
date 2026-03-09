@@ -251,6 +251,7 @@ export class SSEClientTransport implements Transport {
         try {
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
+            headers.set('accept', 'application/json, text/event-stream');
             const init = {
                 ...this._requestInit,
                 method: 'POST',
