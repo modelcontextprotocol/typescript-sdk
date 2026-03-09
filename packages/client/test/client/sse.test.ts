@@ -1528,4 +1528,32 @@ describe('SSEClientTransport', () => {
             expect(globalFetchSpy).not.toHaveBeenCalled();
         });
     });
+
+    describe('Transport lifecycle', () => {
+        it('should allow start() after close() for transport reuse', async () => {
+            transport = new SSEClientTransport(resourceBaseUrl);
+            await transport.start();
+
+            // close() the transport
+            await transport.close();
+
+            // Second start() should succeed — not throw "already started"
+            await transport.start();
+
+            // Verify transport is functional by sending a message
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-1'
+            };
+
+            await transport.send(message);
+
+            // Wait for request processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(lastServerRequest.method).toBe('POST');
+        });
+    });
 });

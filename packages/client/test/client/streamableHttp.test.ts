@@ -1659,4 +1659,41 @@ describe('StreamableHTTPClientTransport', () => {
             });
         });
     });
+
+    describe('Transport lifecycle', () => {
+        it('should allow start() after close() for transport reuse', async () => {
+            const fetchMock = globalThis.fetch as Mock;
+
+            // First start()
+            await transport.start();
+
+            // close() the transport
+            await transport.close();
+
+            // Second start() should succeed — not throw "already started"
+            await transport.start();
+
+            // Verify transport is functional by sending a message
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: async () => ({
+                    jsonrpc: '2.0',
+                    result: {},
+                    id: 'test-1'
+                })
+            });
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-1'
+            };
+
+            await transport.send(message);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+    });
 });

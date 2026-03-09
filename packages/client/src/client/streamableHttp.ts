@@ -452,6 +452,7 @@ export class StreamableHTTPClientTransport implements Transport {
             this._reconnectionTimeout = undefined;
         }
         this._abortController?.abort();
+        this._abortController = undefined;
         this.onclose?.();
     }
 
