@@ -2397,6 +2397,11 @@ type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
  */
 export interface RequestInfo {
     /**
+     * The full request URL.
+     */
+    url: string;
+
+    /**
      * The headers of the request.
      */
     headers: Headers;

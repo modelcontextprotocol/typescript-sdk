@@ -370,7 +370,10 @@ describe('Zod v4', () => {
                 id: 'call-1'
             };
 
-            const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+            const requestUrl = new URL(baseUrl);
+            requestUrl.searchParams.set('tenant', 'acme-corp');
+
+            const response = await sendPostRequest(requestUrl, toolCallMessage, sessionId);
             expect(response.status).toBe(200);
 
             const text = await readSSEEvent(response);
@@ -409,6 +412,7 @@ describe('Zod v4', () => {
                     // Convert Headers object to plain object for JSON serialization
                     // Headers is a Web API class that doesn't serialize with JSON.stringify
                     const serializedRequestInfo = {
+                        url: ctx.http?.req?.url,
                         headers: Object.fromEntries(ctx.http?.req?.headers ?? new Headers())
                     };
                     return {
@@ -432,7 +436,10 @@ describe('Zod v4', () => {
                 id: 'call-1'
             };
 
-            const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+            const requestUrl = new URL(baseUrl);
+            requestUrl.searchParams.set('tenant', 'acme-corp');
+
+            const response = await sendPostRequest(requestUrl, toolCallMessage, sessionId);
             expect(response.status).toBe(200);
 
             const text = await readSSEEvent(response);
@@ -455,6 +462,7 @@ describe('Zod v4', () => {
 
             const requestInfo = JSON.parse(eventData.result.content[1].text);
             expect(requestInfo).toMatchObject({
+                url: requestUrl.toString(),
                 headers: {
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream',
