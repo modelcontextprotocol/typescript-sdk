@@ -147,6 +147,28 @@ export interface OAuthClientProvider {
     invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void | Promise<void>;
 
     /**
+     * If implemented, returns the authorization code obtained after the user completes
+     * the OAuth authorization flow. This is called by {@linkcode withOAuth} immediately
+     * after {@linkcode OAuthClientProvider.redirectToAuthorization | redirectToAuthorization()}
+     * resolves, allowing the middleware to automatically complete the token exchange without
+     * requiring manual intervention.
+     *
+     * **Ordering contract:** The authorization code *must* be available by the time this
+     * method is called. Because `redirectToAuthorization()` is awaited first, the typical
+     * pattern is to capture and store the code inside `redirectToAuthorization()` so that
+     * it is ready to return here. Throwing from this method will propagate as an
+     * {@linkcode UnauthorizedError}.
+     *
+     * Implement this when your provider handles the authorization callback inline —
+     * for example, by starting a local HTTP server that catches the redirect, or by
+     * fetching the authorization URL directly in a headless environment.
+     *
+     * If not implemented, {@linkcode withOAuth} will throw an {@linkcode UnauthorizedError}
+     * when a redirect is required, leaving it to the caller to manage the auth code flow.
+     */
+    getAuthorizationCode?(): string | Promise<string>;
+
+    /**
      * Prepares grant-specific parameters for a token request.
      *
      * This optional method allows providers to customize the token request based on
