@@ -2,5 +2,4 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 
 client:
-    - auth/pre-registration
     - auth/cross-app-access-complete-flow
