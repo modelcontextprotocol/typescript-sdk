@@ -425,6 +425,34 @@ describe('StreamableHTTPClientTransport', () => {
         expect(headers.get('last-event-id')).toBe('test-event-id');
     });
 
+    it('should include requestInit options (credentials, mode, etc.) in GET SSE request', async () => {
+        // Regression test for #895: POST and DELETE requests spread _requestInit but the
+        // GET SSE request did not, so non-header options like credentials were dropped.
+        vi.clearAllMocks();
+
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: { credentials: 'include', mode: 'cors' }
+        });
+
+        const fetchSpy = globalThis.fetch as Mock;
+        fetchSpy.mockReset();
+        fetchSpy.mockResolvedValue({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: new ReadableStream()
+        });
+
+        await transport.start();
+        await (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({});
+
+        expect(fetchSpy).toHaveBeenCalled();
+        const init = fetchSpy.mock.calls[0]![1];
+        expect(init.method).toBe('GET');
+        expect(init.credentials).toBe('include');
+        expect(init.mode).toBe('cors');
+    });
+
     it('should throw error when invalid content-type is received', async () => {
         // Clear any previous state from other tests
         vi.clearAllMocks();

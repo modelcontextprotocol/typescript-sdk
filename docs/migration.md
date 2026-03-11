@@ -337,6 +337,73 @@ Common method string replacements:
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
 
+### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
+
+The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+
+**`client.request()` — Before (v1):**
+
+```typescript
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+const result = await client.request(
+    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } },
+    CallToolResultSchema
+);
+```
+
+**After (v2):**
+
+```typescript
+const result = await client.request(
+    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } }
+);
+```
+
+**`ctx.mcpReq.send()` — Before (v1):**
+
+```typescript
+import { CreateMessageResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const samplingResult = await ctx.mcpReq.send(
+        { method: 'sampling/createMessage', params: { messages: [...], maxTokens: 100 } },
+        CreateMessageResultSchema
+    );
+    return { content: [{ type: 'text', text: 'done' }] };
+});
+```
+
+**After (v2):**
+
+```typescript
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const samplingResult = await ctx.mcpReq.send(
+        { method: 'sampling/createMessage', params: { messages: [...], maxTokens: 100 } }
+    );
+    return { content: [{ type: 'text', text: 'done' }] };
+});
+```
+
+**`client.callTool()` — Before (v1):**
+
+```typescript
+import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+const result = await client.callTool(
+    { name: 'my-tool', arguments: {} },
+    CompatibilityCallToolResultSchema
+);
+```
+
+**After (v2):**
+
+```typescript
+const result = await client.callTool({ name: 'my-tool', arguments: {} });
+```
+
+The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
+
 ### Client list methods return empty results for missing capabilities
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.
@@ -708,7 +775,7 @@ import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator } from '@modelconte
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):
 
-- `Client` constructor and all client methods (`connect`, `callTool`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.)
+- `Client` constructor and most client methods (`connect`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.) — note: `callTool()` signature changed (schema parameter removed)
 - `McpServer` constructor, `server.connect(transport)`, `server.close()`
 - `Server` (low-level) constructor and all methods
 - `StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport` constructors and options

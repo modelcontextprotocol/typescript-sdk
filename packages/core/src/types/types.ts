@@ -6,6 +6,17 @@ export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
+/* JSON types */
+export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
+export type JSONObject = { [key: string]: JSONValue };
+export type JSONArray = JSONValue[];
+
+export const JSONValueSchema: z.ZodType<JSONValue> = z.lazy(() =>
+    z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])
+);
+export const JSONObjectSchema: z.ZodType<JSONObject> = z.record(z.string(), JSONValueSchema);
+export const JSONArraySchema: z.ZodType<JSONArray> = z.array(JSONValueSchema);
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
 
@@ -50,12 +61,6 @@ export interface AuthInfo {
  * Utility types
  */
 type ExpandRecursively<T> = T extends object ? (T extends infer O ? { [K in keyof O]: ExpandRecursively<O[K]> } : never) : T;
-/**
- * Assert 'object' type schema.
- *
- * @internal
- */
-const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (typeof v === 'object' || typeof v === 'function'));
 /**
  * A progress token, used to associate progress notifications with the original request.
  */
@@ -228,7 +233,33 @@ export enum ProtocolErrorCode {
     InternalError = -32_603,
 
     // MCP-specific error codes
+    ResourceNotFound = -32_002,
     UrlElicitationRequired = -32_042
+}
+
+/* Standard JSON-RPC error code constants */
+export const PARSE_ERROR = -32_700;
+export const INVALID_REQUEST = -32_600;
+export const METHOD_NOT_FOUND = -32_601;
+export const INVALID_PARAMS = -32_602;
+export const INTERNAL_ERROR = -32_603;
+
+type JSONRPCErrorObject = { code: number; message: string; data?: unknown };
+
+export interface ParseError extends JSONRPCErrorObject {
+    code: typeof PARSE_ERROR;
+}
+export interface InvalidRequestError extends JSONRPCErrorObject {
+    code: typeof INVALID_REQUEST;
+}
+export interface MethodNotFoundError extends JSONRPCErrorObject {
+    code: typeof METHOD_NOT_FOUND;
+}
+export interface InvalidParamsError extends JSONRPCErrorObject {
+    code: typeof INVALID_PARAMS;
+}
+export interface InternalError extends JSONRPCErrorObject {
+    code: typeof INTERNAL_ERROR;
 }
 
 /**
@@ -399,7 +430,7 @@ const FormElicitationCapabilitySchema = z.intersection(
     z.object({
         applyDefaults: z.boolean().optional()
     }),
-    z.record(z.string(), z.unknown())
+    JSONObjectSchema
 );
 
 const ElicitationCapabilitySchema = z.preprocess(
@@ -412,9 +443,9 @@ const ElicitationCapabilitySchema = z.preprocess(
     z.intersection(
         z.object({
             form: FormElicitationCapabilitySchema.optional(),
-            url: AssertObjectSchema.optional()
+            url: JSONObjectSchema.optional()
         }),
-        z.record(z.string(), z.unknown()).optional()
+        JSONObjectSchema.optional()
     )
 );
 
@@ -425,11 +456,11 @@ export const ClientTasksCapabilitySchema = z.looseObject({
     /**
      * Present if the client supports listing tasks.
      */
-    list: AssertObjectSchema.optional(),
+    list: JSONObjectSchema.optional(),
     /**
      * Present if the client supports cancelling tasks.
      */
-    cancel: AssertObjectSchema.optional(),
+    cancel: JSONObjectSchema.optional(),
     /**
      * Capabilities for task creation on specific request types.
      */
@@ -440,7 +471,7 @@ export const ClientTasksCapabilitySchema = z.looseObject({
              */
             sampling: z
                 .looseObject({
-                    createMessage: AssertObjectSchema.optional()
+                    createMessage: JSONObjectSchema.optional()
                 })
                 .optional(),
             /**
@@ -448,7 +479,7 @@ export const ClientTasksCapabilitySchema = z.looseObject({
              */
             elicitation: z
                 .looseObject({
-                    create: AssertObjectSchema.optional()
+                    create: JSONObjectSchema.optional()
                 })
                 .optional()
         })
@@ -462,11 +493,11 @@ export const ServerTasksCapabilitySchema = z.looseObject({
     /**
      * Present if the server supports listing tasks.
      */
-    list: AssertObjectSchema.optional(),
+    list: JSONObjectSchema.optional(),
     /**
      * Present if the server supports cancelling tasks.
      */
-    cancel: AssertObjectSchema.optional(),
+    cancel: JSONObjectSchema.optional(),
     /**
      * Capabilities for task creation on specific request types.
      */
@@ -477,7 +508,7 @@ export const ServerTasksCapabilitySchema = z.looseObject({
              */
             tools: z
                 .looseObject({
-                    call: AssertObjectSchema.optional()
+                    call: JSONObjectSchema.optional()
                 })
                 .optional()
         })
@@ -491,7 +522,7 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Experimental, non-standard capabilities that the client supports.
      */
-    experimental: z.record(z.string(), AssertObjectSchema).optional(),
+    experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the client supports sampling from an LLM.
      */
@@ -501,11 +532,11 @@ export const ClientCapabilitiesSchema = z.object({
              * Present if the client supports context inclusion via `includeContext` parameter.
              * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
              */
-            context: AssertObjectSchema.optional(),
+            context: JSONObjectSchema.optional(),
             /**
              * Present if the client supports tool use via `tools` and `toolChoice` parameters.
              */
-            tools: AssertObjectSchema.optional()
+            tools: JSONObjectSchema.optional()
         })
         .optional(),
     /**
@@ -554,15 +585,15 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Experimental, non-standard capabilities that the server supports.
      */
-    experimental: z.record(z.string(), AssertObjectSchema).optional(),
+    experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the server supports sending log messages to the client.
      */
-    logging: AssertObjectSchema.optional(),
+    logging: JSONObjectSchema.optional(),
     /**
      * Present if the server supports sending completions to the client.
      */
-    completions: AssertObjectSchema.optional(),
+    completions: JSONObjectSchema.optional(),
     /**
      * Present if the server offers any prompt templates.
      */
@@ -1391,7 +1422,7 @@ export const ToolSchema = z.object({
     inputSchema: z
         .object({
             type: z.literal('object'),
-            properties: z.record(z.string(), AssertObjectSchema).optional(),
+            properties: z.record(z.string(), JSONValueSchema).optional(),
             required: z.array(z.string()).optional()
         })
         .catchall(z.unknown()),
@@ -1403,7 +1434,7 @@ export const ToolSchema = z.object({
     outputSchema: z
         .object({
             type: z.literal('object'),
-            properties: z.record(z.string(), AssertObjectSchema).optional(),
+            properties: z.record(z.string(), JSONValueSchema).optional(),
             required: z.array(z.string()).optional()
         })
         .catchall(z.unknown())
@@ -1768,7 +1799,7 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
     /**
      * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
      */
-    metadata: AssertObjectSchema.optional(),
+    metadata: JSONObjectSchema.optional(),
     /**
      * Tools that the model may use during generation.
      * The client MUST return an error if this field is provided but {@linkcode ClientCapabilities}.`sampling.tools` is not declared.
@@ -2404,6 +2435,8 @@ export type Cursor = Infer<typeof CursorSchema>;
 export type Request = Infer<typeof RequestSchema>;
 export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
 export type RequestMeta = Infer<typeof RequestMetaSchema>;
+export type MetaObject = Record<string, unknown>;
+export type RequestMetaObject = RequestMeta;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
 export type RequestId = Infer<typeof RequestIdSchema>;
@@ -2638,7 +2671,39 @@ export type ResultTypeMap = {
     'tasks/cancel': CancelTaskResult;
 };
 
-/* Runtime schema lookup */
+/* Runtime schema lookup — result schemas by method */
+const resultSchemas: Record<string, z.core.$ZodType> = {
+    ping: EmptyResultSchema,
+    initialize: InitializeResultSchema,
+    'completion/complete': CompleteResultSchema,
+    'logging/setLevel': EmptyResultSchema,
+    'prompts/get': GetPromptResultSchema,
+    'prompts/list': ListPromptsResultSchema,
+    'resources/list': ListResourcesResultSchema,
+    'resources/templates/list': ListResourceTemplatesResultSchema,
+    'resources/read': ReadResourceResultSchema,
+    'resources/subscribe': EmptyResultSchema,
+    'resources/unsubscribe': EmptyResultSchema,
+    'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
+    'tools/list': ListToolsResultSchema,
+    'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
+    'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
+    'roots/list': ListRootsResultSchema,
+    'tasks/get': GetTaskResultSchema,
+    'tasks/result': ResultSchema,
+    'tasks/list': ListTasksResultSchema,
+    'tasks/cancel': CancelTaskResultSchema
+};
+
+/**
+ * Gets the Zod schema for validating results of a given request method.
+ * @see getRequestSchema for explanation of the internal type assertion.
+ */
+export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> {
+    return resultSchemas[method] as unknown as z.ZodType<ResultTypeMap[M]>;
+}
+
+/* Runtime schema lookup — request schemas by method */
 type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
 type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
 
