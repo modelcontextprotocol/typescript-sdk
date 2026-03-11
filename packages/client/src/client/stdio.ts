@@ -95,6 +95,7 @@ export class StdioClientTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
+    private _protocolVersion: string | undefined;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -105,6 +106,20 @@ export class StdioClientTransport implements Transport {
         if (server.stderr === 'pipe' || server.stderr === 'overlapped') {
             this._stderrStream = new PassThrough();
         }
+    }
+
+    /**
+     * Sets the negotiated protocol version (called by the client after initialization).
+     */
+    setProtocolVersion(version: string): void {
+        this._protocolVersion = version;
+    }
+
+    /**
+     * The negotiated MCP protocol version, available after initialization completes.
+     */
+    get protocolVersion(): string | undefined {
+        return this._protocolVersion;
     }
 
     /**

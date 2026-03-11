@@ -69,6 +69,15 @@ test('should read messages', async () => {
     await client.close();
 });
 
+test('should expose protocol version after setProtocolVersion', async () => {
+    const client = new StdioClientTransport(serverParameters);
+    expect(client.protocolVersion).toBeUndefined();
+    await client.start();
+    client.setProtocolVersion('2025-11-25');
+    expect(client.protocolVersion).toBe('2025-11-25');
+    await client.close();
+});
+
 test('should return child process pid', async () => {
     const client = new StdioClientTransport(serverParameters);
 
