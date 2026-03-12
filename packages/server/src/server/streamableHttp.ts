@@ -271,7 +271,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
-        if (options.existingSessionId) {
+        if (options.existingSessionId !== undefined) {
             this.sessionId = options.existingSessionId;
             this._initialized = true;
         }
