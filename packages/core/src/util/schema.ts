@@ -26,7 +26,32 @@ export type SchemaOutput<T extends AnySchema> = z.output<T>;
  * Converts a Zod schema to JSON Schema.
  */
 export function schemaToJson(schema: AnySchema, options?: { io?: 'input' | 'output' }): Record<string, unknown> {
-    return z.toJSONSchema(schema, options) as Record<string, unknown>;
+    return normalizeEmptyObjectRequired(z.toJSONSchema(schema, options) as Record<string, unknown>) as Record<string, unknown>;
+}
+
+const LITERAL_JSON_SCHEMA_VALUE_KEYS = new Set(['const', 'default', 'enum', 'example', 'examples']);
+
+function normalizeEmptyObjectRequired(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(item => normalizeEmptyObjectRequired(item));
+    }
+
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+
+    const normalized = Object.fromEntries(
+        Object.entries(value).map(([key, child]) => [
+            key,
+            LITERAL_JSON_SCHEMA_VALUE_KEYS.has(key) ? child : normalizeEmptyObjectRequired(child)
+        ])
+    );
+
+    if (normalized.type === 'object' && Object.hasOwn(normalized, 'properties') && !Object.hasOwn(normalized, 'required')) {
+        normalized.required = [];
+    }
+
+    return normalized;
 }
 
 /**
