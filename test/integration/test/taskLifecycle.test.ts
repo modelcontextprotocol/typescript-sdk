@@ -39,11 +39,11 @@ describe('Task Lifecycle Integration Tests', () => {
                             }
                         },
                         list: {},
-                        cancel: {}
+                        cancel: {},
+                        taskStore,
+                        taskMessageQueue: new InMemoryTaskMessageQueue()
                     }
-                },
-                taskStore,
-                taskMessageQueue: new InMemoryTaskMessageQueue()
+                }
             }
         );
 
@@ -303,6 +303,8 @@ describe('Task Lifecycle Integration Tests', () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
+            }, {
+                capabilities: { tasks: {} }
             });
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
@@ -349,6 +351,8 @@ describe('Task Lifecycle Integration Tests', () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
+            }, {
+                capabilities: { tasks: {} }
             });
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
@@ -737,6 +741,8 @@ describe('Task Lifecycle Integration Tests', () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
+            }, {
+                capabilities: { tasks: {} }
             });
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
@@ -757,6 +763,8 @@ describe('Task Lifecycle Integration Tests', () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
+            }, {
+                capabilities: { tasks: {} }
             });
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
@@ -1491,7 +1499,8 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     capabilities: {
-                        elicitation: {}
+                        elicitation: {},
+                        tasks: {}
                     }
                 }
             );

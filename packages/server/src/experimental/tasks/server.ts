@@ -6,6 +6,7 @@
  */
 
 import type {
+    AnyObjectSchema,
     AnySchema,
     CancelTaskResult,
     CreateMessageRequestParams,
@@ -15,12 +16,15 @@ import type {
     ElicitResult,
     GetTaskResult,
     ListTasksResult,
+    Request,
     RequestMethod,
     RequestOptions,
     ResponseMessage,
+    Result,
     ResultTypeMap,
     SchemaOutput
 } from '@modelcontextprotocol/core';
+import { getResultSchema } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 
@@ -39,6 +43,14 @@ import type { Server } from '../../server/server.js';
 export class ExperimentalServerTasks {
     constructor(private readonly _server: Server) {}
 
+    private get _module() {
+        const module = this._server.taskModule;
+        if (!module) {
+            throw new Error('Tasks capability is not configured. Declare tasks in capabilities to use task features.');
+        }
+        return module;
+    }
+
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
      * The generator is guaranteed to end with either a `'result'` or `'error'` message.
@@ -56,14 +68,12 @@ export class ExperimentalServerTasks {
         request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
-        // Delegate to the server's underlying Protocol method
-        type ServerWithRequestStream = {
-            requestStream<N extends RequestMethod>(
-                request: { method: N; params?: Record<string, unknown> },
-                options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<ResultTypeMap[N]>, void, void>;
-        };
-        return (this._server as unknown as ServerWithRequestStream).requestStream(request, options);
+        const resultSchema = getResultSchema(request.method) as unknown as AnyObjectSchema;
+        return this._module.requestStream(request as Request, resultSchema, options) as AsyncGenerator<
+            ResponseMessage<ResultTypeMap[M]>,
+            void,
+            void
+        >;
     }
 
     /**
@@ -250,8 +260,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async getTask(taskId: string, options?: RequestOptions): Promise<GetTaskResult> {
-        type ServerWithGetTask = { getTask(params: { taskId: string }, options?: RequestOptions): Promise<GetTaskResult> };
-        return (this._server as unknown as ServerWithGetTask).getTask({ taskId }, options);
+        return this._module.getTask({ taskId }, options);
     }
 
     /**
@@ -265,15 +274,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        return (
-            this._server as unknown as {
-                getTaskResult: <U extends AnySchema>(
-                    params: { taskId: string },
-                    resultSchema?: U,
-                    options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
-            }
-        ).getTaskResult({ taskId }, resultSchema, options);
+        return this._module.getTaskResult({ taskId }, resultSchema!, options);
     }
 
     /**
@@ -286,11 +287,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async listTasks(cursor?: string, options?: RequestOptions): Promise<ListTasksResult> {
-        return (
-            this._server as unknown as {
-                listTasks: (params?: { cursor?: string }, options?: RequestOptions) => Promise<ListTasksResult>;
-            }
-        ).listTasks(cursor ? { cursor } : undefined, options);
+        return this._module.listTasks(cursor ? { cursor } : undefined, options);
     }
 
     /**
@@ -302,10 +299,6 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async cancelTask(taskId: string, options?: RequestOptions): Promise<CancelTaskResult> {
-        return (
-            this._server as unknown as {
-                cancelTask: (params: { taskId: string }, options?: RequestOptions) => Promise<CancelTaskResult>;
-            }
-        ).cancelTask({ taskId }, options);
+        return this._module.cancelTask({ taskId }, options);
     }
 }

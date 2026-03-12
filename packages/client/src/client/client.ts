@@ -30,6 +30,7 @@ import type {
     ResultTypeMap,
     ServerCapabilities,
     SubscribeRequest,
+    TaskManagerOptions,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -61,7 +62,8 @@ import {
     ProtocolErrorCode,
     ReadResourceResultSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    TaskManager
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -140,11 +142,20 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     return { supportsFormMode, supportsUrlMode };
 }
 
+/**
+ * Extended tasks capability that includes runtime configuration (store, messageQueue).
+ * The runtime-only fields are stripped before advertising capabilities to servers.
+ */
+export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> &
+    Pick<TaskManagerOptions, 'taskStore' | 'taskMessageQueue'>;
+
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
      */
-    capabilities?: ClientCapabilities;
+    capabilities?: Omit<ClientCapabilities, 'tasks'> & {
+        tasks?: ClientTasksCapabilityWithRuntime;
+    };
 
     /**
      * JSON Schema validator for tool output validation.
@@ -204,6 +215,7 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    private _taskModule?: TaskManager;
 
     /**
      * Initializes this client with the given name and version information.
@@ -213,14 +225,36 @@ export class Client extends Protocol<ClientContext> {
         options?: ClientOptions
     ) {
         super(options);
-        this._capabilities = options?.capabilities ?? {};
+        this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+
+        // If tasks capability is declared, create and register the task module
+        if (options?.capabilities?.tasks) {
+            const { taskStore, taskMessageQueue, ...wireCapabilities } = options.capabilities.tasks;
+            // Strip runtime-only config from advertised capabilities
+            this._capabilities.tasks = wireCapabilities;
+            this._taskModule = new TaskManager({
+                taskStore,
+                taskMessageQueue,
+                assertTaskCapability: method => assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server'),
+                assertTaskHandlerCapability: method =>
+                    assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client')
+            });
+            this.registerModule(this._taskModule);
+        }
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
             this._pendingListChangedConfig = options.listChanged;
         }
+    }
+
+    /**
+     * Access the task module, if tasks capability is configured.
+     */
+    get taskModule(): TaskManager | undefined {
+        return this._taskModule;
     }
 
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
@@ -635,12 +669,6 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertRequestHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
         switch (method) {
             case 'sampling/createMessage': {
                 if (!this._capabilities.sampling) {
@@ -672,19 +700,6 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
-            case 'tasks/get':
-            case 'tasks/list':
-            case 'tasks/result':
-            case 'tasks/cancel': {
-                if (!this._capabilities.tasks) {
-                    throw new SdkError(
-                        SdkErrorCode.CapabilityNotSupported,
-                        `Client does not support tasks capability (required for ${method})`
-                    );
-                }
-                break;
-            }
-
             case 'ping': {
                 // No specific capability required for ping
                 break;
@@ -692,21 +707,6 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    protected assertTaskCapability(method: string): void {
-        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
-        assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
-    }
-
-    /** Sends a ping to the server to check connectivity. */
     async ping(options?: RequestOptions) {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
