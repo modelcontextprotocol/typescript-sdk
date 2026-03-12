@@ -47,6 +47,7 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     GetPromptResultSchema,
+    getParseErrorMessage,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
@@ -1004,7 +1005,7 @@ export class Client extends Protocol<ClientContext> {
         // Validate options using Zod schema (validates autoRefresh and debounceMs)
         const parseResult = parseSchema(ListChangedOptionsBaseSchema, options);
         if (!parseResult.success) {
-            throw new Error(`Invalid ${listType} listChanged options: ${parseResult.error.message}`);
+            throw new Error(`Invalid ${listType} listChanged options: ${getParseErrorMessage(parseResult.error)}`);
         }
 
         // Validate callback

@@ -92,3 +92,20 @@ export function unwrapOptionalSchema(schema: AnySchema): AnySchema {
     const candidate = schema as { def?: { innerType?: AnySchema } };
     return candidate.def?.innerType ?? schema;
 }
+
+/**
+ * Extracts error message from a Zod parse error result.
+ * In Zod v4, error.message is a JSON serialization of issues rather than a
+ * user-facing message, so prefer individual issue messages when available.
+ */
+export function getParseErrorMessage(error: z.core.$ZodError): string {
+    const issueMessages = error.issues
+        .map((issue: { message?: string }) => issue.message?.trim())
+        .filter((message): message is string => Boolean(message));
+
+    if (issueMessages.length > 0) {
+        return issueMessages.join(', ');
+    }
+
+    return error.message;
+}
