@@ -112,6 +112,11 @@ export interface ClientCredentialsProviderOptions {
      * Optional client name for metadata.
      */
     clientName?: string;
+
+    /**
+     * Optional scope to request during token exchange.
+     */
+    scope?: string;
 }
 
 /**
@@ -148,6 +153,9 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'client_secret_basic'
         };
+        if (options.scope) {
+            this._clientMetadata.scope = options.scope;
+        }
     }
 
     get redirectUrl(): undefined {
@@ -222,6 +230,11 @@ export interface PrivateKeyJwtProviderOptions {
      * Optional JWT lifetime in seconds (default: 300).
      */
     jwtLifetimeSeconds?: number;
+
+    /**
+     * Optional scope to request during token exchange.
+     */
+    scope?: string;
 }
 
 /**
@@ -260,6 +273,9 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'private_key_jwt'
         };
+        if (options.scope) {
+            this._clientMetadata.scope = options.scope;
+        }
         this.addClientAuthentication = createPrivateKeyJwtAuth({
             issuer: options.clientId,
             subject: options.clientId,
@@ -333,6 +349,11 @@ export interface StaticPrivateKeyJwtProviderOptions {
      * Optional client name for metadata.
      */
     clientName?: string;
+
+    /**
+     * Optional scope to request during token exchange.
+     */
+    scope?: string;
 }
 
 /**
@@ -358,6 +379,9 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'private_key_jwt'
         };
+        if (options.scope) {
+            this._clientMetadata.scope = options.scope;
+        }
 
         const assertion = options.jwtBearerAssertion;
         this.addClientAuthentication = async (_headers, params) => {
