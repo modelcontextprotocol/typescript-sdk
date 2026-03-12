@@ -50,14 +50,16 @@ export function schemaToJson(schema: AnySchema, options?: { io?: 'input' | 'outp
             const { id: _id, ...rest } = meta as Record<string, unknown>;
             return Object.keys(rest).length > 0 ? rest : undefined;
         },
-        has(s: AnySchema) { return globalReg.has(s); },
+        has(s: AnySchema) {
+            return globalReg.has(s);
+        },
         _idmap: new Map<string, AnySchema>(),
-        _map: (globalReg as unknown as { _map: WeakMap<object, unknown> })._map,
+        _map: (globalReg as unknown as { _map: WeakMap<object, unknown> })._map
     };
     return z.toJSONSchema(schema, {
         ...options,
         reused: 'inline',
-        metadata: idStrippedRegistry as unknown as z.core.$ZodRegistry<Record<string, unknown>>,
+        metadata: idStrippedRegistry as unknown as z.core.$ZodRegistry<Record<string, unknown>>
     }) as Record<string, unknown>;
 }
 

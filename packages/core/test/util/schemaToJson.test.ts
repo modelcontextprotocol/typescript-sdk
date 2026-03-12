@@ -71,13 +71,13 @@ describe('schemaToJson', () => {
         // The id-stripping proxy must not drop these non-id metadata entries.
         const schema = z.object({
             name: z.string().describe('The user name'),
-            age: z.number().int().describe('Age in years'),
+            age: z.number().int().describe('Age in years')
         });
         const json = schemaToJson(schema);
 
         expect(json.properties).toMatchObject({
             name: { type: 'string', description: 'The user name' },
-            age: { type: 'integer', description: 'Age in years' },
+            age: { type: 'integer', description: 'Age in years' }
         });
     });
 });
