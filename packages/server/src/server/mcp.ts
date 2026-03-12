@@ -1036,11 +1036,11 @@ function withDefaultListChangedCapabilities(options?: ServerOptions): ServerOpti
         ...options,
         capabilities: {
             ...capabilities,
-            ...(capabilities.tools ? { tools: { listChanged: capabilities.tools.listChanged ?? true, ...capabilities.tools } } : {}),
+            ...(capabilities.tools ? { tools: { ...capabilities.tools, listChanged: capabilities.tools.listChanged ?? true } } : {}),
             ...(capabilities.resources
-                ? { resources: { listChanged: capabilities.resources.listChanged ?? true, ...capabilities.resources } }
+                ? { resources: { ...capabilities.resources, listChanged: capabilities.resources.listChanged ?? true } }
                 : {}),
-            ...(capabilities.prompts ? { prompts: { listChanged: capabilities.prompts.listChanged ?? true, ...capabilities.prompts } } : {})
+            ...(capabilities.prompts ? { prompts: { ...capabilities.prompts, listChanged: capabilities.prompts.listChanged ?? true } } : {})
         }
     };
 }
