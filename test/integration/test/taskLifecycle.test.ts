@@ -300,12 +300,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
     describe('Task Cancellation', () => {
         it('should cancel a working task and return the cancelled task', async () => {
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            }, {
-                capabilities: { tasks: {} }
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: { tasks: {} }
+                }
+            );
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await client.connect(transport);
@@ -348,12 +351,15 @@ describe('Task Lifecycle Integration Tests', () => {
         });
 
         it('should reject cancellation of completed task with error code -32602', async () => {
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            }, {
-                capabilities: { tasks: {} }
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: { tasks: {} }
+                }
+            );
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await client.connect(transport);
@@ -738,12 +744,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
     describe('Error Handling', () => {
         it('should return error code -32602 for non-existent task in tasks/get', async () => {
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            }, {
-                capabilities: { tasks: {} }
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: { tasks: {} }
+                }
+            );
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await client.connect(transport);
@@ -760,12 +769,15 @@ describe('Task Lifecycle Integration Tests', () => {
         });
 
         it('should return error code -32602 for non-existent task in tasks/cancel', async () => {
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            }, {
-                capabilities: { tasks: {} }
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: { tasks: {} }
+                }
+            );
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await client.connect(transport);

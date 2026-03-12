@@ -13,6 +13,7 @@ import type {
     CreateTaskResult,
     GetTaskResult,
     ListTasksResult,
+    Request,
     RequestMethod,
     RequestOptions,
     ResponseMessage,
@@ -20,7 +21,6 @@ import type {
     SchemaOutput
 } from '@modelcontextprotocol/core';
 import { CallToolResultSchema, getResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
-import type { Request } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 

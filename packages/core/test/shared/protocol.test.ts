@@ -182,7 +182,9 @@ function assertQueuedRequest(o?: QueuedMessage): asserts o is QueuedRequest {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function testRequest(proto: Protocol<BaseContext>, request: Request, resultSchema: ZodType, options?: any) {
-    return (proto as unknown as { _requestWithSchema: (request: Request, resultSchema: ZodType, options?: unknown) => Promise<unknown> })._requestWithSchema(request, resultSchema, options);
+    return (
+        proto as unknown as { _requestWithSchema: (request: Request, resultSchema: ZodType, options?: unknown) => Promise<unknown> }
+    )._requestWithSchema(request, resultSchema, options);
 }
 
 describe('protocol tests', () => {
@@ -5264,7 +5266,9 @@ describe('Error handling for missing resolvers', () => {
 });
 
 // -- Helper: create a no-op mock module --
-function createMockModule(overrides?: Partial<ProtocolModule>): ProtocolModule & { boundHost?: ProtocolModuleHost; onCloseCalled: boolean } {
+function createMockModule(
+    overrides?: Partial<ProtocolModule>
+): ProtocolModule & { boundHost?: ProtocolModuleHost; onCloseCalled: boolean } {
     const mock: ProtocolModule & { boundHost?: ProtocolModuleHost; onCloseCalled: boolean } = {
         boundHost: undefined,
         onCloseCalled: false,

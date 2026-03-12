@@ -1882,18 +1882,18 @@ describe('createMessageStream', () => {
         let serverTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[1];
 
         beforeEach(async () => {
-            server = new Server({ name: 'test server', version: '1.0' }, {
-                capabilities: {
-                    tasks: {
-                        taskStore: new InMemoryTaskStore()
+            server = new Server(
+                { name: 'test server', version: '1.0' },
+                {
+                    capabilities: {
+                        tasks: {
+                            taskStore: new InMemoryTaskStore()
+                        }
                     }
                 }
-            });
-
-            client = new Client(
-                { name: 'test client', version: '1.0' },
-                { capabilities: { sampling: {} } }
             );
+
+            client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
             [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         });
@@ -2378,10 +2378,8 @@ describe('Task-based execution', () => {
                         },
 
                         taskStore
-
                     }
                 }
-
             }
         );
 
@@ -2561,10 +2559,8 @@ describe('Task-based execution', () => {
                         },
 
                         taskStore
-
                     }
                 }
-
             }
         );
 
@@ -2741,10 +2737,8 @@ describe('Task-based execution', () => {
                             },
 
                             taskStore: clientTaskStore
-
                         }
                     }
-
                 }
             );
 
@@ -2768,20 +2762,23 @@ describe('Task-based execution', () => {
                 return result;
             });
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            }, {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            elicitation: {
-                                create: {}
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
                             }
                         }
                     }
                 }
-            });
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2834,10 +2831,8 @@ describe('Task-based execution', () => {
                             },
 
                             taskStore: clientTaskStore
-
                         }
                     }
-
                 }
             );
 
@@ -2861,18 +2856,21 @@ describe('Task-based execution', () => {
                 return result;
             });
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            }, {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            elicitation: { create: {} }
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: { create: {} }
+                            }
                         }
                     }
                 }
-            });
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2923,10 +2921,8 @@ describe('Task-based execution', () => {
                             },
 
                             taskStore: clientTaskStore
-
                         }
                     }
-
                 }
             );
 
@@ -2950,18 +2946,21 @@ describe('Task-based execution', () => {
                 return result;
             });
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            }, {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            elicitation: { create: {} }
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: { create: {} }
+                            }
                         }
                     }
                 }
-            });
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -3014,10 +3013,8 @@ describe('Task-based execution', () => {
                             },
 
                             taskStore: clientTaskStore
-
                         }
                     }
-
                 }
             );
 
@@ -3119,10 +3116,8 @@ describe('Task-based execution', () => {
                         },
 
                         taskStore
-
                     }
                 }
-
             }
         );
 
@@ -3261,10 +3256,8 @@ describe('Task-based execution', () => {
                             },
 
                             taskStore
-
                         }
                     }
-
                 }
             );
 
@@ -3311,10 +3304,8 @@ describe('Task-based execution', () => {
                             },
 
                             taskStore: clientTaskStore
-
                         }
                     }
-
                 }
             );
 
@@ -3371,10 +3362,8 @@ test('should respect client task capabilities', async () => {
                     },
 
                     taskStore: clientTaskStore
-
                 }
             }
-
         }
     );
 
@@ -3483,13 +3472,16 @@ describe('elicitInputStream', () => {
     let serverTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[1];
 
     beforeEach(async () => {
-        server = new Server({ name: 'test server', version: '1.0' }, {
-            capabilities: {
-                tasks: {
-                    taskStore: new InMemoryTaskStore()
+        server = new Server(
+            { name: 'test server', version: '1.0' },
+            {
+                capabilities: {
+                    tasks: {
+                        taskStore: new InMemoryTaskStore()
+                    }
                 }
             }
-        });
+        );
 
         client = new Client(
             { name: 'test client', version: '1.0' },

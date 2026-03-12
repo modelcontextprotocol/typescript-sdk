@@ -282,6 +282,10 @@ type TimeoutInfo = {
     onTimeout: () => void;
 };
 
+async function _noopRouteResponse(): Promise<boolean> {
+    return false;
+}
+
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
@@ -514,10 +518,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
 
         // Compose results from all modules
-        let sendNotification: (notification: Notification) => Promise<void> =
-            (notification: Notification) => inboundCtx.sendNotification(notification);
+        let sendNotification: (notification: Notification) => Promise<void> = (notification: Notification) =>
+            inboundCtx.sendNotification(notification);
         let sendRequest = inboundCtx.sendRequest;
-        let routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean> = async () => false;
+        let routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean> = _noopRouteResponse;
         let taskContext: BaseContext['task'] | undefined;
         let hasTaskCreationParams = false;
 

@@ -20,7 +20,6 @@ import type {
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    Result,
     ResultTypeMap,
     SchemaOutput
 } from '@modelcontextprotocol/core';
