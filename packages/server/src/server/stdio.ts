@@ -19,6 +19,7 @@ import { process } from '@modelcontextprotocol/server/_shims';
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _closed = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -38,12 +39,10 @@ export class StdioServerTransport implements Transport {
         this.onerror?.(error);
     };
     _onstdouterror = (error: Error) => {
-        // Handle stdout errors (e.g., EPIPE when client disconnects)
-        // Trigger close to clean up gracefully
-        this.close().catch(() => {
-            // Ignore errors during close
-        });
         this.onerror?.(error);
+        this.close().catch(() => {
+            // Ignore errors during close — we're already in an error path
+        });
     };
 
     /**
@@ -78,6 +77,11 @@ export class StdioServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
@@ -97,25 +101,37 @@ export class StdioServerTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
+        if (this._closed) {
+            return Promise.reject(new Error('StdioServerTransport is closed'));
+        }
         return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-            
-            // Handle write errors (e.g., EPIPE when client disconnects)
+
+            let settled = false;
             const onError = (error: Error) => {
+                if (settled) return;
+                settled = true;
                 this._stdout.off('error', onError);
+                this._stdout.off('drain', onDrain);
                 reject(error);
             };
-            
+            const onDrain = () => {
+                if (settled) return;
+                settled = true;
+                this._stdout.off('error', onError);
+                this._stdout.off('drain', onDrain);
+                resolve();
+            };
+
             this._stdout.once('error', onError);
-            
+
             if (this._stdout.write(json)) {
+                if (settled) return;
+                settled = true;
                 this._stdout.off('error', onError);
                 resolve();
-            } else {
-                this._stdout.once('drain', () => {
-                    this._stdout.off('error', onError);
-                    resolve();
-                });
+            } else if (!settled) {
+                this._stdout.once('drain', onDrain);
             }
         });
     }
