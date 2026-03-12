@@ -147,7 +147,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (schemaToJson(tool.inputSchema, { io: 'input' }) as Tool['inputSchema'])
+                                ? ({ type: 'object' as const, ...schemaToJson(tool.inputSchema, { io: 'input' }) } as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             execution: tool.execution,
