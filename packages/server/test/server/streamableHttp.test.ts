@@ -319,6 +319,31 @@ describe('Zod v4', () => {
                 });
             });
 
+            it('should return a JSON-RPC error when calling an unknown tool', async () => {
+                sessionId = await initializeServer();
+
+                const toolCallMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: {
+                        name: 'missing-tool',
+                        arguments: {}
+                    },
+                    id: 'call-missing'
+                };
+
+                const request = createRequest('POST', toolCallMessage, { sessionId });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+
+                const text = await readSSEEvent(response);
+                const eventData = parseSSEData(text);
+
+                expectErrorResponse(eventData, -32_602, /Tool missing-tool not found/);
+                expect((eventData as JSONRPCErrorResponse).id).toBe('call-missing');
+            });
+
             it('should reject requests without a valid session ID', async () => {
                 const request = createRequest('POST', TEST_MESSAGES.toolsList);
                 const response = await transport.handleRequest(request);
