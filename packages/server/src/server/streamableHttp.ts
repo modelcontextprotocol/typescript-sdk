@@ -80,6 +80,21 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     sessionIdGenerator?: () => string;
 
     /**
+     * If provided, reconstructs a pre-initialized transport with the given session ID.
+     * Use this for multi-node deployments where a request may arrive at a node that did not
+     * handle the original initialize handshake. The transport will validate incoming
+     * mcp-session-id headers against this value without requiring a fresh initialize request.
+     *
+     * **Important:** This option restores transport-layer session validation only. It does not
+     * restore MCP protocol state (e.g. negotiated client capabilities). For server-initiated
+     * features that depend on capability negotiation (sampling, elicitation, roots), the
+     * application must manage that state externally and configure the server accordingly.
+     * For the common case of handling client-initiated requests (tools/call, resources/read,
+     * etc.) this option is sufficient.
+     */
+    existingSessionId?: string;
+
+    /**
      * A callback for session initialization events
      * This is called when the server initializes a new session.
      * Useful in cases when you need to register multiple mcp sessions
@@ -256,6 +271,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        if (options.existingSessionId) {
+            this.sessionId = options.existingSessionId;
+            this._initialized = true;
+        }
     }
 
     /**
@@ -835,8 +854,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns `Response` error if invalid, `undefined` otherwise
      */
     private validateSession(req: Request): Response | undefined {
-        if (this.sessionIdGenerator === undefined) {
-            // If the sessionIdGenerator ID is not set, the session management is disabled
+        if (this.sessionIdGenerator === undefined && this.sessionId === undefined) {
+            // If sessionIdGenerator is not set and no session has been hydrated,
+            // session management is disabled (stateless mode)
             // and we don't need to validate the session ID
             return undefined;
         }
