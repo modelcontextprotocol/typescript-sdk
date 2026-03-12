@@ -153,7 +153,7 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'client_secret_basic'
         };
-        if (options.scope) {
+        if (options.scope !== undefined) {
             this._clientMetadata.scope = options.scope;
         }
     }
@@ -273,7 +273,7 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'private_key_jwt'
         };
-        if (options.scope) {
+        if (options.scope !== undefined) {
             this._clientMetadata.scope = options.scope;
         }
         this.addClientAuthentication = createPrivateKeyJwtAuth({
@@ -379,7 +379,7 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
             grant_types: ['client_credentials'],
             token_endpoint_auth_method: 'private_key_jwt'
         };
-        if (options.scope) {
+        if (options.scope !== undefined) {
             this._clientMetadata.scope = options.scope;
         }
 
