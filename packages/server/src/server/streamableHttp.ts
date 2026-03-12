@@ -861,10 +861,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns `Response` error if invalid, `undefined` otherwise
      */
     private validateSession(req: Request): Response | undefined {
-        if (this.sessionIdGenerator === undefined && this.sessionId === undefined) {
-            // If sessionIdGenerator is not set and no session has been hydrated,
-            // session management is disabled (stateless mode)
-            // and we don't need to validate the session ID
+        if (this.sessionIdGenerator === undefined) {
+            // If sessionIdGenerator is not set, session management is disabled (stateless mode)
+            // and we don't need to validate the session ID.
+            // Note: when existingSessionId is provided, sessionIdGenerator is always set in the
+            // constructor, so this check correctly identifies stateless mode.
             return undefined;
         }
         if (!this._initialized) {
