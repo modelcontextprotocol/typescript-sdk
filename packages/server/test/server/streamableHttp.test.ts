@@ -810,7 +810,7 @@ describe('Zod v4', () => {
             expect(errors.length).toBeGreaterThan(0);
             const error = errors[0];
             expect(error).toBeDefined();
-            expect(error?.message).toContain('Parse error');
+            expect(error).toBeInstanceOf(SyntaxError);
         });
 
         it('should call onerror for invalid JSON-RPC message', async () => {
@@ -829,7 +829,7 @@ describe('Zod v4', () => {
             expect(errors.length).toBeGreaterThan(0);
             const error = errors[0];
             expect(error).toBeDefined();
-            expect(error?.message).toContain('Parse error');
+            expect(error?.name).toBe('ZodError');
         });
 
         it('should call onerror for missing Accept header on POST', async () => {

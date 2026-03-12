@@ -582,7 +582,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             eventData += `data: ${JSON.stringify(message)}\n\n`;
             controller.enqueue(encoder.encode(eventData));
             return true;
-        } catch {
+        } catch (error) {
+            this.onerror?.(error as Error);
             return false;
         }
     }
@@ -591,6 +592,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Handles unsupported requests (`PUT`, `PATCH`, etc.)
      */
     private handleUnsupportedRequest(): Response {
+        this.onerror?.(new Error('Method not allowed'));
         return Response.json(
             {
                 jsonrpc: '2.0',
@@ -642,8 +644,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (options?.parsedBody === undefined) {
                 try {
                     rawMessage = await req.json();
-                } catch {
-                    this.onerror?.(new Error('Parse error: Invalid JSON'));
+                } catch (error) {
+                    this.onerror?.(error as Error);
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }
             } else {
@@ -657,8 +659,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 messages = Array.isArray(rawMessage)
                     ? rawMessage.map(msg => JSONRPCMessageSchema.parse(msg))
                     : [JSONRPCMessageSchema.parse(rawMessage)];
-            } catch {
-                this.onerror?.(new Error('Parse error: Invalid JSON-RPC message'));
+            } catch (error) {
+                this.onerror?.(error as Error);
                 return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
             }
 
