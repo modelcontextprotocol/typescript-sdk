@@ -99,9 +99,7 @@ export function unwrapOptionalSchema(schema: AnySchema): AnySchema {
  * user-facing message, so prefer individual issue messages when available.
  */
 export function getParseErrorMessage(error: z.core.$ZodError): string {
-    const issueMessages = error.issues
-        .map((issue: { message?: string }) => issue.message?.trim())
-        .filter((message): message is string => Boolean(message));
+    const issueMessages = error.issues.map((issue: { message?: string }) => issue.message?.trim()).filter(Boolean);
 
     if (issueMessages.length > 0) {
         return issueMessages.join(', ');
