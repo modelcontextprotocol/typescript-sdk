@@ -1,11 +1,5 @@
 import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Parallel Tool Calls MCP Client
@@ -44,13 +38,13 @@ async function main(): Promise<void> {
         console.log('Successfully connected to MCP server');
 
         // Set up notification handler with caller identification
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             console.log(`Notification: ${notification.params.data}`);
         });
 
         console.log('List tools');
         const toolsRequest = await listTools(client);
-        console.log('Tools: ', toolsRequest);
+        console.log('Tools:', toolsRequest);
 
         // 2. Start multiple notification tools in parallel
         console.log('\n=== Starting Multiple Notification Streams in Parallel ===');
@@ -59,18 +53,18 @@ async function main(): Promise<void> {
         // Log the results from each tool call
         for (const [caller, result] of Object.entries(toolResults)) {
             console.log(`\n=== Tool result for ${caller} ===`);
-            result.content.forEach((item: { type: string; text?: string }) => {
+            for (const item of result.content) {
                 if (item.type === 'text') {
                     console.log(`  ${item.text}`);
                 } else {
                     console.log(`  ${item.type} content:`, item);
                 }
-            });
+            }
         }
 
         // 3. Wait for all notifications (10 seconds)
         console.log('\n=== Waiting for all notifications ===');
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        await new Promise(resolve => setTimeout(resolve, 10_000));
 
         // 4. Disconnect
         console.log('\n=== Disconnecting ===');
@@ -78,6 +72,7 @@ async function main(): Promise<void> {
         console.log('Disconnected from MCP server');
     } catch (error) {
         console.error('Error running client:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
 }
@@ -91,7 +86,7 @@ async function listTools(client: Client): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -116,44 +111,26 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
         const toolCalls = [
             {
                 caller: 'fast-notifier',
-                request: {
-                    method: 'tools/call',
-                    params: {
-                        name: 'start-notification-stream',
-                        arguments: {
-                            interval: 2, // 0.5 second between notifications
-                            count: 10, // Send 10 notifications
-                            caller: 'fast-notifier' // Identify this tool call
-                        }
-                    }
+                args: {
+                    interval: 2, // 0.5 second between notifications
+                    count: 10, // Send 10 notifications
+                    caller: 'fast-notifier' // Identify this tool call
                 }
             },
             {
                 caller: 'slow-notifier',
-                request: {
-                    method: 'tools/call',
-                    params: {
-                        name: 'start-notification-stream',
-                        arguments: {
-                            interval: 5, // 2 seconds between notifications
-                            count: 5, // Send 5 notifications
-                            caller: 'slow-notifier' // Identify this tool call
-                        }
-                    }
+                args: {
+                    interval: 5, // 2 seconds between notifications
+                    count: 5, // Send 5 notifications
+                    caller: 'slow-notifier' // Identify this tool call
                 }
             },
             {
                 caller: 'burst-notifier',
-                request: {
-                    method: 'tools/call',
-                    params: {
-                        name: 'start-notification-stream',
-                        arguments: {
-                            interval: 1, // 0.1 second between notifications
-                            count: 3, // Send just 3 notifications
-                            caller: 'burst-notifier' // Identify this tool call
-                        }
-                    }
+                args: {
+                    interval: 1, // 0.1 second between notifications
+                    count: 3, // Send just 3 notifications
+                    caller: 'burst-notifier' // Identify this tool call
                 }
             }
         ];
@@ -161,10 +138,10 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
         console.log(`Starting ${toolCalls.length} notification tools in parallel...`);
 
         // Start all tool calls in parallel
-        const toolPromises = toolCalls.map(({ caller, request }) => {
+        const toolPromises = toolCalls.map(({ caller, args }) => {
             console.log(`Starting tool call for ${caller}...`);
             return client
-                .request(request, CallToolResultSchema)
+                .callTool({ name: 'start-notification-stream', arguments: args })
                 .then(result => ({ caller, result }))
                 .catch(error => {
                     console.error(`Error in tool call for ${caller}:`, error);
@@ -177,9 +154,9 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
 
         // Organize results by caller
         const resultsByTool: Record<string, CallToolResult> = {};
-        results.forEach(({ caller, result }) => {
+        for (const { caller, result } of results) {
             resultsByTool[caller] = result;
-        });
+        }
 
         return resultsByTool;
     } catch (error) {
@@ -188,8 +165,11 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
     }
 }
 
-// Start the client
-main().catch((error: unknown) => {
-    console.error('Error running MCP client:', error);
+try {
+    // Run the client
+    await main();
+} catch (error) {
+    console.error('Error running client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

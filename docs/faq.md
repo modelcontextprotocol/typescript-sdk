@@ -1,3 +1,7 @@
+---
+title: FAQ
+---
+
 ## FAQ
 
 <details>
@@ -65,8 +69,17 @@ For production use, you can either:
 
 The SDK ships several runnable server examples under `examples/server/src`. Start from the server examples index in [`examples/server/README.md`](../examples/server/README.md) and the entry-point quick start in the root [`README.md`](../README.md).
 
+### Why did we remove `server` auth exports?
+
+Server authentication & authorization is outside of the scope of the SDK, and the recommendation is to use packages that focus on this area specifically (or a full-fledged Authorization Server for those who use such). Example packages provide an example with `better-auth`.
+
+### Why did we remove `server` SSE transport?
+
+The SSE transport has been deprecated for a long time, and `v2` will not support it on the server side any more. Client side will keep supporting it in order to be able to connect to legacy SSE servers via the `v2` SDK, but serving SSE from `v2` will not be possible. Servers
+wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
+
 ## v1 (legacy)
 
 ### Where do v1 documentation and v1-specific fixes live?
 
-The v1 generation of this SDK is maintained on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). If you’re using v1, refer to that branch for documentation and any v1-specific fixes.
+The v1 API documentation is available at [`https://ts.sdk.modelcontextprotocol.io/`](https://ts.sdk.modelcontextprotocol.io/). The v1 source code and any v1-specific fixes live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). V2 API docs are at [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).

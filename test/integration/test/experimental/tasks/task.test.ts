@@ -32,13 +32,13 @@ describe('Task Schema Validation', () => {
         const task: Task = {
             taskId: 'test-123',
             status: 'working',
-            ttl: 60000,
+            ttl: 60_000,
             createdAt,
             lastUpdatedAt: createdAt,
             pollInterval: 1000
         };
 
-        expect(task.ttl).toBe(60000);
+        expect(task.ttl).toBe(60_000);
         expect(task.createdAt).toBeDefined();
         expect(typeof task.createdAt).toBe('string');
     });
@@ -76,7 +76,7 @@ describe('Task Schema Validation', () => {
         const task: Task = {
             taskId: 'test-iso',
             status: 'working',
-            ttl: 30000,
+            ttl: 30_000,
             createdAt,
             lastUpdatedAt: createdAt
         };
@@ -91,7 +91,7 @@ describe('Task Schema Validation', () => {
         const task: Task = {
             taskId: 'test-iso',
             status: 'working',
-            ttl: 30000,
+            ttl: 30_000,
             createdAt,
             lastUpdatedAt: createdAt
         };
@@ -103,7 +103,7 @@ describe('Task Schema Validation', () => {
         const statuses: Task['status'][] = ['working', 'input_required', 'completed', 'failed', 'cancelled'];
 
         const createdAt = new Date().toISOString();
-        statuses.forEach(status => {
+        for (const status of statuses) {
             const task: Task = {
                 taskId: `test-${status}`,
                 status,
@@ -112,6 +112,6 @@ describe('Task Schema Validation', () => {
                 lastUpdatedAt: createdAt
             };
             expect(task.status).toBe(status);
-        });
+        }
     });
 });

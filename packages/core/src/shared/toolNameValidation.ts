@@ -3,9 +3,11 @@
  *
  * Tool names SHOULD be between 1 and 128 characters in length (inclusive).
  * Tool names are case-sensitive.
- * Allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z), digits
- * (0-9), underscore (_), dash (-), and dot (.).
+ * Allowed characters: uppercase and lowercase ASCII letters (`A-Z`, `a-z`), digits
+ * (`0-9`), underscore (`_`), dash (`-`), and dot (`.`).
  * Tool names SHOULD NOT contain spaces, commas, or other special characters.
+ *
+ * @see {@link https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986 | SEP-986: Specify Format for Tool Names}
  */
 
 /**
@@ -59,8 +61,7 @@ export function validateToolName(name: string): {
 
     // Check for invalid characters
     if (!TOOL_NAME_REGEX.test(name)) {
-        const invalidChars = name
-            .split('')
+        const invalidChars = [...name]
             .filter(char => !/[A-Za-z0-9._-]/.test(char))
             .filter((char, index, arr) => arr.indexOf(char) === index); // Remove duplicates
 
@@ -103,7 +104,7 @@ export function issueToolNameWarning(name: string, warnings: string[]): void {
 /**
  * Validates a tool name and issues warnings for non-conforming names
  * @param name - The tool name to validate
- * @returns true if the name is valid, false otherwise
+ * @returns `true` if the name is valid, `false` otherwise
  */
 export function validateAndWarnToolName(name: string): boolean {
     const result = validateToolName(name);

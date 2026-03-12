@@ -200,7 +200,7 @@ describe('UriTemplate', () => {
 
     describe('security and edge cases', () => {
         it('should handle extremely long input strings', () => {
-            const longString = 'x'.repeat(100000);
+            const longString = 'x'.repeat(100_000);
             const template = new UriTemplate(`/api/{param}`);
             expect(template.expand({ param: longString })).toBe(`/api/${longString}`);
             expect(template.match(`/api/${longString}`)).toEqual({ param: longString });
@@ -234,7 +234,7 @@ describe('UriTemplate', () => {
         it('should handle pathological regex patterns', () => {
             const template = new UriTemplate('/api/{param}');
             // Create a string that could cause catastrophic backtracking
-            const input = '/api/' + 'a'.repeat(100000);
+            const input = '/api/' + 'a'.repeat(100_000);
             expect(() => template.match(input)).not.toThrow();
         });
 
@@ -273,16 +273,42 @@ describe('UriTemplate', () => {
 
         it('should handle maximum template expression limit', () => {
             // Create a template with many expressions
-            const expressions = Array(10000).fill('{param}').join('');
+            const expressions = Array.from({ length: 10_000 }).fill('{param}').join('');
             expect(() => new UriTemplate(expressions)).not.toThrow();
         });
 
         it('should handle maximum variable name length', () => {
-            const longName = 'a'.repeat(10000);
+            const longName = 'a'.repeat(10_000);
             const template = new UriTemplate(`{${longName}}`);
-            const vars: Record<string, string> = {};
-            vars[longName] = 'value';
+            const vars: Record<string, string> = { [longName]: 'value' };
             expect(() => template.expand(vars)).not.toThrow();
+        });
+
+        it('should not be vulnerable to ReDoS with exploded path patterns', () => {
+            // Test for ReDoS vulnerability (CVE-2026-0621)
+            // See: https://github.com/modelcontextprotocol/typescript-sdk/issues/965
+            const template = new UriTemplate('{/id*}');
+            const maliciousPayload = '/' + ','.repeat(50);
+
+            const startTime = Date.now();
+            template.match(maliciousPayload);
+            const elapsed = Date.now() - startTime;
+
+            // Should complete in under 100ms, not hang for seconds
+            expect(elapsed).toBeLessThan(100);
+        });
+
+        it('should not be vulnerable to ReDoS with exploded simple patterns', () => {
+            // Test for ReDoS vulnerability with simple exploded operator
+            const template = new UriTemplate('{id*}');
+            const maliciousPayload = ','.repeat(50);
+
+            const startTime = Date.now();
+            template.match(maliciousPayload);
+            const elapsed = Date.now() - startTime;
+
+            // Should complete in under 100ms, not hang for seconds
+            expect(elapsed).toBeLessThan(100);
         });
     });
 });

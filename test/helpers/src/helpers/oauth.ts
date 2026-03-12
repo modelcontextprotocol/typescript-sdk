@@ -26,11 +26,11 @@ export function createMockOAuthFetch(options: MockOAuthFetchOptions): FetchLike 
 
         // Protected resource metadata discovery
         if (url.origin === resourceServerUrl.slice(0, -1) && url.pathname === '/.well-known/oauth-protected-resource') {
-            return new Response(
-                JSON.stringify({
+            return Response.json(
+                {
                     resource: resourceServerUrl,
                     authorization_servers: [authServerUrl]
-                }),
+                },
                 {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }
@@ -40,14 +40,14 @@ export function createMockOAuthFetch(options: MockOAuthFetchOptions): FetchLike 
 
         // Authorization server metadata discovery
         if (url.origin === authServerUrl && url.pathname === '/.well-known/oauth-authorization-server') {
-            return new Response(
-                JSON.stringify({
+            return Response.json(
+                {
                     issuer: authServerUrl,
                     authorization_endpoint: `${authServerUrl}/authorize`,
                     token_endpoint: `${authServerUrl}/token`,
                     response_types_supported: ['code'],
                     token_endpoint_auth_methods_supported: ['client_secret_basic', 'private_key_jwt']
-                }),
+                },
                 {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }
@@ -61,11 +61,11 @@ export function createMockOAuthFetch(options: MockOAuthFetchOptions): FetchLike 
                 await onTokenRequest(url, init);
             }
 
-            return new Response(
-                JSON.stringify({
+            return Response.json(
+                {
                     access_token: 'test-access-token',
                     token_type: 'Bearer'
-                }),
+                },
                 {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }

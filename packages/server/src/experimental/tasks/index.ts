@@ -5,9 +5,6 @@
  * @experimental
  */
 
-// SDK implementation interfaces
 export * from './interfaces.js';
-
-// Wrapper classes
-export * from './mcp-server.js';
+export * from './mcpServer.js';
 export * from './server.js';

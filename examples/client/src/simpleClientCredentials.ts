@@ -74,7 +74,10 @@ async function main() {
     await transport.close();
 }
 
-main().catch(err => {
-    console.error(err);
+try {
+    await main();
+} catch (error) {
+    console.error('Error running client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}
