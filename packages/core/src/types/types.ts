@@ -2707,10 +2707,26 @@ export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<R
 type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
 type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
 
-function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
+type MethodLiteralSchema = {
+    value?: unknown;
+    _def?: {
+        value?: unknown;
+        values?: readonly unknown[];
+    };
+};
+
+function getMethodLiteral(methodSchema: MethodLiteralSchema): string {
+    const method = methodSchema.value ?? methodSchema._def?.value ?? methodSchema._def?.values?.[0];
+    if (typeof method !== 'string') {
+        throw new TypeError('Schema method literal must be a string');
+    }
+    return method;
+}
+
+function buildSchemaMap<T extends { shape: { method: MethodLiteralSchema } }>(schemas: readonly T[]): Record<string, T> {
     const map: Record<string, T> = {};
     for (const schema of schemas) {
-        const method = schema.shape.method.value;
+        const method = getMethodLiteral(schema.shape.method);
         map[method] = schema;
     }
     return map;
