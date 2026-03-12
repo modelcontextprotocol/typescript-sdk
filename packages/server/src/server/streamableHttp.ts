@@ -274,6 +274,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         if (options.existingSessionId !== undefined) {
             this.sessionId = options.existingSessionId;
             this._initialized = true;
+            // Ensure sessionIdGenerator is set so the stateless check
+            // (sessionIdGenerator === undefined) continues to correctly
+            // distinguish stateful from stateless mode.
+            if (this.sessionIdGenerator === undefined) {
+                const existingId = options.existingSessionId;
+                this.sessionIdGenerator = () => existingId;
+            }
         }
     }
 
