@@ -148,7 +148,7 @@ export interface OAuthClientProvider {
 
     /**
      * If implemented, returns the authorization code obtained after the user completes
-     * the OAuth authorization flow. This is called by {@linkcode withOAuth} immediately
+     * the OAuth authorization flow. This is called by {@linkcode index.withOAuth | withOAuth} immediately
      * after {@linkcode OAuthClientProvider.redirectToAuthorization | redirectToAuthorization()}
      * resolves, allowing the middleware to automatically complete the token exchange without
      * requiring manual intervention.
@@ -163,7 +163,7 @@ export interface OAuthClientProvider {
      * for example, by starting a local HTTP server that catches the redirect, or by
      * fetching the authorization URL directly in a headless environment.
      *
-     * If not implemented, {@linkcode withOAuth} will throw an {@linkcode UnauthorizedError}
+     * If not implemented, {@linkcode index.withOAuth | withOAuth} will throw an {@linkcode UnauthorizedError}
      * when a redirect is required, leaving it to the caller to manage the auth code flow.
      */
     getAuthorizationCode?(): string | Promise<string>;
