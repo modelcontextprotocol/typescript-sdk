@@ -1248,6 +1248,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             }
 
             const cancel = (reason: unknown) => {
+                options?.signal?.removeEventListener('abort', onAbort);
                 this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
                 this._cleanupTimeout(messageId);
@@ -1272,6 +1273,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             };
 
             this._responseHandlers.set(messageId, response => {
+                options?.signal?.removeEventListener('abort', onAbort);
+
                 if (options?.signal?.aborted) {
                     return;
                 }
@@ -1292,9 +1295,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
             });
 
-            options?.signal?.addEventListener('abort', () => {
+            const onAbort = () => {
                 cancel(options?.signal?.reason);
-            });
+            };
+            options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
@@ -1321,6 +1325,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     message: jsonrpcRequest,
                     timestamp: Date.now()
                 }).catch(error => {
+                    options?.signal?.removeEventListener('abort', onAbort);
                     this._cleanupTimeout(messageId);
                     reject(error);
                 });
@@ -1330,6 +1335,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             } else {
                 // No related task - send through transport normally
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
+                    options?.signal?.removeEventListener('abort', onAbort);
                     this._cleanupTimeout(messageId);
                     reject(error);
                 });
