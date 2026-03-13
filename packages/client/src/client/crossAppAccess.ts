@@ -270,12 +270,7 @@ export async function exchangeJwtAuthGrant(options: {
         'Content-Type': 'application/x-www-form-urlencoded'
     });
 
-    applyClientAuthentication(
-        authMethod,
-        { client_id: clientId, client_secret: clientSecret },
-        headers,
-        params
-    );
+    applyClientAuthentication(authMethod, { client_id: clientId, client_secret: clientSecret }, headers, params);
 
     const response = await fetchFn(String(tokenEndpoint), {
         method: 'POST',
