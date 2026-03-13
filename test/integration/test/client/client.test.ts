@@ -470,6 +470,12 @@ test('should respect server capabilities', async () => {
             argument: { name: 'test', value: 'test' }
         })
     ).rejects.toThrow('Server does not support completions');
+
+    // Verify that unsupported capability errors are SdkError with CapabilityNotSupported code
+    await expect(client.listPrompts()).rejects.toThrow(SdkError);
+    await expect(client.listPrompts()).rejects.toMatchObject({
+        code: SdkErrorCode.CapabilityNotSupported
+    });
 });
 
 /***
