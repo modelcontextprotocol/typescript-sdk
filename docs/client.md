@@ -161,8 +161,7 @@ This provider handles a two-step OAuth flow:
 2. Exchange the JAG for an access token from the MCP server via RFC 7523 JWT bearer grant
 
 ```ts
-import { CrossAppAccessProvider } from '@modelcontextprotocol/client';
-import { discoverAndRequestJwtAuthGrant } from '@modelcontextprotocol/client/crossAppAccess';
+import { CrossAppAccessProvider, discoverAndRequestJwtAuthGrant } from '@modelcontextprotocol/client';
 
 const authProvider = new CrossAppAccessProvider({
     // Callback to obtain JWT Authorization Grant
@@ -199,7 +198,7 @@ The `assertion` callback receives a context object with:
 - `scope` – Optional scope passed to `auth()` or from `clientMetadata`
 - `fetchFn` – Fetch implementation to use for HTTP requests
 
-For manual control over the token exchange steps, use the Layer 2 utilities from `@modelcontextprotocol/client/crossAppAccess`:
+For manual control over the token exchange steps, use the Layer 2 utilities from `@modelcontextprotocol/client`:
 - `requestJwtAuthorizationGrant()` – Exchange ID Token for JAG at IdP
 - `discoverAndRequestJwtAuthGrant()` – Discovery + JAG acquisition
 - `exchangeJwtAuthGrant()` – Exchange JAG for access token at MCP server
