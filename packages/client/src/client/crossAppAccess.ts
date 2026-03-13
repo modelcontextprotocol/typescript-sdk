@@ -8,10 +8,11 @@
  * @module
  */
 
-import type { FetchLike } from '@modelcontextprotocol/core';
-import { OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthClientInformation } from '@modelcontextprotocol/core';
+import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
 
-import { discoverAuthorizationServerMetadata } from './auth.js';
+import type { ClientAuthMethod } from './auth.js';
+import { applyClientAuthentication, discoverAuthorizationServerMetadata } from './auth.js';
 
 /**
  * Options for requesting a JWT Authorization Grant via RFC 8693 Token Exchange.
@@ -45,8 +46,12 @@ export interface RequestJwtAuthGrantOptions {
 
     /**
      * The client secret for authenticating with the IdP.
+     *
+     * Optional: the IdP may register the MCP client as a public client. RFC 8693 does
+     * not mandate confidential clients for token exchange. Omitting this parameter
+     * omits `client_secret` from the request body.
      */
-    clientSecret: string;
+    clientSecret?: string;
 
     /**
      * Optional space-separated list of scopes to request for the target MCP server.
@@ -127,9 +132,14 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
         resource: String(resource),
         subject_token: idToken,
         subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
-        client_id: clientId,
-        client_secret: clientSecret
+        client_id: clientId
     });
+
+    // Only include client_secret when provided — sending an empty/undefined secret
+    // triggers `invalid_client` on strict IdPs that registered this as a public client.
+    if (clientSecret) {
+        params.set('client_secret', clientSecret);
+    }
 
     if (scope) {
         params.set('scope', scope);
@@ -156,33 +166,15 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
         throw new Error(`Token exchange failed with status ${response.status}: ${JSON.stringify(errorBody)}`);
     }
 
-    const responseBody = (await response.json()) as {
-        issued_token_type?: string;
-        token_type?: string;
-        access_token?: string;
-        expires_in?: number;
-        scope?: string;
-    };
-
-    // Validate response structure
-    if (responseBody.issued_token_type !== 'urn:ietf:params:oauth:token-type:id-jag') {
-        throw new Error(
-            `Invalid issued_token_type: expected 'urn:ietf:params:oauth:token-type:id-jag', got '${responseBody.issued_token_type}'`
-        );
-    }
-
-    if (responseBody.token_type !== 'N_A') {
-        throw new Error(`Invalid token_type: expected 'N_A', got '${responseBody.token_type}'`);
-    }
-
-    if (typeof responseBody.access_token !== 'string') {
-        throw new TypeError('Missing or invalid access_token in token exchange response');
+    const parseResult = IdJagTokenExchangeResponseSchema.safeParse(await response.json());
+    if (!parseResult.success) {
+        throw new Error(`Invalid token exchange response: ${parseResult.error.message}`);
     }
 
     return {
-        jwtAuthGrant: responseBody.access_token, // Per RFC 8693, the JAG is returned in access_token field
-        expiresIn: responseBody.expires_in,
-        scope: responseBody.scope
+        jwtAuthGrant: parseResult.data.access_token,
+        expiresIn: parseResult.data.expires_in,
+        scope: parseResult.data.scope
     };
 }
 
@@ -236,6 +228,11 @@ export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequest
  * @returns OAuth tokens (access token, token type, etc.)
  * @throws {Error} If the exchange fails or returns an error response
  *
+ * Defaults to `client_secret_basic` (HTTP Basic Authorization header), matching
+ * {@linkcode CrossAppAccessProvider}'s declared `token_endpoint_auth_method` and the
+ * SEP-990 conformance test requirements. Use `authMethod: 'client_secret_post'` only
+ * when the authorization server explicitly requires it.
+ *
  * @example
  * ```ts
  * const tokens = await exchangeJwtAuthGrant({
@@ -252,24 +249,37 @@ export async function exchangeJwtAuthGrant(options: {
     tokenEndpoint: string | URL;
     jwtAuthGrant: string;
     clientId: string;
-    clientSecret: string;
+    clientSecret?: string;
+    /**
+     * Client authentication method. Defaults to `'client_secret_basic'` to align with
+     * {@linkcode CrossAppAccessProvider} and SEP-990 conformance requirements.
+     * Callers with no `clientSecret` should pass `'none'` for public-client auth.
+     */
+    authMethod?: ClientAuthMethod;
     fetchFn?: FetchLike;
 }): Promise<{ access_token: string; token_type: string; expires_in?: number; scope?: string }> {
-    const { tokenEndpoint, jwtAuthGrant, clientId, clientSecret, fetchFn = fetch } = options;
+    const { tokenEndpoint, jwtAuthGrant, clientId, clientSecret, authMethod = 'client_secret_basic', fetchFn = fetch } = options;
 
     // Prepare JWT bearer grant request per RFC 7523
     const params = new URLSearchParams({
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: jwtAuthGrant,
-        client_id: clientId,
-        client_secret: clientSecret
+        assertion: jwtAuthGrant
     });
+
+    const headers = new Headers({
+        'Content-Type': 'application/x-www-form-urlencoded'
+    });
+
+    applyClientAuthentication(
+        authMethod,
+        { client_id: clientId, client_secret: clientSecret },
+        headers,
+        params
+    );
 
     const response = await fetchFn(String(tokenEndpoint), {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
+        headers,
         body: params.toString()
     });
 

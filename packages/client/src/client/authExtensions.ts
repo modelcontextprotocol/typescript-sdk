@@ -640,7 +640,11 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
         }
 
         if (!resourceUrl) {
-            throw new Error('Resource URL not available. Ensure auth() has been called first.');
+            throw new Error(
+                'Resource URL not available — server may not implement RFC 9728 ' +
+                    'Protected Resource Metadata (required for Cross-App Access), or ' +
+                    'auth() has not been called'
+            );
         }
 
         // Store scope for assertion callback

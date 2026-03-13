@@ -351,7 +351,7 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * @param params - URL search parameters to modify
  * @throws {Error} When required credentials are missing
  */
-function applyClientAuthentication(
+export function applyClientAuthentication(
     method: ClientAuthMethod,
     clientInformation: OAuthClientInformation,
     headers: Headers,
