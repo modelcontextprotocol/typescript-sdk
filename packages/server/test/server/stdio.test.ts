@@ -143,7 +143,7 @@ test('should forward non-EPIPE stdout errors to onerror', async () => {
     const server = new StdioServerTransport(input, output);
 
     let reportedError: Error | undefined;
-    server.onerror = (error) => {
+    server.onerror = error => {
         reportedError = error;
     };
 
