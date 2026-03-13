@@ -19,6 +19,8 @@ import {
     Client,
     ClientCredentialsProvider,
     createMiddleware,
+    CrossAppAccessProvider,
+    discoverAndRequestJwtAuthGrant,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
@@ -160,18 +162,15 @@ This provider handles a two-step OAuth flow:
 1. Exchange the user's ID Token from the enterprise IdP for a JWT Authorization Grant (JAG) via RFC 8693 token exchange
 2. Exchange the JAG for an access token from the MCP server via RFC 7523 JWT bearer grant
 
-```ts
-import { CrossAppAccessProvider, discoverAndRequestJwtAuthGrant } from '@modelcontextprotocol/client';
-
+```ts source="../examples/client/src/clientGuide.examples.ts#auth_crossAppAccess"
 const authProvider = new CrossAppAccessProvider({
-    // Callback to obtain JWT Authorization Grant
-    assertion: async (ctx) => {
+    assertion: async ctx => {
         // ctx provides: authorizationServerUrl, resourceUrl, scope, fetchFn
         const result = await discoverAndRequestJwtAuthGrant({
             idpUrl: 'https://idp.example.com',
-            audience: ctx.authorizationServerUrl,  // MCP auth server
-            resource: ctx.resourceUrl,              // MCP resource URL
-            idToken: await getMyIdToken(),          // Your ID token acquisition
+            audience: ctx.authorizationServerUrl,
+            resource: ctx.resourceUrl,
+            idToken: await getIdToken(),
             clientId: 'my-idp-client',
             clientSecret: 'my-idp-secret',
             scope: ctx.scope,
@@ -179,17 +178,11 @@ const authProvider = new CrossAppAccessProvider({
         });
         return result.jwtAuthGrant;
     },
-    
-    // MCP server credentials
     clientId: 'my-mcp-client',
-    clientSecret: 'my-mcp-secret',
-    clientName: 'my-app'  // Optional
+    clientSecret: 'my-mcp-secret'
 });
 
-const transport = new StreamableHTTPClientTransport(
-    new URL('http://localhost:3000/mcp'),
-    { authProvider }
-);
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
 ```
 
 The `assertion` callback receives a context object with:

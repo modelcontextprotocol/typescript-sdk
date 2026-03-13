@@ -229,7 +229,7 @@ export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequest
  * @throws {Error} If the exchange fails or returns an error response
  *
  * Defaults to `client_secret_basic` (HTTP Basic Authorization header), matching
- * {@linkcode CrossAppAccessProvider}'s declared `token_endpoint_auth_method` and the
+ * `CrossAppAccessProvider`'s declared `token_endpoint_auth_method` and the
  * SEP-990 conformance test requirements. Use `authMethod: 'client_secret_post'` only
  * when the authorization server explicitly requires it.
  *
@@ -252,7 +252,7 @@ export async function exchangeJwtAuthGrant(options: {
     clientSecret?: string;
     /**
      * Client authentication method. Defaults to `'client_secret_basic'` to align with
-     * {@linkcode CrossAppAccessProvider} and SEP-990 conformance requirements.
+     * `CrossAppAccessProvider` and SEP-990 conformance requirements.
      * Callers with no `clientSecret` should pass `'none'` for public-client auth.
      */
     authMethod?: ClientAuthMethod;
