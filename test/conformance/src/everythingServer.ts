@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { localhostHostValidation } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
 import { isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
@@ -875,6 +876,9 @@ function createMcpServer() {
 
 const app = express();
 app.use(express.json());
+
+// DNS rebinding protection: reject non-localhost Host headers
+app.use(localhostHostValidation());
 
 // Configure CORS to expose Mcp-Session-Id header for browser-based clients
 app.use(
