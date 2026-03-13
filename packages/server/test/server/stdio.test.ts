@@ -102,3 +102,87 @@ test('should read multiple messages', async () => {
     await finished;
     expect(readMessages).toEqual(messages);
 });
+
+test('should handle EPIPE error on stdout gracefully', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+
+    // Simulate EPIPE error on stdout
+    const epipeError = new Error('write EPIPE') as NodeJS.ErrnoException;
+    epipeError.code = 'EPIPE';
+    output.emit('error', epipeError);
+
+    // Should trigger graceful close, not crash
+    expect(didClose).toBeTruthy();
+});
+
+test('should handle ERR_STREAM_DESTROYED error on stdout gracefully', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+
+    const destroyedError = new Error('stream destroyed') as NodeJS.ErrnoException;
+    destroyedError.code = 'ERR_STREAM_DESTROYED';
+    output.emit('error', destroyedError);
+
+    expect(didClose).toBeTruthy();
+});
+
+test('should forward non-EPIPE stdout errors to onerror', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let reportedError: Error | undefined;
+    server.onerror = (error) => {
+        reportedError = error;
+    };
+
+    await server.start();
+
+    const otherError = new Error('some other error') as NodeJS.ErrnoException;
+    otherError.code = 'ENOSPC';
+    output.emit('error', otherError);
+
+    expect(reportedError).toBe(otherError);
+});
+
+test('should reject send when stdout is not writable', async () => {
+    const closedOutput = new Writable({
+        write(_chunk, _encoding, callback) {
+            callback();
+        }
+    });
+    closedOutput.destroy();
+
+    const server = new StdioServerTransport(input, closedOutput);
+    await server.start();
+
+    const message: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'ping'
+    };
+
+    await expect(server.send(message)).rejects.toThrow('stdout is not writable');
+});
+
+test('should remove stdout error listener on close', async () => {
+    const server = new StdioServerTransport(input, output);
+    await server.start();
+
+    const listenersBefore = output.listenerCount('error');
+    await server.close();
+    const listenersAfter = output.listenerCount('error');
+
+    expect(listenersAfter).toBeLessThan(listenersBefore);
+});

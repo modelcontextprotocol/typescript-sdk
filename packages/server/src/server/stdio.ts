@@ -37,6 +37,14 @@ export class StdioServerTransport implements Transport {
     _onerror = (error: Error) => {
         this.onerror?.(error);
     };
+    _onstdouterror = (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EPIPE' || error.code === 'ERR_STREAM_DESTROYED') {
+            // Client disconnected — close gracefully instead of crashing.
+            void this.close();
+        } else {
+            this.onerror?.(error);
+        }
+    };
 
     /**
      * Starts listening for messages on `stdin`.
@@ -51,6 +59,7 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._stdout.on('error', this._onstdouterror);
     }
 
     private processReadBuffer() {
@@ -72,6 +81,7 @@ export class StdioServerTransport implements Transport {
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
+        this._stdout.off('error', this._onstdouterror);
 
         // Check if we were the only data listener
         const remainingDataListeners = this._stdin.listenerCount('data');
@@ -87,12 +97,26 @@ export class StdioServerTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-            if (this._stdout.write(json)) {
-                resolve();
-            } else {
-                this._stdout.once('drain', resolve);
+            if (!this._stdout.writable) {
+                reject(new Error('stdout is not writable'));
+                return;
+            }
+            try {
+                if (this._stdout.write(json)) {
+                    resolve();
+                } else {
+                    this._stdout.once('drain', resolve);
+                }
+            } catch (error: unknown) {
+                const errno = error as NodeJS.ErrnoException;
+                if (errno.code === 'EPIPE' || errno.code === 'ERR_STREAM_DESTROYED') {
+                    void this.close();
+                    reject(error);
+                } else {
+                    reject(error);
+                }
             }
         });
     }
