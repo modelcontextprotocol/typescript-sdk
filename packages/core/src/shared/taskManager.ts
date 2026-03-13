@@ -130,8 +130,13 @@ export type TaskManagerOptions = {
      */
     maxTaskQueueSize?: number;
     /**
+     * When true, outbound task-augmented requests will be validated against
+     * the remote side's declared task capabilities before sending.
+     */
+    enforceStrictCapabilities?: boolean;
+    /**
      * Assert that the remote side supports task creation for the given method.
-     * Called when sending a task-augmented outbound request.
+     * Called when sending a task-augmented outbound request (only when enforceStrictCapabilities is true).
      */
     assertTaskCapability?: (method: string) => void;
     /**
@@ -144,6 +149,7 @@ export type TaskManagerOptions = {
 /**
  * Manages task orchestration: state, message queuing, and polling.
  * Capability checking is provided via optional constructor callbacks.
+ * @internal
  */
 export class TaskManager implements ProtocolModule {
     private _taskStore?: TaskStore;
@@ -363,7 +369,7 @@ export class TaskManager implements ProtocolModule {
             }
 
             if (!isTerminal(task.status)) {
-                await this._waitForTaskUpdate(taskId, signal);
+                await this._waitForTaskUpdate(task.pollInterval, signal);
                 return await handleTaskResult();
             }
 
@@ -523,7 +529,7 @@ export class TaskManager implements ProtocolModule {
     ): <V extends AnySchema>(request: Request, resultSchema: V, options?: TaskRequestOptions) => Promise<SchemaOutput<V>> {
         return async <V extends AnySchema>(request: Request, resultSchema: V, options?: TaskRequestOptions) => {
             const requestOptions: RequestOptions = { ...options };
-            if (!requestOptions.relatedTask) {
+            if (relatedTaskId && !requestOptions.relatedTask) {
                 requestOptions.relatedTask = { taskId: relatedTaskId };
             }
 
@@ -680,11 +686,6 @@ export class TaskManager implements ProtocolModule {
 
         const hasTaskCreationParams = !!taskInfo?.taskCreationParams;
 
-        // Check handler capability when this request asks for task creation
-        if (hasTaskCreationParams) {
-            this._options.assertTaskHandlerCapability?.(request.method);
-        }
-
         return {
             taskContext: taskInfo?.taskContext,
             sendNotification,
@@ -695,7 +696,12 @@ export class TaskManager implements ProtocolModule {
                 }
                 return false;
             },
-            hasTaskCreationParams
+            hasTaskCreationParams,
+            // Deferred validation: runs inside the async handler chain so errors
+            // produce proper JSON-RPC error responses (matching main's behavior).
+            validateInbound: hasTaskCreationParams
+                ? () => this._options.assertTaskHandlerCapability?.(request.method)
+                : undefined
         };
     }
 
@@ -706,8 +712,8 @@ export class TaskManager implements ProtocolModule {
         responseHandler: (response: JSONRPCResultResponse | Error) => void,
         onError: (error: unknown) => void
     ): { queued: boolean } {
-        // Check task capability when sending a task-augmented request
-        if (options?.task) {
+        // Check task capability when sending a task-augmented request (matches main's enforceStrictCapabilities gate)
+        if (this._options.enforceStrictCapabilities && options?.task) {
             this._options.assertTaskCapability?.(jsonrpcRequest.method);
         }
 
@@ -783,14 +789,8 @@ export class TaskManager implements ProtocolModule {
         }
     }
 
-    private async _waitForTaskUpdate(taskId: string, signal: AbortSignal): Promise<void> {
-        let interval = this._options.defaultTaskPollInterval ?? 1000;
-        try {
-            const task = await this._requireTaskStore.getTask(taskId);
-            if (task?.pollInterval) interval = task.pollInterval;
-        } catch {
-            // Use default interval
-        }
+    private async _waitForTaskUpdate(pollInterval: number | undefined, signal: AbortSignal): Promise<void> {
+        const interval = pollInterval ?? this._options.defaultTaskPollInterval ?? 1000;
 
         return new Promise((resolve, reject) => {
             if (signal.aborted) {

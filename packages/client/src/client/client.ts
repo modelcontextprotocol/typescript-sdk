@@ -237,6 +237,7 @@ export class Client extends Protocol<ClientContext> {
             this._taskModule = new TaskManager({
                 taskStore,
                 taskMessageQueue,
+                enforceStrictCapabilities: options?.enforceStrictCapabilities,
                 assertTaskCapability: method => assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server'),
                 assertTaskHandlerCapability: method =>
                     assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client')

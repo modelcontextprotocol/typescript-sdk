@@ -524,6 +524,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         let routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean> = _noopRouteResponse;
         let taskContext: BaseContext['task'] | undefined;
         let hasTaskCreationParams = false;
+        const validators: Array<() => void> = [];
 
         for (const module of this._modules) {
             const moduleResult = module.processInboundRequest(request, inboundCtx);
@@ -539,6 +540,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             // OR for hasTaskCreationParams
             hasTaskCreationParams = hasTaskCreationParams || moduleResult.hasTaskCreationParams;
+
+            // Collect deferred validations (e.g., assertTaskHandlerCapability) to run
+            // inside the async handler chain so errors produce proper JSON-RPC error responses.
+            if (moduleResult.validateInbound) {
+                validators.push(moduleResult.validateInbound);
+            }
 
             // Compose routeResponse as OR-chain (first returning true wins)
             const prevRouteResponse = routeResponse;
@@ -595,6 +602,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
+            .then(() => {
+                for (const validate of validators) {
+                    validate();
+                }
+            })
             .then(() => handler(request, ctx))
             .then(
                 async result => {

@@ -1218,9 +1218,32 @@ describe('Task-based execution', () => {
     });
 
     describe('task status transitions', () => {
-        it('should be handled by tool implementors, not protocol layer', () => {
-            // Task status management is now the responsibility of tool implementors
-            expect(true).toBe(true);
+        it('should not auto-update task status when a task-augmented request completes', async () => {
+            const mockTaskStore = createMockTaskStore();
+            const localProtocol = createTestProtocol({ taskStore: mockTaskStore });
+            const localTransport = new MockTransport();
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'done' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 42,
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool',
+                    arguments: {},
+                    task: { ttl: 60000, pollInterval: 1000 }
+                }
+            });
+
+            // Allow the request to be processed
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            // The protocol layer must not call updateTaskStatus — that is solely the tool implementor's responsibility
+            expect(mockTaskStore.updateTaskStatus).not.toHaveBeenCalled();
         });
 
         it('should handle requests with task creation parameters in top-level task field', async () => {
@@ -1257,6 +1280,216 @@ describe('Task-based execution', () => {
 
             // Wait for the request to be processed
             await new Promise(resolve => setTimeout(resolve, 10));
+        });
+    });
+
+    describe('assertTaskHandlerCapability', () => {
+        it('should invoke assertTaskHandlerCapability callback when an inbound task-augmented request arrives', async () => {
+            const assertTaskHandlerCapability = vi.fn();
+            const localProtocol = createTestProtocol({
+                taskStore: createMockTaskStore(),
+                assertTaskHandlerCapability
+            });
+            const localTransport = new MockTransport();
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'my-tool',
+                    arguments: {},
+                    task: { ttl: 30000, pollInterval: 500 }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            expect(assertTaskHandlerCapability).toHaveBeenCalledOnce();
+            expect(assertTaskHandlerCapability).toHaveBeenCalledWith('tools/call');
+        });
+
+        it('should not invoke assertTaskHandlerCapability for non-task-augmented requests', async () => {
+            const assertTaskHandlerCapability = vi.fn();
+            const localProtocol = createTestProtocol({
+                taskStore: createMockTaskStore(),
+                assertTaskHandlerCapability
+            });
+            const localTransport = new MockTransport();
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tools/call',
+                params: { name: 'my-tool', arguments: {} }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            expect(assertTaskHandlerCapability).not.toHaveBeenCalled();
+        });
+
+        it('should not throw when assertTaskHandlerCapability is not provided', async () => {
+            // No assertTaskHandlerCapability callback — protocol must not error
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            const localTransport = new MockTransport();
+            const localSendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tools/call',
+                params: {
+                    name: 'my-tool',
+                    arguments: {},
+                    task: { ttl: 30000, pollInterval: 500 }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            // The response should be a success, not an error
+            expect(localSendSpy).toHaveBeenCalledOnce();
+            const response = localSendSpy.mock.calls[0]![0] as { error?: unknown };
+            expect(response.error).toBeUndefined();
+        });
+
+        it('should send a JSON-RPC error response when assertTaskHandlerCapability throws', async () => {
+            const assertTaskHandlerCapability = vi.fn(() => {
+                throw new Error('Task handler capability not declared');
+            });
+            const localProtocol = createTestProtocol({
+                taskStore: createMockTaskStore(),
+                assertTaskHandlerCapability
+            });
+            const localTransport = new MockTransport();
+            const sendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 4,
+                method: 'tools/call',
+                params: {
+                    name: 'my-tool',
+                    arguments: {},
+                    task: { ttl: 30000, pollInterval: 500 }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            expect(assertTaskHandlerCapability).toHaveBeenCalledOnce();
+            // Verify the error was sent back as a JSON-RPC error response (matching main's behavior)
+            expect(sendSpy).toHaveBeenCalledOnce();
+            const response = sendSpy.mock.calls[0]![0] as { error?: { message?: string } };
+            expect(response.error).toBeDefined();
+            expect(response.error!.message).toBe('Task handler capability not declared');
+        });
+    });
+
+    describe('pollInterval fallback in _waitForTaskUpdate', () => {
+        it('should fall back to defaultTaskPollInterval when task has no pollInterval', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            const task = await mockTaskStore.createTask({ pollInterval: undefined as unknown as number }, 1, {
+                method: 'test/method',
+                params: {}
+            });
+            // Override pollInterval to be undefined on the stored task
+            const storedTask = await mockTaskStore.getTask(task.taskId);
+            if (storedTask) {
+                storedTask.pollInterval = undefined as unknown as number;
+            }
+
+            const localProtocol = createTestProtocol({
+                taskStore: mockTaskStore,
+                defaultTaskPollInterval: 100
+            });
+            const localTransport = new MockTransport();
+            const sendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            // Send tasks/result request — task is non-terminal so it will poll
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tasks/result',
+                params: { taskId: task.taskId }
+            });
+
+            // Use a macrotask to complete the task AFTER the handler has entered polling
+            setTimeout(() => {
+                mockTaskStore.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'done' }] });
+            }, 10);
+
+            // At 50ms the 100ms poll hasn't fired yet
+            await new Promise(resolve => setTimeout(resolve, 50));
+            expect(sendSpy).not.toHaveBeenCalled();
+
+            // At 200ms the poll should have fired and found the completed task
+            await new Promise(resolve => setTimeout(resolve, 150));
+            expect(sendSpy).toHaveBeenCalled();
+        });
+
+        it('should fall back to 1000ms when both pollInterval and defaultTaskPollInterval are absent', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            const task = await mockTaskStore.createTask({ pollInterval: undefined as unknown as number }, 1, {
+                method: 'test/method',
+                params: {}
+            });
+            const storedTask = await mockTaskStore.getTask(task.taskId);
+            if (storedTask) {
+                storedTask.pollInterval = undefined as unknown as number;
+            }
+
+            // No defaultTaskPollInterval — should fall back to 1000ms
+            const localProtocol = createTestProtocol({
+                taskStore: mockTaskStore
+            });
+            const localTransport = new MockTransport();
+            const sendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tasks/result',
+                params: { taskId: task.taskId }
+            });
+
+            // Complete the task via macrotask so the handler enters polling first
+            setTimeout(() => {
+                mockTaskStore.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'done' }] });
+            }, 10);
+
+            // At 500ms the 1000ms poll hasn't fired yet
+            await new Promise(resolve => setTimeout(resolve, 500));
+            expect(sendSpy).not.toHaveBeenCalled();
+
+            // At 1100ms the poll should have fired
+            await new Promise(resolve => setTimeout(resolve, 600));
+            expect(sendSpy).toHaveBeenCalled();
         });
     });
 

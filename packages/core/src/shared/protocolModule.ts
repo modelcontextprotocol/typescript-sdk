@@ -15,6 +15,7 @@ import type { BaseContext, NotificationOptions, RequestOptions } from './protoco
 /**
  * Host interface that a ProtocolModule uses to interact with the Protocol instance.
  * Provided to the module via bind().
+ * @internal
  */
 export interface ProtocolModuleHost {
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
@@ -27,6 +28,7 @@ export interface ProtocolModuleHost {
 
 /**
  * Context provided to a module when processing an inbound request.
+ * @internal
  */
 export interface InboundContext {
     sessionId?: string;
@@ -37,6 +39,7 @@ export interface InboundContext {
 /**
  * Result returned by a module after processing an inbound request.
  * Provides wrapped send functions and routing for task-related responses.
+ * @internal
  */
 export interface InboundResult {
     taskContext?: BaseContext['task'];
@@ -48,6 +51,12 @@ export interface InboundResult {
     ) => Promise<SchemaOutput<U>>;
     routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean>;
     hasTaskCreationParams: boolean;
+    /**
+     * Optional validation to run inside the async handler chain (before the request handler).
+     * Throwing here produces a proper JSON-RPC error response, matching the behavior of
+     * capability checks on main.
+     */
+    validateInbound?: () => void;
 }
 
 /**
@@ -55,6 +64,7 @@ export interface InboundResult {
  *
  * A ProtocolModule hooks into Protocol's message lifecycle to intercept,
  * augment, or route messages. Modules are registered via Protocol.registerModule().
+ * @internal
  */
 export interface ProtocolModule {
     /**
