@@ -335,7 +335,7 @@ describe('Zod v4', () => {
 
             it('should call onerror when receiving invalid JSON', async () => {
                 const errors: Error[] = [];
-                transport.onerror = (error) => errors.push(error);
+                transport.onerror = error => errors.push(error);
 
                 const request = new Request('http://localhost/mcp', {
                     method: 'POST',
@@ -354,7 +354,7 @@ describe('Zod v4', () => {
             it('should call onerror when receiving invalid JSON-RPC message', async () => {
                 sessionId = await initializeServer();
                 const errors: Error[] = [];
-                transport.onerror = (error) => errors.push(error);
+                transport.onerror = error => errors.push(error);
 
                 const request = createRequest('POST', { invalid: 'not a jsonrpc message' } as unknown as JSONRPCMessage, { sessionId });
                 const response = await transport.handleRequest(request);
