@@ -13,7 +13,9 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    fetchToken,
     isHttpsUrl,
+    prepareAuthorizationCodeRequest,
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
@@ -1519,6 +1521,7 @@ describe('OAuth Authorization', () => {
             expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
+            expect(body.get('scope')).toBeNull();
         });
 
         it('allows for string "expires_in" values', async () => {
@@ -1842,6 +1845,98 @@ describe('OAuth Authorization', () => {
                     refreshToken: 'refresh123'
                 })
             ).rejects.toThrow('Token refresh failed');
+        });
+    });
+
+    describe('prepareAuthorizationCodeRequest', () => {
+        it('includes scope when provided', () => {
+            const params = prepareAuthorizationCodeRequest('code123', 'verifier123', 'http://localhost:3000/callback', 'read write');
+
+            expect(params.get('grant_type')).toBe('authorization_code');
+            expect(params.get('code')).toBe('code123');
+            expect(params.get('code_verifier')).toBe('verifier123');
+            expect(params.get('redirect_uri')).toBe('http://localhost:3000/callback');
+            expect(params.get('scope')).toBe('read write');
+        });
+
+        it('omits scope when not provided', () => {
+            const params = prepareAuthorizationCodeRequest('code123', 'verifier123', 'http://localhost:3000/callback');
+
+            expect(params.get('scope')).toBeNull();
+        });
+    });
+
+    describe('fetchToken', () => {
+        const validTokens: OAuthTokens = {
+            access_token: 'access123',
+            token_type: 'Bearer',
+            expires_in: 3600
+        };
+
+        function createFetchTokenProvider(overrides: Partial<OAuthClientProvider> = {}): OAuthClientProvider {
+            return {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client',
+                        scope: 'client:default'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'client123',
+                    client_secret: 'secret123'
+                }),
+                tokens: vi.fn(),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn().mockResolvedValue('verifier123'),
+                ...overrides
+            };
+        }
+
+        it('includes explicitly passed scope in authorization code token requests', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validTokens
+            });
+
+            const provider = createFetchTokenProvider();
+
+            await fetchToken(provider, 'https://auth.example.com', {
+                authorizationCode: 'code123',
+                scope: 'read write'
+            });
+
+            const body = mockFetch.mock.calls[0]![1].body as URLSearchParams;
+            expect(body.get('grant_type')).toBe('authorization_code');
+            expect(body.get('code')).toBe('code123');
+            expect(body.get('code_verifier')).toBe('verifier123');
+            expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
+            expect(body.get('scope')).toBe('read write');
+        });
+
+        it('does not inject scope from clientMetadata when no explicit scope is passed', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validTokens
+            });
+
+            const provider = createFetchTokenProvider();
+
+            await fetchToken(provider, 'https://auth.example.com', {
+                authorizationCode: 'code123'
+            });
+
+            const body = mockFetch.mock.calls[0]![1].body as URLSearchParams;
+            // Do NOT inject clientMetadata.scope into the token request — providers that narrowed
+            // scope during authorization would reject a broader scope with invalid_scope.
+            expect(body.get('scope')).toBeNull();
         });
     });
 

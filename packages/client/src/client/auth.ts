@@ -510,6 +510,12 @@ async function authInternal(
     // The resolved scope is used consistently for both DCR and the authorization request.
     const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
 
+    // For the token exchange, only forward scope that was explicitly requested via
+    // WWW-Authenticate (the `scope` parameter). Do not inject PRM scopes_supported or
+    // clientMetadata.scope — either can exceed what the server granted, triggering
+    // invalid_scope errors per RFC 6749 §4.1.3.
+    const tokenExchangeScope = scope;
+
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
     if (!clientInformation) {
@@ -562,6 +568,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
+            scope: tokenExchangeScope,
             fetchFn
         });
 
@@ -1198,14 +1205,21 @@ export async function startAuthorization(
 export function prepareAuthorizationCodeRequest(
     authorizationCode: string,
     codeVerifier: string,
-    redirectUri: string | URL
+    redirectUri: string | URL,
+    scope?: string
 ): URLSearchParams {
-    return new URLSearchParams({
+    const params = new URLSearchParams({
         grant_type: 'authorization_code',
         code: authorizationCode,
         code_verifier: codeVerifier,
         redirect_uri: String(redirectUri)
     });
+
+    if (scope) {
+        params.set('scope', scope);
+    }
+
+    return params;
 }
 
 /**
@@ -1401,21 +1415,25 @@ export async function fetchToken(
         metadata,
         resource,
         authorizationCode,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: URL;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
+        scope?: string;
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
-    const scope = provider.clientMetadata.scope;
-
     // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
     let tokenRequestParams: URLSearchParams | undefined;
     if (provider.prepareTokenRequest) {
-        tokenRequestParams = await provider.prepareTokenRequest(scope);
+        // For non-interactive flows (client_credentials, jwt-bearer), include the client's
+        // configured scope as a default — the server has never narrowed it via an authorization
+        // grant, so clientMetadata.scope is the expected starting point.
+        const tokenRequestScope = scope ?? provider.clientMetadata.scope;
+        tokenRequestParams = await provider.prepareTokenRequest(tokenRequestScope);
     }
 
     // Default to authorization_code grant if no custom prepareTokenRequest
@@ -1427,7 +1445,10 @@ export async function fetchToken(
             throw new Error('redirectUrl is required for authorization_code flow');
         }
         const codeVerifier = await provider.codeVerifier();
-        tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
+        // Only include scope in the token request when explicitly provided — do not inject
+        // clientMetadata.scope because the provider may have narrowed the granted scope during
+        // authorization and re-sending a broader scope would cause an invalid_scope error.
+        tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl, scope);
     }
 
     const clientInformation = await provider.clientInformation();
