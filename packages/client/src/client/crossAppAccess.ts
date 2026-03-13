@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { FetchLike, OAuthClientInformation } from '@modelcontextprotocol/core';
+import type { FetchLike } from '@modelcontextprotocol/core';
 import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
 
 import type { ClientAuthMethod } from './auth.js';
