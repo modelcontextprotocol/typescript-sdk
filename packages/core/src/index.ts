@@ -17,8 +17,8 @@ export * from './util/schema.js';
 
 // experimental exports
 export * from './experimental/index.js';
-export * from './validation/ajvProvider.js';
-export * from './validation/cfWorkerProvider.js';
+export * from './validators/ajvProvider.js';
+export * from './validators/cfWorkerProvider.js';
 /**
  * JSON Schema validation
  *
@@ -26,11 +26,11 @@ export * from './validation/cfWorkerProvider.js';
  * Choose a validator based on your runtime environment:
  *
  * - {@linkcode AjvJsonSchemaValidator}: Best for Node.js (default, fastest)
- *   Import from: @modelcontextprotocol/sdk/validation/ajv
+ *   Import from: @modelcontextprotocol/sdk/validators/ajv
  *   Requires peer dependencies: ajv, ajv-formats
  *
  * - {@linkcode CfWorkerJsonSchemaValidator}: Best for edge runtimes
- *   Import from: @modelcontextprotocol/sdk/validation/cfworker
+ *   Import from: @modelcontextprotocol/sdk/validators/cfworker
  *   Requires peer dependency: @cfworker/json-schema
  *
  * @example For Node.js with AJV
@@ -47,4 +47,4 @@ export * from './validation/cfWorkerProvider.js';
  */
 
 // Core types only - implementations are exported via separate entry points
-export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validation/types.js';
+export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';
