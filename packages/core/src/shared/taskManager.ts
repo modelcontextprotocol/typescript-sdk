@@ -699,9 +699,7 @@ export class TaskManager implements ProtocolModule {
             hasTaskCreationParams,
             // Deferred validation: runs inside the async handler chain so errors
             // produce proper JSON-RPC error responses (matching main's behavior).
-            validateInbound: hasTaskCreationParams
-                ? () => this._options.assertTaskHandlerCapability?.(request.method)
-                : undefined
+            validateInbound: hasTaskCreationParams ? () => this._options.assertTaskHandlerCapability?.(request.method) : undefined
         };
     }
 
