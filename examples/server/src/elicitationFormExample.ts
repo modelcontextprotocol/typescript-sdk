@@ -400,7 +400,7 @@ async function main() {
     const mcpGetHandler = async (req: Request, res: Response) => {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
         if (!sessionId || !transports[sessionId]) {
-            res.status(400).send('Invalid or missing session ID');
+            res.status(404).send('Invalid or missing session ID');
             return;
         }
 
@@ -415,7 +415,7 @@ async function main() {
     const mcpDeleteHandler = async (req: Request, res: Response) => {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
         if (!sessionId || !transports[sessionId]) {
-            res.status(400).send('Invalid or missing session ID');
+            res.status(404).send('Invalid or missing session ID');
             return;
         }
 
