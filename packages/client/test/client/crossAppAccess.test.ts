@@ -78,6 +78,31 @@ describe('crossAppAccess', () => {
             expect(body.get('scope')).toBeNull();
         });
 
+        it('omits client_secret from body when not provided (public client)', async () => {
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    issued_token_type: 'urn:ietf:params:oauth:token-type:id-jag',
+                    access_token: 'jag-token',
+                    token_type: 'N_A'
+                })
+            } as Response);
+
+            await requestJwtAuthorizationGrant({
+                tokenEndpoint: 'https://idp.example.com/token',
+                audience: 'https://auth.chat.example/',
+                resource: 'https://mcp.chat.example/',
+                idToken: 'id-token',
+                clientId: 'public-client',
+                fetchFn: mockFetch
+            });
+
+            const body = new URLSearchParams(mockFetch.mock.calls[0]![1]?.body as string);
+            expect(body.get('client_id')).toBe('public-client');
+            // Must be absent — not empty string, not the literal "undefined"
+            expect(body.has('client_secret')).toBe(false);
+        });
+
         it('throws error when issued_token_type is incorrect', async () => {
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,
@@ -98,30 +123,32 @@ describe('crossAppAccess', () => {
                     clientSecret: 'secret',
                     fetchFn: mockFetch
                 })
-            ).rejects.toThrow("Invalid issued_token_type: expected 'urn:ietf:params:oauth:token-type:id-jag'");
+            ).rejects.toThrow('Invalid token exchange response');
         });
 
-        it('throws error when token_type is incorrect', async () => {
+        it('accepts token_type other than N_A (issued_token_type is the real check)', async () => {
+            // RFC 6749 §5.1: token_type is case-insensitive; RFC 8693 §2.2.1: informational
+            // when the issued token isn't an access token. Real IdPs return 'n_a', 'Bearer', etc.
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,
                 json: async () => ({
                     issued_token_type: 'urn:ietf:params:oauth:token-type:id-jag',
-                    access_token: 'token',
-                    token_type: 'Bearer'
+                    access_token: 'jag-token',
+                    token_type: 'n_a'
                 })
             } as Response);
 
-            await expect(
-                requestJwtAuthorizationGrant({
-                    tokenEndpoint: 'https://idp.example.com/token',
-                    audience: 'https://auth.chat.example/',
-                    resource: 'https://mcp.chat.example/',
-                    idToken: 'id-token',
-                    clientId: 'client',
-                    clientSecret: 'secret',
-                    fetchFn: mockFetch
-                })
-            ).rejects.toThrow("Invalid token_type: expected 'N_A'");
+            const result = await requestJwtAuthorizationGrant({
+                tokenEndpoint: 'https://idp.example.com/token',
+                audience: 'https://auth.chat.example/',
+                resource: 'https://mcp.chat.example/',
+                idToken: 'id-token',
+                clientId: 'client',
+                clientSecret: 'secret',
+                fetchFn: mockFetch
+            });
+
+            expect(result.jwtAuthGrant).toBe('jag-token');
         });
 
         it('throws error when access_token is missing', async () => {
@@ -143,7 +170,7 @@ describe('crossAppAccess', () => {
                     clientSecret: 'secret',
                     fetchFn: mockFetch
                 })
-            ).rejects.toThrow('Missing or invalid access_token in token exchange response');
+            ).rejects.toThrow('Invalid token exchange response');
         });
 
         it('handles OAuth error responses', async () => {
@@ -263,7 +290,7 @@ describe('crossAppAccess', () => {
     });
 
     describe('exchangeJwtAuthGrant', () => {
-        it('successfully exchanges JWT Authorization Grant for access token', async () => {
+        it('exchanges JAG for access token using client_secret_basic by default', async () => {
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,
                 json: async () => ({
@@ -292,11 +319,69 @@ describe('crossAppAccess', () => {
             expect(url).toBe('https://auth.chat.example/token');
             expect(init?.method).toBe('POST');
 
+            // SEP-990 conformance: credentials in Authorization header, NOT in body
+            const headers = new Headers(init?.headers as Headers);
+            const expectedCredentials = Buffer.from('my-mcp-client:my-mcp-secret').toString('base64');
+            expect(headers.get('Authorization')).toBe(`Basic ${expectedCredentials}`);
+
             const body = new URLSearchParams(init?.body as string);
             expect(body.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
             expect(body.get('assertion')).toBe('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
+            expect(body.has('client_id')).toBe(false);
+            expect(body.has('client_secret')).toBe(false);
+        });
+
+        it('supports client_secret_post when explicitly requested', async () => {
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    access_token: 'mcp-access-token',
+                    token_type: 'Bearer'
+                })
+            } as Response);
+
+            await exchangeJwtAuthGrant({
+                tokenEndpoint: 'https://auth.chat.example/token',
+                jwtAuthGrant: 'jwt',
+                clientId: 'my-mcp-client',
+                clientSecret: 'my-mcp-secret',
+                authMethod: 'client_secret_post',
+                fetchFn: mockFetch
+            });
+
+            const [, init] = mockFetch.mock.calls[0]!;
+            const headers = new Headers(init?.headers as Headers);
+            expect(headers.get('Authorization')).toBeNull();
+
+            const body = new URLSearchParams(init?.body as string);
             expect(body.get('client_id')).toBe('my-mcp-client');
             expect(body.get('client_secret')).toBe('my-mcp-secret');
+        });
+
+        it('supports authMethod none for public clients', async () => {
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    access_token: 'mcp-access-token',
+                    token_type: 'Bearer'
+                })
+            } as Response);
+
+            await exchangeJwtAuthGrant({
+                tokenEndpoint: 'https://auth.chat.example/token',
+                jwtAuthGrant: 'jwt',
+                clientId: 'my-public-client',
+                authMethod: 'none',
+                fetchFn: mockFetch
+            });
+
+            const [, init] = mockFetch.mock.calls[0]!;
+            const headers = new Headers(init?.headers as Headers);
+            expect(headers.get('Authorization')).toBeNull();
+
+            const body = new URLSearchParams(init?.body as string);
+            expect(body.get('client_id')).toBe('my-public-client');
+            expect(body.has('client_secret')).toBe(false);
         });
 
         it('handles OAuth error responses', async () => {

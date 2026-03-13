@@ -351,7 +351,7 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * @param params - URL search parameters to modify
  * @throws {Error} When required credentials are missing
  */
-function applyClientAuthentication(
+export function applyClientAuthentication(
     method: ClientAuthMethod,
     clientInformation: OAuthClientInformation,
     headers: Headers,
@@ -381,7 +381,7 @@ function applyClientAuthentication(
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
-function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
+export function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
     if (!clientSecret) {
         throw new Error('client_secret_basic authentication requires a client_secret');
     }
@@ -393,7 +393,7 @@ function applyBasicAuth(clientId: string, clientSecret: string | undefined, head
 /**
  * Applies POST body authentication (RFC 6749 Section 2.3.1)
  */
-function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
+export function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
     params.set('client_id', clientId);
     if (clientSecret) {
         params.set('client_secret', clientSecret);

@@ -470,7 +470,9 @@ describe('CrossAppAccessProvider', () => {
         // Manually set authorization server URL but not resource URL
         provider.saveAuthorizationServerUrl?.(AUTH_SERVER_URL);
 
-        await expect(provider.prepareTokenRequest()).rejects.toThrow('Resource URL not available. Ensure auth() has been called first.');
+        await expect(provider.prepareTokenRequest()).rejects.toThrow(
+            'Resource URL not available — server may not implement RFC 9728 Protected Resource Metadata'
+        );
     });
 
     it('stores and retrieves authorization server URL', () => {
