@@ -1,8 +1,7 @@
 import type * as z from 'zod/v4';
 
 import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants.js';
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- value import needed for typeof in Infer<>
-import {
+import type {
     AnnotationsSchema,
     AudioContentSchema,
     BaseMetadataSchema,
