@@ -16,7 +16,7 @@
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/index.ts"
             ],
             "@modelcontextprotocol/core/public": [
-                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/publicExports.ts"
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"
             ]
         }
     },

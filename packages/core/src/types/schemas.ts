@@ -1,22 +1,22 @@
 import * as z from 'zod/v4';
 
 import { JSONRPC_VERSION, RELATED_TASK_META_KEY } from './constants.js';
-
-/* JSON types */
-export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
-export type JSONObject = { [key: string]: JSONValue };
-export type JSONArray = JSONValue[];
+import type {
+    JSONArray,
+    JSONObject,
+    JSONValue,
+    NotificationMethod,
+    NotificationTypeMap,
+    RequestMethod,
+    RequestTypeMap,
+    ResultTypeMap
+} from './types.js';
 
 export const JSONValueSchema: z.ZodType<JSONValue> = z.lazy(() =>
     z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])
 );
 export const JSONObjectSchema: z.ZodType<JSONObject> = z.record(z.string(), JSONValueSchema);
 export const JSONArraySchema: z.ZodType<JSONArray> = z.array(JSONValueSchema);
-
-/**
- * Utility types
- */
-export type ExpandRecursively<T> = T extends object ? (T extends infer O ? { [K in keyof O]: ExpandRecursively<O[K]> } : never) : T;
 /**
  * A progress token, used to associate progress notifications with the original request.
  */
@@ -55,7 +55,7 @@ export const RelatedTaskMetadataSchema = z.object({
     taskId: z.string()
 });
 
-const RequestMetaSchema = z.looseObject({
+export const RequestMetaSchema = z.looseObject({
     /**
      * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
      */
@@ -69,7 +69,7 @@ const RequestMetaSchema = z.looseObject({
 /**
  * Common params for any request.
  */
-const BaseRequestParamsSchema = z.object({
+export const BaseRequestParamsSchema = z.object({
     /**
      * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
      */
@@ -82,8 +82,8 @@ const BaseRequestParamsSchema = z.object({
 export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * If specified, the caller is requesting task-augmented execution for this request.
-     * The request will return a {@linkcode CreateTaskResult} immediately, and the actual result can be
-     * retrieved later via {@linkcode GetTaskPayloadRequest | tasks/result}.
+     * The request will return a `CreateTaskResult` immediately, and the actual result can be
+     * retrieved later via `tasks/result`.
      *
      * Task augmentation is subject to capability negotiation - receivers MUST declare support
      * for task augmentation of specific request types in their capabilities.
@@ -96,7 +96,7 @@ export const RequestSchema = z.object({
     params: BaseRequestParamsSchema.loose().optional()
 });
 
-const NotificationsParamsSchema = z.object({
+export const NotificationsParamsSchema = z.object({
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on `_meta` usage.
@@ -279,7 +279,7 @@ export const BaseMetadataSchema = z.object({
      * Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
      * even by those unfamiliar with domain-specific terminology.
      *
-     * If not provided, the `name` should be used for display (except for {@linkcode Tool},
+     * If not provided, the `name` should be used for display (except for `Tool`,
      * where `annotations.title` should be given precedence over using `name`,
      * if present).
      */
@@ -687,9 +687,9 @@ export const GetTaskPayloadRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The response to a {@linkcode GetTaskPayloadRequest | tasks/result} request.
+ * The response to a `tasks/result` request.
  * The structure matches the result type of the original request.
- * For example, a {@linkcode CallToolRequest | tools/call} task would return the {@linkcode CallToolResult} structure.
+ * For example, a {@linkcode CallToolRequest | tools/call} task would return the `CallToolResult` structure.
  *
  */
 export const GetTaskPayloadResultSchema = ResultSchema.loose();
@@ -1134,7 +1134,7 @@ export const ToolUseContentSchema = z.object({
     name: z.string(),
     /**
      * Unique identifier for this tool call.
-     * Used to correlate with {@linkcode ToolResultContent} in subsequent messages.
+     * Used to correlate with `ToolResultContent` in subsequent messages.
      */
     id: z.string(),
     /**
@@ -1215,13 +1215,13 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
 
 /* Tools */
 /**
- * Additional properties describing a {@linkcode Tool} to clients.
+ * Additional properties describing a `Tool` to clients.
  *
  * NOTE: all properties in {@linkcode ToolAnnotations} are **hints**.
  * They are not guaranteed to provide a faithful description of
  * tool behavior (including descriptive properties like `title`).
  *
- * Clients should never make tool use decisions based on {@linkcode ToolAnnotations}
+ * Clients should never make tool use decisions based on `ToolAnnotations`
  * received from untrusted servers.
  */
 export const ToolAnnotationsSchema = z.object({
@@ -1306,7 +1306,7 @@ export const ToolSchema = z.object({
         .catchall(z.unknown()),
     /**
      * An optional JSON Schema 2020-12 object defining the structure of the tool's output
-     * returned in the `structuredContent` field of a {@linkcode CallToolResult}.
+     * returned in the `structuredContent` field of a `CallToolResult`.
      * Must have `type: 'object'` at the root level per MCP spec.
      */
     outputSchema: z
@@ -1354,7 +1354,7 @@ export const CallToolResultSchema = ResultSchema.extend({
     /**
      * A list of content objects that represent the result of the tool call.
      *
-     * If the {@linkcode Tool} does not define an outputSchema, this field MUST be present in the result.
+     * If the `Tool` does not define an outputSchema, this field MUST be present in the result.
      * For backwards compatibility, this field is always present, but it may be empty.
      */
     content: z.array(ContentBlockSchema).default([]),
@@ -1362,7 +1362,7 @@ export const CallToolResultSchema = ResultSchema.extend({
     /**
      * An object containing structured tool output.
      *
-     * If the {@linkcode Tool} defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+     * If the `Tool` defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
      */
     structuredContent: z.record(z.string(), z.unknown()).optional(),
 
@@ -1543,7 +1543,7 @@ export const ToolChoiceSchema = z.object({
 
 /**
  * The result of a tool execution, provided by the user (server).
- * Represents the outcome of invoking a tool requested via {@linkcode ToolUseContent}.
+ * Represents the outcome of invoking a tool requested via `ToolUseContent`.
  */
 export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
@@ -1608,7 +1608,7 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
      * The client MAY ignore this request.
      *
      * Default is `"none"`. Values `"thisServer"` and `"allServers"` are soft-deprecated. Servers SHOULD only use these values if the client
-     * declares {@linkcode ClientCapabilities}.`sampling.context`. These values may be removed in future spec releases.
+     * declares `ClientCapabilities`.`sampling.context`. These values may be removed in future spec releases.
      */
     includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
     temperature: z.number().optional(),
@@ -1625,12 +1625,12 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
     metadata: JSONObjectSchema.optional(),
     /**
      * Tools that the model may use during generation.
-     * The client MUST return an error if this field is provided but {@linkcode ClientCapabilities}.`sampling.tools` is not declared.
+     * The client MUST return an error if this field is provided but `ClientCapabilities`.`sampling.tools` is not declared.
      */
     tools: z.array(ToolSchema).optional(),
     /**
      * Controls how the model uses tools.
-     * The client MUST return an error if this field is provided but {@linkcode ClientCapabilities}.`sampling.tools` is not declared.
+     * The client MUST return an error if this field is provided but `ClientCapabilities`.`sampling.tools` is not declared.
      * Default is `{ mode: "auto" }`.
      */
     toolChoice: ToolChoiceSchema.optional()
@@ -1694,7 +1694,7 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
     role: RoleSchema,
     /**
-     * Response content. May be a single block or array. May include {@linkcode ToolUseContent} if `stopReason` is `"toolUse"`.
+     * Response content. May be a single block or array. May include `ToolUseContent` if `stopReason` is `"toolUse"`.
      */
     content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)])
 });
@@ -2138,244 +2138,6 @@ export const ServerResultSchema = z.union([
     ListTasksResultSchema,
     CreateTaskResultSchema
 ]);
-
-type Primitive = string | number | boolean | bigint | null | undefined;
-type Flatten<T> = T extends Primitive
-    ? T
-    : T extends Array<infer U>
-      ? Array<Flatten<U>>
-      : T extends Set<infer U>
-        ? Set<Flatten<U>>
-        : T extends Map<infer K, infer V>
-          ? Map<Flatten<K>, Flatten<V>>
-          : T extends object
-            ? { [K in keyof T]: Flatten<T[K]> }
-            : T;
-
-type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
-
-/* JSON-RPC types */
-export type ProgressToken = Infer<typeof ProgressTokenSchema>;
-export type Cursor = Infer<typeof CursorSchema>;
-export type Request = Infer<typeof RequestSchema>;
-export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
-export type RequestMeta = Infer<typeof RequestMetaSchema>;
-export type Notification = Infer<typeof NotificationSchema>;
-export type Result = Infer<typeof ResultSchema>;
-export type RequestId = Infer<typeof RequestIdSchema>;
-export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
-export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
-export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
-export type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
-export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
-
-export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
-export type RequestParams = Infer<typeof BaseRequestParamsSchema>;
-export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
-
-/* Empty result */
-export type EmptyResult = Infer<typeof EmptyResultSchema>;
-
-/* Cancellation */
-export type CancelledNotificationParams = Infer<typeof CancelledNotificationParamsSchema>;
-export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
-
-/* Base Metadata */
-export type Icon = Infer<typeof IconSchema>;
-export type Icons = Infer<typeof IconsSchema>;
-export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
-export type Annotations = Infer<typeof AnnotationsSchema>;
-export type Role = Infer<typeof RoleSchema>;
-
-/* Initialization */
-export type Implementation = Infer<typeof ImplementationSchema>;
-export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
-export type InitializeRequestParams = Infer<typeof InitializeRequestParamsSchema>;
-export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
-export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
-export type InitializeResult = Infer<typeof InitializeResultSchema>;
-export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
-
-/* Ping */
-export type PingRequest = Infer<typeof PingRequestSchema>;
-
-/* Progress notifications */
-export type Progress = Infer<typeof ProgressSchema>;
-export type ProgressNotificationParams = Infer<typeof ProgressNotificationParamsSchema>;
-export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
-
-/* Tasks */
-export type Task = Infer<typeof TaskSchema>;
-export type TaskStatus = Infer<typeof TaskStatusSchema>;
-export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
-export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
-export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
-export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
-export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
-export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
-export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
-export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
-export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
-export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
-export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
-export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
-export type CancelTaskResult = Infer<typeof CancelTaskResultSchema>;
-export type GetTaskPayloadResult = Infer<typeof GetTaskPayloadResultSchema>;
-
-/* Pagination */
-export type PaginatedRequestParams = Infer<typeof PaginatedRequestParamsSchema>;
-export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
-export type PaginatedResult = Infer<typeof PaginatedResultSchema>;
-
-/* Resources */
-export type ResourceContents = Infer<typeof ResourceContentsSchema>;
-export type TextResourceContents = Infer<typeof TextResourceContentsSchema>;
-export type BlobResourceContents = Infer<typeof BlobResourceContentsSchema>;
-export type Resource = Infer<typeof ResourceSchema>;
-// TODO: Overlaps with exported `ResourceTemplate` class from `server`.
-export type ResourceTemplateType = Infer<typeof ResourceTemplateSchema>;
-export type ListResourcesRequest = Infer<typeof ListResourcesRequestSchema>;
-export type ListResourcesResult = Infer<typeof ListResourcesResultSchema>;
-export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
-export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
-export type ResourceRequestParams = Infer<typeof ResourceRequestParamsSchema>;
-export type ReadResourceRequestParams = Infer<typeof ReadResourceRequestParamsSchema>;
-export type ReadResourceRequest = Infer<typeof ReadResourceRequestSchema>;
-export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
-export type ResourceListChangedNotification = Infer<typeof ResourceListChangedNotificationSchema>;
-export type SubscribeRequestParams = Infer<typeof SubscribeRequestParamsSchema>;
-export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
-export type UnsubscribeRequestParams = Infer<typeof UnsubscribeRequestParamsSchema>;
-export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
-export type ResourceUpdatedNotificationParams = Infer<typeof ResourceUpdatedNotificationParamsSchema>;
-export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
-
-/* Prompts */
-export type PromptArgument = Infer<typeof PromptArgumentSchema>;
-export type Prompt = Infer<typeof PromptSchema>;
-export type ListPromptsRequest = Infer<typeof ListPromptsRequestSchema>;
-export type ListPromptsResult = Infer<typeof ListPromptsResultSchema>;
-export type GetPromptRequestParams = Infer<typeof GetPromptRequestParamsSchema>;
-export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
-export type TextContent = Infer<typeof TextContentSchema>;
-export type ImageContent = Infer<typeof ImageContentSchema>;
-export type AudioContent = Infer<typeof AudioContentSchema>;
-export type ToolUseContent = Infer<typeof ToolUseContentSchema>;
-export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
-export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
-export type ResourceLink = Infer<typeof ResourceLinkSchema>;
-export type ContentBlock = Infer<typeof ContentBlockSchema>;
-export type PromptMessage = Infer<typeof PromptMessageSchema>;
-export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
-export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
-
-/* Tools */
-export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
-export type ToolExecution = Infer<typeof ToolExecutionSchema>;
-export type Tool = Infer<typeof ToolSchema>;
-export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
-export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
-export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
-export type CallToolResult = Infer<typeof CallToolResultSchema>;
-export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
-export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
-export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
-
-/* Logging */
-export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
-export type SetLevelRequestParams = Infer<typeof SetLevelRequestParamsSchema>;
-export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
-export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotificationParamsSchema>;
-export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
-
-/* Sampling */
-export type ToolChoice = Infer<typeof ToolChoiceSchema>;
-export type ModelHint = Infer<typeof ModelHintSchema>;
-export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
-export type SamplingContent = Infer<typeof SamplingContentSchema>;
-export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
-export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
-export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
-export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
-export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
-export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
-
-/* Elicitation */
-export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
-export type StringSchema = Infer<typeof StringSchemaSchema>;
-export type NumberSchema = Infer<typeof NumberSchemaSchema>;
-
-export type EnumSchema = Infer<typeof EnumSchemaSchema>;
-export type UntitledSingleSelectEnumSchema = Infer<typeof UntitledSingleSelectEnumSchemaSchema>;
-export type TitledSingleSelectEnumSchema = Infer<typeof TitledSingleSelectEnumSchemaSchema>;
-export type LegacyTitledEnumSchema = Infer<typeof LegacyTitledEnumSchemaSchema>;
-export type UntitledMultiSelectEnumSchema = Infer<typeof UntitledMultiSelectEnumSchemaSchema>;
-export type TitledMultiSelectEnumSchema = Infer<typeof TitledMultiSelectEnumSchemaSchema>;
-export type SingleSelectEnumSchema = Infer<typeof SingleSelectEnumSchemaSchema>;
-export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
-
-export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
-export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
-export type ElicitRequestFormParams = Infer<typeof ElicitRequestFormParamsSchema>;
-export type ElicitRequestURLParams = Infer<typeof ElicitRequestURLParamsSchema>;
-export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
-export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
-export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
-export type ElicitResult = Infer<typeof ElicitResultSchema>;
-
-/* Autocomplete */
-export type ResourceTemplateReference = Infer<typeof ResourceTemplateReferenceSchema>;
-export type PromptReference = Infer<typeof PromptReferenceSchema>;
-export type CompleteRequestParams = Infer<typeof CompleteRequestParamsSchema>;
-export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
-export type CompleteResult = Infer<typeof CompleteResultSchema>;
-
-/* Roots */
-export type Root = Infer<typeof RootSchema>;
-export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
-export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
-export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
-
-/* Client messages */
-export type ClientRequest = Infer<typeof ClientRequestSchema>;
-export type ClientNotification = Infer<typeof ClientNotificationSchema>;
-export type ClientResult = Infer<typeof ClientResultSchema>;
-
-/* Server messages */
-export type ServerRequest = Infer<typeof ServerRequestSchema>;
-export type ServerNotification = Infer<typeof ServerNotificationSchema>;
-export type ServerResult = Infer<typeof ServerResultSchema>;
-
-/* Protocol type maps */
-type MethodToTypeMap<U> = {
-    [T in U as T extends { method: infer M extends string } ? M : never]: T;
-};
-export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
-export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
-export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
-export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
-export type ResultTypeMap = {
-    ping: EmptyResult;
-    initialize: InitializeResult;
-    'completion/complete': CompleteResult;
-    'logging/setLevel': EmptyResult;
-    'prompts/get': GetPromptResult;
-    'prompts/list': ListPromptsResult;
-    'resources/list': ListResourcesResult;
-    'resources/templates/list': ListResourceTemplatesResult;
-    'resources/read': ReadResourceResult;
-    'resources/subscribe': EmptyResult;
-    'resources/unsubscribe': EmptyResult;
-    'tools/call': CallToolResult | CreateTaskResult;
-    'tools/list': ListToolsResult;
-    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
-    'elicitation/create': ElicitResult | CreateTaskResult;
-    'roots/list': ListRootsResult;
-    'tasks/get': GetTaskResult;
-    'tasks/result': Result;
-    'tasks/list': ListTasksResult;
-    'tasks/cancel': CancelTaskResult;
-};
 
 /* Runtime schema lookup — result schemas by method */
 const resultSchemas: Record<string, z.core.$ZodType> = {

@@ -1,13 +1,3 @@
-import type {
-    CompleteRequest,
-    InitializedNotification,
-    InitializeRequest,
-    JSONRPCErrorResponse,
-    JSONRPCNotification,
-    JSONRPCRequest,
-    JSONRPCResultResponse,
-    TaskAugmentedRequestParams
-} from './schemas.js';
 import {
     InitializedNotificationSchema,
     InitializeRequestSchema,
@@ -17,7 +7,18 @@ import {
     JSONRPCResultResponseSchema,
     TaskAugmentedRequestParamsSchema
 } from './schemas.js';
-import type { CompleteRequestPrompt, CompleteRequestResourceTemplate } from './types.js';
+import type {
+    CompleteRequest,
+    CompleteRequestPrompt,
+    CompleteRequestResourceTemplate,
+    InitializedNotification,
+    InitializeRequest,
+    JSONRPCErrorResponse,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
+    TaskAugmentedRequestParams
+} from './types.js';
 
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest => JSONRPCRequestSchema.safeParse(value).success;
 
