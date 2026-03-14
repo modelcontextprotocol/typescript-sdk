@@ -9,7 +9,7 @@ export * from './shared/stdio.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
-export * from './types/types.js';
+export * from './types/index.js';
 export * from './util/inMemory.js';
 export * from './util/schema.js';
 

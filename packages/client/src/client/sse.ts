@@ -26,7 +26,7 @@ export type SSEClientTransportOptions = {
      * When an `authProvider` is specified and the SSE connection is started:
      * 1. The connection is attempted with any existing access token from the `authProvider`.
      * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode index.Protocol.connect | connect}/{@linkcode SSEClientTransport.start | start}.
+     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode client/client.Client.connect | connect}/{@linkcode SSEClientTransport.start | start}.
      *
      * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call {@linkcode SSEClientTransport.finishAuth} with the authorization code before retrying the connection.
      *
