@@ -1,4 +1,11 @@
-// Client-specific exports
+// Public API for @modelcontextprotocol/client.
+//
+// This file defines the complete public surface. It consists of:
+//   - Package-specific exports: listed explicitly below (named imports)
+//   - Protocol-level types: re-exported from @modelcontextprotocol/core/public
+//
+// Any new export added here becomes public API. Use named exports, not wildcards.
+
 export type {
     AddClientAuthentication,
     AuthResult,
@@ -53,7 +60,7 @@ export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
 export { WebSocketClientTransport } from './client/websocket.js';
 
 // experimental exports
-export * from './experimental/index.js';
+export { ExperimentalClientTasks } from './experimental/tasks/client.js';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';

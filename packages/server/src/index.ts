@@ -1,4 +1,11 @@
-// Server-specific exports
+// Public API for @modelcontextprotocol/server.
+//
+// This file defines the complete public surface. It consists of:
+//   - Package-specific exports: listed explicitly below (named imports)
+//   - Protocol-level types: re-exported from @modelcontextprotocol/core/public
+//
+// Any new export added here becomes public API. Use named exports, not wildcards.
+
 export type { CompletableSchema, CompleteCallback } from './server/completable.js';
 export { completable, isCompletable } from './server/completable.js';
 export type {
@@ -32,7 +39,9 @@ export type {
 export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp.js';
 
 // experimental exports
-export * from './experimental/index.js';
+export type { CreateTaskRequestHandler, TaskRequestHandler, ToolTaskHandler } from './experimental/tasks/interfaces.js';
+export { ExperimentalMcpServerTasks } from './experimental/tasks/mcpServer.js';
+export { ExperimentalServerTasks } from './experimental/tasks/server.js';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';

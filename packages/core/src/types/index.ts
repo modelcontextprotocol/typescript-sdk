@@ -1,5 +1,5 @@
 // Internal barrel — re-exports everything for use within the SDK packages.
-// External consumers should use exports/public/index.ts instead for a curated public API.
+// The public API is defined in @modelcontextprotocol/core/public (see exports/public/index.ts).
 export * from './constants.js';
 export * from './enums.js';
 export * from './errors.js';

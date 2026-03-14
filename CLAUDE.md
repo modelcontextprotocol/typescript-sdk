@@ -62,6 +62,19 @@ The SDK is organized into three main layers:
     - `Server` (`packages/server/src/server/server.ts`) - Server implementation extending Protocol with request handler registration
     - `McpServer` (`packages/server/src/server/mcp.ts`) - High-level server API with simplified resource/tool/prompt registration
 
+### Public API Exports
+
+The SDK has a two-layer export structure to separate internal code from the public API:
+
+- **`@modelcontextprotocol/core`** (main entry, `packages/core/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
+- **`@modelcontextprotocol/core/public`** (`packages/core/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
+- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core/public`.
+
+When modifying exports:
+- Use explicit named exports, not `export *`, in package `index.ts` files and `core/public`.
+- Adding a symbol to a package `index.ts` makes it public API — do so intentionally.
+- Internal helpers should stay in the core internal barrel and not be added to `core/public` or package index files.
+
 ### Transport System
 
 Transports (`packages/core/src/shared/transport.ts`) provide the communication layer:
