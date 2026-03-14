@@ -72,25 +72,65 @@ export { createFetchWithInit } from '../../shared/transport.js';
 export type { Variables } from '../../shared/uriTemplate.js';
 export { UriTemplate } from '../../shared/uriTemplate.js';
 
-// Types — all TypeScript types (standalone interfaces + schema-derived)
+// Types — all TypeScript types (standalone interfaces + schema-derived).
+// This is the one intentional `export *`: types.ts contains only spec-derived TS
+// types, and every type there should be public. See comment in types.ts.
 export * from '../../types/types.js';
 
 // Constants
-export * from '../../types/constants.js';
+export {
+    DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    JSONRPC_VERSION,
+    LATEST_PROTOCOL_VERSION,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    RELATED_TASK_META_KEY,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '../../types/constants.js';
 
 // Enums
-export * from '../../types/enums.js';
+export { ProtocolErrorCode } from '../../types/enums.js';
 
 // Error classes
-export * from '../../types/errors.js';
+export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.js';
 
 // Type guards
-export * from '../../types/guards.js';
+export {
+    assertCompleteRequestPrompt,
+    assertCompleteRequestResourceTemplate,
+    isInitializedNotification,
+    isInitializeRequest,
+    isJSONRPCErrorResponse,
+    isJSONRPCNotification,
+    isJSONRPCRequest,
+    isJSONRPCResultResponse,
+    isTaskAugmentedRequestParams
+} from '../../types/guards.js';
 
 // Experimental task types and classes
-export * from '../../experimental/index.js';
+export { assertClientRequestTaskCapability, assertToolsCallTaskCapability } from '../../experimental/tasks/helpers.js';
+export type {
+    BaseQueuedMessage,
+    CreateTaskOptions,
+    CreateTaskServerContext,
+    QueuedError,
+    QueuedMessage,
+    QueuedNotification,
+    QueuedRequest,
+    QueuedResponse,
+    TaskMessageQueue,
+    TaskServerContext,
+    TaskStore,
+    TaskToolExecution
+} from '../../experimental/tasks/interfaces.js';
+export { isTerminal } from '../../experimental/tasks/interfaces.js';
+export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
-export * from '../../validators/ajvProvider.js';
-export * from '../../validators/cfWorkerProvider.js';
+export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
+export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
+export { CfWorkerJsonSchemaValidator } from '../../validators/cfWorkerProvider.js';
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';

@@ -1,3 +1,7 @@
+// ⚠️  PUBLIC API — every export from this file is re-exported via `export *`
+// in exports/public/index.ts and becomes part of the SDK's public surface.
+// Only add MCP-spec-derived types here. Internal helpers belong elsewhere.
+
 import type * as z from 'zod/v4';
 
 import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants.js';
