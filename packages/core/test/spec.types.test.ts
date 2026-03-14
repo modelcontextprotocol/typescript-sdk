@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type * as SpecTypes from '../src/types/spec.types.js';
-import type * as SDKTypes from '../src/types/types.js';
+import type * as SDKTypes from '../src/types/index.js';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 

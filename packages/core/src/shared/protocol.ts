@@ -39,7 +39,7 @@ import type {
     Task,
     TaskCreationParams,
     TaskStatusNotification
-} from '../types/types.js';
+} from '../types/index.js';
 import {
     CancelTaskResultSchema,
     CreateTaskResultSchema,
@@ -58,7 +58,7 @@ import {
     RELATED_TASK_META_KEY,
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskStatusNotificationSchema
-} from '../types/types.js';
+} from '../types/index.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { ResponseMessage } from './responseMessage.js';
@@ -687,7 +687,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
-     * The {@linkcode Protocol} object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
+     * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;

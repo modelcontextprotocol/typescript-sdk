@@ -6,6 +6,7 @@
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
+            "@modelcontextprotocol/core/public": ["./node_modules/@modelcontextprotocol/core/src/publicExports.ts"],
             "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
         }
     }
