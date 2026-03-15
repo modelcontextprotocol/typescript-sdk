@@ -883,7 +883,83 @@ describe('Zod v4', () => {
                 properties: {
                     name: { type: 'string' },
                     value: { type: 'number' }
-                }
+                },
+                required: ['name', 'value']
+            });
+        });
+
+        test('should include required arrays for empty object schemas in tools/list', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'empty-input',
+                {
+                    inputSchema: z.object({}),
+                    outputSchema: z.object({
+                        nested: z.object({}).strict()
+                    })
+                },
+                async () => ({
+                    structuredContent: { nested: {} },
+                    content: [{ type: 'text', text: 'ok' }]
+                })
+            );
+
+            mcpServer.registerTool(
+                'with-field',
+                {
+                    inputSchema: z.object({ fieldName: z.string() })
+                },
+                async ({ fieldName }) => ({
+                    content: [{ type: 'text', text: fieldName }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/list'
+            });
+
+            const emptyInputTool = result.tools.find(tool => tool.name === 'empty-input');
+            expect(emptyInputTool).toBeDefined();
+            expect(emptyInputTool!.inputSchema).toMatchObject({
+                type: 'object',
+                properties: {},
+                required: []
+            });
+            expect(emptyInputTool!.outputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    nested: {
+                        type: 'object',
+                        properties: {},
+                        required: [],
+                        additionalProperties: false
+                    }
+                },
+                required: ['nested']
+            });
+
+            const fieldTool = result.tools.find(tool => tool.name === 'with-field');
+            expect(fieldTool).toBeDefined();
+            expect(fieldTool!.inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    fieldName: {
+                        type: 'string'
+                    }
+                },
+                required: ['fieldName']
             });
         });
 
