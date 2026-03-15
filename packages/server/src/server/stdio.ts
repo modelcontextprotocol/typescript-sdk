@@ -19,11 +19,26 @@ import { process } from '@modelcontextprotocol/server/_shims';
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _protocolVersion: string | undefined;
 
     constructor(
         private _stdin: Readable = process.stdin,
         private _stdout: Writable = process.stdout
     ) {}
+
+    /**
+     * Sets the negotiated protocol version (called by the server after initialization).
+     */
+    setProtocolVersion(version: string): void {
+        this._protocolVersion = version;
+    }
+
+    /**
+     * The negotiated MCP protocol version, available after initialization completes.
+     */
+    get protocolVersion(): string | undefined {
+        return this._protocolVersion;
+    }
 
     onclose?: () => void;
     onerror?: (error: Error) => void;

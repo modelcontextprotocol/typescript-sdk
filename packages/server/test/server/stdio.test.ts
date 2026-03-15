@@ -67,6 +67,13 @@ test('should not read until started', async () => {
     expect(await readMessage).toEqual(message);
 });
 
+test('should expose protocol version after setProtocolVersion', async () => {
+    const server = new StdioServerTransport(input, output);
+    expect(server.protocolVersion).toBeUndefined();
+    server.setProtocolVersion('2025-11-25');
+    expect(server.protocolVersion).toBe('2025-11-25');
+});
+
 test('should read multiple messages', async () => {
     const server = new StdioServerTransport(input, output);
     server.onerror = error => {
