@@ -151,6 +151,85 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         expect(tokens).toBeTruthy();
         expect(tokens?.access_token).toBe('test-access-token');
     });
+
+    it('uses configured scope for ClientCredentialsProvider token requests', async () => {
+        const provider = new ClientCredentialsProvider({
+            clientId: 'my-client',
+            clientSecret: 'my-secret',
+            scope: 'mcp:read mcp:write'
+        });
+
+        expect(provider.clientMetadata.scope).toBe('mcp:read mcp:write');
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params.get('scope')).toBe('mcp:read mcp:write');
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
+    });
+
+    it('uses configured scope for PrivateKeyJwtProvider token requests', async () => {
+        const provider = new PrivateKeyJwtProvider({
+            clientId: 'client-id',
+            privateKey: 'a-string-secret-at-least-256-bits-long',
+            algorithm: 'HS256',
+            scope: 'mcp:read mcp:write'
+        });
+
+        expect(provider.clientMetadata.scope).toBe('mcp:read mcp:write');
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params.get('scope')).toBe('mcp:read mcp:write');
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
+    });
+
+    it('uses configured scope for StaticPrivateKeyJwtProvider token requests', async () => {
+        const provider = new StaticPrivateKeyJwtProvider({
+            clientId: 'static-client',
+            jwtBearerAssertion: 'header.payload.signature',
+            scope: 'mcp:read mcp:write'
+        });
+
+        expect(provider.clientMetadata.scope).toBe('mcp:read mcp:write');
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params.get('scope')).toBe('mcp:read mcp:write');
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
+    });
 });
 
 describe('createPrivateKeyJwtAuth', () => {
