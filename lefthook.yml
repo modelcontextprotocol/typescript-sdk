@@ -35,13 +35,3 @@ pre-push:
           fail_text: |
               💡 To catch build issues earlier, enable the pre-commit hook:
               cp lefthook-local.example.yml lefthook-local.yml
-
-post-checkout:
-    jobs:
-        - name: 'Install Dependencies'
-          run: pnpm install
-
-post-merge:
-    jobs:
-        - name: 'Install Dependencies'
-          run: pnpm install

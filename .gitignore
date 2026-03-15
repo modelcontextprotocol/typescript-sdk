@@ -53,4 +53,5 @@ dist/
 # Conformance test results
 results/
 
-.lefthook-local.yml
+# Ignore local lefthook configuration
+lefthook-local.yml
