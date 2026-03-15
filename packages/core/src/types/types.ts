@@ -557,7 +557,11 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports task creation.
      */
-    tasks: ClientTasksCapabilitySchema.optional()
+    tasks: ClientTasksCapabilitySchema.optional(),
+    /**
+     * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
+     */
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
 export const InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -635,7 +639,11 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Present if the server supports task creation.
      */
-    tasks: ServerTasksCapabilitySchema.optional()
+    tasks: ServerTasksCapabilitySchema.optional(),
+    /**
+     * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
+     */
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
 /**
