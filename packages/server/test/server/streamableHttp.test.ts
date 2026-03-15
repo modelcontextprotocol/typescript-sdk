@@ -209,6 +209,54 @@ describe('Zod v4', () => {
         });
 
         describe('POST Requests', () => {
+            it('should call onerror when request JSON is invalid', async () => {
+                const errorSpy = vi.fn();
+                transport.onerror = errorSpy;
+
+                const request = new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json, text/event-stream',
+                        'Content-Type': 'application/json'
+                    },
+                    body: '{invalid-json'
+                });
+
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(400);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_700, /Invalid JSON/);
+                expect(errorSpy).toHaveBeenCalledTimes(1);
+                expect(errorSpy.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+            });
+
+            it('should call onerror when request JSON-RPC message is invalid', async () => {
+                const errorSpy = vi.fn();
+                transport.onerror = errorSpy;
+
+                const request = new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json, text/event-stream',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 123,
+                        params: {}
+                    })
+                });
+
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(400);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_700, /Invalid JSON-RPC message/);
+                expect(errorSpy).toHaveBeenCalledTimes(1);
+                expect(errorSpy.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+            });
+
             it('should handle post requests via SSE response correctly', async () => {
                 sessionId = await initializeServer();
 
@@ -269,6 +317,31 @@ describe('Zod v4', () => {
                     },
                     id: 'call-1'
                 });
+            });
+
+            it('should return a JSON-RPC error when calling an unknown tool', async () => {
+                sessionId = await initializeServer();
+
+                const toolCallMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: {
+                        name: 'missing-tool',
+                        arguments: {}
+                    },
+                    id: 'call-missing'
+                };
+
+                const request = createRequest('POST', toolCallMessage, { sessionId });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+
+                const text = await readSSEEvent(response);
+                const eventData = parseSSEData(text);
+
+                expectErrorResponse(eventData, -32_602, /Tool missing-tool not found/);
+                expect((eventData as JSONRPCErrorResponse).id).toBe('call-missing');
             });
 
             it('should reject requests without a valid session ID', async () => {
