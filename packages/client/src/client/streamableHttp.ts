@@ -14,7 +14,7 @@ import {
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError, validateClientMetadataUrl } from './auth.js';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -147,6 +147,11 @@ export class StreamableHTTPClientTransport implements Transport {
     onmessage?: (message: JSONRPCMessage) => void;
 
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
+        // Validate clientMetadataUrl at construction time (fail-fast)
+        if (opts?.authProvider) {
+            validateClientMetadataUrl(opts.authProvider.clientMetadataUrl);
+        }
+
         this._url = url;
         this._resourceMetadataUrl = undefined;
         this._scope = undefined;

@@ -17,7 +17,8 @@ import {
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
-    startAuthorization
+    startAuthorization,
+    validateClientMetadataUrl
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
 
@@ -1993,6 +1994,28 @@ describe('OAuth Authorization', () => {
             vi.clearAllMocks();
         });
 
+        it('throws OAuthError with InvalidClientMetadata before any network request when clientMetadataUrl is invalid', async () => {
+            const providerWithInvalidUrl: OAuthClientProvider = {
+                ...mockProvider,
+                clientMetadataUrl: 'http://invalid.example.com/metadata'
+            };
+
+            await expect(
+                auth(providerWithInvalidUrl, {
+                    serverUrl: 'https://server.example.com'
+                })
+            ).rejects.toThrow(OAuthError);
+
+            await expect(
+                auth(providerWithInvalidUrl, {
+                    serverUrl: 'https://server.example.com'
+                })
+            ).rejects.toMatchObject({ code: OAuthErrorCode.InvalidClientMetadata });
+
+            // Verify no fetch was called
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+
         it('performs client_credentials with private_key_jwt when provider has addClientAuthentication', async () => {
             // Arrange: metadata discovery for PRM and AS
             mockFetch.mockImplementation(url => {
@@ -3403,6 +3426,85 @@ describe('OAuth Authorization', () => {
 
         it('returns false for data: scheme', () => {
             expect(isHttpsUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
+        });
+    });
+
+    describe('validateClientMetadataUrl', () => {
+        it('passes for valid HTTPS URL with path', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com/.well-known/oauth-client')).not.toThrow();
+        });
+
+        it('passes for valid HTTPS URL with multi-segment path', () => {
+            expect(() => validateClientMetadataUrl('https://example.com/clients/metadata.json')).not.toThrow();
+        });
+
+        it('throws OAuthError for HTTP URL', () => {
+            expect(() => validateClientMetadataUrl('http://client.example.com/.well-known/oauth-client')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('http://client.example.com/.well-known/oauth-client');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('http://client.example.com/.well-known/oauth-client');
+            }
+        });
+
+        it('throws OAuthError for non-URL string', () => {
+            expect(() => validateClientMetadataUrl('not-a-url')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('not-a-url');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('not-a-url');
+            }
+        });
+
+        it('passes silently for empty string', () => {
+            // Empty string is falsy, so it passes through without throwing
+            expect(() => validateClientMetadataUrl('')).not.toThrow();
+        });
+
+        it('throws OAuthError for root-path HTTPS URL with trailing slash', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com/')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('https://client.example.com/');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('https://client.example.com/');
+            }
+        });
+
+        it('throws OAuthError for root-path HTTPS URL without trailing slash', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('https://client.example.com');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('https://client.example.com');
+            }
+        });
+
+        it('passes silently for undefined', () => {
+            expect(() => validateClientMetadataUrl(undefined)).not.toThrow();
+        });
+
+        it('passes silently when called with no arguments', () => {
+            // eslint-disable-next-line unicorn/no-useless-undefined
+            expect(() => validateClientMetadataUrl(undefined)).not.toThrow();
+        });
+
+        it('error message matches expected format', () => {
+            try {
+                validateClientMetadataUrl('http://example.com/path');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).message).toBe(
+                    'clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: http://example.com/path'
+                );
+            }
         });
     });
 

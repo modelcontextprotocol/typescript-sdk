@@ -1,4 +1,5 @@
 import type { FetchLike } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 import type { Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
@@ -42,6 +43,37 @@ describe('withOAuth', () => {
         };
 
         mockFetch = vi.fn();
+    });
+
+    describe('clientMetadataUrl validation', () => {
+        it('throws OAuthError at factory call when provider.clientMetadataUrl is an invalid HTTP URL', () => {
+            const providerWithInvalidUrl: Mocked<OAuthClientProvider> = {
+                ...mockProvider,
+                clientMetadataUrl: 'http://example.com/metadata'
+            };
+
+            expect(() => withOAuth(providerWithInvalidUrl, 'https://server.example.com')).toThrow(OAuthError);
+            try {
+                withOAuth(providerWithInvalidUrl, 'https://server.example.com');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('http://example.com/metadata');
+            }
+        });
+
+        it('succeeds when clientMetadataUrl is a valid HTTPS URL', () => {
+            const providerWithValidUrl: Mocked<OAuthClientProvider> = {
+                ...mockProvider,
+                clientMetadataUrl: 'https://client.example.com/.well-known/oauth-client'
+            };
+
+            expect(() => withOAuth(providerWithValidUrl, 'https://server.example.com')).not.toThrow();
+        });
+
+        it('succeeds when clientMetadataUrl is undefined', () => {
+            expect(() => withOAuth(mockProvider, 'https://server.example.com')).not.toThrow();
+        });
     });
 
     it('should add Authorization header when tokens are available (with explicit baseUrl)', async () => {
