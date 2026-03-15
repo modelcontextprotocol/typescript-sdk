@@ -73,7 +73,7 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
         }
     }
 
-    async getAuthCode(): Promise<string> {
+    async getAuthorizationCode(): Promise<string> {
         if (this._authCode) {
             return this._authCode;
         }

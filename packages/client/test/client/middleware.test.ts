@@ -370,6 +370,128 @@ describe('withOAuth', () => {
             fetchFn: mockFetch
         });
     });
+
+    it('should retry request after successful auth on 403 response', async () => {
+        mockProvider.tokens
+            .mockResolvedValueOnce({
+                access_token: 'old-token',
+                token_type: 'Bearer',
+                expires_in: 3600
+            })
+            .mockResolvedValueOnce({
+                access_token: 'new-token',
+                token_type: 'Bearer',
+                expires_in: 3600
+            });
+
+        const forbiddenResponse = new Response('Forbidden', {
+            status: 403,
+            headers: { 'www-authenticate': 'Bearer realm="oauth" scope="write"' }
+        });
+        const successResponse = new Response('success', { status: 200 });
+
+        mockFetch.mockResolvedValueOnce(forbiddenResponse).mockResolvedValueOnce(successResponse);
+
+        mockExtractWWWAuthenticateParams.mockReturnValue({ scope: 'write' });
+        mockAuth.mockResolvedValue('AUTHORIZED');
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        const result = await enhancedFetch('https://api.example.com/data');
+
+        expect(result).toBe(successResponse);
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(mockAuth).toHaveBeenCalledWith(mockProvider, {
+            serverUrl: 'https://api.example.com',
+            resourceMetadataUrl: undefined,
+            scope: 'write',
+            fetchFn: mockFetch
+        });
+    });
+
+    it('should throw UnauthorizedError on persistent 403 after re-auth', async () => {
+        mockProvider.tokens.mockResolvedValue({
+            access_token: 'test-token',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+
+        mockFetch.mockResolvedValue(new Response('Forbidden', { status: 403 }));
+        mockExtractWWWAuthenticateParams.mockReturnValue({});
+        mockAuth.mockResolvedValue('AUTHORIZED');
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow(
+            'Authentication failed for https://api.example.com/data'
+        );
+
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should complete auth code flow when provider implements getAuthorizationCode', async () => {
+        mockProvider.tokens
+            .mockResolvedValueOnce({
+                access_token: 'old-token',
+                token_type: 'Bearer',
+                expires_in: 3600
+            })
+            .mockResolvedValueOnce({
+                access_token: 'fresh-token',
+                token_type: 'Bearer',
+                expires_in: 3600
+            });
+
+        const unauthorizedResponse = new Response('Unauthorized', { status: 401 });
+        const successResponse = new Response('success', { status: 200 });
+
+        mockFetch.mockResolvedValueOnce(unauthorizedResponse).mockResolvedValueOnce(successResponse);
+
+        mockExtractWWWAuthenticateParams.mockReturnValue({ scope: 'read' });
+        // First auth() call returns REDIRECT; second (with auth code) returns AUTHORIZED
+        mockAuth.mockResolvedValueOnce('REDIRECT').mockResolvedValueOnce('AUTHORIZED');
+
+        // Provider that can supply the authorization code after the redirect
+        const providerWithCode = {
+            ...mockProvider,
+            getAuthorizationCode: vi.fn().mockResolvedValue('auth-code-123')
+        };
+
+        const enhancedFetch = withOAuth(providerWithCode, 'https://api.example.com')(mockFetch);
+
+        const result = await enhancedFetch('https://api.example.com/data');
+
+        expect(result).toBe(successResponse);
+        expect(providerWithCode.getAuthorizationCode).toHaveBeenCalledTimes(1);
+        expect(mockAuth).toHaveBeenCalledTimes(2);
+        // Second auth() call should include the authorization code
+        expect(mockAuth).toHaveBeenNthCalledWith(2, providerWithCode, {
+            serverUrl: 'https://api.example.com',
+            resourceMetadataUrl: undefined,
+            scope: 'read',
+            authorizationCode: 'auth-code-123',
+            fetchFn: mockFetch
+        });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw UnauthorizedError when auth returns REDIRECT and provider has no getAuthorizationCode', async () => {
+        mockProvider.tokens.mockResolvedValue({
+            access_token: 'test-token',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+
+        mockFetch.mockResolvedValue(new Response('Unauthorized', { status: 401 }));
+        mockExtractWWWAuthenticateParams.mockReturnValue({});
+        mockAuth.mockResolvedValue('REDIRECT');
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow(
+            'Authentication requires user authorization - redirect initiated'
+        );
+    });
 });
 
 describe('withLogging', () => {

@@ -53,15 +53,16 @@ export const withOAuth =
 
             let response = await makeRequest();
 
-            // Handle 401 responses by attempting re-authentication
-            if (response.status === 401) {
+            // Handle 401/403 responses by attempting re-authentication.
+            // 403 may indicate the server requires a broader scope (upscoping).
+            if (response.status === 401 || response.status === 403) {
                 try {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
 
                     // Use provided baseUrl or extract from request URL
                     const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
 
-                    const result = await auth(provider, {
+                    let result = await auth(provider, {
                         serverUrl,
                         resourceMetadataUrl,
                         scope,
@@ -69,7 +70,21 @@ export const withOAuth =
                     });
 
                     if (result === 'REDIRECT') {
-                        throw new UnauthorizedError('Authentication requires user authorization - redirect initiated');
+                        // If the provider can supply the authorization code inline (e.g., a
+                        // headless provider that handles the callback itself), complete the
+                        // token exchange automatically instead of throwing.
+                        if (typeof provider.getAuthorizationCode === 'function') {
+                            const authorizationCode = await provider.getAuthorizationCode();
+                            result = await auth(provider, {
+                                serverUrl,
+                                resourceMetadataUrl,
+                                scope,
+                                authorizationCode,
+                                fetchFn: next
+                            });
+                        } else {
+                            throw new UnauthorizedError('Authentication requires user authorization - redirect initiated');
+                        }
                     }
 
                     if (result !== 'AUTHORIZED') {
@@ -86,8 +101,8 @@ export const withOAuth =
                 }
             }
 
-            // If we still have a 401 after re-auth attempt, throw an error
-            if (response.status === 401) {
+            // If we still have a 401/403 after re-auth attempt, throw an error
+            if (response.status === 401 || response.status === 403) {
                 const url = typeof input === 'string' ? input : input.toString();
                 throw new UnauthorizedError(`Authentication failed for ${url}`);
             }

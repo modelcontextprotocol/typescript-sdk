@@ -18,15 +18,10 @@ export const handle401 = async (
     });
 
     if (result === 'REDIRECT') {
-        // Ordinarily, we'd wait for the callback to be handled here,
-        // but in our conformance provider, we get the authorization code
-        // during the redirect handling, so we can go straight to
-        // retrying the auth step.
-        // await provider.waitForCallback();
-
-        const authorizationCode = await provider.getAuthCode();
-
-        // TODO: this retry logic should be incorporated into the typescript SDK
+        // The conformance provider captures the authorization code during
+        // redirectToAuthorization(), so we can retrieve it immediately and
+        // complete the token exchange via a second auth() call.
+        const authorizationCode = await provider.getAuthorizationCode();
         result = await auth(provider, {
             serverUrl,
             resourceMetadataUrl,
