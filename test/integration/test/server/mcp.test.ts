@@ -8,7 +8,7 @@ import {
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, ToolError } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -1745,7 +1745,45 @@ describe('Zod v4', () => {
             expect(result.content).toEqual([
                 {
                     type: 'text',
-                    text: 'Tool execution failed'
+                    text: 'Internal error'
+                }
+            ]);
+        });
+
+        /***
+         * Test: ToolError should expose message to client
+         */
+        test('should expose ToolError message to client', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('tool-error-test', {}, async () => {
+                throw new ToolError('Invalid input: missing required field');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'tool-error-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Invalid input: missing required field'
                 }
             ]);
         });
@@ -6818,7 +6856,7 @@ describe('Zod v4', () => {
 
             // Should receive an error since cancelled tasks don't have results
             expect(result).toHaveProperty('content');
-            expect(result.content).toEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
+            expect(result.content).toEqual([{ type: 'text' as const, text: 'Internal error' }]);
 
             // Wait for async operations to complete
             await waitForLatch();

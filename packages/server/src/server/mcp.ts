@@ -51,6 +51,30 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * An error that tool handlers can throw to return a user-visible error message
+ * to the MCP client. Unlike generic errors (which are sanitized to prevent
+ * leaking internal details), ToolError messages are passed through to the client
+ * as-is in a CallToolResult with isError: true.
+ *
+ * @example
+ * ```ts
+ * server.registerTool('my-tool', {}, async () => {
+ *     // This message will be visible to the client
+ *     throw new ToolError('Invalid input: missing required field "name"');
+ * });
+ * ```
+ *
+ * Any other error thrown from a tool handler will result in a generic
+ * "Internal error" message being returned to the client.
+ */
+export class ToolError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ToolError';
+    }
+}
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
@@ -213,10 +237,16 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                if (error instanceof ProtocolError) {
+                    if (error.code === ProtocolErrorCode.UrlElicitationRequired) {
+                        throw error;
+                    }
+                    return this.createToolError(error.message);
                 }
-                return this.createToolError(error instanceof Error ? error.message : String(error));
+                if (error instanceof ToolError) {
+                    return this.createToolError(error.message);
+                }
+                return this.createToolError('Internal error');
             }
         });
 
