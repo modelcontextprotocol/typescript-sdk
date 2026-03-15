@@ -9,9 +9,9 @@ import path from 'node:path';
 
 import { vi } from 'vitest';
 
-import { AjvJsonSchemaValidator } from '../../src/validation/ajvProvider.js';
-import { CfWorkerJsonSchemaValidator } from '../../src/validation/cfWorkerProvider.js';
-import type { JsonSchemaType } from '../../src/validation/types.js';
+import { AjvJsonSchemaValidator } from '../../src/validators/ajvProvider.js';
+import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider.js';
+import type { JsonSchemaType } from '../../src/validators/types.js';
 
 // Test with both AJV and CfWorker validators
 // AJV validator will use default configuration with format validation enabled
@@ -554,7 +554,7 @@ describe('Missing dependencies', () => {
             });
 
             // Attempting to import ajv-provider should fail
-            await expect(import('../../src/validation/ajvProvider.js')).rejects.toThrow();
+            await expect(import('../../src/validators/ajvProvider.js')).rejects.toThrow();
         });
 
         it('should be able to import cfWorkerProvider when ajv is missing', async () => {
@@ -568,7 +568,7 @@ describe('Missing dependencies', () => {
             });
 
             // But cfWorkerProvider should import successfully
-            const cfworkerModule = await import('../../src/validation/cfWorkerProvider.js');
+            const cfworkerModule = await import('../../src/validators/cfWorkerProvider.js');
             expect(cfworkerModule.CfWorkerJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
@@ -595,7 +595,7 @@ describe('Missing dependencies', () => {
             });
 
             // Attempting to import cfWorkerProvider should fail
-            await expect(import('../../src/validation/cfWorkerProvider.js')).rejects.toThrow();
+            await expect(import('../../src/validators/cfWorkerProvider.js')).rejects.toThrow();
         });
 
         it('should be able to import ajv-provider when @cfworker/json-schema is missing', async () => {
@@ -605,7 +605,7 @@ describe('Missing dependencies', () => {
             });
 
             // But ajv-provider should import successfully
-            const ajvModule = await import('../../src/validation/ajvProvider.js');
+            const ajvModule = await import('../../src/validators/ajvProvider.js');
             expect(ajvModule.AjvJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
@@ -616,7 +616,7 @@ describe('Missing dependencies', () => {
         });
 
         it('should document that @cfworker/json-schema is required', () => {
-            const cfworkerProviderPath = path.join(__dirname, '../../src/validation/cfWorkerProvider.ts');
+            const cfworkerProviderPath = path.join(__dirname, '../../src/validators/cfWorkerProvider.ts');
             const content = readFileSync(cfworkerProviderPath, 'utf8');
 
             expect(content).toContain('@cfworker/json-schema');
