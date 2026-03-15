@@ -450,7 +450,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const headers: Record<string, string> = {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive'
+            Connection: 'keep-alive',
+            // Ensures chunked transfer encoding for SSE streams. Some HTTP adapters
+            // (e.g., @hono/node-server) buffer small responses and add Content-Length,
+            // which causes HTTP/2 PROTOCOL_ERROR when the stream closes.
+            'Transfer-Encoding': 'chunked'
         };
 
         // After initialization, always include the session ID if we have one
@@ -503,7 +507,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                // Prevents @hono/node-server from buffering small responses and adding
+                // Content-Length, which causes HTTP/2 PROTOCOL_ERROR on stream close.
+                // See: https://github.com/honojs/node-server/blob/main/src/listener.ts#L463-L491
+                'Transfer-Encoding': 'chunked'
             };
 
             if (this.sessionId !== undefined) {
@@ -751,7 +759,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                // Prevents @hono/node-server from buffering small responses and adding
+                // Content-Length, which causes HTTP/2 PROTOCOL_ERROR on stream close.
+                // See: https://github.com/honojs/node-server/blob/main/src/listener.ts#L463-L491
+                'Transfer-Encoding': 'chunked'
             };
 
             // After initialization, always include the session ID if we have one
