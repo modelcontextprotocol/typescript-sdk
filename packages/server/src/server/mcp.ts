@@ -32,6 +32,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    getParseErrorMessage,
     getSchemaDescription,
     getSchemaShape,
     isOptionalSchema,
@@ -258,7 +259,7 @@ export class McpServer {
 
         const parseResult = await parseSchemaAsync(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
-            const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+            const errorMessage = getParseErrorMessage(parseResult.error);
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`
@@ -295,7 +296,7 @@ export class McpServer {
         // if the tool has an output schema, validate structured content
         const parseResult = await parseSchemaAsync(tool.outputSchema, result.structuredContent);
         if (!parseResult.success) {
-            const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+            const errorMessage = getParseErrorMessage(parseResult.error);
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Output validation error: Invalid structured content for tool ${toolName}: ${errorMessage}`
@@ -1262,7 +1263,7 @@ function createPromptHandler(
         return async (args, ctx) => {
             const parseResult = await parseSchemaAsync(argsSchema, args);
             if (!parseResult.success) {
-                const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+                const errorMessage = getParseErrorMessage(parseResult.error);
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${errorMessage}`);
             }
             return typedCallback(parseResult.data as SchemaOutput<AnySchema>, ctx);
