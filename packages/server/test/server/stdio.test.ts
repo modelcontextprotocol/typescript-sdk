@@ -67,6 +67,74 @@ test('should not read until started', async () => {
     expect(await readMessage).toEqual(message);
 });
 
+test('should close transport when stdin ends', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+    expect(didClose).toBeFalsy();
+
+    // Simulate the client closing stdin (EOF)
+    input.push(null);
+
+    // Allow the event to propagate
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(didClose).toBeTruthy();
+});
+
+test('should invoke onclose only once when close() is called then stdin ends', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+
+    // Explicit close, then stdin EOF arrives
+    await server.close();
+    input.push(null);
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(closeCount).toBe(1);
+});
+
+test('should close cleanly on EOF after a partial message', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    const errors: Error[] = [];
+    server.onerror = error => {
+        errors.push(error);
+    };
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+
+    // Push an incomplete JSON-RPC message (no trailing newline)
+    input.push(Buffer.from('{"jsonrpc":"2.0"'));
+    // Then EOF
+    input.push(null);
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(didClose).toBeTruthy();
+    expect(errors).toHaveLength(0);
+});
+
 test('should read multiple messages', async () => {
     const server = new StdioServerTransport(input, output);
     server.onerror = error => {
