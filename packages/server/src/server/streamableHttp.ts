@@ -67,6 +67,8 @@ interface StreamMapping {
     cleanup: () => void;
 }
 
+const REPLAY_STREAM_CLOSED_ERROR = 'ERR_MCP_REPLAY_STREAM_CLOSED';
+
 /**
  * Configuration options for {@linkcode WebStandardStreamableHTTPServerTransport}
  */
@@ -306,6 +308,24 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         );
     }
 
+    private createReplayStreamClosedError(): Error {
+        const error = new Error('Replay stream closed');
+        error.name = REPLAY_STREAM_CLOSED_ERROR;
+        return error;
+    }
+
+    private isReplayStreamClosedError(error: unknown): error is Error {
+        return error instanceof Error && error.name === REPLAY_STREAM_CLOSED_ERROR;
+    }
+
+    private closeStreamController(controller: ReadableStreamDefaultController<Uint8Array>): void {
+        try {
+            controller.close();
+        } catch {
+            // Controller might already be closed
+        }
+    }
+
     /**
      * Validates request headers for DNS rebinding protection.
      * @returns Error response if validation fails, `undefined` if validation passes.
@@ -513,44 +533,63 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Create a ReadableStream with controller for SSE
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
+            let replayedStreamId = '';
+            let streamClosed = false;
+
+            const closeReplayStream = () => {
+                if (streamClosed) {
+                    return;
+                }
+
+                streamClosed = true;
+
+                if (replayedStreamId) {
+                    this._streamMapping.delete(replayedStreamId);
+                }
+
+                this.closeStreamController(streamController!);
+            };
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
                 },
                 cancel: () => {
-                    // Stream was cancelled by client
-                    // Cleanup will be handled by the mapping
+                    closeReplayStream();
                 }
             });
 
             // Replay events - returns the streamId for backwards compatibility
-            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
-                send: async (eventId: string, message: JSONRPCMessage) => {
-                    const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
-                    if (!success) {
-                        this.onerror?.(new Error('Failed replay events'));
-                        try {
-                            streamController!.close();
-                        } catch {
-                            // Controller might already be closed
+            try {
+                replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
+                    send: async (eventId: string, message: JSONRPCMessage) => {
+                        if (streamClosed) {
+                            throw this.createReplayStreamClosedError();
+                        }
+
+                        const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
+                        if (!success) {
+                            closeReplayStream();
+                            throw this.createReplayStreamClosedError();
                         }
                     }
+                });
+            } catch (error) {
+                if (!this.isReplayStreamClosedError(error)) {
+                    throw error;
                 }
-            });
+            }
 
-            this._streamMapping.set(replayedStreamId, {
-                controller: streamController!,
-                encoder,
-                cleanup: () => {
-                    this._streamMapping.delete(replayedStreamId);
-                    try {
-                        streamController!.close();
-                    } catch {
-                        // Controller might already be closed
+            if (!streamClosed) {
+                this._streamMapping.set(replayedStreamId, {
+                    controller: streamController!,
+                    encoder,
+                    cleanup: () => {
+                        this._streamMapping.delete(replayedStreamId);
+                        closeReplayStream();
                     }
-                }
-            });
+                });
+            }
 
             return new Response(readable, { headers });
         } catch (error) {
