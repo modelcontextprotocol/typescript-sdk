@@ -78,7 +78,18 @@ export class McpServer {
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this.server = new Server(serverInfo, options);
+        this.server = new Server(serverInfo, withDefaultListChangedCapabilities(options));
+
+        const capabilities = this.server.getCapabilities();
+        if (capabilities.tools) {
+            this.setToolRequestHandlers();
+        }
+        if (capabilities.resources) {
+            this.setResourceRequestHandlers();
+        }
+        if (capabilities.prompts) {
+            this.setPromptRequestHandlers();
+        }
     }
 
     /**
@@ -130,11 +141,13 @@ export class McpServer {
         this.server.assertCanSetRequestHandler('tools/list');
         this.server.assertCanSetRequestHandler('tools/call');
 
-        this.server.registerCapabilities({
-            tools: {
-                listChanged: this.server.getCapabilities().tools?.listChanged ?? true
-            }
-        });
+        if (!this.server.transport) {
+            this.server.registerCapabilities({
+                tools: {
+                    listChanged: this.server.getCapabilities().tools?.listChanged ?? true
+                }
+            });
+        }
 
         this.server.setRequestHandler(
             'tools/list',
@@ -354,9 +367,11 @@ export class McpServer {
 
         this.server.assertCanSetRequestHandler('completion/complete');
 
-        this.server.registerCapabilities({
-            completions: {}
-        });
+        if (!this.server.transport) {
+            this.server.registerCapabilities({
+                completions: {}
+            });
+        }
 
         this.server.setRequestHandler('completion/complete', async (request): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
@@ -442,11 +457,13 @@ export class McpServer {
         this.server.assertCanSetRequestHandler('resources/templates/list');
         this.server.assertCanSetRequestHandler('resources/read');
 
-        this.server.registerCapabilities({
-            resources: {
-                listChanged: this.server.getCapabilities().resources?.listChanged ?? true
-            }
-        });
+        if (!this.server.transport) {
+            this.server.registerCapabilities({
+                resources: {
+                    listChanged: this.server.getCapabilities().resources?.listChanged ?? true
+                }
+            });
+        }
 
         this.server.setRequestHandler('resources/list', async (_request, ctx) => {
             const resources = Object.entries(this._registeredResources)
@@ -522,11 +539,13 @@ export class McpServer {
         this.server.assertCanSetRequestHandler('prompts/list');
         this.server.assertCanSetRequestHandler('prompts/get');
 
-        this.server.registerCapabilities({
-            prompts: {
-                listChanged: this.server.getCapabilities().prompts?.listChanged ?? true
-            }
-        });
+        if (!this.server.transport) {
+            this.server.registerCapabilities({
+                prompts: {
+                    listChanged: this.server.getCapabilities().prompts?.listChanged ?? true
+                }
+            });
+        }
 
         this.server.setRequestHandler(
             'prompts/list',
@@ -1004,6 +1023,26 @@ export class McpServer {
             this.server.sendPromptListChanged();
         }
     }
+}
+
+function withDefaultListChangedCapabilities(options?: ServerOptions): ServerOptions | undefined {
+    if (!options?.capabilities) {
+        return options;
+    }
+
+    const { capabilities } = options;
+
+    return {
+        ...options,
+        capabilities: {
+            ...capabilities,
+            ...(capabilities.tools ? { tools: { ...capabilities.tools, listChanged: capabilities.tools.listChanged ?? true } } : {}),
+            ...(capabilities.resources
+                ? { resources: { ...capabilities.resources, listChanged: capabilities.resources.listChanged ?? true } }
+                : {}),
+            ...(capabilities.prompts ? { prompts: { ...capabilities.prompts, listChanged: capabilities.prompts.listChanged ?? true } } : {})
+        }
+    };
 }
 
 /**
