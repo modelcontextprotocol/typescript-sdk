@@ -1875,182 +1875,195 @@ describe('createMessageStream', () => {
         }).toThrow('tool_result blocks are not matching any tool_use from the previous message');
     });
 
-    describe('terminal message guarantees', () => {
-        test('should yield exactly one terminal message for successful request', async () => {
-            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
-            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+    describe('with tasks', () => {
+        let server: Server;
+        let client: Client;
+        let clientTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[0];
+        let serverTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[1];
 
-            client.setRequestHandler('sampling/createMessage', async () => ({
-                role: 'assistant',
-                content: { type: 'text', text: 'Response' },
-                model: 'test-model'
-            }));
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-
-            const stream = server.experimental.tasks.createMessageStream({
-                messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
-                maxTokens: 100
-            });
-
-            const allMessages = await toArrayAsync(stream);
-
-            expect(allMessages.length).toBe(1);
-            expect(allMessages[0].type).toBe('result');
-
-            const taskMessages = allMessages.filter(m => m.type === 'taskCreated' || m.type === 'taskStatus');
-            expect(taskMessages.length).toBe(0);
-        });
-
-        test('should yield error as terminal message when client returns error', async () => {
-            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
-            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
-
-            client.setRequestHandler('sampling/createMessage', async () => {
-                throw new Error('Simulated client error');
-            });
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-
-            const stream = server.experimental.tasks.createMessageStream({
-                messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
-                maxTokens: 100
-            });
-
-            const allMessages = await toArrayAsync(stream);
-
-            expect(allMessages.length).toBe(1);
-            expect(allMessages[0].type).toBe('error');
-        });
-
-        test('should yield exactly one terminal message with result', async () => {
-            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
-            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
-
-            client.setRequestHandler('sampling/createMessage', () => ({
-                model: 'test-model',
-                role: 'assistant' as const,
-                content: { type: 'text' as const, text: 'Response' }
-            }));
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-
-            const stream = server.experimental.tasks.createMessageStream({
-                messages: [{ role: 'user', content: { type: 'text', text: 'Message' } }],
-                maxTokens: 100
-            });
-
-            const messages = await toArrayAsync(stream);
-            const terminalMessages = messages.filter(m => m.type === 'result' || m.type === 'error');
-
-            expect(terminalMessages.length).toBe(1);
-
-            const lastMessage = messages.at(-1);
-            expect(lastMessage.type === 'result' || lastMessage.type === 'error').toBe(true);
-
-            if (lastMessage.type === 'result') {
-                expect((lastMessage.result as CreateMessageResult).content).toBeDefined();
-            }
-        });
-    });
-
-    describe('non-task request minimality', () => {
-        test('should yield only result message for non-task request', async () => {
-            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
-            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
-
-            client.setRequestHandler('sampling/createMessage', () => ({
-                model: 'test-model',
-                role: 'assistant' as const,
-                content: { type: 'text' as const, text: 'Response' }
-            }));
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-
-            const stream = server.experimental.tasks.createMessageStream({
-                messages: [{ role: 'user', content: { type: 'text', text: 'Message' } }],
-                maxTokens: 100
-            });
-
-            const messages = await toArrayAsync(stream);
-
-            const taskMessages = messages.filter(m => m.type === 'taskCreated' || m.type === 'taskStatus');
-            expect(taskMessages.length).toBe(0);
-
-            const resultMessages = messages.filter(m => m.type === 'result');
-            expect(resultMessages.length).toBe(1);
-
-            expect(messages.length).toBe(1);
-        });
-    });
-
-    describe('task-augmented request handling', () => {
-        test('should yield taskCreated and result for task-augmented request', async () => {
-            const clientTaskStore = new InMemoryTaskStore();
-            const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
-            const client = new Client(
-                { name: 'test client', version: '1.0' },
+        beforeEach(async () => {
+            server = new Server(
+                { name: 'test server', version: '1.0' },
                 {
                     capabilities: {
-                        sampling: {},
                         tasks: {
-                            requests: {
-                                sampling: { createMessage: {} }
-                            }
+                            taskStore: new InMemoryTaskStore()
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
-            client.setRequestHandler('sampling/createMessage', async (request, extra) => {
-                const result = {
-                    model: 'test-model',
-                    role: 'assistant' as const,
-                    content: { type: 'text' as const, text: 'Task response' }
-                };
+            client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
-                if (request.params.task && extra.task?.store) {
-                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
-                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
-                    return { task };
-                }
-                return result;
+            [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        });
+
+        afterEach(async () => {
+            await server.close().catch(() => {});
+            await client.close().catch(() => {});
+        });
+
+        describe('terminal message guarantees', () => {
+            test('should yield exactly one terminal message for successful request', async () => {
+                client.setRequestHandler('sampling/createMessage', async () => ({
+                    role: 'assistant',
+                    content: { type: 'text', text: 'Response' },
+                    model: 'test-model'
+                }));
+
+                await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+                const stream = server.experimental.tasks.createMessageStream({
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+                    maxTokens: 100
+                });
+
+                const allMessages = await toArrayAsync(stream);
+
+                expect(allMessages.length).toBe(1);
+                expect(allMessages[0].type).toBe('result');
+
+                const taskMessages = allMessages.filter(m => m.type === 'taskCreated' || m.type === 'taskStatus');
+                expect(taskMessages.length).toBe(0);
             });
 
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+            test('should yield error as terminal message when client returns error', async () => {
+                client.setRequestHandler('sampling/createMessage', async () => {
+                    throw new Error('Simulated client error');
+                });
 
-            const stream = server.experimental.tasks.createMessageStream(
-                {
-                    messages: [{ role: 'user', content: { type: 'text', text: 'Task-augmented message' } }],
+                await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+                const stream = server.experimental.tasks.createMessageStream({
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
                     maxTokens: 100
-                },
-                { task: { ttl: 60_000 } }
-            );
+                });
 
-            const messages = await toArrayAsync(stream);
+                const allMessages = await toArrayAsync(stream);
 
-            // Should have taskCreated and result
-            expect(messages.length).toBeGreaterThanOrEqual(2);
+                expect(allMessages.length).toBe(1);
+                expect(allMessages[0].type).toBe('error');
+            });
 
-            // First message should be taskCreated
-            expect(messages[0].type).toBe('taskCreated');
-            const taskCreated = messages[0] as { type: 'taskCreated'; task: Task };
-            expect(taskCreated.task.taskId).toBeDefined();
+            test('should yield exactly one terminal message with result', async () => {
+                client.setRequestHandler('sampling/createMessage', () => ({
+                    model: 'test-model',
+                    role: 'assistant' as const,
+                    content: { type: 'text' as const, text: 'Response' }
+                }));
 
-            // Last message should be result
-            const lastMessage = messages.at(-1);
-            expect(lastMessage.type).toBe('result');
-            if (lastMessage.type === 'result') {
-                expect((lastMessage.result as CreateMessageResult).model).toBe('test-model');
-            }
+                await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-            clientTaskStore.cleanup();
+                const stream = server.experimental.tasks.createMessageStream({
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Message' } }],
+                    maxTokens: 100
+                });
+
+                const messages = await toArrayAsync(stream);
+                const terminalMessages = messages.filter(m => m.type === 'result' || m.type === 'error');
+
+                expect(terminalMessages.length).toBe(1);
+
+                const lastMessage = messages.at(-1);
+                expect(lastMessage.type === 'result' || lastMessage.type === 'error').toBe(true);
+
+                if (lastMessage.type === 'result') {
+                    expect((lastMessage.result as CreateMessageResult).content).toBeDefined();
+                }
+            });
+        });
+
+        describe('non-task request minimality', () => {
+            test('should yield only result message for non-task request', async () => {
+                client.setRequestHandler('sampling/createMessage', () => ({
+                    model: 'test-model',
+                    role: 'assistant' as const,
+                    content: { type: 'text' as const, text: 'Response' }
+                }));
+
+                await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+                const stream = server.experimental.tasks.createMessageStream({
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Message' } }],
+                    maxTokens: 100
+                });
+
+                const messages = await toArrayAsync(stream);
+
+                const taskMessages = messages.filter(m => m.type === 'taskCreated' || m.type === 'taskStatus');
+                expect(taskMessages.length).toBe(0);
+
+                const resultMessages = messages.filter(m => m.type === 'result');
+                expect(resultMessages.length).toBe(1);
+
+                expect(messages.length).toBe(1);
+            });
+        });
+
+        describe('task-augmented request handling', () => {
+            test('should yield taskCreated and result for task-augmented request', async () => {
+                const clientTaskStore = new InMemoryTaskStore();
+                const taskClient = new Client(
+                    { name: 'test client', version: '1.0' },
+                    {
+                        capabilities: {
+                            sampling: {},
+                            tasks: {
+                                taskStore: clientTaskStore,
+                                requests: {
+                                    sampling: { createMessage: {} }
+                                }
+                            }
+                        }
+                    }
+                );
+
+                taskClient.setRequestHandler('sampling/createMessage', async (request, extra) => {
+                    const result = {
+                        model: 'test-model',
+                        role: 'assistant' as const,
+                        content: { type: 'text' as const, text: 'Task response' }
+                    };
+
+                    if (request.params.task && extra.task?.store) {
+                        const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                        await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
+                        return { task };
+                    }
+                    return result;
+                });
+
+                const [taskClientTransport, taskServerTransport] = InMemoryTransport.createLinkedPair();
+                await Promise.all([taskClient.connect(taskClientTransport), server.connect(taskServerTransport)]);
+
+                const stream = server.experimental.tasks.createMessageStream(
+                    {
+                        messages: [{ role: 'user', content: { type: 'text', text: 'Task-augmented message' } }],
+                        maxTokens: 100
+                    },
+                    { task: { ttl: 60_000 } }
+                );
+
+                const messages = await toArrayAsync(stream);
+
+                // Should have taskCreated and result
+                expect(messages.length).toBeGreaterThanOrEqual(2);
+
+                // First message should be taskCreated
+                expect(messages[0].type).toBe('taskCreated');
+                const taskCreated = messages[0] as { type: 'taskCreated'; task: Task };
+                expect(taskCreated.task.taskId).toBeDefined();
+
+                // Last message should be result
+                const lastMessage = messages.at(-1);
+                expect(lastMessage.type).toBe('result');
+                if (lastMessage.type === 'result') {
+                    expect((lastMessage.result as CreateMessageResult).model).toBe('test-model');
+                }
+
+                clientTaskStore.cleanup();
+                await taskClient.close().catch(() => {});
+            });
         });
     });
 });
@@ -2362,10 +2375,11 @@ describe('Task-based execution', () => {
                             tools: {
                                 call: {}
                             }
-                        }
+                        },
+
+                        taskStore
                     }
-                },
-                taskStore
+                }
             }
         );
 
@@ -2542,10 +2556,11 @@ describe('Task-based execution', () => {
                             tools: {
                                 call: {}
                             }
-                        }
+                        },
+
+                        taskStore
                     }
-                },
-                taskStore
+                }
             }
         );
 
@@ -2719,10 +2734,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2746,10 +2762,23 @@ describe('Task-based execution', () => {
                 return result;
             });
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2799,10 +2828,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2826,10 +2856,21 @@ describe('Task-based execution', () => {
                 return result;
             });
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: { create: {} }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2877,10 +2918,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2904,10 +2946,21 @@ describe('Task-based execution', () => {
                 return result;
             });
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: { create: {} }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2957,10 +3010,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -3059,10 +3113,11 @@ describe('Task-based execution', () => {
                             tools: {
                                 call: {}
                             }
-                        }
+                        },
+
+                        taskStore
                     }
-                },
-                taskStore
+                }
             }
         );
 
@@ -3198,10 +3253,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -3245,10 +3301,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -3302,10 +3359,11 @@ test('should respect client task capabilities', async () => {
                         elicitation: {
                             create: {}
                         }
-                    }
+                    },
+
+                    taskStore: clientTaskStore
                 }
-            },
-            taskStore: clientTaskStore
+            }
         }
     );
 
@@ -3414,7 +3472,16 @@ describe('elicitInputStream', () => {
     let serverTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[1];
 
     beforeEach(async () => {
-        server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+        server = new Server(
+            { name: 'test server', version: '1.0' },
+            {
+                capabilities: {
+                    tasks: {
+                        taskStore: new InMemoryTaskStore()
+                    }
+                }
+            }
+        );
 
         client = new Client(
             { name: 'test client', version: '1.0' },
@@ -3643,12 +3710,12 @@ describe('elicitInputStream', () => {
                     capabilities: {
                         elicitation: { form: {} },
                         tasks: {
+                            taskStore: clientTaskStore,
                             requests: {
                                 elicitation: { create: {} }
                             }
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
