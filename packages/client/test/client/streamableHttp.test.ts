@@ -282,6 +282,70 @@ describe('StreamableHTTPClientTransport', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
+    it('should attempt initial GET connection and handle 404 gracefully', async () => {
+        // Mock the server returning 404 for the SSE GET endpoint (endpoint does not exist)
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found'
+        });
+
+        // We expect the 404 error to be caught and handled gracefully
+        // This should not throw an error that breaks the transport
+        await transport.start();
+        await expect(transport['_startOrAuthSse']({})).resolves.not.toThrow('Failed to open SSE stream: Not Found');
+        // Check that GET was attempted
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                method: 'GET',
+                headers: expect.any(Headers)
+            })
+        );
+
+        // Verify transport still works after 404
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should attempt initial GET connection and handle 406 gracefully', async () => {
+        // Mock the server returning 406 for the SSE GET endpoint (content type not acceptable)
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 406,
+            statusText: 'Not Acceptable'
+        });
+
+        // We expect the 406 error to be caught and handled gracefully
+        // This should not throw an error that breaks the transport
+        await transport.start();
+        await expect(transport['_startOrAuthSse']({})).resolves.not.toThrow('Failed to open SSE stream: Not Acceptable');
+        // Check that GET was attempted
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                method: 'GET',
+                headers: expect.any(Headers)
+            })
+        );
+
+        // Verify transport still works after 406
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
     it('should handle successful initial GET connection for SSE', async () => {
         // Set up readable stream for SSE events
         const encoder = new TextEncoder();
