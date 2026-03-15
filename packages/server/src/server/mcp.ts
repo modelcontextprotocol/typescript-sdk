@@ -1126,10 +1126,10 @@ function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyTool
                 throw new Error('No task store provided.');
             }
             const taskCtx: CreateTaskServerContext = { ...ctx, task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } };
-            if (inputSchema) {
-                return taskHandler.createTask(args, taskCtx);
+            if (inputSchema || taskHandler.createTask.length > 1) {
+                return taskHandler.createTask(inputSchema ? args : {}, taskCtx);
             }
-            // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
+            // When no inputSchema and handler expects single arg, call with just ctx
             return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
         };
     }
