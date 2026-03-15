@@ -1171,6 +1171,127 @@ describe('SSEClientTransport', () => {
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
         });
+
+        it('accumulates scopes from sequential 401 responses in send()', async () => {
+            // Create server that accepts SSE connection but returns 401 on POST
+            // with different scopes on successive requests
+            resourceServer.close();
+            authServer.close();
+
+            await new Promise<void>(resolve => {
+                authServer.listen(0, '127.0.0.1', () => {
+                    const addr = authServer.address() as AddressInfo;
+                    authBaseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+                    resolve();
+                });
+            });
+
+            let postCallCount = 0;
+            resourceServer = createServer((req, res) => {
+                lastServerRequest = req;
+
+                switch (req.method) {
+                    case 'GET': {
+                        if (req.url === '/.well-known/oauth-protected-resource') {
+                            res.writeHead(200, {
+                                'Content-Type': 'application/json'
+                            }).end(
+                                JSON.stringify({
+                                    resource: resourceBaseUrl.href,
+                                    authorization_servers: [`${authBaseUrl}`]
+                                })
+                            );
+                            return;
+                        }
+
+                        if (req.url !== '/') {
+                            res.writeHead(404).end();
+                            return;
+                        }
+
+                        res.writeHead(200, {
+                            'Content-Type': 'text/event-stream',
+                            'Cache-Control': 'no-cache, no-transform',
+                            Connection: 'keep-alive'
+                        });
+                        res.write('event: endpoint\n');
+                        res.write(`data: ${resourceBaseUrl.href}\n\n`);
+                        break;
+                    }
+
+                    case 'POST': {
+                        postCallCount++;
+                        if (postCallCount === 1) {
+                            // First POST: 401 with scope="read:op1"
+                            res.writeHead(401, {
+                                'WWW-Authenticate': 'Bearer scope="read:op1"'
+                            });
+                            res.end();
+                        } else if (postCallCount === 2) {
+                            // Second POST (after first auth): 401 with scope="read:op2"
+                            res.writeHead(401, {
+                                'WWW-Authenticate': 'Bearer scope="read:op2"'
+                            });
+                            res.end();
+                        } else {
+                            // Third POST (after second auth): success
+                            res.writeHead(200);
+                            res.end();
+                        }
+                        break;
+                    }
+                }
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider
+            });
+
+            // Spy on the auth function to track scope arguments
+            const authModule = await import('../../src/client/auth.js');
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.start();
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            // Auth should have been called twice
+            expect(authSpy).toHaveBeenCalledTimes(2);
+
+            // First auth call should have scope "read:op1"
+            expect(authSpy).toHaveBeenNthCalledWith(
+                1,
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read:op1'
+                })
+            );
+
+            // Second auth call should have accumulated scope containing both tokens
+            const secondCall = authSpy.mock.calls[1] as unknown as [unknown, { scope?: string }];
+            const secondCallScope = secondCall[1].scope;
+            expect(secondCallScope).toBeDefined();
+            const scopeTokens = String(secondCallScope).split(' ').toSorted();
+            expect(scopeTokens).toEqual(['read:op1', 'read:op2']);
+
+            // Verify _scope state after accumulation
+            const finalScope = (transport as unknown as { _scope: string | undefined })['_scope'];
+            expect(finalScope).toBeDefined();
+            const finalScopeTokens = String(finalScope).split(' ').toSorted();
+            expect(finalScopeTokens).toEqual(['read:op1', 'read:op2']);
+
+            authSpy.mockRestore();
+        });
     });
 
     describe('custom fetch in auth code paths', () => {

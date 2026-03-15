@@ -16,6 +16,21 @@ import { EventSourceParserStream } from 'eventsource-parser/stream';
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
 
+/**
+ * Merges two space-separated OAuth scope strings into a deduplicated union.
+ * Returns undefined when the resulting set is empty.
+ * Preserves insertion order of first occurrence for determinism.
+ */
+function mergeScopes(existing: string | undefined, incoming: string | undefined): string | undefined {
+    const existingTokens = existing?.split(/\s+/).filter(Boolean) ?? [];
+    const incomingTokens = incoming?.split(/\s+/).filter(Boolean) ?? [];
+    const merged = new Set<string>([...existingTokens, ...incomingTokens]);
+    if (merged.size === 0) {
+        return undefined;
+    }
+    return [...merged].join(' ');
+}
+
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
     initialReconnectionDelay: 1000,
@@ -505,7 +520,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                     this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
+                    this._scope = mergeScopes(this._scope, scope);
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
@@ -538,7 +553,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
 
                         if (scope) {
-                            this._scope = scope;
+                            this._scope = mergeScopes(this._scope, scope);
                         }
 
                         if (resourceMetadataUrl) {
