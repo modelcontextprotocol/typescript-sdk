@@ -1965,6 +1965,80 @@ describe('Zod v4', () => {
             expect(result.tools[0]!._meta).toBeUndefined();
         });
 
+        test('should include type: object in inputSchema for discriminated union schemas', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const schema = z.discriminatedUnion('action', [
+                z.object({ action: z.literal('create'), name: z.string() }),
+                z.object({ action: z.literal('delete'), id: z.number() })
+            ]);
+
+            mcpServer.registerTool(
+                'discriminated-tool',
+                {
+                    description: 'A tool with discriminated union input',
+                    inputSchema: schema
+                },
+                async args => ({
+                    content: [{ type: 'text', text: JSON.stringify(args) }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.inputSchema).toHaveProperty('type', 'object');
+            expect(result.tools[0]!.inputSchema).toHaveProperty('oneOf');
+        });
+
+        test('should include type: object in outputSchema for discriminated union schemas', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const outputSchema = z.discriminatedUnion('status', [
+                z.object({ status: z.literal('ok'), data: z.string() }),
+                z.object({ status: z.literal('error'), message: z.string() })
+            ]);
+
+            mcpServer.registerTool(
+                'output-union-tool',
+                {
+                    description: 'A tool with discriminated union output',
+                    inputSchema: z.object({ query: z.string() }),
+                    outputSchema: outputSchema
+                },
+                async ({ query }) => ({
+                    content: [{ type: 'text', text: query }],
+                    structuredContent: { status: 'ok' as const, data: query }
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.outputSchema).toHaveProperty('type', 'object');
+            expect(result.tools[0]!.outputSchema).toHaveProperty('oneOf');
+        });
+
         test('should include execution field in listTools response when tool has execution settings', async () => {
             const taskStore = new InMemoryTaskStore();
 

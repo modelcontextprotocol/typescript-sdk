@@ -155,9 +155,10 @@ export class McpServer {
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = schemaToJson(tool.outputSchema, {
-                                io: 'output'
-                            }) as Tool['outputSchema'];
+                            toolDefinition.outputSchema = {
+                                type: 'object' as const,
+                                ...schemaToJson(tool.outputSchema, { io: 'output' })
+                            } as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
