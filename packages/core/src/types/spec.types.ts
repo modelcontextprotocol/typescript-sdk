@@ -2795,6 +2795,7 @@ export interface ElicitRequestFormParams extends TaskAugmentedRequestParams {
      * Only top-level properties are allowed, without nesting.
      */
     requestedSchema: {
+        [key: string]: unknown;
         $schema?: string;
         type: 'object';
         properties: {
