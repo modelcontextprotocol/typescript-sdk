@@ -333,6 +333,44 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_700, /Parse error.*Invalid JSON/);
             });
 
+            it('should call onerror for invalid JSON', async () => {
+                const errorSpy = vi.fn();
+                transport.onerror = errorSpy;
+
+                const request = new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json, text/event-stream',
+                        'Content-Type': 'application/json'
+                    },
+                    body: 'not valid json'
+                });
+
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(400);
+                expect(errorSpy).toHaveBeenCalledTimes(1);
+            });
+
+            it('should call onerror for invalid JSON-RPC message', async () => {
+                const errorSpy = vi.fn();
+                transport.onerror = errorSpy;
+
+                const request = new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json, text/event-stream',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ bad: 'shape' })
+                });
+
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(400);
+                expect(errorSpy).toHaveBeenCalledTimes(1);
+            });
+
             it('should accept notifications without session and return 202', async () => {
                 sessionId = await initializeServer();
 

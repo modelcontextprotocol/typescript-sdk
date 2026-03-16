@@ -635,7 +635,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (options?.parsedBody === undefined) {
                 try {
                     rawMessage = await req.json();
-                } catch {
+                } catch (error) {
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }
             } else {
@@ -649,7 +650,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 messages = Array.isArray(rawMessage)
                     ? rawMessage.map(msg => JSONRPCMessageSchema.parse(msg))
                     : [JSONRPCMessageSchema.parse(rawMessage)];
-            } catch {
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
                 return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
             }
 
