@@ -14,6 +14,8 @@ import {
     Client,
     ClientCredentialsProvider,
     createMiddleware,
+    CrossAppAccessProvider,
+    discoverAndRequestJwtAuthGrant,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
@@ -132,6 +134,33 @@ async function auth_privateKeyJwt(pemEncodedKey: string) {
 
     const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
     //#endregion auth_privateKeyJwt
+    return transport;
+}
+
+/** Example: Cross-App Access (SEP-990 Enterprise Managed Authorization). */
+async function auth_crossAppAccess(getIdToken: () => Promise<string>) {
+    //#region auth_crossAppAccess
+    const authProvider = new CrossAppAccessProvider({
+        assertion: async ctx => {
+            // ctx provides: authorizationServerUrl, resourceUrl, scope, fetchFn
+            const result = await discoverAndRequestJwtAuthGrant({
+                idpUrl: 'https://idp.example.com',
+                audience: ctx.authorizationServerUrl,
+                resource: ctx.resourceUrl,
+                idToken: await getIdToken(),
+                clientId: 'my-idp-client',
+                clientSecret: 'my-idp-secret',
+                scope: ctx.scope,
+                fetchFn: ctx.fetchFn
+            });
+            return result.jwtAuthGrant;
+        },
+        clientId: 'my-mcp-client',
+        clientSecret: 'my-mcp-secret'
+    });
+
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
+    //#endregion auth_crossAppAccess
     return transport;
 }
 
@@ -513,6 +542,7 @@ void disconnect_streamableHttp;
 void serverInstructions_basic;
 void auth_clientCredentials;
 void auth_privateKeyJwt;
+void auth_crossAppAccess;
 void callTool_basic;
 void callTool_structuredOutput;
 void callTool_progress;
