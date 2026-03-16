@@ -775,7 +775,7 @@ describe('Zod v4', () => {
                 sessionIdGenerator: () => randomUUID()
             });
             errors = [];
-            transport.onerror = (error) => errors.push(error);
+            transport.onerror = error => errors.push(error);
             await transport.start();
         });
 
@@ -785,7 +785,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(406);
             expect(errors.length).toBe(1);
-            expect(errors[0].message).toMatch(/Not Acceptable/);
+            expect(errors[0]!.message).toMatch(/Not Acceptable/);
         });
 
         it('should call onerror for invalid Content-Type on POST', async () => {
@@ -801,7 +801,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(415);
             expect(errors.length).toBe(1);
-            expect(errors[0].message).toMatch(/Unsupported Media Type/);
+            expect(errors[0]!.message).toMatch(/Unsupported Media Type/);
         });
 
         it('should call onerror for invalid JSON on POST', async () => {
@@ -817,7 +817,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBe(1);
-            expect(errors[0].message).toMatch(/Parse error/);
+            expect(errors[0]!.message).toMatch(/Parse error/);
         });
 
         it('should call onerror for invalid JSON-RPC message on POST', async () => {
@@ -833,7 +833,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             expect(errors.length).toBe(1);
-            expect(errors[0].message).toMatch(/Parse error.*Invalid JSON-RPC/);
+            expect(errors[0]!.message).toMatch(/Parse error.*Invalid JSON-RPC/);
         });
 
         it('should call onerror for invalid Accept header on GET', async () => {
@@ -842,7 +842,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(406);
             expect(errors.length).toBe(1);
-            expect(errors[0].message).toMatch(/Not Acceptable/);
+            expect(errors[0]!.message).toMatch(/Not Acceptable/);
         });
     });
 });

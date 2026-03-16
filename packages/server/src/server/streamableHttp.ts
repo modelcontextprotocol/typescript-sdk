@@ -552,7 +552,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             });
 
             return new Response(readable, { headers });
-        } catch (error) {
+        } catch {
             return this.createJsonErrorResponse(500, -32_000, 'Error replaying events');
         }
     }
