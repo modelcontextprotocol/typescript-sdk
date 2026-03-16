@@ -1740,6 +1740,8 @@ export interface Tool extends BaseMetadata, Icons {
         type: 'object';
         properties?: { [key: string]: JSONValue };
         required?: string[];
+        additionalProperties?: boolean | { [key: string]: unknown };
+        [key: string]: unknown;
     };
 
     /**
@@ -1759,6 +1761,8 @@ export interface Tool extends BaseMetadata, Icons {
         type: 'object';
         properties?: { [key: string]: JSONValue };
         required?: string[];
+        additionalProperties?: boolean | { [key: string]: unknown };
+        [key: string]: unknown;
     };
 
     /**
@@ -2801,6 +2805,8 @@ export interface ElicitRequestFormParams extends TaskAugmentedRequestParams {
             [key: string]: PrimitiveSchemaDefinition;
         };
         required?: string[];
+        additionalProperties?: boolean | { [key: string]: unknown };
+        [key: string]: unknown;
     };
 }
 
