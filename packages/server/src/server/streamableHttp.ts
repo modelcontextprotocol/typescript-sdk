@@ -287,6 +287,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         options?: { headers?: Record<string, string>; data?: string }
     ): Response {
         const error: { code: number; message: string; data?: string } = { code, message };
+        this.onerror?.(new Error(message));
         if (options?.data !== undefined) {
             error.data = options.data;
         }
@@ -321,7 +322,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const hostHeader = req.headers.get('host');
             if (!hostHeader || !this._allowedHosts.includes(hostHeader)) {
                 const error = `Invalid Host header: ${hostHeader}`;
-                this.onerror?.(new Error(error));
                 return this.createJsonErrorResponse(403, -32_000, error);
             }
         }
@@ -331,7 +331,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const originHeader = req.headers.get('origin');
             if (originHeader && !this._allowedOrigins.includes(originHeader)) {
                 const error = `Invalid Origin header: ${originHeader}`;
-                this.onerror?.(new Error(error));
                 return this.createJsonErrorResponse(403, -32_000, error);
             }
         }
@@ -554,7 +553,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             return new Response(readable, { headers });
         } catch (error) {
-            this.onerror?.(error as Error);
             return this.createJsonErrorResponse(500, -32_000, 'Error replaying events');
         }
     }
@@ -807,7 +805,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return new Response(readable, { status: 200, headers });
         } catch (error) {
             // return JSON-RPC formatted error
-            this.onerror?.(error as Error);
             return this.createJsonErrorResponse(400, -32_700, 'Parse error', { data: String(error) });
         }
     }

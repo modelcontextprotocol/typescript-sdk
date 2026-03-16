@@ -765,4 +765,84 @@ describe('Zod v4', () => {
             await expect(transport.start()).rejects.toThrow('Transport already started');
         });
     });
+
+    describe('HTTPServerTransport - onerror callback', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let errors: Error[];
+
+        beforeEach(async () => {
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+            errors = [];
+            transport.onerror = (error) => errors.push(error);
+            await transport.start();
+        });
+
+        it('should call onerror for invalid Accept header on POST', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.initialize, { accept: 'application/json' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(406);
+            expect(errors.length).toBe(1);
+            expect(errors[0].message).toMatch(/Not Acceptable/);
+        });
+
+        it('should call onerror for invalid Content-Type on POST', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'text/plain'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(415);
+            expect(errors.length).toBe(1);
+            expect(errors[0].message).toMatch(/Unsupported Media Type/);
+        });
+
+        it('should call onerror for invalid JSON on POST', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body: 'not valid json'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBe(1);
+            expect(errors[0].message).toMatch(/Parse error/);
+        });
+
+        it('should call onerror for invalid JSON-RPC message on POST', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ not: 'a jsonrpc message' })
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBe(1);
+            expect(errors[0].message).toMatch(/Parse error.*Invalid JSON-RPC/);
+        });
+
+        it('should call onerror for invalid Accept header on GET', async () => {
+            const request = createRequest('GET', undefined, { accept: 'application/json' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(406);
+            expect(errors.length).toBe(1);
+            expect(errors[0].message).toMatch(/Not Acceptable/);
+        });
+    });
 });
