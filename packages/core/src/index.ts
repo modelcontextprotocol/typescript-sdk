@@ -12,6 +12,7 @@ export * from './shared/uriTemplate.js';
 export * from './types/types.js';
 export * from './util/inMemory.js';
 export * from './util/schema.js';
+export * from './util/standardSchema.js';
 
 // experimental exports
 export * from './experimental/index.js';
