@@ -2028,7 +2028,7 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
         type: z.literal('object'),
         properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
         required: z.array(z.string()).optional()
-    })
+    }).passthrough()
 });
 
 /**

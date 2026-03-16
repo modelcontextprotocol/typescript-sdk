@@ -2796,11 +2796,13 @@ export interface ElicitRequestFormParams extends TaskAugmentedRequestParams {
      */
     requestedSchema: {
         $schema?: string;
+        additionalProperties?: boolean;
         type: 'object';
         properties: {
             [key: string]: PrimitiveSchemaDefinition;
         };
         required?: string[];
+        [key: string]: unknown;
     };
 }
 
