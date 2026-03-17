@@ -791,7 +791,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return new Response(readable, { status: 200, headers });
         } catch (error) {
             // return JSON-RPC formatted error
-            return this.createJsonErrorResponse(400, -32_700, 'Parse error', { data: String(error), cause: error instanceof Error ? error : new Error(String(error)) });
+            return this.createJsonErrorResponse(400, -32_700, 'Parse error', {
+                data: String(error),
+                cause: error instanceof Error ? error : new Error(String(error))
+            });
         }
     }
 
