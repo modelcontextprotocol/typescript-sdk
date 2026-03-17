@@ -844,5 +844,14 @@ describe('Zod v4', () => {
             expect(errors.length).toBe(1);
             expect(errors[0]!.message).toMatch(/Not Acceptable/);
         });
+
+        it('should call onerror for unsupported HTTP methods', async () => {
+            const request = new Request('http://localhost/mcp', { method: 'PUT' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(405);
+            expect(errors.length).toBe(1);
+            expect(errors[0]!.message).toMatch(/Method not allowed/);
+        });
     });
 });

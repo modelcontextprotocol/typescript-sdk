@@ -284,10 +284,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         status: number,
         code: number,
         message: string,
-        options?: { headers?: Record<string, string>; data?: string }
+        options?: { headers?: Record<string, string>; data?: string; cause?: Error }
     ): Response {
         const error: { code: number; message: string; data?: string } = { code, message };
-        this.onerror?.(new Error(message));
+        this.onerror?.(options?.cause ?? new Error(message));
         if (options?.data !== undefined) {
             error.data = options.data;
         }
@@ -584,23 +584,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Handles unsupported requests (`PUT`, `PATCH`, etc.)
      */
     private handleUnsupportedRequest(): Response {
-        return Response.json(
-            {
-                jsonrpc: '2.0',
-                error: {
-                    code: -32_000,
-                    message: 'Method not allowed.'
-                },
-                id: null
-            },
-            {
-                status: 405,
-                headers: {
-                    Allow: 'GET, POST, DELETE',
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
+        return this.createJsonErrorResponse(405, -32_000, 'Method not allowed.', {
+            headers: { Allow: 'GET, POST, DELETE' }
+        });
     }
 
     /**
@@ -805,7 +791,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return new Response(readable, { status: 200, headers });
         } catch (error) {
             // return JSON-RPC formatted error
-            return this.createJsonErrorResponse(400, -32_700, 'Parse error', { data: String(error) });
+            return this.createJsonErrorResponse(400, -32_700, 'Parse error', { data: String(error), cause: error instanceof Error ? error : new Error(String(error)) });
         }
     }
 
