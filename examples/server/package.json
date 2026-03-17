@@ -44,6 +44,7 @@
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly",
+        "jose": "catalog:runtimeClientOnly",
         "valibot": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     },
