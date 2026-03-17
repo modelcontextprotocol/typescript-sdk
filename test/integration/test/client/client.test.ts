@@ -1946,6 +1946,98 @@ describe('outputSchema validation', () => {
     });
 
     /***
+     * Test: Skip structuredContent validation when isError is true
+     */
+    test('should not validate structuredContent when isError is true', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        // Set up server handlers
+        server.setRequestHandler('initialize', async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: { tools: {} },
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        server.setRequestHandler('tools/list', async () => ({
+            tools: [
+                {
+                    name: 'test-tool',
+                    description: 'A test tool',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            result: { type: 'string' }
+                        },
+                        required: ['result']
+                    }
+                }
+            ]
+        }));
+
+        server.setRequestHandler('tools/call', async () => {
+            // Return isError with structuredContent that does NOT match the schema
+            return {
+                isError: true,
+                content: [{ type: 'text', text: 'Something went wrong' }],
+                structuredContent: { wrongField: 123 }
+            };
+        });
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            },
+                            tasks: {
+                                get: true,
+                                list: {},
+                                result: true
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // List tools to cache the schemas
+        await client.listTools();
+
+        // Call the tool - should NOT throw, error results skip validation
+        const result = await client.callTool({ name: 'test-tool' });
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual([{ type: 'text', text: 'Something went wrong' }]);
+        expect(result.structuredContent).toEqual({ wrongField: 123 });
+    });
+
+    /***
      * Test: Handle Tools Without outputSchema Normally
      */
     test('should handle tools without outputSchema normally', async () => {
@@ -3960,6 +4052,83 @@ test('callToolStream() should not validate structuredContent when isError is tru
         return {
             isError: true,
             content: [{ type: 'text', text: 'Something went wrong' }]
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await client.listTools();
+
+    const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} });
+
+    const messages = [];
+    for await (const message of stream) {
+        messages.push(message);
+    }
+
+    // Should have received result (not error), with isError flag set
+    expect(messages.length).toBe(1);
+    expect(messages[0]!.type).toBe('result');
+    if (messages[0]!.type === 'result') {
+        expect(messages[0]!.result.isError).toBe(true);
+        expect(messages[0]!.result.content).toEqual([{ type: 'text', text: 'Something went wrong' }]);
+    }
+
+    await client.close();
+    await server.close();
+});
+
+test('callToolStream() should not validate structuredContent when isError is true and structuredContent is invalid', async () => {
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {}
+            }
+        }
+    );
+
+    server.setRequestHandler('tools/list', async () => ({
+        tools: [
+            {
+                name: 'test-tool',
+                description: 'A test tool',
+                inputSchema: {
+                    type: 'object',
+                    properties: {}
+                },
+                outputSchema: {
+                    type: 'object',
+                    properties: {
+                        result: { type: 'string' }
+                    },
+                    required: ['result']
+                }
+            }
+        ]
+    }));
+
+    server.setRequestHandler('tools/call', async () => {
+        // Return isError with structuredContent that does NOT match the schema
+        return {
+            isError: true,
+            content: [{ type: 'text', text: 'Something went wrong' }],
+            structuredContent: { wrongField: 123 }
         };
     });
 

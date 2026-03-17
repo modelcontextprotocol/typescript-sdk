@@ -879,8 +879,8 @@ export class Client extends Protocol<ClientContext> {
                 );
             }
 
-            // Only validate structured content if present (not when there's an error)
-            if (result.structuredContent) {
+            // Only validate structured content if present and not an error result
+            if (result.structuredContent && !result.isError) {
                 try {
                     // Validate the structured content against the schema
                     const validationResult = validator(result.structuredContent);
