@@ -851,7 +851,21 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(405);
             expect(errors.length).toBe(1);
-            expect(errors[0]!.message).toMatch(/Method not allowed/);
+            expect(errors[0]!.message).toBe('Method not allowed.');
+        });
+
+        it('should preserve original error object when createJsonErrorResponse receives cause', async () => {
+            const thrown = new Error('boom-from-onmessage');
+            transport.onmessage = () => {
+                throw thrown;
+            };
+
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBe(1);
+            expect(errors[0]).toBe(thrown);
         });
     });
 });
