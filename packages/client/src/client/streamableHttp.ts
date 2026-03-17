@@ -141,6 +141,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
+    private _pendingRequests = new Set<Promise<void>>();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -452,11 +453,35 @@ export class StreamableHTTPClientTransport implements Transport {
             clearTimeout(this._reconnectionTimeout);
             this._reconnectionTimeout = undefined;
         }
+        // Wait for any in-flight requests to complete before aborting, so that
+        // successful responses are not marked as aborted by Undici/OpenTelemetry.
+        if (this._pendingRequests.size > 0) {
+            const GRACEFUL_CLOSE_TIMEOUT = 2000;
+            await Promise.race([
+                Promise.allSettled(this._pendingRequests),
+                new Promise<void>((resolve) => setTimeout(resolve, GRACEFUL_CLOSE_TIMEOUT))
+            ]);
+        }
         this._abortController?.abort();
         this.onclose?.();
     }
 
     async send(
+        message: JSONRPCMessage | JSONRPCMessage[],
+        options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
+    ): Promise<void> {
+        const requestPromise = this._doSend(message, options);
+        // Track the promise for graceful close, but suppress unhandled rejections
+        // on the tracked copy since the caller handles the actual rejection.
+        const tracked = requestPromise.catch(() => {});
+        this._pendingRequests.add(tracked);
+        tracked.finally(() => {
+            this._pendingRequests.delete(tracked);
+        });
+        return requestPromise;
+    }
+
+    private async _doSend(
         message: JSONRPCMessage | JSONRPCMessage[],
         options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
     ): Promise<void> {

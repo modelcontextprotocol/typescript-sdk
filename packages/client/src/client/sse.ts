@@ -75,6 +75,7 @@ export class SSEClientTransport implements Transport {
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
+    private _pendingRequests = new Set<Promise<void>>();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -238,6 +239,15 @@ export class SSEClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        // Wait for any in-flight requests to complete before aborting, so that
+        // successful responses are not marked as aborted by Undici/OpenTelemetry.
+        if (this._pendingRequests.size > 0) {
+            const GRACEFUL_CLOSE_TIMEOUT = 2000;
+            await Promise.race([
+                Promise.allSettled(this._pendingRequests),
+                new Promise<void>((resolve) => setTimeout(resolve, GRACEFUL_CLOSE_TIMEOUT))
+            ]);
+        }
         this._abortController?.abort();
         this._eventSource?.close();
         this.onclose?.();
@@ -248,6 +258,18 @@ export class SSEClientTransport implements Transport {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
+        const requestPromise = this._doSend(message);
+        // Track the promise for graceful close, but suppress unhandled rejections
+        // on the tracked copy since the caller handles the actual rejection.
+        const tracked = requestPromise.catch(() => {});
+        this._pendingRequests.add(tracked);
+        tracked.finally(() => {
+            this._pendingRequests.delete(tracked);
+        });
+        return requestPromise;
+    }
+
+    private async _doSend(message: JSONRPCMessage): Promise<void> {
         try {
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
@@ -259,7 +281,7 @@ export class SSEClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._endpoint, init);
+            const response = await (this._fetch ?? fetch)(this._endpoint!, init);
             if (!response.ok) {
                 const text = await response.text?.().catch(() => null);
 
