@@ -432,7 +432,8 @@ describe('Zod v4', () => {
             expect(result.tools[0]!.name).toBe('test');
             expect(result.tools[0]!.inputSchema).toEqual({
                 type: 'object',
-                properties: {}
+                properties: {},
+                required: []
             });
 
             // Adding the tool before the connection was established means no notification was sent

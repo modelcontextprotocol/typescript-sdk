@@ -1146,7 +1146,8 @@ function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyTool
 
 const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
-    properties: {}
+    properties: {},
+    required: [] as string[]
 };
 
 /**

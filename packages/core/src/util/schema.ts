@@ -26,7 +26,13 @@ export type SchemaOutput<T extends AnySchema> = z.output<T>;
  * Converts a Zod schema to JSON Schema.
  */
 export function schemaToJson(schema: AnySchema, options?: { io?: 'input' | 'output' }): Record<string, unknown> {
-    return z.toJSONSchema(schema, options) as Record<string, unknown>;
+    const jsonSchema = z.toJSONSchema(schema, options) as Record<string, unknown>;
+    // Ensure object schemas always include 'required' (even if empty)
+    // for compatibility with OpenAI strict JSON schema mode
+    if (jsonSchema.type === 'object' && !('required' in jsonSchema)) {
+        jsonSchema.required = [];
+    }
+    return jsonSchema;
 }
 
 /**
