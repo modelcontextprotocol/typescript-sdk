@@ -19,6 +19,8 @@ import { process } from '@modelcontextprotocol/server/_shims';
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _closed = false;
+    private _pendingDrainReject?: (reason: Error) => void;
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -39,7 +41,7 @@ export class StdioServerTransport implements Transport {
     };
     _onstdouterror = (error: NodeJS.ErrnoException) => {
         if (error.code === 'EPIPE' || error.code === 'ERR_STREAM_DESTROYED') {
-            // Client disconnected — close gracefully instead of crashing.
+            // Client disconnected -- close gracefully instead of crashing.
             void this.close();
         } else {
             this.onerror?.(error);
@@ -78,6 +80,15 @@ export class StdioServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) return;
+        this._closed = true;
+
+        // Reject any pending drain promise so send() does not hang forever
+        if (this._pendingDrainReject) {
+            this._pendingDrainReject(new Error('Transport closed before drain'));
+            this._pendingDrainReject = undefined;
+        }
+
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
@@ -107,7 +118,13 @@ export class StdioServerTransport implements Transport {
                 if (this._stdout.write(json)) {
                     resolve();
                 } else {
-                    this._stdout.once('drain', resolve);
+                    // Track the reject so close() can settle this promise
+                    // if an error (e.g. EPIPE) fires before drain.
+                    this._pendingDrainReject = reject;
+                    this._stdout.once('drain', () => {
+                        this._pendingDrainReject = undefined;
+                        resolve();
+                    });
                 }
             } catch (error: unknown) {
                 const errno = error as NodeJS.ErrnoException;

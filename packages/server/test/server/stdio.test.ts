@@ -186,3 +186,45 @@ test('should remove stdout error listener on close', async () => {
 
     expect(listenersAfter).toBeLessThan(listenersBefore);
 });
+
+test('should reject send and close when EPIPE fires while waiting for drain', async () => {
+    // Create a stream where write() returns false to trigger drain waiting
+    const slowOutput = new Writable({
+        highWaterMark: 1,
+        write(_chunk, _encoding, callback) {
+            // Delay callback to keep backpressure
+            setTimeout(callback, 100);
+        }
+    });
+
+    const server = new StdioServerTransport(input, slowOutput);
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+
+    // Fill the buffer so write() returns false
+    const message: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'ping'
+    };
+
+    // Start a send that will wait for drain
+    const sendPromise = server.send(message);
+
+    // Give the event loop a tick so the write() call executes
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Emit EPIPE before drain fires
+    const epipeError = new Error('write EPIPE') as NodeJS.ErrnoException;
+    epipeError.code = 'EPIPE';
+    slowOutput.emit('error', epipeError);
+
+    // The send promise should reject (not hang forever)
+    await expect(sendPromise).rejects.toThrow('Transport closed before drain');
+    expect(didClose).toBeTruthy();
+});
