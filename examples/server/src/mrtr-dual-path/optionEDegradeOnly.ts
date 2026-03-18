@@ -1,24 +1,24 @@
 /**
- * Option E: graceful degradation only. No SSE fallback.
+ * Option E: graceful degradation. The SDK default.
  *
  * Tool author writes MRTR-native code. Pre-MRTR clients get a tool-level
- * error: "this tool requires a newer client." No shim, no dual path, no
- * SSE infrastructure used even though it's available.
+ * error for *this tool*: "requires a newer client." The server itself
+ * works fine — version negotiation succeeds, tools/list is complete, every
+ * other tool on the server is unaffected. Only elicitation is unavailable.
  *
  * Author experience: one code path, trivially understood. The version check
  * is one line at the top; everything below it is plain MRTR.
  *
- * This is the position staked in comment 4083481545: "I'd argue for graceful
- * degradation instead." The server is perfectly 2025-11-compliant — it just
- * happens not to use the client's declared `elicitation: {}` capability,
- * which is something servers are already allowed to do.
+ * This is the only option that works on horizontally-scaled (MRTR-only)
+ * infra, and it's also correct on SSE-capable infra — the rows of the
+ * quadrant collapse here. That's why it's the default: a server adopting
+ * the new SDK gets this behaviour without asking for it. A/C/D are opt-in
+ * for servers that want to carry SSE infra through the transition.
  *
- * The cost is the obvious one: an old client that *could* have been served
- * (server holds SSE, client declared elicitation) isn't. Whether that's
- * acceptable is a product call, not an SDK one. For most tools — pure
- * request/response, no elicitation — this option and all the others are
- * identical. The difference only shows for the minority of tools that
- * actually elicit.
+ * Matches the position in comment 4083481545: the server is perfectly
+ * 2025-11-compliant; it just doesn't use the client's declared
+ * `elicitation: {}` capability. Servers are already allowed to do that —
+ * no spec change, no new capability flags, no negotiation.
  *
  * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/optionEDegradeOnly.ts
  *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/optionEDegradeOnly.ts

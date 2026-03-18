@@ -15,12 +15,13 @@ nothing to choose.
 
 ## The quadrant
 
-| Server infra | 2025-11 client            | 2026-06 client |
-| ------------ | ------------------------- | -------------- |
-| Can hold SSE | **← options A–E**         | just use MRTR  |
-| MRTR-only    | tool fails (unresolvable) | just use MRTR  |
+| Server infra                    | 2025-11 client                    | 2026-06 client |
+| ------------------------------- | --------------------------------- | -------------- |
+| Can hold SSE                    | E by default; A/C/D if you opt in | MRTR           |
+| MRTR-only (horizontally scaled) | E by necessity                    | MRTR           |
 
-Bottom-left is discounted: no amount of SDK work fills it when the server infra can't hold SSE. These demos are about whether the top-left is worth filling, and if so, how.
+In both rows the server _works_ for old clients — version negotiation succeeds, `tools/list` is complete, tools that don't elicit are unaffected. Only elicitation inside a tool is unavailable. Bottom-left isn't "unresolvable"; it's "E is the only option." Top-left is "E, unless
+you choose to carry SSE infra." The rows collapse for E, which is the argument for making it the SDK default.
 
 ## Options
 
@@ -45,6 +46,9 @@ For the reverse direction — new client SDK connecting to an old server — see
 writes (one `handleElicitation` function, one registration, one tool call); [`sdkLib.ts`](./client/src/mrtr-dual-path/sdkLib.ts) is the retry loop + `IncompleteResult` parsing the SDK would ship. The app file is small on purpose — the delta from today's client code is zero.
 
 ## Trade-offs
+
+**E is the SDK-default position.** A horizontally scaled server gets E for free — it's the only thing that works on that infra. A server that can hold SSE also gets E by default, and opts into A/C/D only if serving old-client elicitation is worth the extra infra dependency. That
+reframes A/C/D from "ways to fill the top-left" to "opt-in exceptions for servers that choose to carry SSE through the transition."
 
 **A vs E** is the core tension. Same author-facing code (MRTR-native), the only difference is whether old clients get served. A requires shipping and maintaining `sseRetryShim` in the SDK; E requires shipping nothing. A also carries a deployment-time hazard E doesn't: the shim
 calls real SSE under the hood, so if the SDK ships it and someone uses it on MRTR-only infra, it fails at runtime when an old client connects — a constraint that lives nowhere near the tool code. E fails predictably (same error every time, from the first test); A fails only when
