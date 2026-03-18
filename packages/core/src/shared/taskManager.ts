@@ -32,9 +32,52 @@ import {
     TaskStatusNotificationSchema
 } from '../types/types.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
-import type { NotificationOptions, RequestOptions } from './protocol.js';
-import type { InboundContext, InboundResult, ProtocolModule, ProtocolModuleHost } from './protocolModule.js';
+import type { BaseContext, NotificationOptions, RequestOptions } from './protocol.js';
 import type { ResponseMessage } from './responseMessage.js';
+
+/**
+ * Host interface for TaskManager to call back into Protocol. @internal
+ */
+export interface TaskManagerHost {
+    request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
+    notification(notification: Notification, options?: NotificationOptions): Promise<void>;
+    reportError(error: Error): void;
+    removeProgressHandler(token: number): void;
+    registerHandler(method: string, handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>): void;
+    sendOnResponseStream(message: JSONRPCNotification | JSONRPCRequest, relatedRequestId: RequestId): Promise<void>;
+}
+
+/**
+ * Context provided to TaskManager when processing an inbound request.
+ * @internal
+ */
+export interface InboundContext {
+    sessionId?: string;
+    sendNotification: (notification: Notification, options?: NotificationOptions) => Promise<void>;
+    sendRequest: <U extends AnySchema>(request: Request, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
+}
+
+/**
+ * Result returned by TaskManager after processing an inbound request.
+ * @internal
+ */
+export interface InboundResult {
+    taskContext?: BaseContext['task'];
+    sendNotification: (notification: Notification) => Promise<void>;
+    sendRequest: <U extends AnySchema>(
+        request: Request,
+        resultSchema: U,
+        options?: Omit<RequestOptions, 'relatedTask'>
+    ) => Promise<SchemaOutput<U>>;
+    routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean>;
+    hasTaskCreationParams: boolean;
+    /**
+     * Optional validation to run inside the async handler chain (before the request handler).
+     * Throwing here produces a proper JSON-RPC error response, matching the behavior of
+     * capability checks on main.
+     */
+    validateInbound?: () => void;
+}
 
 /**
  * Options that can be given per request.
@@ -151,13 +194,13 @@ export type TaskManagerOptions = {
  * Capability checking is provided via optional constructor callbacks.
  * @internal
  */
-export class TaskManager implements ProtocolModule {
+export class TaskManager {
     private _taskStore?: TaskStore;
     private _taskMessageQueue?: TaskMessageQueue;
     private _taskProgressTokens: Map<string, number> = new Map();
     private _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _options: TaskManagerOptions;
-    private _host?: ProtocolModuleHost;
+    private _host?: TaskManagerHost;
 
     constructor(options: TaskManagerOptions) {
         this._options = options;
@@ -165,7 +208,7 @@ export class TaskManager implements ProtocolModule {
         this._taskMessageQueue = options.taskMessageQueue;
     }
 
-    bind(host: ProtocolModuleHost): void {
+    bind(host: TaskManagerHost): void {
         this._host = host;
 
         if (this._taskStore) {
@@ -200,7 +243,7 @@ export class TaskManager implements ProtocolModule {
         }
     }
 
-    private get _requireHost(): ProtocolModuleHost {
+    private get _requireHost(): TaskManagerHost {
         if (!this._host) {
             throw new ProtocolError(ProtocolErrorCode.InternalError, 'TaskManager is not bound to a Protocol host — call bind() first');
         }
@@ -670,7 +713,7 @@ export class TaskManager implements ProtocolModule {
         };
     }
 
-    // -- Consolidated lifecycle methods (called by Protocol via ProtocolModule) --
+    // -- Lifecycle methods (called by Protocol directly) --
 
     processInboundRequest(request: JSONRPCRequest, ctx: InboundContext): InboundResult {
         const taskInfo = this.extractInboundTaskContext(request, ctx.sessionId);
@@ -813,5 +856,43 @@ export class TaskManager implements ProtocolModule {
             this._host?.removeProgressHandler(progressToken);
             this._taskProgressTokens.delete(taskId);
         }
+    }
+}
+
+/**
+ * No-op TaskManager used when tasks capability is not configured.
+ * Provides passthrough implementations for the hot paths, avoiding
+ * unnecessary task extraction logic on every request.
+ */
+export class NullTaskManager extends TaskManager {
+    constructor() {
+        super({});
+    }
+
+    override processInboundRequest(_request: JSONRPCRequest, ctx: InboundContext): InboundResult {
+        return {
+            taskContext: undefined,
+            sendNotification: (notification: Notification) => ctx.sendNotification(notification),
+            sendRequest: ctx.sendRequest,
+            routeResponse: async () => false,
+            hasTaskCreationParams: false
+        };
+    }
+
+    // processOutboundRequest is inherited - it handles task/relatedTask augmentation
+    // and only queues if relatedTask is set (which won't happen without a task store)
+
+    // processInboundResponse is inherited - it checks _requestResolvers (empty for NullTaskManager)
+    // and _taskProgressTokens (empty for NullTaskManager)
+
+    override async processOutboundNotification(
+        notification: Notification,
+        _options?: NotificationOptions
+    ): Promise<{ queued: boolean; jsonrpcNotification?: JSONRPCNotification }> {
+        return { queued: false, jsonrpcNotification: { ...notification, jsonrpc: '2.0' } };
+    }
+
+    override onClose(): void {
+        // No-op
     }
 }

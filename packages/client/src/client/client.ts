@@ -56,6 +56,7 @@ import {
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
+    NullTaskManager,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -147,7 +148,7 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
  * The runtime-only fields are stripped before advertising capabilities to servers.
  */
 export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> &
-    Pick<TaskManagerOptions, 'taskStore' | 'taskMessageQueue'>;
+    Pick<TaskManagerOptions, 'taskStore' | 'taskMessageQueue' | 'defaultTaskPollInterval' | 'maxTaskQueueSize'>;
 
 export type ClientOptions = ProtocolOptions & {
     /**
@@ -215,7 +216,7 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
-    private _taskModule?: TaskManager;
+    private _taskModule: TaskManager;
 
     /**
      * Initializes this client with the given name and version information.
@@ -229,21 +230,26 @@ export class Client extends Protocol<ClientContext> {
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
 
-        // If tasks capability is declared, create and register the task module
+        // Always create TaskManager (NullTaskManager pattern for streaming support)
         if (options?.capabilities?.tasks) {
-            const { taskStore, taskMessageQueue, ...wireCapabilities } = options.capabilities.tasks;
+            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
+                options.capabilities.tasks;
             // Strip runtime-only config from advertised capabilities
             this._capabilities.tasks = wireCapabilities;
             this._taskModule = new TaskManager({
                 taskStore,
                 taskMessageQueue,
+                defaultTaskPollInterval,
+                maxTaskQueueSize,
                 enforceStrictCapabilities: options?.enforceStrictCapabilities,
                 assertTaskCapability: method => assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server'),
                 assertTaskHandlerCapability: method =>
                     assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client')
             });
-            this.registerModule(this._taskModule);
+        } else {
+            this._taskModule = new NullTaskManager();
         }
+        this.setTaskManager(this._taskModule);
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -252,9 +258,9 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Access the task module, if tasks capability is configured.
+     * Access the task module.
      */
-    get taskModule(): TaskManager | undefined {
+    get taskModule(): TaskManager {
         return this._taskModule;
     }
 

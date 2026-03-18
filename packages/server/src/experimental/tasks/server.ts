@@ -43,11 +43,7 @@ export class ExperimentalServerTasks {
     constructor(private readonly _server: Server) {}
 
     private get _module() {
-        const module = this._server.taskModule;
-        if (!module) {
-            throw new Error('Tasks capability is not configured. Declare tasks in capabilities to use task features.');
-        }
-        return module;
+        return this._server.taskModule;
     }
 
     /**

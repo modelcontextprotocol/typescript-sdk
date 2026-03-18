@@ -48,11 +48,7 @@ export class ExperimentalClientTasks {
     constructor(private readonly _client: Client) {}
 
     private get _module() {
-        const module = this._client.taskModule;
-        if (!module) {
-            throw new Error('Tasks capability is not configured. Declare tasks in capabilities to use task features.');
-        }
-        return module;
+        return this._client.taskModule;
     }
 
     /**

@@ -47,8 +47,7 @@ import {
 } from '../types/types.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
-import type { ProtocolModule, ProtocolModuleHost } from './protocolModule.js';
-import type { TaskContext, TaskRequestOptions } from './taskManager.js';
+import type { TaskContext, TaskManager, TaskManagerHost, TaskRequestOptions } from './taskManager.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -301,7 +300,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
-    private _modules: ProtocolModule[] = [];
+    private _taskManager?: TaskManager;
 
     protected _supportedProtocolVersions: string[];
 
@@ -348,24 +347,29 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Registers a ProtocolModule that hooks into the message lifecycle.
-     * The module is bound to this Protocol and can register handlers, send messages, etc.
+     * Sets the TaskManager that hooks into the message lifecycle.
+     * The TaskManager is bound to this Protocol and can register handlers, send messages, etc.
      */
-    protected registerModule(module: ProtocolModule): void {
-        this._modules.push(module);
-        const host: ProtocolModuleHost = {
+    protected setTaskManager(taskManager: TaskManager): void {
+        this._taskManager = taskManager;
+        const host: TaskManagerHost = {
             request: (request, resultSchema, options) => this._requestWithSchema(request, resultSchema, options),
             notification: (notification, options) => this.notification(notification, options),
             reportError: error => this._onerror(error),
             removeProgressHandler: token => this._progressHandlers.delete(token),
             registerHandler: (method, handler) => {
-                this._requestHandlers.set(method, (request, ctx) => handler(request, ctx));
+                const schema = getRequestSchema(method as RequestMethod);
+                this._requestHandlers.set(method, (request, ctx) => {
+                    // Validate request params via Zod (strips jsonrpc/id, so we pass original to handler)
+                    schema.parse(request);
+                    return handler(request, ctx);
+                });
             },
             sendOnResponseStream: async (message, relatedRequestId) => {
                 await this._transport?.send(message, { relatedRequestId });
             }
         };
-        module.bind(host);
+        taskManager.bind(host);
     }
 
     /**
@@ -469,9 +473,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
-        for (const module of this._modules) {
-            module.onClose();
-        }
+        this._taskManager?.onClose();
         this._pendingDebouncedNotifications.clear();
 
         const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
@@ -523,37 +525,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
         let sendRequest = inboundCtx.sendRequest;
         let routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean> = _noopRouteResponse;
         let taskContext: BaseContext['task'] | undefined;
-        let hasTaskCreationParams = false;
         const validators: Array<() => void> = [];
 
-        for (const module of this._modules) {
-            const moduleResult = module.processInboundRequest(request, inboundCtx);
-
-            // Chain sendNotification/sendRequest wrappers
-            sendNotification = moduleResult.sendNotification;
-            sendRequest = moduleResult.sendRequest;
-
-            // Last non-undefined taskContext wins
-            if (moduleResult.taskContext !== undefined) {
-                taskContext = moduleResult.taskContext;
-            }
-
-            // OR for hasTaskCreationParams
-            hasTaskCreationParams = hasTaskCreationParams || moduleResult.hasTaskCreationParams;
-
-            // Collect deferred validations (e.g., assertTaskHandlerCapability) to run
-            // inside the async handler chain so errors produce proper JSON-RPC error responses.
-            if (moduleResult.validateInbound) {
-                validators.push(moduleResult.validateInbound);
-            }
-
-            // Compose routeResponse as OR-chain (first returning true wins)
-            const prevRouteResponse = routeResponse;
-            const moduleRouteResponse = moduleResult.routeResponse;
-            routeResponse = async (message: JSONRPCResponse | JSONRPCErrorResponse) => {
-                if (await prevRouteResponse(message)) return true;
-                return moduleRouteResponse(message);
-            };
+        if (this._taskManager) {
+            const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
+            sendNotification = taskResult.sendNotification;
+            sendRequest = taskResult.sendRequest;
+            if (taskResult.taskContext !== undefined) taskContext = taskResult.taskContext;
+            if (taskResult.validateInbound) validators.push(taskResult.validateInbound);
+            routeResponse = taskResult.routeResponse;
         }
 
         if (handler === undefined) {
@@ -688,15 +668,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
 
-        // Delegate to modules for task-related response handling
+        // Delegate to TaskManager for task-related response handling
         let preserveProgress = false;
-        for (const module of this._modules) {
-            const moduleResult = module.processInboundResponse(response, messageId);
-            if (moduleResult.consumed) {
-                return;
-            }
-            // OR preserveProgress across non-consuming modules
-            preserveProgress = preserveProgress || moduleResult.preserveProgress;
+        if (this._taskManager) {
+            const taskResult = this._taskManager.processInboundResponse(response, messageId);
+            if (taskResult.consumed) return;
+            preserveProgress = taskResult.preserveProgress;
         }
 
         const handler = this._responseHandlers.get(messageId);
@@ -885,14 +862,27 @@ export abstract class Protocol<ContextT extends BaseContext> {
             };
 
             let outboundQueued = false;
-            for (const module of this._modules) {
-                const moduleResult = module.processOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, error => {
+            if (this._taskManager) {
+                try {
+                    const taskResult = this._taskManager.processOutboundRequest(
+                        jsonrpcRequest,
+                        options,
+                        messageId,
+                        responseHandler,
+                        error => {
+                            this._cleanupTimeout(messageId);
+                            reject(error);
+                        }
+                    );
+                    if (taskResult.queued) {
+                        outboundQueued = true;
+                    }
+                } catch (error) {
+                    this._responseHandlers.delete(messageId);
+                    this._progressHandlers.delete(messageId);
                     this._cleanupTimeout(messageId);
                     reject(error);
-                });
-                if (moduleResult.queued) {
-                    outboundQueued = true;
-                    break;
+                    return;
                 }
             }
 
@@ -920,18 +910,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         let queued = false;
         let jsonrpcNotification: JSONRPCNotification | undefined;
 
-        if (this._modules.length > 0) {
-            for (const module of this._modules) {
-                const result = await module.processOutboundNotification(notification, options);
-                if (result.queued) {
-                    queued = true;
-                    break;
-                }
-                // Last module's jsonrpcNotification is used
-                jsonrpcNotification = result.jsonrpcNotification;
+        if (this._taskManager) {
+            const taskResult = await this._taskManager.processOutboundNotification(notification, options);
+            if (taskResult.queued) {
+                queued = true;
+            } else {
+                jsonrpcNotification = taskResult.jsonrpcNotification;
             }
         } else {
-            // No modules — build JSONRPC notification directly
             jsonrpcNotification = { ...notification, jsonrpc: '2.0' };
         }
 
