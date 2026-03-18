@@ -33,6 +33,9 @@ None. All five options present identical wire behaviour to each client version. 
 in every case. The server's internal choice doesn't leak. This is the cleanest argument against per-feature `-mrtr` capability flags: there's nothing for them to signal, because the client's behaviour is already fully determined by `protocolVersion` plus the existing
 `elicitation`/`sampling` capabilities.
 
+For the reverse direction — new client SDK connecting to an old server — see [`examples/client/src/mrtr-dual-path/clientDualPath.ts`](../../../client/src/mrtr-dual-path/clientDualPath.ts). One user-supplied `handleElicitation` function serves both the SSE push path and the MRTR
+retry loop; the SDK routes to it. No A/B/C/D/E split because there's only one sensible shape.
+
 ## Trade-offs
 
 **A vs E** is the core tension. Same author-facing code (MRTR-native), the only difference is whether old clients get served. A requires shipping and maintaining `sseRetryShim` in the SDK; E requires shipping nothing. A also carries a deployment-time hazard E doesn't: the shim
