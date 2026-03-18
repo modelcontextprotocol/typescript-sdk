@@ -113,7 +113,16 @@ export type MrtrHandler<TArgs> = (args: TArgs, mrtr: MrtrParams, ctx: ServerCont
  *
  * This is the "⚠️ clunky but possible" shim from the comment's matrix. The
  * tool author doesn't see the loop; they write MRTR-native code and it
- * transparently works for old clients too (if server infra holds SSE).
+ * transparently works for old clients too.
+ *
+ * This is only valid on server infra that can actually hold SSE — the
+ * `ctx.mcpReq.elicitInput()` call below is a real SSE round-trip. On a
+ * horizontally-scaled deployment that can't (the whole reason to adopt
+ * MRTR in the first place), this shim fails at runtime when an old client
+ * connects — the elicit goes out on a stream the LB has already dropped,
+ * or was never held open. Nothing at registration time catches that; it's
+ * a deployment-time constraint living far from the tool code. If that's
+ * the deployment, use option E instead.
  *
  * Hidden cost: the handler is silently re-invoked. The MRTR shape makes that
  * safe *by construction* (re-entry point is explicit — the `if (!prefs)`

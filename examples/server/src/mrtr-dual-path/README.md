@@ -27,10 +27,17 @@ Bottom-left is discounted: no amount of SDK work fills it when the server infra 
 "Hidden re-entry" = the handler function is invoked more than once for a single logical tool call, and the author can't tell from the source text. A is safe because MRTR-native code has the re-entry guard (`if (!prefs) return`) visible in the source even though the _loop_ is
 hidden. B is unsafe because `await elicit()` looks like a suspension point but is actually a re-entry point on MRTR sessions — see the `auditLog` landmine in that file.
 
+## Client impact
+
+None. All five options present identical wire behaviour to each client version. A 2025-11 client sees either a standard `elicitation/create` over SSE (A/B/C/D) or a `CallToolResult` with `isError: true` (E) — both vanilla 2025-11 shapes. A 2026-06 client sees `IncompleteResult`
+in every case. The server's internal choice doesn't leak. This is the cleanest argument against per-feature `-mrtr` capability flags: there's nothing for them to signal, because the client's behaviour is already fully determined by `protocolVersion` plus the existing
+`elicitation`/`sampling` capabilities.
+
 ## Trade-offs
 
-**A vs E** is the core tension. Same author-facing code (MRTR-native), the only difference is whether old clients get served. A requires shipping and maintaining `sseRetryShim` in the SDK; E requires shipping nothing. If elicitation-using tools are rare and old clients upgrade on
-a reasonable timeline, E's cost (a few tools error for a few months) is lower than A's cost (permanent SDK machinery).
+**A vs E** is the core tension. Same author-facing code (MRTR-native), the only difference is whether old clients get served. A requires shipping and maintaining `sseRetryShim` in the SDK; E requires shipping nothing. A also carries a deployment-time hazard E doesn't: the shim
+calls real SSE under the hood, so if the SDK ships it and someone uses it on MRTR-only infra, it fails at runtime when an old client connects — a constraint that lives nowhere near the tool code. E fails predictably (same error every time, from the first test); A fails only when
+old client + wrong infra coincide.
 
 **B** is the zero-migration option. Every existing `await ctx.elicitInput()` handler keeps working. The hidden re-entry on MRTR sessions is the price: a handler that does anything non-idempotent above the await is broken, and nothing warns you. Only safe if you can enforce "no
 side effects before await" as a lint rule, which is hard in practice.
