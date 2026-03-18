@@ -481,13 +481,14 @@ export class Client<
     }
 
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
-        await super.connect(transport);
-        // When transport sessionId is already set this means we are trying to reconnect.
-        // In this case we don't need to initialize again.
-        if (transport.sessionId !== undefined) {
-            return;
-        }
         try {
+            await super.connect(transport);
+            // When transport sessionId is already set this means we are trying to reconnect.
+            // In this case we don't need to initialize again.
+            if (transport.sessionId !== undefined) {
+                return;
+            }
+
             const result = await this.request(
                 {
                     method: 'initialize',

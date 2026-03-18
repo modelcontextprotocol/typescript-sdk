@@ -56,8 +56,8 @@ export type ShapeOutput<Shape extends ZodRawShapeCompat> = {
 // --- Runtime detection ---
 export function isZ4Schema(s: AnySchema): s is z4.$ZodType {
     // Present on Zod 4 (Classic & Mini) schemas; absent on Zod 3
-    const schema = s as unknown as ZodV4Internal;
-    return !!schema._zod;
+    const schema = s as unknown as ZodV4Internal | undefined;
+    return !!schema?._zod;
 }
 
 // --- Schema construction ---
@@ -79,6 +79,9 @@ export function safeParse<S extends AnySchema>(
     schema: S,
     data: unknown
 ): { success: true; data: SchemaOutput<S> } | { success: false; error: unknown } {
+    if ('safeParse' in schema && typeof schema.safeParse === 'function') {
+        return schema.safeParse(data);
+    }
     if (isZ4Schema(schema)) {
         // Mini exposes top-level safeParse
         const result = z4mini.safeParse(schema, data);
@@ -93,6 +96,9 @@ export async function safeParseAsync<S extends AnySchema>(
     schema: S,
     data: unknown
 ): Promise<{ success: true; data: SchemaOutput<S> } | { success: false; error: unknown }> {
+    if ('safeParseAsync' in schema && typeof schema.safeParseAsync === 'function') {
+        return await schema.safeParseAsync(data);
+    }
     if (isZ4Schema(schema)) {
         // Mini exposes top-level safeParseAsync
         const result = await z4mini.safeParseAsync(schema, data);

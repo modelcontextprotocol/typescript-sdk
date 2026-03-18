@@ -1040,7 +1040,7 @@ describe('Task Lifecycle Integration Tests', () => {
                     method: 'tasks/cancel',
                     params: { taskId }
                 },
-                z.object({ _meta: z.record(z.unknown()).optional() })
+                z.object({ _meta: z.record(z.string(), z.unknown()).optional() })
             );
 
             // Verify task is cancelled

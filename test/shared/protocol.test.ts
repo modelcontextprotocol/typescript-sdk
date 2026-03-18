@@ -2086,7 +2086,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             let wasAborted = false;
             const TestRequestSchema = z.object({
                 method: z.literal('test/longRunning'),
-                params: z.optional(z.record(z.unknown()))
+                params: z.optional(z.record(z.string(), z.unknown()))
             });
             protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
                 // Simulate a long-running operation
@@ -2301,7 +2301,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
             let requestCompleted = false;
             const TestMethodSchema = z.object({
                 method: z.literal('test/method'),
-                params: z.optional(z.record(z.unknown()))
+                params: z.optional(z.record(z.string(), z.unknown()))
             });
             protocol.setRequestHandler(TestMethodSchema, async () => {
                 await new Promise(resolve => setTimeout(resolve, 50));
@@ -3681,7 +3681,7 @@ describe('Message Interception', () => {
                 method: z.literal('test/taskRequest'),
                 params: z
                     .object({
-                        _meta: z.optional(z.record(z.unknown()))
+                        _meta: z.optional(z.record(z.string(), z.unknown()))
                     })
                     .passthrough()
             });
@@ -3728,7 +3728,7 @@ describe('Message Interception', () => {
                 method: z.literal('test/taskRequestError'),
                 params: z
                     .object({
-                        _meta: z.optional(z.record(z.unknown()))
+                        _meta: z.optional(z.record(z.string(), z.unknown()))
                     })
                     .passthrough()
             });
@@ -3808,7 +3808,7 @@ describe('Message Interception', () => {
             // Set up a request handler
             const TestRequestSchema = z.object({
                 method: z.literal('test/normalRequest'),
-                params: z.optional(z.record(z.unknown()))
+                params: z.optional(z.record(z.string(), z.unknown()))
             });
 
             protocol.setRequestHandler(TestRequestSchema, async () => {

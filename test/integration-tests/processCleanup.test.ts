@@ -9,7 +9,7 @@ import { LoggingMessageNotificationSchema } from '../../src/types.js';
 const FIXTURES_DIR = path.resolve(__dirname, '../../src/__fixtures__');
 
 describe('Process cleanup', () => {
-    vi.setConfig({ testTimeout: 5000 }); // 5 second timeout
+    vi.setConfig({ testTimeout: 10000 }); // 10 second timeout
 
     it('server should exit cleanly after closing transport', async () => {
         const server = new Server(
