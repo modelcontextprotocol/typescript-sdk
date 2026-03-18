@@ -24,9 +24,66 @@ export type SchemaOutput<T extends AnySchema> = z.output<T>;
 
 /**
  * Converts a Zod schema to JSON Schema.
+ *
+ * This function ensures that object schemas always include the `required` field,
+ * even when empty. This is necessary for compatibility with OpenAI's strict
+ * JSON schema mode, which requires `required` to always be present.
+ *
+ * @see https://github.com/modelcontextprotocol/typescript-sdk/issues/1659
  */
 export function schemaToJson(schema: AnySchema, options?: { io?: 'input' | 'output' }): Record<string, unknown> {
-    return z.toJSONSchema(schema, options) as Record<string, unknown>;
+    const jsonSchema = z.toJSONSchema(schema, options) as Record<string, unknown>;
+    return ensureRequiredField(jsonSchema);
+}
+
+/**
+ * Recursively ensures that all object schemas have a `required` field.
+ * This is needed for OpenAI strict JSON schema compatibility.
+ */
+function ensureRequiredField(schema: Record<string, unknown>): Record<string, unknown> {
+    // If this is an object type without a required field, add an empty one
+    if (schema.type === 'object' && !('required' in schema)) {
+        schema.required = [];
+    }
+
+    // Process nested properties recursively
+    if (schema.properties && typeof schema.properties === 'object') {
+        for (const key of Object.keys(schema.properties)) {
+            const prop = (schema.properties as Record<string, unknown>)[key];
+            if (prop && typeof prop === 'object') {
+                (schema.properties as Record<string, unknown>)[key] = ensureRequiredField(prop as Record<string, unknown>);
+            }
+        }
+    }
+
+    // Process additionalProperties if it's a schema
+    if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+        schema.additionalProperties = ensureRequiredField(schema.additionalProperties as Record<string, unknown>);
+    }
+
+    // Process items for arrays
+    if (schema.items && typeof schema.items === 'object') {
+        schema.items = ensureRequiredField(schema.items as Record<string, unknown>);
+    }
+
+    // Process allOf, anyOf, oneOf
+    for (const combiner of ['allOf', 'anyOf', 'oneOf'] as const) {
+        if (Array.isArray(schema[combiner])) {
+            schema[combiner] = (schema[combiner] as Record<string, unknown>[]).map(s => ensureRequiredField(s));
+        }
+    }
+
+    // Process $defs for referenced schemas
+    if (schema.$defs && typeof schema.$defs === 'object') {
+        for (const key of Object.keys(schema.$defs)) {
+            const def = (schema.$defs as Record<string, unknown>)[key];
+            if (def && typeof def === 'object') {
+                (schema.$defs as Record<string, unknown>)[key] = ensureRequiredField(def as Record<string, unknown>);
+            }
+        }
+    }
+
+    return schema;
 }
 
 /**
