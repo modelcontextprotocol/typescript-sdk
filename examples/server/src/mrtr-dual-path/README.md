@@ -5,10 +5,10 @@ the diff between files is the argument.
 
 ## What to look at
 
-| Direction                   | Where                                                                                          | How many options                                                    |
-| --------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| **Old client → new server** | [`optionA`](./optionAShimMrtrCanonical.ts)–[`optionE`](./optionEDegradeOnly.ts) in this folder | Five — server handler shape is genuinely contested                  |
-| **New client → old server** | [`clientDualPath.ts`](../../../client/src/mrtr-dual-path/clientDualPath.ts)                    | One — handler signature is identical on both paths, SDK just routes |
+| Direction                   | Where                                                                                                                                                                      | How many options                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Old client → new server** | [`optionA`](./optionAShimMrtrCanonical.ts)–[`optionE`](./optionEDegradeOnly.ts) in this folder                                                                             | Five — server handler shape is genuinely contested                  |
+| **New client → old server** | [`clientDualPath.ts`](../../../client/src/mrtr-dual-path/clientDualPath.ts) (app, ~55 lines) + [`sdkLib.ts`](../../../client/src/mrtr-dual-path/sdkLib.ts) (SDK machinery) | One — handler signature is identical on both paths, SDK just routes |
 
 The asymmetry is real: the server-side control flow changes between SSE-elicit (`await` inline) and MRTR (`return IncompleteResult`), so there are trade-offs to argue about. The client-side handler shape is the same either way (`(params) => Promise<ElicitResult>`), so there's
 nothing to choose.
@@ -41,8 +41,9 @@ None. All five options present identical wire behaviour to each client version. 
 in every case. The server's internal choice doesn't leak. This is the cleanest argument against per-feature `-mrtr` capability flags: there's nothing for them to signal, because the client's behaviour is already fully determined by `protocolVersion` plus the existing
 `elicitation`/`sampling` capabilities.
 
-For the reverse direction — new client SDK connecting to an old server — see [`examples/client/src/mrtr-dual-path/clientDualPath.ts`](../../../client/src/mrtr-dual-path/clientDualPath.ts). One user-supplied `handleElicitation` function serves both the SSE push path and the MRTR
-retry loop; the SDK routes to it. No A/B/C/D/E split because there's only one sensible shape.
+For the reverse direction — new client SDK connecting to an old server — see `examples/client/src/mrtr-dual-path/`. Split into two files to make the boundary explicit: [`clientDualPath.ts`](../../../client/src/mrtr-dual-path/clientDualPath.ts) is ~55 lines of what the app
+developer writes (one `handleElicitation` function, one registration, one tool call); [`sdkLib.ts`](../../../client/src/mrtr-dual-path/sdkLib.ts) is the retry loop + `IncompleteResult` parsing the SDK would ship. The app file is small on purpose — the delta from today's client
+code is zero.
 
 ## Trade-offs
 
