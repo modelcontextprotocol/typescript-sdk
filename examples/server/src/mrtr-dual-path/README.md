@@ -16,13 +16,13 @@ Bottom-left is discounted: no amount of SDK work fills it when the server infra 
 
 ## Options
 
-|                                 | Author writes                   | SDK does                       | Hidden re-entry                             | Old client gets                 |
-| ------------------------------- | ------------------------------- | ------------------------------ | ------------------------------------------- | ------------------------------- |
-| [A](./shimMrtrCanonical.ts)     | MRTR-native only                | Emulates retry loop over SSE   | Yes, but safe (guard is explicit in source) | Full elicitation                |
-| [B](./shimAwaitCanonical.ts)    | `await elicit()` only           | Exception → `IncompleteResult` | Yes, **unsafe** (invisible in source)       | Full elicitation                |
-| [C](./explicitVersionBranch.ts) | One handler, `if (mrtr)` branch | Version accessor               | No                                          | Full elicitation                |
-| [D](./dualRegistration.ts)      | Two handlers                    | Picks by version               | No                                          | Full elicitation                |
-| [E](./degradeOnly.ts)           | MRTR-native only                | Nothing                        | No                                          | Error ("requires newer client") |
+|                                        | Author writes                   | SDK does                       | Hidden re-entry                             | Old client gets                 |
+| -------------------------------------- | ------------------------------- | ------------------------------ | ------------------------------------------- | ------------------------------- |
+| [A](./optionAShimMrtrCanonical.ts)     | MRTR-native only                | Emulates retry loop over SSE   | Yes, but safe (guard is explicit in source) | Full elicitation                |
+| [B](./optionBShimAwaitCanonical.ts)    | `await elicit()` only           | Exception → `IncompleteResult` | Yes, **unsafe** (invisible in source)       | Full elicitation                |
+| [C](./optionCExplicitVersionBranch.ts) | One handler, `if (mrtr)` branch | Version accessor               | No                                          | Full elicitation                |
+| [D](./optionDDualRegistration.ts)      | Two handlers                    | Picks by version               | No                                          | Full elicitation                |
+| [E](./optionEDegradeOnly.ts)           | MRTR-native only                | Nothing                        | No                                          | Error ("requires newer client") |
 
 "Hidden re-entry" = the handler function is invoked more than once for a single logical tool call, and the author can't tell from the source text. A is safe because MRTR-native code has the re-entry guard (`if (!prefs) return`) visible in the source even though the _loop_ is
 hidden. B is unsafe because `await elicit()` looks like a suspension point but is actually a re-entry point on MRTR sessions — see the `auditLog` landmine in that file.
@@ -45,8 +45,8 @@ the dual-path burden on the tool author rather than the SDK.
 All demos use `DEMO_PROTOCOL_VERSION` to simulate the negotiated version, since the real SDK doesn't surface it to handlers yet:
 
 ```sh
-DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/shimMrtrCanonical.ts
-DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/shimMrtrCanonical.ts
+DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/optionAShimMrtrCanonical.ts
+DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/optionAShimMrtrCanonical.ts
 ```
 
 `IncompleteResult` is smuggled through the current `registerTool` signature as a JSON text block (same hack as #1597). A real implementation emits `JSONRPCIncompleteResultResponse` at the protocol layer — see `shims.ts:wrap()`.

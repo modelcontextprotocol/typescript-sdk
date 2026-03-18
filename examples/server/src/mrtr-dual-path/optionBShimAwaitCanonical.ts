@@ -20,8 +20,8 @@
  * bucket-1" follow-up #1597's README raised. It works for idempotent
  * handlers. It breaks silently for everything else.
  *
- * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/shimAwaitCanonical.ts
- *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/shimAwaitCanonical.ts
+ * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/optionBShimAwaitCanonical.ts
+ *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/optionBShimAwaitCanonical.ts
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/server';

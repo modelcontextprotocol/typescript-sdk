@@ -20,8 +20,8 @@
  * This is the other reading of "have clients implement both paths" — the
  * two paths are separate functions, not branches.
  *
- * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/dualRegistration.ts
- *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/dualRegistration.ts
+ * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/optionDDualRegistration.ts
+ *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/optionDDualRegistration.ts
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/server';

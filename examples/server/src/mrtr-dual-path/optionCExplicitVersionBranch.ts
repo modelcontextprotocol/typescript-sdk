@@ -18,8 +18,8 @@
  * This is one reading of "have clients implement both paths (i.e. not
  * something we hide in the SDK)" from the thread.
  *
- * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/explicitVersionBranch.ts
- *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/explicitVersionBranch.ts
+ * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/optionCExplicitVersionBranch.ts
+ *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/optionCExplicitVersionBranch.ts
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/server';

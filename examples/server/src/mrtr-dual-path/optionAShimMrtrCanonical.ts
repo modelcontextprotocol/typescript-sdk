@@ -18,8 +18,8 @@
  * rounds, or does something expensive before the guard, the author won't
  * find out until an old client connects in prod. It works, but it's magic.
  *
- * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/shimMrtrCanonical.ts
- *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/shimMrtrCanonical.ts
+ * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/optionAShimMrtrCanonical.ts
+ *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/optionAShimMrtrCanonical.ts
  */
 
 import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';

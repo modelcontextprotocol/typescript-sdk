@@ -20,8 +20,8 @@
  * identical. The difference only shows for the minority of tools that
  * actually elicit.
  *
- * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/degradeOnly.ts
- *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/degradeOnly.ts
+ * Run: DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx src/mrtr-dual-path/optionEDegradeOnly.ts
+ *      DEMO_PROTOCOL_VERSION=2026-06 pnpm tsx src/mrtr-dual-path/optionEDegradeOnly.ts
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/server';

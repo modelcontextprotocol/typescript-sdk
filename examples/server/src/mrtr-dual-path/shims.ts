@@ -75,7 +75,7 @@ export const MRTR_MIN_VERSION: ProtocolVersion = '2026-06';
 /**
  * Stand-in for `ctx.protocolVersion` or similar.
  *
- * Drive with `DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx shimMrtrCanonical.ts` to simulate
+ * Drive with `DEMO_PROTOCOL_VERSION=2025-11 pnpm tsx optionAShimMrtrCanonical.ts` to simulate
  * an old-client session against the same handler code.
  */
 export function negotiatedVersion(): ProtocolVersion {
