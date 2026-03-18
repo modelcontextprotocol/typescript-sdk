@@ -47,18 +47,28 @@ server.registerTool(
     },
     async ({ location, _mrtr }): Promise<CallToolResult> => {
         // ───────────────────────────────────────────────────────────────────
-        // This guard is the entire top-left-quadrant story.
+        // Pre-MRTR session: elicitation unavailable. Tool author chooses
+        // what that means for *this* tool — not the SDK, not the spec.
         //
-        // Real SDK could surface this as a registration-time declaration
-        // (`requiresMrtr: true`) so the check doesn't live in every handler
-        // — or even filter the tool out of `tools/list` for old clients,
-        // per gjz22's SEP-1442 tie-in. Either way, no SSE code path.
+        // For weather, unit preference is nice-to-have. Defaulting to
+        // metric and returning the answer is a better old-client
+        // experience than "upgrade to check the weather."
+        //
+        // For a tool where the elicitation is essential — confirm a
+        // destructive action, collect required auth — error instead:
+        //
+        //   return errorResult(
+        //     `This tool requires interactive confirmation, which needs a ` +
+        //     `client on protocol version ${MRTR_MIN_VERSION} or later.`
+        //   );
+        //
+        // Either way: no SSE code path. The server is still valid 2025-11.
         // ───────────────────────────────────────────────────────────────────
         if (!supportsMrtr()) {
-            return errorResult(
-                `This tool requires interactive input, which needs a client on protocol version ${MRTR_MIN_VERSION} or later.`
-            );
+            return { content: [{ type: 'text', text: lookupWeather(location, 'metric') }] };
         }
+        void errorResult;
+        void MRTR_MIN_VERSION;
 
         const { inputResponses } = readMrtr({ _mrtr });
         const prefs = acceptedContent<{ units: Units }>(inputResponses, 'units');
