@@ -238,6 +238,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
+    private _closing: boolean = false;
     private _supportedProtocolVersions: string[];
 
     sessionId?: string;
@@ -887,6 +888,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        // Guard against re-entrant close to prevent recursive stack overflow
+        // when multiple transports close simultaneously and onclose triggers
+        // additional close operations.
+        if (this._closing) {
+            return;
+        }
+        this._closing = true;
+
         // Close all SSE connections
         for (const { cleanup } of this._streamMapping.values()) {
             cleanup();
