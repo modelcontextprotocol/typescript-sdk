@@ -4161,6 +4161,7 @@ test('callToolStream() should not validate structuredContent when isError is tru
     if (messages[0]!.type === 'result') {
         expect(messages[0]!.result.isError).toBe(true);
         expect(messages[0]!.result.content).toEqual([{ type: 'text', text: 'Something went wrong' }]);
+        expect(messages[0]!.result.structuredContent).toEqual({ wrongField: 123 });
     }
 
     await client.close();
