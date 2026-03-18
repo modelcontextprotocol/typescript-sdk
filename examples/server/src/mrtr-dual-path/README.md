@@ -1,9 +1,17 @@
 # MRTR dual-path options
 
-Five approaches to the top-left quadrant of the SEP-2322 compatibility matrix: a server that **can** hold SSE, talking to a **2025-11** client, running **MRTR-era** tool code.
+Follow-up to [typescript-sdk#1597](https://github.com/modelcontextprotocol/typescript-sdk/pull/1597) and [modelcontextprotocol#2322 (comment)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2322#issuecomment-4083481545). Same weather-lookup tool throughout so
+the diff between files is the argument.
 
-Follow-up to [typescript-sdk#1597](https://github.com/modelcontextprotocol/typescript-sdk/pull/1597) and [modelcontextprotocol#2322 (comment)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2322#issuecomment-4083481545). All five files register the same
-weather-lookup tool so the diff between files is the argument.
+## What to look at
+
+| Direction                   | Where                                                                                          | How many options                                                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Old client → new server** | [`optionA`](./optionAShimMrtrCanonical.ts)–[`optionE`](./optionEDegradeOnly.ts) in this folder | Five — server handler shape is genuinely contested                  |
+| **New client → old server** | [`clientDualPath.ts`](../../../client/src/mrtr-dual-path/clientDualPath.ts)                    | One — handler signature is identical on both paths, SDK just routes |
+
+The asymmetry is real: the server-side control flow changes between SSE-elicit (`await` inline) and MRTR (`return IncompleteResult`), so there are trade-offs to argue about. The client-side handler shape is the same either way (`(params) => Promise<ElicitResult>`), so there's
+nothing to choose.
 
 ## The quadrant
 
