@@ -102,8 +102,8 @@ catalogs:
       specifier: ^5.2.1
       version: 5.2.1
     hono:
-      specifier: ^4.11.4
-      version: 4.11.4
+      specifier: ^4.12.7
+      version: 4.12.7
   runtimeShared:
     '@cfworker/json-schema':
       specifier: ^4.1.1
@@ -335,7 +335,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.9(hono@4.11.4)
+        version: 1.19.9(hono@4.12.7)
       '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared
@@ -362,7 +362,7 @@ importers:
         version: 5.2.1
       hono:
         specifier: catalog:runtimeServerOnly
-        version: 4.11.4
+        version: 4.12.7
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.5
@@ -695,7 +695,7 @@ importers:
     dependencies:
       hono:
         specifier: catalog:runtimeServerOnly
-        version: 4.11.4
+        version: 4.12.7
     devDependencies:
       '@eslint/js':
         specifier: catalog:devTools
@@ -744,10 +744,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.9(hono@4.11.4)
+        version: 1.19.9(hono@4.12.7)
       hono:
         specifier: catalog:runtimeServerOnly
-        version: 4.11.4
+        version: 4.12.7
     devDependencies:
       '@eslint/js':
         specifier: catalog:devTools
@@ -3404,6 +3404,10 @@ packages:
     resolution: {integrity: sha512-U7tt8JsyrxSRKspfhtLET79pU8K+tInj5QZXs1jSugO1Vq5dFj3kmZsRldo29mTBfcjDRVRXrEZ6LS63Cog9ZA==}
     engines: {node: '>=16.9.0'}
 
+  hono@4.12.7:
+    resolution: {integrity: sha512-jq9l1DM0zVIvsm3lv9Nw9nlJnMNPOcAtsbsgiUhWcFzPE99Gvo6yRTlszSLLYacMeQ6quHD6hMfId8crVHvexw==}
+    engines: {node: '>=16.9.0'}
+
   hookable@6.0.1:
     resolution: {integrity: sha512-uKGyY8BuzN/a5gvzvA+3FVWo0+wUjgtfSdnmjtrOVwQCZPHpHDH2WRO3VZSOeluYrHoDCiXFffZXs8Dj1ULWtw==}
 
@@ -5175,6 +5179,10 @@ snapshots:
   '@hono/node-server@1.19.9(hono@4.11.4)':
     dependencies:
       hono: 4.11.4
+
+  '@hono/node-server@1.19.9(hono@4.12.7)':
+    dependencies:
+      hono: 4.12.7
 
   '@humanfs/core@0.19.1': {}
 
@@ -7033,6 +7041,8 @@ snapshots:
       function-bind: 1.1.2
 
   hono@4.11.4: {}
+
+  hono@4.12.7: {}
 
   hookable@6.0.1: {}
 
