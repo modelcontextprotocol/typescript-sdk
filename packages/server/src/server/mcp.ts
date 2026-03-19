@@ -51,6 +51,32 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * Callback invoked when tool input validation fails against the tool's inputSchema.
+ * Called before the validation error is returned to the client, allowing servers
+ * to add logging, metrics, or other observability for invalid tool calls.
+ */
+export type InputValidationErrorCallback = (error: {
+    /** The name of the tool that was called. */
+    toolName: string;
+    /** The arguments that were passed to the tool. */
+    arguments: unknown;
+    /** Individual validation issues from the schema parse. */
+    issues: Array<{ message: string }>;
+}) => void | Promise<void>;
+
+/**
+ * Options for configuring an McpServer instance.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Optional callback invoked when a tool call fails input schema validation.
+     * This fires before the validation error is returned to the client, enabling
+     * observability (logging, metrics, etc.) for invalid tool calls.
+     */
+    onInputValidationError?: InputValidationErrorCallback;
+};
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
@@ -76,9 +102,11 @@ export class McpServer {
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    private _onInputValidationError?: InputValidationErrorCallback;
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
+        this._onInputValidationError = options?.onInputValidationError;
     }
 
     /**
@@ -258,6 +286,13 @@ export class McpServer {
 
         const parseResult = await parseSchemaAsync(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
+            if (this._onInputValidationError) {
+                await this._onInputValidationError({
+                    toolName,
+                    arguments: args,
+                    issues: parseResult.error.issues.map((i: { message: string }) => ({ message: i.message }))
+                });
+            }
             const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,

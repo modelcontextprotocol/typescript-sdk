@@ -1181,6 +1181,156 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: onInputValidationError callback
+         */
+        test('should call onInputValidationError callback on validation failure', async () => {
+            const validationErrors: Array<{ toolName: string; arguments: unknown; issues: Array<{ message: string }> }> = [];
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    onInputValidationError: error => {
+                        validationErrors.push(error);
+                    }
+                }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    inputSchema: z.object({
+                        name: z.string(),
+                        value: z.number()
+                    })
+                },
+                async ({ name, value }) => ({
+                    content: [
+                        {
+                            type: 'text',
+                            text: `${name}: ${value}`
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        name: 'test',
+                        value: 'not a number'
+                    }
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(validationErrors).toHaveLength(1);
+            expect(validationErrors[0]!.toolName).toBe('test');
+            expect(validationErrors[0]!.arguments).toEqual({ name: 'test', value: 'not a number' });
+            expect(validationErrors[0]!.issues.length).toBeGreaterThan(0);
+            expect(validationErrors[0]!.issues[0]!.message).toBeDefined();
+        });
+
+        test('should not call onInputValidationError callback on successful validation', async () => {
+            const validationErrors: Array<{ toolName: string; arguments: unknown; issues: Array<{ message: string }> }> = [];
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    onInputValidationError: error => {
+                        validationErrors.push(error);
+                    }
+                }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    inputSchema: z.object({
+                        name: z.string()
+                    })
+                },
+                async ({ name }) => ({
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Hello, ${name}`
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: { name: 'world' }
+                }
+            });
+
+            expect(result.isError).toBeUndefined();
+            expect(validationErrors).toHaveLength(0);
+        });
+
+        test('should support async onInputValidationError callback', async () => {
+            let callbackCompleted = false;
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    onInputValidationError: async _error => {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                        callbackCompleted = true;
+                    }
+                }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    inputSchema: z.object({
+                        value: z.number()
+                    })
+                },
+                async ({ value }) => ({
+                    content: [{ type: 'text', text: `${value}` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: { value: 'not a number' }
+                }
+            });
+
+            expect(callbackCompleted).toBe(true);
+        });
+
+        /***
          * Test: Preventing Duplicate Tool Registration
          */
         test('should prevent duplicate tool registration', () => {
