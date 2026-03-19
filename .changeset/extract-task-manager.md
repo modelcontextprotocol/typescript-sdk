@@ -11,4 +11,3 @@ refactor: extract task orchestration from Protocol into TaskManager
 - `extra.taskStore` → `extra.task?.taskStore`
 - `extra.taskRequestedTtl` → `extra.task?.requestedTtl`
 - `ProtocolOptions` no longer accepts `taskStore`/`taskMessageQueue` — pass via `TaskManagerOptions` in `ClientOptions`/`ServerOptions`
-- Abstract methods `assertTaskCapability`/`assertTaskHandlerCapability` removed from Protocol
