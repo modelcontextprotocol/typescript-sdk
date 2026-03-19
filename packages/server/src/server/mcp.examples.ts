@@ -123,6 +123,44 @@ async function McpServer_sendLoggingMessage_basic(server: McpServer) {
 }
 
 /**
+ * Example: Using a named interface for structuredContent (verifies fix for #837).
+ *
+ * Named interfaces should be assignable to the structuredContent field
+ * without requiring type casts. Previously, this caused a type error because
+ * TypeScript does not allow named interfaces to be assigned to index signatures.
+ */
+interface BmiResult {
+    bmi: number;
+    category: string;
+}
+
+function McpServer_registerTool_structuredContent_named_interface(server: McpServer) {
+    server.registerTool(
+        'calculate-bmi-named',
+        {
+            title: 'BMI Calculator (named interface)',
+            description: 'Calculate BMI, returning a named interface type',
+            inputSchema: z.object({
+                weightKg: z.number(),
+                heightM: z.number()
+            }),
+            outputSchema: z.object({ bmi: z.number(), category: z.string() })
+        },
+        async ({ weightKg, heightM }) => {
+            const bmi = weightKg / (heightM * heightM);
+            const result: BmiResult = {
+                bmi,
+                category: bmi < 18.5 ? 'underweight' : bmi < 25 ? 'normal' : 'overweight'
+            };
+            return {
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+                structuredContent: result
+            };
+        }
+    );
+}
+
+/**
  * Example: Logging from inside a tool handler via ctx.mcpReq.log().
  */
 function McpServer_registerTool_logging(server: McpServer) {

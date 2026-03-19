@@ -1069,9 +1069,21 @@ export type BaseToolCallback<ResultT extends Result, Ctx extends ServerContext, 
     : (ctx: Ctx) => ResultT | Promise<ResultT>;
 
 /**
+ * A more permissive version of {@linkcode CallToolResult} for use in tool callback return types.
+ *
+ * Uses `object` instead of `Record<string, unknown>` for `structuredContent` so that
+ * named interfaces (not just inline object types) can be returned without type errors.
+ * This is necessary because TypeScript does not allow named interfaces to be assigned
+ * to index signatures (`Record<string, unknown>`), even when all properties are compatible.
+ */
+export type ToolCallbackResult = Omit<CallToolResult, 'structuredContent'> & {
+    structuredContent?: object;
+};
+
+/**
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
-export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
+export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<ToolCallbackResult, ServerContext, Args>;
 
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
