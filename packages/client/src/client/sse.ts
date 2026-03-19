@@ -5,6 +5,7 @@ import { EventSource } from 'eventsource';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import type { TokenProvider } from './tokenProvider.js';
 
 export class SseError extends Error {
     constructor(
@@ -35,6 +36,16 @@ export type SSEClientTransportOptions = {
      * {@linkcode UnauthorizedError} might also be thrown when sending any message over the SSE transport, indicating that the session has expired, and needs to be re-authed and reconnected.
      */
     authProvider?: OAuthClientProvider;
+
+    /**
+     * A simple token provider for bearer authentication.
+     *
+     * Use this instead of `authProvider` when tokens are managed externally
+     * (e.g., upfront auth, gateway/proxy patterns, service accounts).
+     *
+     * If both `authProvider` and `tokenProvider` are set, `authProvider` takes precedence.
+     */
+    tokenProvider?: TokenProvider;
 
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
@@ -72,6 +83,7 @@ export class SSEClientTransport implements Transport {
     private _eventSourceInit?: EventSourceInit;
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
+    private _tokenProvider?: TokenProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
@@ -87,6 +99,7 @@ export class SSEClientTransport implements Transport {
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
+        this._tokenProvider = opts?.tokenProvider;
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
@@ -122,6 +135,11 @@ export class SSEClientTransport implements Transport {
             const tokens = await this._authProvider.tokens();
             if (tokens) {
                 headers['Authorization'] = `Bearer ${tokens.access_token}`;
+            }
+        } else if (this._tokenProvider) {
+            const token = await this._tokenProvider();
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
             }
         }
         if (this._protocolVersion) {
@@ -161,9 +179,17 @@ export class SSEClientTransport implements Transport {
             this._abortController = new AbortController();
 
             this._eventSource.onerror = event => {
-                if (event.code === 401 && this._authProvider) {
-                    this._authThenStart().then(resolve, reject);
-                    return;
+                if (event.code === 401) {
+                    if (this._authProvider) {
+                        this._authThenStart().then(resolve, reject);
+                        return;
+                    }
+                    if (this._tokenProvider) {
+                        const error = new UnauthorizedError('Server returned 401 — token from tokenProvider was rejected');
+                        reject(error);
+                        this.onerror?.(error);
+                        return;
+                    }
                 }
 
                 const error = new SseError(event.code, event.message, event);
@@ -263,23 +289,28 @@ export class SSEClientTransport implements Transport {
             if (!response.ok) {
                 const text = await response.text?.().catch(() => null);
 
-                if (response.status === 401 && this._authProvider) {
-                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                    this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
+                if (response.status === 401) {
+                    if (this._authProvider) {
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
 
-                    const result = await auth(this._authProvider, {
-                        serverUrl: this._url,
-                        resourceMetadataUrl: this._resourceMetadataUrl,
-                        scope: this._scope,
-                        fetchFn: this._fetchWithInit
-                    });
-                    if (result !== 'AUTHORIZED') {
-                        throw new UnauthorizedError();
+                        const result = await auth(this._authProvider, {
+                            serverUrl: this._url,
+                            resourceMetadataUrl: this._resourceMetadataUrl,
+                            scope: this._scope,
+                            fetchFn: this._fetchWithInit
+                        });
+                        if (result !== 'AUTHORIZED') {
+                            throw new UnauthorizedError();
+                        }
+
+                        // Purposely _not_ awaited, so we don't call onerror twice
+                        return this.send(message);
                     }
-
-                    // Purposely _not_ awaited, so we don't call onerror twice
-                    return this.send(message);
+                    if (this._tokenProvider) {
+                        throw new UnauthorizedError('Server returned 401 — token from tokenProvider was rejected');
+                    }
                 }
 
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);

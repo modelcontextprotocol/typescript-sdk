@@ -13,7 +13,7 @@ A client connects to a server, discovers what it offers — tools, resources, pr
 The examples below use these imports. Adjust based on which features and transport you need:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#imports"
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
+import type { Prompt, Resource, TokenProvider, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
@@ -113,7 +113,19 @@ console.log(systemPrompt);
 
 ## Authentication
 
-MCP servers can require OAuth 2.0 authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an `authProvider` to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport} to enable this — the SDK provides built-in providers for common machine-to-machine flows, or you can implement the full {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface for user-facing OAuth.
+MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). For servers that accept plain bearer tokens, pass a `tokenProvider` function to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport}. For servers that require OAuth 2.0, pass an `authProvider` — the SDK provides built-in providers for common machine-to-machine flows, or you can implement the full {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface for user-facing OAuth.
+
+### Token provider
+
+For servers that accept bearer tokens managed outside the SDK — API keys, tokens from a gateway or proxy, service-account credentials, or tokens obtained through a separate auth flow — pass a {@linkcode @modelcontextprotocol/client!client/tokenProvider.TokenProvider | TokenProvider} function. It is called before every request, so it can handle expiry and refresh internally. If the server rejects the token with 401, the transport throws {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} without retrying — catch it to invalidate any external cache and reconnect:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#auth_tokenProvider"
+const tokenProvider: TokenProvider = async () => getStoredToken();
+
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { tokenProvider });
+```
+
+See [`simpleTokenProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTokenProvider.ts) for a complete runnable example. For finer control, {@linkcode @modelcontextprotocol/client!client/tokenProvider.withBearerAuth | withBearerAuth} wraps a fetch function directly.
 
 ### Client credentials
 

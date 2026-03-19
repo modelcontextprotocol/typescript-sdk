@@ -381,7 +381,7 @@ export function applyClientAuthentication(
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
-function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
+export function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
     if (!clientSecret) {
         throw new Error('client_secret_basic authentication requires a client_secret');
     }
@@ -393,7 +393,7 @@ function applyBasicAuth(clientId: string, clientSecret: string | undefined, head
 /**
  * Applies POST body authentication (RFC 6749 Section 2.3.1)
  */
-function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
+export function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
     params.set('client_id', clientId);
     if (clientSecret) {
         params.set('client_secret', clientSecret);
@@ -403,7 +403,7 @@ function applyPostAuth(clientId: string, clientSecret: string | undefined, param
 /**
  * Applies public client authentication (RFC 6749 Section 2.1)
  */
-function applyPublicAuth(clientId: string, params: URLSearchParams): void {
+export function applyPublicAuth(clientId: string, params: URLSearchParams): void {
     params.set('client_id', clientId);
 }
 
@@ -1265,7 +1265,7 @@ export function prepareAuthorizationCodeRequest(
  * Internal helper to execute a token request with the given parameters.
  * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
-async function executeTokenRequest(
+export async function executeTokenRequest(
     authorizationServerUrl: string | URL,
     {
         metadata,

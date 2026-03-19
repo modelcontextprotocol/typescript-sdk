@@ -15,6 +15,7 @@ import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import type { TokenProvider } from './tokenProvider.js';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -99,6 +100,16 @@ export type StreamableHTTPClientTransportOptions = {
     authProvider?: OAuthClientProvider;
 
     /**
+     * A simple token provider for bearer authentication.
+     *
+     * Use this instead of `authProvider` when tokens are managed externally
+     * (e.g., upfront auth, gateway/proxy patterns, service accounts).
+     *
+     * If both `authProvider` and `tokenProvider` are set, `authProvider` takes precedence.
+     */
+    tokenProvider?: TokenProvider;
+
+    /**
      * Customizes HTTP requests to the server.
      */
     requestInit?: RequestInit;
@@ -139,6 +150,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _scope?: string;
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
+    private _tokenProvider?: TokenProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _sessionId?: string;
@@ -159,6 +171,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
+        this._tokenProvider = opts?.tokenProvider;
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
@@ -197,6 +210,11 @@ export class StreamableHTTPClientTransport implements Transport {
             const tokens = await this._authProvider.tokens();
             if (tokens) {
                 headers['Authorization'] = `Bearer ${tokens.access_token}`;
+            }
+        } else if (this._tokenProvider) {
+            const token = await this._tokenProvider();
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
             }
         }
 
@@ -239,9 +257,13 @@ export class StreamableHTTPClientTransport implements Transport {
             if (!response.ok) {
                 await response.text?.().catch(() => {});
 
-                if (response.status === 401 && this._authProvider) {
-                    // Need to authenticate
-                    return await this._authThenStart();
+                if (response.status === 401) {
+                    if (this._authProvider) {
+                        return await this._authThenStart();
+                    }
+                    if (this._tokenProvider) {
+                        throw new UnauthorizedError('Server returned 401 — token from tokenProvider was rejected');
+                    }
                 }
 
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
@@ -502,33 +524,42 @@ export class StreamableHTTPClientTransport implements Transport {
             if (!response.ok) {
                 const text = await response.text?.().catch(() => null);
 
-                if (response.status === 401 && this._authProvider) {
-                    // Prevent infinite recursion when server returns 401 after successful auth
-                    if (this._hasCompletedAuthFlow) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after successful authentication', {
-                            status: 401,
-                            text
+                if (response.status === 401) {
+                    if (this._authProvider) {
+                        // Prevent infinite recursion when server returns 401 after successful auth
+                        if (this._hasCompletedAuthFlow) {
+                            throw new SdkError(
+                                SdkErrorCode.ClientHttpAuthentication,
+                                'Server returned 401 after successful authentication',
+                                {
+                                    status: 401,
+                                    text
+                                }
+                            );
+                        }
+
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
+
+                        const result = await auth(this._authProvider, {
+                            serverUrl: this._url,
+                            resourceMetadataUrl: this._resourceMetadataUrl,
+                            scope: this._scope,
+                            fetchFn: this._fetchWithInit
                         });
+                        if (result !== 'AUTHORIZED') {
+                            throw new UnauthorizedError();
+                        }
+
+                        // Mark that we completed auth flow
+                        this._hasCompletedAuthFlow = true;
+                        // Purposely _not_ awaited, so we don't call onerror twice
+                        return this.send(message);
                     }
-
-                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                    this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
-
-                    const result = await auth(this._authProvider, {
-                        serverUrl: this._url,
-                        resourceMetadataUrl: this._resourceMetadataUrl,
-                        scope: this._scope,
-                        fetchFn: this._fetchWithInit
-                    });
-                    if (result !== 'AUTHORIZED') {
-                        throw new UnauthorizedError();
+                    if (this._tokenProvider) {
+                        throw new UnauthorizedError('Server returned 401 — token from tokenProvider was rejected');
                     }
-
-                    // Mark that we completed auth flow
-                    this._hasCompletedAuthFlow = true;
-                    // Purposely _not_ awaited, so we don't call onerror twice
-                    return this.send(message);
                 }
 
                 if (response.status === 403 && this._authProvider) {
