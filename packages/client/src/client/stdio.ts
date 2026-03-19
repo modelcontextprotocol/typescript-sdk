@@ -244,16 +244,22 @@ export class StdioClientTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
-            if (!this._process?.stdin) {
-                throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
-            }
+        return new Promise((resolve, reject) => {
+            try {
+                if (!this._process?.stdin) {
+                    throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+                }
 
-            const json = serializeMessage(message);
-            if (this._process.stdin.write(json)) {
-                resolve();
-            } else {
-                this._process.stdin.once('drain', resolve);
+                const json = serializeMessage(message);
+                if (this._process.stdin.write(json)) {
+                    resolve();
+                } else {
+                    this._process.stdin.once('drain', resolve);
+                }
+            } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                this.onerror?.(err);
+                reject(err);
             }
         });
     }

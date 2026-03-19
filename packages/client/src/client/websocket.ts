@@ -62,13 +62,21 @@ export class WebSocketClientTransport implements Transport {
 
     send(message: JSONRPCMessage): Promise<void> {
         return new Promise((resolve, reject) => {
-            if (!this._socket) {
-                reject(new Error('Not connected'));
-                return;
-            }
+            try {
+                if (!this._socket) {
+                    const err = new Error('Not connected');
+                    this.onerror?.(err);
+                    reject(err);
+                    return;
+                }
 
-            this._socket?.send(JSON.stringify(message));
-            resolve();
+                this._socket.send(JSON.stringify(message));
+                resolve();
+            } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                this.onerror?.(err);
+                reject(err);
+            }
         });
     }
 }

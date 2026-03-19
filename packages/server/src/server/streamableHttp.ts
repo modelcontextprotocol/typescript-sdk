@@ -239,6 +239,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _isClosing = false;
 
     sessionId?: string;
     onclose?: () => void;
@@ -388,7 +389,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return;
         }
 
-        const primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
+        let primingEventId: string;
+        try {
+            primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
+        } catch (error) {
+            const err = error as Error;
+            this.onerror?.(err);
+            throw err;
+        }
 
         let primingEvent = `id: ${primingEventId}\ndata: \n\n`;
         if (this._retryInterval !== undefined) {
@@ -887,14 +895,30 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        // Close all SSE connections
-        for (const { cleanup } of this._streamMapping.values()) {
-            cleanup();
-        }
-        this._streamMapping.clear();
+        if (this._isClosing) return;
+        this._isClosing = true;
 
-        // Clear any pending responses
-        this._requestResponseMap.clear();
+        try {
+            // Snapshot and clear the mapping before calling cleanup functions
+            // to prevent re-entrant deletes from cancel callbacks
+            const entries = [...this._streamMapping.values()];
+            this._streamMapping.clear();
+
+            // Close all SSE connections
+            for (const { cleanup } of entries) {
+                try {
+                    cleanup();
+                } catch {
+                    // Suppress cleanup errors
+                }
+            }
+
+            // Clear any pending responses
+            this._requestResponseMap.clear();
+        } finally {
+            // Don't reset _isClosing - once closed, stay closed
+        }
+
         this.onclose?.();
     }
 
@@ -937,15 +961,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         if (requestId === undefined) {
             // For standalone SSE streams, we can only send requests and notifications
             if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-                throw new Error('Cannot send a response on a standalone SSE stream unless resuming a previous client request');
+                const err = new Error('Cannot send a response on a standalone SSE stream unless resuming a previous client request');
+                this.onerror?.(err);
+                throw err;
             }
 
             // Generate and store event ID if event store is provided
             // Store even if stream is disconnected so events can be replayed on reconnect
             let eventId: string | undefined;
             if (this._eventStore) {
-                // Stores the event and gets the generated event ID
-                eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
+                try {
+                    // Stores the event and gets the generated event ID
+                    eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
+                } catch (error) {
+                    const err = error as Error;
+                    this.onerror?.(err);
+                    throw err;
+                }
             }
 
             const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
@@ -964,7 +996,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         // Get the response for this request
         const streamId = this._requestToStreamMapping.get(requestId);
         if (!streamId) {
-            throw new Error(`No connection established for request ID: ${String(requestId)}`);
+            const err = new Error(`No connection established for request ID: ${String(requestId)}`);
+            this.onerror?.(err);
+            throw err;
         }
 
         const stream = this._streamMapping.get(streamId);
@@ -974,7 +1008,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let eventId: string | undefined;
 
             if (this._eventStore) {
-                eventId = await this._eventStore.storeEvent(streamId, message);
+                try {
+                    eventId = await this._eventStore.storeEvent(streamId, message);
+                } catch (error) {
+                    const err = error as Error;
+                    this.onerror?.(err);
+                    throw err;
+                }
             }
             // Write the event to the response stream
             this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
@@ -989,7 +1029,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (allResponsesReady) {
                 if (!stream) {
-                    throw new Error(`No connection established for request ID: ${String(requestId)}`);
+                    const err = new Error(`No connection established for request ID: ${String(requestId)}`);
+                    this.onerror?.(err);
+                    throw err;
                 }
                 if (this._enableJsonResponse && stream.resolveJson) {
                     // All responses ready, send as JSON
