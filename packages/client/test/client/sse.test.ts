@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
@@ -1575,7 +1575,7 @@ describe('SSEClientTransport', () => {
             await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
         });
 
-        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws', async () => {
+        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkError', async () => {
             postResponses = [401, 401];
             await setupServer();
 
@@ -1586,7 +1586,9 @@ describe('SSEClientTransport', () => {
             transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
             await transport.start();
 
-            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+            const error = await transport.send(message).catch(e => e);
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
             expect(postCount).toBe(2);
         });

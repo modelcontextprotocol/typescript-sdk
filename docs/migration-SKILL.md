@@ -107,19 +107,19 @@ Two error classes now exist:
 - **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC responses
 - **`SdkError`** (new): Local SDK errors that never cross the wire
 
-| Error scenario                   | v1 type                                      | v2 type                                                           |
-| -------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
-| Request timeout                  | `McpError` with `ErrorCode.RequestTimeout`   | `SdkError` with `SdkErrorCode.RequestTimeout`                     |
-| Connection closed                | `McpError` with `ErrorCode.ConnectionClosed` | `SdkError` with `SdkErrorCode.ConnectionClosed`                   |
-| Capability not supported         | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`             |
-| Not connected                    | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                       |
-| Invalid params (server response) | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`            |
-| HTTP transport error             | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttp*`                        |
-| Failed to open SSE stream        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
-| 401 after auth flow              | `StreamableHTTPError`                        | `UnauthorizedError`                                               |
-| 403 after upscoping              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
-| Unexpected content type          | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
-| Session termination failed       | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
+| Error scenario                    | v1 type                                      | v2 type                                                           |
+| --------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
+| Request timeout                   | `McpError` with `ErrorCode.RequestTimeout`   | `SdkError` with `SdkErrorCode.RequestTimeout`                     |
+| Connection closed                 | `McpError` with `ErrorCode.ConnectionClosed` | `SdkError` with `SdkErrorCode.ConnectionClosed`                   |
+| Capability not supported          | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`             |
+| Not connected                     | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                       |
+| Invalid params (server response)  | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`            |
+| HTTP transport error              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttp*`                        |
+| Failed to open SSE stream         | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
+| 401 after re-auth (circuit break) | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpAuthentication`           |
+| 403 after upscoping               | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
+| Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
+| Session termination failed        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
 
 New `SdkErrorCode` enum values:
 
@@ -131,6 +131,7 @@ New `SdkErrorCode` enum values:
 - `SdkErrorCode.ConnectionClosed` = `'CONNECTION_CLOSED'`
 - `SdkErrorCode.SendFailed` = `'SEND_FAILED'`
 - `SdkErrorCode.ClientHttpNotImplemented` = `'CLIENT_HTTP_NOT_IMPLEMENTED'`
+- `SdkErrorCode.ClientHttpAuthentication` = `'CLIENT_HTTP_AUTHENTICATION'`
 - `SdkErrorCode.ClientHttpForbidden` = `'CLIENT_HTTP_FORBIDDEN'`
 - `SdkErrorCode.ClientHttpUnexpectedContent` = `'CLIENT_HTTP_UNEXPECTED_CONTENT'`
 - `SdkErrorCode.ClientHttpFailedToOpenStream` = `'CLIENT_HTTP_FAILED_TO_OPEN_STREAM'`

@@ -1,4 +1,5 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { Mock } from 'vitest';
 
 import type { AuthProvider } from '../../src/client/auth.js';
@@ -81,7 +82,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
         expect(retryInit.headers.get('Authorization')).toBe('Bearer new-token');
     });
 
-    it('should throw UnauthorizedError if retry after onUnauthorized also gets 401', async () => {
+    it('should throw SdkError(ClientHttpAuthentication) if retry after onUnauthorized also gets 401', async () => {
         const authProvider: AuthProvider = {
             token: vi.fn(async () => 'still-bad'),
             onUnauthorized: vi.fn(async () => {})
@@ -93,7 +94,9 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
             .mockResolvedValueOnce({ ok: false, status: 401, headers: new Headers(), text: async () => 'unauthorized' })
             .mockResolvedValueOnce({ ok: false, status: 401, headers: new Headers(), text: async () => 'unauthorized' });
 
-        await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        const error = await transport.send(message).catch(e => e);
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
         expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
     });
 
