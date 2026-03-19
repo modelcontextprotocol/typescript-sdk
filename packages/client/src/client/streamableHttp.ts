@@ -228,16 +228,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
                     if (this._authProvider?.onUnauthorized && !this._authRetryInFlight) {
                         this._authRetryInFlight = true;
-                        try {
-                            await this._authProvider.onUnauthorized({
-                                response,
-                                serverUrl: this._url,
-                                fetchFn: this._fetchWithInit
-                            });
-                            return await this._startOrAuthSse(options);
-                        } finally {
-                            this._authRetryInFlight = false;
-                        }
+                        await this._authProvider.onUnauthorized({
+                            response,
+                            serverUrl: this._url,
+                            fetchFn: this._fetchWithInit
+                        });
+                        await response.text?.().catch(() => {});
+                        // Purposely _not_ awaited, so we don't call onerror twice
+                        return this._startOrAuthSse(options);
                     }
                     if (this._authProvider) {
                         await response.text?.().catch(() => {});
@@ -259,8 +257,10 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
+            this._authRetryInFlight = false;
             this._handleSseStream(response.body, options, true);
         } catch (error) {
+            this._authRetryInFlight = false;
             this.onerror?.(error as Error);
             throw error;
         }
@@ -518,6 +518,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             serverUrl: this._url,
                             fetchFn: this._fetchWithInit
                         });
+                        await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this.send(message);
                     }
@@ -557,7 +558,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             serverUrl: this._url,
                             resourceMetadataUrl: this._resourceMetadataUrl,
                             scope: this._scope,
-                            fetchFn: this._fetch
+                            fetchFn: this._fetchWithInit
                         });
 
                         if (result !== 'AUTHORIZED') {

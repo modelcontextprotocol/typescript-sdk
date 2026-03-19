@@ -606,7 +606,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.ConnectionClosed`                   | Connection was closed                      |
 | `SdkErrorCode.SendFailed`                         | Failed to send message                     |
 | `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                   |
-| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after successful auth  |
+| `UnauthorizedError` (thrown, not `SdkError`)      | Server returned 401 after re-auth attempt  |
 | `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping |
 | `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response   |
 | `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                  |
@@ -638,11 +638,10 @@ import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 try {
     await transport.send(message);
 } catch (error) {
-    if (error instanceof SdkError) {
+    if (error instanceof UnauthorizedError) {
+        console.log('Token rejected — reconnect with fresh credentials');
+    } else if (error instanceof SdkError) {
         switch (error.code) {
-            case SdkErrorCode.ClientHttpAuthentication:
-                console.log('Auth failed after completing auth flow');
-                break;
             case SdkErrorCode.ClientHttpForbidden:
                 console.log('Forbidden after upscoping attempt');
                 break;

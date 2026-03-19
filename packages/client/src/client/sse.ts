@@ -275,6 +275,7 @@ export class SSEClientTransport implements Transport {
                             serverUrl: this._url,
                             fetchFn: this._fetchWithInit
                         });
+                        await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this.send(message);
                     }
