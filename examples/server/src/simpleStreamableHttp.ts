@@ -654,6 +654,19 @@ const mcpPostHandler = async (req: Request, res: Response) => {
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
+        } else if (sessionId && !transports[sessionId]) {
+            // Session ID provided but not found - return 404 to signal client should start new session
+            // Per MCP spec: "When a client receives HTTP 404 in response to a request containing
+            // an Mcp-Session-Id, it MUST start a new session"
+            res.status(404).json({
+                jsonrpc: '2.0',
+                error: {
+                    code: -32_000,
+                    message: 'Session not found'
+                },
+                id: null
+            });
+            return;
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request
             const eventStore = new InMemoryEventStore();
@@ -685,12 +698,14 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             await transport.handleRequest(req, res, req.body);
             return; // Already handled
         } else {
-            // Invalid request - no session ID or not initialization request
+            // No session ID and not an initialization request - return 400
+            // Per MCP spec: "Servers that require a session ID SHOULD respond to requests without
+            // an Mcp-Session-Id header (other than initialization) with HTTP 400 Bad Request"
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
                     code: -32_000,
-                    message: 'Bad Request: No valid session ID provided'
+                    message: 'Bad Request: Session ID required'
                 },
                 id: null
             });
@@ -725,8 +740,14 @@ if (useOAuth && authMiddleware) {
 // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
 const mcpGetHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        // No session ID provided
+        res.status(400).send('Session ID required');
+        return;
+    }
+    if (!transports[sessionId]) {
+        // Session ID provided but not found - return 404 per MCP spec
+        res.status(404).send('Session not found');
         return;
     }
 
@@ -756,8 +777,14 @@ if (useOAuth && authMiddleware) {
 // Handle DELETE requests for session termination (according to MCP spec)
 const mcpDeleteHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        // No session ID provided
+        res.status(400).send('Session ID required');
+        return;
+    }
+    if (!transports[sessionId]) {
+        // Session ID provided but not found - return 404 per MCP spec
+        res.status(404).send('Session not found');
         return;
     }
 
