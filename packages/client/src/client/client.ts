@@ -541,6 +541,9 @@ export class Client extends Protocol<ClientContext> {
                 this._setupListChangedHandlers(this._pendingListChangedConfig);
                 this._pendingListChangedConfig = undefined;
             }
+
+            // Start periodic ping after successful initialization
+            this.startPeriodicPing();
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();

@@ -33,6 +33,7 @@ import type {
     TaskCreationParams
 } from '../types/index.js';
 import {
+    EmptyResultSchema,
     getNotificationSchema,
     getRequestSchema,
     getResultSchema,
@@ -92,6 +93,21 @@ export type ProtocolOptions = {
      * so they should NOT be included here.
      */
     tasks?: TaskManagerOptions;
+
+    /**
+     * Interval (in milliseconds) between periodic ping requests sent to the remote side
+     * to verify connection health. If set, pings will begin after {@linkcode Protocol.connect | connect()}
+     * completes and stop automatically when the connection closes.
+     *
+     * Per the MCP specification, implementations SHOULD periodically issue pings to
+     * detect connection health, with configurable frequency.
+     *
+     * Disabled by default (no periodic pings). Typical values: 15000-60000 (15s-60s).
+     *
+     * Ping failures are reported via the {@linkcode Protocol.onerror | onerror} callback
+     * and do not stop the periodic timer.
+     */
+    pingIntervalMs?: number;
 };
 
 /**
@@ -308,6 +324,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     private _taskManager: TaskManager;
 
+    private _pingTimer?: ReturnType<typeof setInterval>;
+    private _pingIntervalMs?: number;
+
     protected _supportedProtocolVersions: string[];
 
     /**
@@ -336,6 +355,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     constructor(private _options?: ProtocolOptions) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._pingIntervalMs = _options?.pingIntervalMs;
 
         // Create TaskManager from protocol options
         this._taskManager = _options?.tasks ? new TaskManager(_options.tasks) : new NullTaskManager();
@@ -490,6 +510,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onclose(): void {
+        this.stopPeriodicPing();
+
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
@@ -729,9 +751,55 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Starts sending periodic ping requests at the configured interval.
+     * Pings are used to verify that the remote side is still responsive.
+     * Failures are reported via the {@linkcode onerror} callback but do not
+     * stop the timer; pings continue until the connection is closed.
+     *
+     * This is called automatically at the end of {@linkcode connect} when
+     * `pingIntervalMs` is set. Subclasses that override `connect()` and
+     * perform additional initialization (e.g., the MCP handshake) may call
+     * this method after their initialization is complete instead.
+     *
+     * Has no effect if periodic ping is already running or if no interval
+     * is configured.
+     */
+    protected startPeriodicPing(): void {
+        if (this._pingTimer || !this._pingIntervalMs) {
+            return;
+        }
+
+        this._pingTimer = setInterval(async () => {
+            try {
+                await this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, {
+                    timeout: this._pingIntervalMs
+                });
+            } catch (error) {
+                this._onerror(error instanceof Error ? error : new Error(`Periodic ping failed: ${String(error)}`));
+            }
+        }, this._pingIntervalMs);
+
+        // Allow the process to exit even if the timer is still running
+        if (typeof this._pingTimer === 'object' && 'unref' in this._pingTimer) {
+            this._pingTimer.unref();
+        }
+    }
+
+    /**
+     * Stops periodic ping requests. Called automatically when the connection closes.
+     */
+    protected stopPeriodicPing(): void {
+        if (this._pingTimer) {
+            clearInterval(this._pingTimer);
+            this._pingTimer = undefined;
+        }
+    }
+
+    /**
      * Closes the connection.
      */
     async close(): Promise<void> {
+        this.stopPeriodicPing();
         await this._transport?.close();
     }
 
