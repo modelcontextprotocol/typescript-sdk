@@ -27,6 +27,7 @@ pnpm tsx src/simpleStreamableHttp.ts
 
 | Scenario                                  | Description                                                                                     | File                                                                                     |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Remote MCP server                         | Minimal remote server with session management, streaming, tools, resources, and prompts.        | [`src/remoteServer.ts`](src/remoteServer.ts)                                             |
 | Streamable HTTP server (stateful)         | Feature-rich server with tools/resources/prompts, logging, tasks, sampling, and optional OAuth. | [`src/simpleStreamableHttp.ts`](src/simpleStreamableHttp.ts)                             |
 | Streamable HTTP server (stateless)        | No session tracking; good for simple API-style servers.                                         | [`src/simpleStatelessStreamableHttp.ts`](src/simpleStatelessStreamableHttp.ts)           |
 | JSON response mode (no SSE)               | Streamable HTTP with JSON-only responses and limited notifications.                             | [`src/jsonResponseStreamableHttp.ts`](src/jsonResponseStreamableHttp.ts)                 |
