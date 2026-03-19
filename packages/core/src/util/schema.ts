@@ -39,51 +39,84 @@ export function schemaToJson(schema: AnySchema, options?: { io?: 'input' | 'outp
 /**
  * Recursively ensures that all object schemas have a `required` field.
  * This is needed for OpenAI strict JSON schema compatibility.
+ * 
+ * Creates a new object rather than mutating in-place to avoid side effects
+ * if the input schema is cached or reused.
  */
 function ensureRequiredField(schema: Record<string, unknown>): Record<string, unknown> {
+    // Create a shallow copy to avoid mutating the original
+    const result = { ...schema };
+
     // If this is an object type without a required field, add an empty one
-    if (schema.type === 'object' && !('required' in schema)) {
-        schema.required = [];
+    if (result.type === 'object' && !('required' in result)) {
+        result.required = [];
     }
 
     // Process nested properties recursively
-    if (schema.properties && typeof schema.properties === 'object') {
-        for (const key of Object.keys(schema.properties)) {
-            const prop = (schema.properties as Record<string, unknown>)[key];
+    if (result.properties && typeof result.properties === 'object') {
+        const newProperties: Record<string, unknown> = {};
+        for (const key of Object.keys(result.properties)) {
+            const prop = (result.properties as Record<string, unknown>)[key];
             if (prop && typeof prop === 'object') {
-                (schema.properties as Record<string, unknown>)[key] = ensureRequiredField(prop as Record<string, unknown>);
+                newProperties[key] = ensureRequiredField(prop as Record<string, unknown>);
+            } else {
+                newProperties[key] = prop;
             }
         }
+        result.properties = newProperties;
     }
 
     // Process additionalProperties if it's a schema
-    if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-        schema.additionalProperties = ensureRequiredField(schema.additionalProperties as Record<string, unknown>);
+    if (result.additionalProperties && typeof result.additionalProperties === 'object') {
+        result.additionalProperties = ensureRequiredField(result.additionalProperties as Record<string, unknown>);
     }
 
     // Process items for arrays
-    if (schema.items && typeof schema.items === 'object') {
-        schema.items = ensureRequiredField(schema.items as Record<string, unknown>);
+    if (result.items && typeof result.items === 'object') {
+        result.items = ensureRequiredField(result.items as Record<string, unknown>);
     }
 
-    // Process allOf, anyOf, oneOf
+    // Process prefixItems for tuple schemas (JSON Schema 2020-12)
+    if (Array.isArray(result.prefixItems)) {
+        result.prefixItems = (result.prefixItems as Record<string, unknown>[]).map(s => 
+            s && typeof s === 'object' ? ensureRequiredField(s) : s
+        );
+    }
+
+    // Process allOf, anyOf, oneOf combiners
     for (const combiner of ['allOf', 'anyOf', 'oneOf'] as const) {
-        if (Array.isArray(schema[combiner])) {
-            schema[combiner] = (schema[combiner] as Record<string, unknown>[]).map(s => ensureRequiredField(s));
+        if (Array.isArray(result[combiner])) {
+            result[combiner] = (result[combiner] as Record<string, unknown>[]).map(s => ensureRequiredField(s));
+        }
+    }
+
+    // Process 'not' schema
+    if (result.not && typeof result.not === 'object') {
+        result.not = ensureRequiredField(result.not as Record<string, unknown>);
+    }
+
+    // Process conditional schemas (if/then/else)
+    for (const conditional of ['if', 'then', 'else'] as const) {
+        if (result[conditional] && typeof result[conditional] === 'object') {
+            result[conditional] = ensureRequiredField(result[conditional] as Record<string, unknown>);
         }
     }
 
     // Process $defs for referenced schemas
-    if (schema.$defs && typeof schema.$defs === 'object') {
-        for (const key of Object.keys(schema.$defs)) {
-            const def = (schema.$defs as Record<string, unknown>)[key];
+    if (result.$defs && typeof result.$defs === 'object') {
+        const newDefs: Record<string, unknown> = {};
+        for (const key of Object.keys(result.$defs)) {
+            const def = (result.$defs as Record<string, unknown>)[key];
             if (def && typeof def === 'object') {
-                (schema.$defs as Record<string, unknown>)[key] = ensureRequiredField(def as Record<string, unknown>);
+                newDefs[key] = ensureRequiredField(def as Record<string, unknown>);
+            } else {
+                newDefs[key] = def;
             }
         }
+        result.$defs = newDefs;
     }
 
-    return schema;
+    return result;
 }
 
 /**

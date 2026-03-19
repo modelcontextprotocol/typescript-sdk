@@ -71,5 +71,38 @@ describe('schemaToJson', () => {
             expect(level3.type).toBe('object');
             expect(level3.required).toEqual([]);
         });
+
+        it('should add required field to union schemas (anyOf)', () => {
+            const schema = z.union([
+                z.object({}).strict(),
+                z.object({ name: z.string().optional() })
+            ]);
+            const jsonSchema = schemaToJson(schema);
+
+            // Union creates an anyOf schema
+            expect(jsonSchema.anyOf).toBeDefined();
+            const variants = jsonSchema.anyOf as Record<string, unknown>[];
+            
+            // Both variants should have required field
+            for (const variant of variants) {
+                if (variant.type === 'object') {
+                    expect(variant.required).toBeDefined();
+                    expect(Array.isArray(variant.required)).toBe(true);
+                }
+            }
+        });
+
+        it('should not mutate the original schema', () => {
+            const schema = z.object({}).strict();
+            const originalJsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
+            const hasRequiredBefore = 'required' in originalJsonSchema;
+            
+            // Call schemaToJson
+            schemaToJson(schema);
+            
+            // Original should not be mutated
+            const hasRequiredAfter = 'required' in originalJsonSchema;
+            expect(hasRequiredBefore).toBe(hasRequiredAfter);
+        });
     });
 });
