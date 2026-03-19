@@ -8,7 +8,8 @@
 import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
 import type { CryptoKey, JWK } from 'jose';
 
-import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
+import type { AddClientAuthentication, OAuthClientProvider, UnauthorizedContext } from './auth.js';
+import { handleOAuthUnauthorized } from './auth.js';
 
 /**
  * Helper to produce a `private_key_jwt` client authentication function.
@@ -150,6 +151,14 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
         };
     }
 
+    async token(): Promise<string | undefined> {
+        return this._tokens?.access_token;
+    }
+
+    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
+        await handleOAuthUnauthorized(this, ctx);
+    }
+
     get redirectUrl(): undefined {
         return undefined;
     }
@@ -269,6 +278,14 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
         });
     }
 
+    async token(): Promise<string | undefined> {
+        return this._tokens?.access_token;
+    }
+
+    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
+        await handleOAuthUnauthorized(this, ctx);
+    }
+
     get redirectUrl(): undefined {
         return undefined;
     }
@@ -364,6 +381,14 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
             params.set('client_assertion', assertion);
             params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
         };
+    }
+
+    async token(): Promise<string | undefined> {
+        return this._tokens?.access_token;
+    }
+
+    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
+        await handleOAuthUnauthorized(this, ctx);
     }
 
     get redirectUrl(): undefined {
@@ -562,6 +587,14 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
         };
         this._assertionCallback = options.assertion;
         this._fetchFn = options.fetchFn ?? fetch;
+    }
+
+    async token(): Promise<string | undefined> {
+        return this._tokens?.access_token;
+    }
+
+    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
+        await handleOAuthUnauthorized(this, ctx);
     }
 
     get redirectUrl(): undefined {

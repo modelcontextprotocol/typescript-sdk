@@ -3,9 +3,8 @@ import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, 
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
-import type { AuthResult, OAuthClientProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
-import type { TokenProvider } from './tokenProvider.js';
+import type { AuthProvider } from './auth.js';
+import { auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
 
 export class SseError extends Error {
     constructor(
@@ -24,28 +23,19 @@ export type SSEClientTransportOptions = {
     /**
      * An OAuth client provider to use for authentication.
      *
-     * When an `authProvider` is specified and the SSE connection is started:
-     * 1. The connection is attempted with any existing access token from the `authProvider`.
-     * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode index.Protocol.connect | connect}/{@linkcode SSEClientTransport.start | start}.
+     * {@linkcode AuthProvider.token | token()} is called before every request to obtain the
+     * bearer token. When the server responds with 401, {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
+     * is called (if provided) to refresh credentials, then the request is retried once. If
+     * the retry also gets 401, or `onUnauthorized` is not provided, {@linkcode UnauthorizedError}
+     * is thrown.
      *
-     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call {@linkcode SSEClientTransport.finishAuth} with the authorization code before retrying the connection.
+     * For simple bearer tokens: `{ token: async () => myApiKey }`.
      *
-     * If an `authProvider` is not provided, and auth is required, an {@linkcode UnauthorizedError} will be thrown.
-     *
-     * {@linkcode UnauthorizedError} might also be thrown when sending any message over the SSE transport, indicating that the session has expired, and needs to be re-authed and reconnected.
+     * For OAuth flows, pass an {@linkcode index.OAuthClientProvider | OAuthClientProvider} implementation.
+     * Interactive flows: after {@linkcode UnauthorizedError}, redirect the user, then call
+     * {@linkcode SSEClientTransport.finishAuth | finishAuth} with the authorization code before reconnecting.
      */
-    authProvider?: OAuthClientProvider;
-
-    /**
-     * A simple token provider for bearer authentication.
-     *
-     * Use this instead of `authProvider` when tokens are managed externally
-     * (e.g., upfront auth, gateway/proxy patterns, service accounts).
-     *
-     * If both `authProvider` and `tokenProvider` are set, `authProvider` takes precedence.
-     */
-    tokenProvider?: TokenProvider;
+    authProvider?: AuthProvider;
 
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
@@ -82,8 +72,7 @@ export class SSEClientTransport implements Transport {
     private _scope?: string;
     private _eventSourceInit?: EventSourceInit;
     private _requestInit?: RequestInit;
-    private _authProvider?: OAuthClientProvider;
-    private _tokenProvider?: TokenProvider;
+    private _authProvider?: AuthProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
@@ -99,48 +88,18 @@ export class SSEClientTransport implements Transport {
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
-        this._tokenProvider = opts?.tokenProvider;
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
-    private async _authThenStart(): Promise<void> {
-        if (!this._authProvider) {
-            throw new UnauthorizedError('No auth provider');
-        }
-
-        let result: AuthResult;
-        try {
-            result = await auth(this._authProvider, {
-                serverUrl: this._url,
-                resourceMetadataUrl: this._resourceMetadataUrl,
-                scope: this._scope,
-                fetchFn: this._fetchWithInit
-            });
-        } catch (error) {
-            this.onerror?.(error as Error);
-            throw error;
-        }
-
-        if (result !== 'AUTHORIZED') {
-            throw new UnauthorizedError();
-        }
-
-        return await this._startOrAuth();
-    }
+    private _authRetryInFlight = false;
+    private _last401Response?: Response;
 
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
-        if (this._authProvider) {
-            const tokens = await this._authProvider.tokens();
-            if (tokens) {
-                headers['Authorization'] = `Bearer ${tokens.access_token}`;
-            }
-        } else if (this._tokenProvider) {
-            const token = await this._tokenProvider();
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
+        const token = await this._authProvider?.token();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
         }
         if (this._protocolVersion) {
             headers['mcp-protocol-version'] = this._protocolVersion;
@@ -167,10 +126,13 @@ export class SSEClientTransport implements Transport {
                         headers
                     });
 
-                    if (response.status === 401 && response.headers.has('www-authenticate')) {
-                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
+                    if (response.status === 401) {
+                        this._last401Response = response;
+                        if (response.headers.has('www-authenticate')) {
+                            const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                            this._scope = scope;
+                        }
                     }
 
                     return response;
@@ -179,17 +141,23 @@ export class SSEClientTransport implements Transport {
             this._abortController = new AbortController();
 
             this._eventSource.onerror = event => {
-                if (event.code === 401) {
-                    if (this._authProvider) {
-                        this._authThenStart().then(resolve, reject);
+                if (event.code === 401 && this._authProvider) {
+                    if (this._authProvider.onUnauthorized && this._last401Response && !this._authRetryInFlight) {
+                        this._authRetryInFlight = true;
+                        const response = this._last401Response;
+                        this._authProvider
+                            .onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit })
+                            .then(() => this._startOrAuth())
+                            .then(resolve, reject)
+                            .finally(() => {
+                                this._authRetryInFlight = false;
+                            });
                         return;
                     }
-                    if (this._tokenProvider) {
-                        const error = new UnauthorizedError('Server returned 401 — token from tokenProvider was rejected');
-                        reject(error);
-                        this.onerror?.(error);
-                        return;
-                    }
+                    const error = new UnauthorizedError();
+                    reject(error);
+                    this.onerror?.(error);
+                    return;
                 }
 
                 const error = new SseError(event.code, event.message, event);
@@ -247,8 +215,8 @@ export class SSEClientTransport implements Transport {
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
      */
     async finishAuth(authorizationCode: string): Promise<void> {
-        if (!this._authProvider) {
-            throw new UnauthorizedError('No auth provider');
+        if (!isOAuthClientProvider(this._authProvider)) {
+            throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
         const result = await auth(this._authProvider, {
@@ -287,38 +255,39 @@ export class SSEClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
-                const text = await response.text?.().catch(() => null);
-
                 if (response.status === 401) {
-                    if (this._authProvider) {
+                    if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
                         this._scope = scope;
+                    }
 
-                        const result = await auth(this._authProvider, {
+                    if (this._authProvider?.onUnauthorized && !this._authRetryInFlight) {
+                        this._authRetryInFlight = true;
+                        await this._authProvider.onUnauthorized({
+                            response,
                             serverUrl: this._url,
-                            resourceMetadataUrl: this._resourceMetadataUrl,
-                            scope: this._scope,
                             fetchFn: this._fetchWithInit
                         });
-                        if (result !== 'AUTHORIZED') {
-                            throw new UnauthorizedError();
-                        }
-
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this.send(message);
                     }
-                    if (this._tokenProvider) {
-                        throw new UnauthorizedError('Server returned 401 — token from tokenProvider was rejected');
+                    if (this._authProvider) {
+                        await response.text?.().catch(() => {});
+                        throw new UnauthorizedError();
                     }
                 }
 
+                const text = await response.text?.().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
+
+            this._authRetryInFlight = false;
 
             // Release connection - POST responses don't have content we need
             await response.text?.().catch(() => {});
         } catch (error) {
+            this._authRetryInFlight = false;
             this.onerror?.(error as Error);
             throw error;
         }

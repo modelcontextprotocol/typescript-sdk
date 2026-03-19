@@ -1,10 +1,17 @@
 ---
-'@modelcontextprotocol/client': minor
+'@modelcontextprotocol/client': major
 ---
 
-Add `TokenProvider` for simple bearer-token authentication and export composable auth primitives
+Unify client auth around a minimal `AuthProvider` interface
 
-- New `TokenProvider` type — a minimal `() => Promise<string | undefined>` function interface for supplying bearer tokens. Use this instead of `OAuthClientProvider` when tokens are managed externally (gateway/proxy patterns, service accounts, upfront API tokens, or any scenario where the full OAuth redirect flow is not needed).
-- New `tokenProvider` option on `StreamableHTTPClientTransport` and `SSEClientTransport`. Called before every request to obtain a fresh token. If both `authProvider` and `tokenProvider` are set, `authProvider` takes precedence.
-- New `withBearerAuth(getToken, fetchFn?)` helper that wraps a fetch function to inject `Authorization: Bearer` headers — useful for composing with other fetch middleware.
-- Exported previously-internal auth helpers for building custom auth flows: `applyBasicAuth`, `applyPostAuth`, `applyPublicAuth`, `executeTokenRequest`.
+**Breaking:** Transport `authProvider` option now accepts the new minimal `AuthProvider` interface instead of being typed as `OAuthClientProvider`. `OAuthClientProvider` now extends `AuthProvider`, so most existing code continues to work — but custom implementations must add a `token()` method.
+
+- New `AuthProvider` interface: `{ token(): Promise<string | undefined>; onUnauthorized?(ctx): Promise<void> }`. Transports call `token()` before every request and `onUnauthorized()` on 401 (then retry once).
+- `OAuthClientProvider` extends `AuthProvider`. Custom implementations must add `token()` (typically `return (await this.tokens())?.access_token`) and optionally `onUnauthorized()` (typically `return handleOAuthUnauthorized(this, ctx)`).
+- Built-in providers (`ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, `CrossAppAccessProvider`) implement both methods — existing user code is unchanged.
+- New `handleOAuthUnauthorized(provider, ctx)` helper runs the standard OAuth flow from `onUnauthorized`.
+- New `isOAuthClientProvider()` type guard for gating OAuth-specific transport features like `finishAuth()`.
+- Transports no longer inline OAuth orchestration — ~50 lines of `auth()` calls, WWW-Authenticate parsing, and circuit-breaker state moved into `onUnauthorized()` implementations.
+- Exported previously-internal auth helpers for building custom flows: `applyBasicAuth`, `applyPostAuth`, `applyPublicAuth`, `executeTokenRequest`.
+
+See `docs/migration.md` for before/after examples.

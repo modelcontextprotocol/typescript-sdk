@@ -9,8 +9,8 @@
 
 import type { AuthorizationServerMetadata } from '@modelcontextprotocol/core';
 
-import type { OAuthClientProvider } from './auth.js';
-import { fetchToken } from './auth.js';
+import type { OAuthClientProvider, UnauthorizedContext } from './auth.js';
+import { fetchToken, handleOAuthUnauthorized } from './auth.js';
 
 /**
  * Base class providing no-op implementations of required OAuthClientProvider methods.
@@ -28,6 +28,12 @@ abstract class MyProviderBase implements OAuthClientProvider {
     }
     tokens(): undefined {
         return;
+    }
+    async token(): Promise<string | undefined> {
+        return undefined;
+    }
+    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
+        await handleOAuthUnauthorized(this, ctx);
     }
     saveTokens() {
         return Promise.resolve();

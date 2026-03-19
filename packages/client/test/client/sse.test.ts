@@ -7,8 +7,8 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
-import { UnauthorizedError } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
+import { handleOAuthUnauthorized, UnauthorizedError } from '../../src/client/auth.js';
 import { SSEClientTransport } from '../../src/client/sse.js';
 
 /**
@@ -430,11 +430,15 @@ describe('SSEClientTransport', () => {
                 },
                 clientInformation: vi.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
                 tokens: vi.fn(),
+                token: vi.fn(async () => undefined),
                 saveTokens: vi.fn(),
                 redirectToAuthorization: vi.fn(),
                 saveCodeVerifier: vi.fn(),
                 codeVerifier: vi.fn(),
-                invalidateCredentials: vi.fn()
+                invalidateCredentials: vi.fn(),
+                onUnauthorized: vi.fn(async ctx => {
+                    await handleOAuthUnauthorized(mockAuthProvider, ctx);
+                })
             };
         });
 
@@ -443,6 +447,7 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
+            mockAuthProvider.token.mockResolvedValue('test-token');
 
             transport = new SSEClientTransport(resourceBaseUrl, {
                 authProvider: mockAuthProvider
@@ -451,7 +456,7 @@ describe('SSEClientTransport', () => {
             await transport.start();
 
             expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
-            expect(mockAuthProvider.tokens).toHaveBeenCalled();
+            expect(mockAuthProvider.token).toHaveBeenCalled();
         });
 
         it('attaches custom header from provider on initial SSE connection', async () => {
@@ -459,6 +464,7 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
+            mockAuthProvider.token.mockResolvedValue('test-token');
             const customHeaders = {
                 'X-Custom-Header': 'custom-value'
             };
@@ -474,7 +480,7 @@ describe('SSEClientTransport', () => {
 
             expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
-            expect(mockAuthProvider.tokens).toHaveBeenCalled();
+            expect(mockAuthProvider.token).toHaveBeenCalled();
         });
 
         it('attaches auth header from provider on POST requests', async () => {
@@ -482,6 +488,7 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
+            mockAuthProvider.token.mockResolvedValue('test-token');
 
             transport = new SSEClientTransport(resourceBaseUrl, {
                 authProvider: mockAuthProvider
@@ -499,7 +506,7 @@ describe('SSEClientTransport', () => {
             await transport.send(message);
 
             expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
-            expect(mockAuthProvider.tokens).toHaveBeenCalled();
+            expect(mockAuthProvider.token).toHaveBeenCalled();
         });
 
         it('attempts auth flow on 401 during SSE connection', async () => {
@@ -631,6 +638,7 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
+            mockAuthProvider.token.mockResolvedValue('test-token');
 
             const customHeaders = {
                 'X-Custom-Header': 'custom-value'
@@ -666,6 +674,7 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             };
             mockAuthProvider.tokens.mockImplementation(() => currentTokens);
+            mockAuthProvider.token.mockImplementation(async () => currentTokens.access_token);
             mockAuthProvider.saveTokens.mockImplementation(tokens => {
                 currentTokens = tokens;
             });
@@ -795,6 +804,7 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             };
             mockAuthProvider.tokens.mockImplementation(() => currentTokens);
+            mockAuthProvider.token.mockImplementation(async () => currentTokens.access_token);
             mockAuthProvider.saveTokens.mockImplementation(tokens => {
                 currentTokens = tokens;
             });
@@ -948,6 +958,7 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             };
             mockAuthProvider.tokens.mockImplementation(() => currentTokens);
+            mockAuthProvider.token.mockImplementation(async () => currentTokens.access_token);
             mockAuthProvider.saveTokens.mockImplementation(tokens => {
                 currentTokens = tokens;
             });
@@ -1218,11 +1229,15 @@ describe('SSEClientTransport', () => {
                 },
                 clientInformation: vi.fn().mockResolvedValue(clientInfo),
                 tokens: vi.fn().mockResolvedValue(tokens),
+                token: vi.fn(async () => tokens?.access_token),
                 saveTokens: vi.fn(),
                 redirectToAuthorization: vi.fn(),
                 saveCodeVerifier: vi.fn(),
                 codeVerifier: vi.fn().mockResolvedValue('test-verifier'),
-                invalidateCredentials: vi.fn()
+                invalidateCredentials: vi.fn(),
+                onUnauthorized: vi.fn(async ctx => {
+                    await handleOAuthUnauthorized(mockAuthProvider, ctx);
+                })
             };
         };
 
@@ -1526,6 +1541,101 @@ describe('SSEClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('minimal AuthProvider (non-OAuth)', () => {
+        let postResponses: number[];
+        let postCount: number;
+
+        async function setupServer(): Promise<void> {
+            await resourceServer.close();
+
+            postCount = 0;
+            resourceServer = createServer((req, res) => {
+                lastServerRequest = req;
+
+                if (req.method === 'GET') {
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache, no-transform',
+                        Connection: 'keep-alive'
+                    });
+                    res.write('event: endpoint\n');
+                    res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+                    return;
+                }
+
+                if (req.method === 'POST') {
+                    const status = postResponses[postCount] ?? 200;
+                    postCount++;
+                    res.writeHead(status).end();
+                    return;
+                }
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+        }
+
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: '1' };
+
+        it('throws UnauthorizedError on POST 401 when onUnauthorized is not provided', async () => {
+            postResponses = [401];
+            await setupServer();
+
+            const authProvider: AuthProvider = { token: async () => 'api-key' };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        });
+
+        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws', async () => {
+            postResponses = [401, 401];
+            await setupServer();
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'still-bad'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect(postCount).toBe(2);
+        });
+
+        it('resets retry guard when onUnauthorized throws, allowing retry on next send', async () => {
+            postResponses = [401, 401, 200];
+            await setupServer();
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn().mockRejectedValueOnce(new Error('transient network error')).mockResolvedValueOnce(undefined)
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            // First send: 401 → onUnauthorized throws transient error
+            await expect(transport.send(message)).rejects.toThrow('transient network error');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+
+            // Second send: flag should be reset, so 401 → onUnauthorized (succeeds) → retry → 200
+            await transport.send(message);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(postCount).toBe(3);
+        });
+
+        it('throws when finishAuth is called with a non-OAuth AuthProvider', async () => {
+            postResponses = [];
+            await setupServer();
+
+            const authProvider: AuthProvider = { token: async () => 'api-key' };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            await expect(transport.finishAuth('auth-code')).rejects.toThrow('finishAuth requires an OAuthClientProvider');
         });
     });
 });

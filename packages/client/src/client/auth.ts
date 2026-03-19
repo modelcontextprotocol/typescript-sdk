@@ -35,13 +35,102 @@ export type AddClientAuthentication = (
 ) => void | Promise<void>;
 
 /**
+ * Context passed to {@linkcode AuthProvider.onUnauthorized} when the server
+ * responds with 401. Provides everything needed to refresh credentials.
+ */
+export interface UnauthorizedContext {
+    /** The 401 response — inspect `WWW-Authenticate` for resource metadata, scope, etc. */
+    response: Response;
+    /** The MCP server URL, for passing to {@linkcode auth} or discovery helpers. */
+    serverUrl: URL;
+    /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
+    fetchFn: FetchLike;
+}
+
+/**
+ * Minimal interface for authenticating MCP client transports with bearer tokens.
+ *
+ * Transports call {@linkcode AuthProvider.token | token()} before every request
+ * to obtain the current token, and {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
+ * (if provided) when the server responds with 401, giving the provider a chance
+ * to refresh credentials before the transport retries once.
+ *
+ * For simple cases (API keys, gateway-managed tokens), implement only `token()`:
+ * ```typescript
+ * const authProvider: AuthProvider = { token: async () => process.env.API_KEY };
+ * ```
+ *
+ * For OAuth flows, use {@linkcode OAuthClientProvider} which extends this interface,
+ * or one of the built-in providers ({@linkcode index.ClientCredentialsProvider | ClientCredentialsProvider} etc.).
+ */
+export interface AuthProvider {
+    /**
+     * Returns the current bearer token, or `undefined` if no token is available.
+     * Called before every request.
+     */
+    token(): Promise<string | undefined>;
+
+    /**
+     * Called when the server responds with 401. If provided, the transport will
+     * await this, then retry the request once. If the retry also gets 401, or if
+     * this method is not provided, the transport throws {@linkcode UnauthorizedError}.
+     *
+     * Implementations should refresh tokens, re-authenticate, etc. — whatever is
+     * needed so the next `token()` call returns a valid token.
+     */
+    onUnauthorized?(ctx: UnauthorizedContext): Promise<void>;
+}
+
+/**
+ * Type guard: checks whether an `AuthProvider` is a full `OAuthClientProvider`.
+ * Use this to gate OAuth-specific transport features like `finishAuth()` and
+ * 403 scope upscoping.
+ */
+export function isOAuthClientProvider(provider: AuthProvider | undefined): provider is OAuthClientProvider {
+    return provider !== undefined && 'tokens' in provider && 'clientMetadata' in provider;
+}
+
+/**
+ * Default `onUnauthorized` implementation for OAuth providers: extracts
+ * `WWW-Authenticate` parameters from the 401 response and runs {@linkcode auth}.
+ * Built-in providers ({@linkcode index.ClientCredentialsProvider | ClientCredentialsProvider} etc.)
+ * delegate to this. Custom `OAuthClientProvider` implementations can do the same.
+ */
+export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx: UnauthorizedContext): Promise<void> {
+    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+    const result = await auth(provider, {
+        serverUrl: ctx.serverUrl,
+        resourceMetadataUrl,
+        scope,
+        fetchFn: ctx.fetchFn
+    });
+    if (result !== 'AUTHORIZED') {
+        throw new UnauthorizedError();
+    }
+}
+
+/**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
+ *
+ * Extends {@linkcode AuthProvider} — implementations must provide `token()`
+ * (typically `return (await this.tokens())?.access_token`) and `onUnauthorized()`
+ * (typically `return handleOAuthUnauthorized(this, ctx)`). Without `onUnauthorized()`,
+ * 401 responses throw immediately with no token refresh or reauth.
  */
-export interface OAuthClientProvider {
+export interface OAuthClientProvider extends AuthProvider {
+    /**
+     * Runs the OAuth re-authentication flow on 401. Required on `OAuthClientProvider`
+     * (optional on the base `AuthProvider`) because OAuth providers that omit this lose
+     * all 401 recovery — no token refresh, no redirect to authorization.
+     *
+     * Most implementations should delegate: `return handleOAuthUnauthorized(this, ctx)`.
+     */
+    onUnauthorized(ctx: UnauthorizedContext): Promise<void>;
+
     /**
      * The URL to redirect the user agent to after authorization.
      * Return `undefined` for non-interactive flows that don't require user interaction

@@ -8,7 +8,7 @@
  */
 
 //#region imports
-import type { Prompt, Resource, TokenProvider, Tool } from '@modelcontextprotocol/client';
+import type { AuthProvider, Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
@@ -107,12 +107,12 @@ async function serverInstructions_basic(client: Client) {
 // Authentication
 // ---------------------------------------------------------------------------
 
-/** Example: TokenProvider for bearer auth with externally-managed tokens. */
+/** Example: Minimal AuthProvider for bearer auth with externally-managed tokens. */
 async function auth_tokenProvider(getStoredToken: () => Promise<string>) {
     //#region auth_tokenProvider
-    const tokenProvider: TokenProvider = async () => getStoredToken();
+    const authProvider: AuthProvider = { token: async () => getStoredToken() };
 
-    const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { tokenProvider });
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
     //#endregion auth_tokenProvider
     return transport;
 }

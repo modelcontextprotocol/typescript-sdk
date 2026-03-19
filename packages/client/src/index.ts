@@ -6,7 +6,6 @@ export * from './client/middleware.js';
 export * from './client/sse.js';
 export * from './client/stdio.js';
 export * from './client/streamableHttp.js';
-export * from './client/tokenProvider.js';
 export * from './client/websocket.js';
 
 // experimental exports

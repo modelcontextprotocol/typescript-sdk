@@ -264,6 +264,7 @@ server.registerTool('ping', {
 ```
 
 This applies to:
+
 - `inputSchema` in `registerTool()`
 - `outputSchema` in `registerTool()`
 - `argsSchema` in `registerPrompt()`
@@ -360,25 +361,21 @@ Common method string replacements:
 
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
 
-The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
+like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
 
 **`client.request()` — Before (v1):**
 
 ```typescript
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const result = await client.request(
-    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } },
-    CallToolResultSchema
-);
+const result = await client.request({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } }, CallToolResultSchema);
 ```
 
 **After (v2):**
 
 ```typescript
-const result = await client.request(
-    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } }
-);
+const result = await client.request({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } });
 ```
 
 **`ctx.mcpReq.send()` — Before (v1):**
@@ -411,10 +408,7 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 ```typescript
 import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const result = await client.callTool(
-    { name: 'my-tool', arguments: {} },
-    CompatibilityCallToolResultSchema
-);
+const result = await client.callTool({ name: 'my-tool', arguments: {} }, CompatibilityCallToolResultSchema);
 ```
 
 **After (v2):**
@@ -473,32 +467,32 @@ import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse
 
 The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy using nested groups:
 
-| v1 | v2 |
-|----|-----|
+| v1                                       | v2                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
 | `RequestHandlerExtra` (flat, all fields) | `ServerContext` (server handlers) or `ClientContext` (client handlers) |
-| `extra` parameter name | `ctx` parameter name |
-| `extra.signal` | `ctx.mcpReq.signal` |
-| `extra.requestId` | `ctx.mcpReq.id` |
-| `extra._meta` | `ctx.mcpReq._meta` |
-| `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
-| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
-| `extra.authInfo` | `ctx.http?.authInfo` |
-| `extra.requestInfo` | `ctx.http?.req` (only on `ServerContext`) |
-| `extra.closeSSEStream` | `ctx.http?.closeSSE` (only on `ServerContext`) |
-| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`) |
-| `extra.sessionId` | `ctx.sessionId` |
-| `extra.taskStore` | `ctx.task?.store` |
-| `extra.taskId` | `ctx.task?.id` |
-| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+| `extra` parameter name                   | `ctx` parameter name                                                   |
+| `extra.signal`                           | `ctx.mcpReq.signal`                                                    |
+| `extra.requestId`                        | `ctx.mcpReq.id`                                                        |
+| `extra._meta`                            | `ctx.mcpReq._meta`                                                     |
+| `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
+| `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
+| `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
+| `extra.requestInfo`                      | `ctx.http?.req` (only on `ServerContext`)                              |
+| `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
+| `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
+| `extra.sessionId`                        | `ctx.sessionId`                                                        |
+| `extra.taskStore`                        | `ctx.task?.store`                                                      |
+| `extra.taskId`                           | `ctx.task?.id`                                                         |
+| `extra.taskRequestedTtl`                 | `ctx.task?.requestedTtl`                                               |
 
 **Before (v1):**
 
 ```typescript
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-  const headers = extra.requestInfo?.headers;
-  const taskStore = extra.taskStore;
-  await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
-  return { content: [{ type: 'text', text: 'result' }] };
+    const headers = extra.requestInfo?.headers;
+    const taskStore = extra.taskStore;
+    await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+    return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
@@ -506,10 +500,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-  const headers = ctx.http?.req?.headers;
-  const taskStore = ctx.task?.store;
-  await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
-  return { content: [{ type: 'text', text: 'result' }] };
+    const headers = ctx.http?.req?.headers;
+    const taskStore = ctx.task?.store;
+    await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+    return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
@@ -525,22 +519,22 @@ Context fields are organized into 4 groups:
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-  // Send a log message (respects client's log level filter)
-  await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
+    // Send a log message (respects client's log level filter)
+    await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
 
-  // Request client to sample an LLM
-  const samplingResult = await ctx.mcpReq.requestSampling({
-    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
-    maxTokens: 100,
-  });
+    // Request client to sample an LLM
+    const samplingResult = await ctx.mcpReq.requestSampling({
+        messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+        maxTokens: 100
+    });
 
-  // Elicit user input via a form
-  const elicitResult = await ctx.mcpReq.elicitInput({
-    message: 'Please provide details',
-    requestedSchema: { type: 'object', properties: { name: { type: 'string' } } },
-  });
+    // Elicit user input via a form
+    const elicitResult = await ctx.mcpReq.elicitInput({
+        message: 'Please provide details',
+        requestedSchema: { type: 'object', properties: { name: { type: 'string' } } }
+    });
 
-  return { content: [{ type: 'text', text: 'done' }] };
+    return { content: [{ type: 'text', text: 'done' }] };
 });
 ```
 
@@ -667,12 +661,51 @@ try {
 
 #### Why this change?
 
-Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was semantically inconsistent.
+Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was
+semantically inconsistent.
 
 The new design:
 
 - `ProtocolError` with `ProtocolErrorCode`: For errors that are serialized and sent as JSON-RPC error responses
 - `SdkError` with `SdkErrorCode`: For local errors that are thrown/rejected locally and never leave the SDK
+
+### Client `authProvider` unified around `AuthProvider`
+
+Transport `authProvider` options now accept the minimal `AuthProvider` interface rather than being typed as `OAuthClientProvider`. `OAuthClientProvider` extends `AuthProvider`, so built-in providers and most existing code continue to work unchanged — but custom
+`OAuthClientProvider` implementations must add a `token()` method.
+
+**What changed:** transports now call `authProvider.token()` before every request (instead of `authProvider.tokens()?.access_token`), and call `authProvider.onUnauthorized()` on 401 (instead of inlining OAuth orchestration). One code path handles both simple bearer tokens and
+full OAuth.
+
+**If you implement `OAuthClientProvider` directly** (the interactive browser-redirect pattern), add:
+
+```ts
+class MyProvider implements OAuthClientProvider {
+    // ...existing 8 required members...
+
+    // Required: return the current access token
+    async token(): Promise<string | undefined> {
+        return (await this.tokens())?.access_token;
+    }
+
+    // Required: runs the OAuth flow on 401 — without this, 401 throws with no recovery
+    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
+        await handleOAuthUnauthorized(this, ctx);
+    }
+}
+```
+
+**If you use `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, or `CrossAppAccessProvider`** — no change. These already implement both methods.
+
+**If you have simple bearer tokens** (API keys, gateway tokens, externally-managed tokens), you can now skip `OAuthClientProvider` entirely:
+
+```ts
+// Before: had to implement 8 OAuthClientProvider members with no-op stubs
+// After:
+const transport = new StreamableHTTPClientTransport(url, {
+    authProvider: { token: async () => process.env.API_KEY }
+});
+```
 
 ### OAuth error refactoring
 
@@ -764,11 +797,11 @@ This means Cloudflare Workers users no longer need to explicitly pass the valida
 import { McpServer, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
 
 const server = new McpServer(
-  { name: 'my-server', version: '1.0.0' },
-  {
-    capabilities: { tools: {} },
-    jsonSchemaValidator: new CfWorkerJsonSchemaValidator() // Required in v1
-  }
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator() // Required in v1
+    }
 );
 ```
 
@@ -778,9 +811,9 @@ const server = new McpServer(
 import { McpServer } from '@modelcontextprotocol/server';
 
 const server = new McpServer(
-  { name: 'my-server', version: '1.0.0' },
-  { capabilities: { tools: {} } }
-  // Validator auto-selected based on runtime
+    { name: 'my-server', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+    // Validator auto-selected based on runtime
 );
 ```
 

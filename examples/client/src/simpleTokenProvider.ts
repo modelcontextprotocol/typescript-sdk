@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 
 /**
- * Example demonstrating TokenProvider for simple bearer token authentication.
+ * Example demonstrating the minimal AuthProvider for bearer token authentication.
  *
- * TokenProvider is a lightweight alternative to OAuthClientProvider for cases
- * where tokens are managed externally — e.g., pre-configured API tokens,
- * gateway/proxy patterns, or tokens obtained through a separate auth flow.
+ * AuthProvider is the base interface for all client auth. For simple cases where
+ * tokens are managed externally — pre-configured API tokens, gateway/proxy patterns,
+ * or tokens obtained through a separate auth flow — implement only `token()`.
+ *
+ * For OAuth flows (client_credentials, private_key_jwt, etc.), use the built-in
+ * providers which implement both `token()` and `onUnauthorized()`.
  *
  * Environment variables:
  *   MCP_SERVER_URL - Server URL (default: http://localhost:3000/mcp)
  *   MCP_TOKEN      - Bearer token to use for authentication (required)
- *
- * Two approaches are demonstrated:
- *   1. Using `tokenProvider` option on the transport (simplest)
- *   2. Using `withBearerAuth` to wrap a custom fetch function (more flexible)
  */
 
-import type { TokenProvider } from '@modelcontextprotocol/client';
-import { Client, StreamableHTTPClientTransport, withBearerAuth } from '@modelcontextprotocol/client';
+import type { AuthProvider } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
 
@@ -28,25 +27,16 @@ async function main() {
         process.exit(1);
     }
 
-    // A TokenProvider is just an async function that returns a token string.
-    // It is called before every request, so it can handle refresh logic internally.
-    const tokenProvider: TokenProvider = async () => token;
+    // AuthProvider with just token() — the simplest possible auth.
+    // token() is called before every request, so it can handle refresh internally.
+    // With no onUnauthorized(), a 401 throws UnauthorizedError immediately.
+    const authProvider: AuthProvider = {
+        token: async () => token
+    };
 
-    const client = new Client({ name: 'token-provider-example', version: '1.0.0' }, { capabilities: {} });
+    const client = new Client({ name: 'auth-provider-example', version: '1.0.0' }, { capabilities: {} });
 
-    // Approach 1: Pass tokenProvider directly to the transport.
-    // This is the simplest way to add bearer auth.
-    const transport = new StreamableHTTPClientTransport(new URL(DEFAULT_SERVER_URL), {
-        tokenProvider
-    });
-
-    // Approach 2 (alternative): Use withBearerAuth to wrap fetch.
-    // This is useful when you need more control over the fetch behavior,
-    // or when composing with other fetch wrappers.
-    //
-    // const transport = new StreamableHTTPClientTransport(new URL(DEFAULT_SERVER_URL), {
-    //     fetch: withBearerAuth(tokenProvider),
-    // });
+    const transport = new StreamableHTTPClientTransport(new URL(DEFAULT_SERVER_URL), { authProvider });
 
     await client.connect(transport);
     console.log('Connected successfully.');
@@ -64,6 +54,3 @@ try {
     // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
 }
-
-// Referenced in the commented-out Approach 2 above; kept so uncommenting it type-checks.
-void withBearerAuth;
