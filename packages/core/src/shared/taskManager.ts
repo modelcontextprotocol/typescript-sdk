@@ -181,9 +181,7 @@ export type TaskManagerOptions = {
  * Extracts {@linkcode TaskManagerOptions} from a capability object that mixes in runtime fields.
  * Returns `undefined` when no task capability is configured.
  */
-export function extractTaskManagerOptions(
-    tasksCapability: TaskManagerOptions | undefined
-): TaskManagerOptions | undefined {
+export function extractTaskManagerOptions(tasksCapability: TaskManagerOptions | undefined): TaskManagerOptions | undefined {
     if (!tasksCapability) return undefined;
     const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize } = tasksCapability;
     return { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize };
@@ -191,7 +189,7 @@ export function extractTaskManagerOptions(
 
 /**
  * Manages task orchestration: state, message queuing, and polling.
- * Capability checking is delegated to the Protocol host via {@linkcode TaskManagerHost}.
+ * Capability checking is delegated to the Protocol host.
  * @internal
  */
 export class TaskManager {
