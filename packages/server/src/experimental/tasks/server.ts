@@ -43,7 +43,7 @@ export class ExperimentalServerTasks {
     constructor(private readonly _server: Server) {}
 
     private get _module() {
-        return this._server.taskModule;
+        return this._server.taskManager;
     }
 
     /**

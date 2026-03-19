@@ -7,7 +7,7 @@ export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
 export * from './shared/stdio.js';
 export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from './shared/taskManager.js';
-export { NullTaskManager, TaskManager } from './shared/taskManager.js';
+export { extractTaskManagerOptions, NullTaskManager, TaskManager } from './shared/taskManager.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';

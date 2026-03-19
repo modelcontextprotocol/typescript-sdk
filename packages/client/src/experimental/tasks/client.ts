@@ -48,7 +48,7 @@ export class ExperimentalClientTasks {
     constructor(private readonly _client: Client) {}
 
     private get _module() {
-        return this._client.taskModule;
+        return this._client.taskManager;
     }
 
     /**

@@ -45,6 +45,9 @@ export interface TaskManagerHost {
     removeProgressHandler(token: number): void;
     registerHandler(method: string, handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>): void;
     sendOnResponseStream(message: JSONRPCNotification | JSONRPCRequest, relatedRequestId: RequestId): Promise<void>;
+    enforceStrictCapabilities: boolean;
+    assertTaskCapability(method: string): void;
+    assertTaskHandlerCapability(method: string): void;
 }
 
 /**
@@ -172,26 +175,23 @@ export type TaskManagerOptions = {
      * If undefined, the queue size is unbounded.
      */
     maxTaskQueueSize?: number;
-    /**
-     * When true, outbound task-augmented requests will be validated against
-     * the remote side's declared task capabilities before sending.
-     */
-    enforceStrictCapabilities?: boolean;
-    /**
-     * Assert that the remote side supports task creation for the given method.
-     * Called when sending a task-augmented outbound request (only when enforceStrictCapabilities is true).
-     */
-    assertTaskCapability?: (method: string) => void;
-    /**
-     * Assert that this side supports handling task creation for the given method.
-     * Called when receiving a task-augmented inbound request.
-     */
-    assertTaskHandlerCapability?: (method: string) => void;
 };
 
 /**
+ * Extracts {@linkcode TaskManagerOptions} from a capability object that mixes in runtime fields.
+ * Returns `undefined` when no task capability is configured.
+ */
+export function extractTaskManagerOptions(
+    tasksCapability: TaskManagerOptions | undefined
+): TaskManagerOptions | undefined {
+    if (!tasksCapability) return undefined;
+    const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize } = tasksCapability;
+    return { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize };
+}
+
+/**
  * Manages task orchestration: state, message queuing, and polling.
- * Capability checking is provided via optional constructor callbacks.
+ * Capability checking is delegated to the Protocol host via {@linkcode TaskManagerHost}.
  * @internal
  */
 export class TaskManager {
@@ -723,9 +723,11 @@ export class TaskManager {
             ? this.wrapSendNotification(relatedTaskId, ctx.sendNotification)
             : (notification: Notification) => ctx.sendNotification(notification);
 
-        const sendRequest = taskInfo?.taskContext
-            ? this.wrapSendRequest(relatedTaskId ?? '', taskInfo.taskContext.store, ctx.sendRequest)
-            : ctx.sendRequest;
+        const sendRequest = relatedTaskId
+            ? this.wrapSendRequest(relatedTaskId, taskInfo?.taskContext?.store, ctx.sendRequest)
+            : taskInfo?.taskContext
+              ? this.wrapSendRequest('', taskInfo.taskContext.store, ctx.sendRequest)
+              : ctx.sendRequest;
 
         const hasTaskCreationParams = !!taskInfo?.taskCreationParams;
 
@@ -742,7 +744,7 @@ export class TaskManager {
             hasTaskCreationParams,
             // Deferred validation: runs inside the async handler chain so errors
             // produce proper JSON-RPC error responses (matching main's behavior).
-            validateInbound: hasTaskCreationParams ? () => this._options.assertTaskHandlerCapability?.(request.method) : undefined
+            validateInbound: hasTaskCreationParams ? () => this._requireHost.assertTaskHandlerCapability(request.method) : undefined
         };
     }
 
@@ -754,8 +756,8 @@ export class TaskManager {
         onError: (error: unknown) => void
     ): { queued: boolean } {
         // Check task capability when sending a task-augmented request (matches main's enforceStrictCapabilities gate)
-        if (this._options.enforceStrictCapabilities && options?.task) {
-            this._options.assertTaskCapability?.(jsonrpcRequest.method);
+        if (this._requireHost.enforceStrictCapabilities && options?.task) {
+            this._requireHost.assertTaskCapability(jsonrpcRequest.method);
         }
 
         const queued = this.prepareOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, onError);

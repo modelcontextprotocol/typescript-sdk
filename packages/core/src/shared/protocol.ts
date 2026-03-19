@@ -47,7 +47,8 @@ import {
 } from '../types/types.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
-import type { TaskContext, TaskManager, TaskManagerHost, TaskRequestOptions } from './taskManager.js';
+import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
+import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -82,6 +83,17 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
+
+    /**
+     * Runtime configuration for task management.
+     * If provided, creates a TaskManager with the given options; otherwise a NullTaskManager is used.
+     *
+     * Capability assertions are wired automatically from the abstract
+     * {@linkcode Protocol.assertTaskCapability | assertTaskCapability()} and
+     * {@linkcode Protocol.assertTaskHandlerCapability | assertTaskHandlerCapability()} methods,
+     * so they should NOT be included here.
+     */
+    tasks?: TaskManagerOptions;
 };
 
 /**
@@ -281,10 +293,6 @@ type TimeoutInfo = {
     onTimeout: () => void;
 };
 
-async function _noopRouteResponse(): Promise<boolean> {
-    return false;
-}
-
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
@@ -300,7 +308,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
-    private _taskManager?: TaskManager;
+    private _taskManager: TaskManager;
 
     protected _supportedProtocolVersions: string[];
 
@@ -331,6 +339,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
     constructor(private _options?: ProtocolOptions) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
+        // Create TaskManager from protocol options
+        this._taskManager = _options?.tasks ? new TaskManager(_options.tasks) : new NullTaskManager();
+        this._bindTaskManager();
+
         this.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);
         });
@@ -347,11 +359,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Sets the TaskManager that hooks into the message lifecycle.
-     * The TaskManager is bound to this Protocol and can register handlers, send messages, etc.
+     * Access the TaskManager for task orchestration.
+     * Always available; returns a NullTaskManager when no task store is configured.
      */
-    protected setTaskManager(taskManager: TaskManager): void {
-        this._taskManager = taskManager;
+    get taskManager(): TaskManager {
+        return this._taskManager;
+    }
+
+    private _bindTaskManager(): void {
+        const taskManager = this._taskManager;
         const host: TaskManagerHost = {
             request: (request, resultSchema, options) => this._requestWithSchema(request, resultSchema, options),
             notification: (notification, options) => this.notification(notification, options),
@@ -367,7 +383,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
             },
             sendOnResponseStream: async (message, relatedRequestId) => {
                 await this._transport?.send(message, { relatedRequestId });
-            }
+            },
+            enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
+            assertTaskCapability: method => this.assertTaskCapability(method),
+            assertTaskHandlerCapability: method => this.assertTaskHandlerCapability(method)
         };
         taskManager.bind(host);
     }
@@ -473,7 +492,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
-        this._taskManager?.onClose();
+        this._taskManager.onClose();
         this._pendingDebouncedNotifications.clear();
 
         const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
@@ -519,22 +538,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._requestWithSchema(r, resultSchema, { ...options, relatedRequestId: request.id })
         };
 
-        // Compose results from all modules
-        let sendNotification: (notification: Notification) => Promise<void> = (notification: Notification) =>
-            inboundCtx.sendNotification(notification);
-        let sendRequest = inboundCtx.sendRequest;
-        let routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean> = _noopRouteResponse;
-        let taskContext: BaseContext['task'] | undefined;
+        // Delegate to TaskManager for task context, wrapped send/notify, and response routing
+        const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
+        const sendNotification = taskResult.sendNotification;
+        const sendRequest = taskResult.sendRequest;
+        const taskContext = taskResult.taskContext;
+        const routeResponse = taskResult.routeResponse;
         const validators: Array<() => void> = [];
-
-        if (this._taskManager) {
-            const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
-            sendNotification = taskResult.sendNotification;
-            sendRequest = taskResult.sendRequest;
-            if (taskResult.taskContext !== undefined) taskContext = taskResult.taskContext;
-            if (taskResult.validateInbound) validators.push(taskResult.validateInbound);
-            routeResponse = taskResult.routeResponse;
-        }
+        if (taskResult.validateInbound) validators.push(taskResult.validateInbound);
 
         if (handler === undefined) {
             const errorResponse: JSONRPCErrorResponse = {
@@ -669,12 +680,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const messageId = Number(response.id);
 
         // Delegate to TaskManager for task-related response handling
-        let preserveProgress = false;
-        if (this._taskManager) {
-            const taskResult = this._taskManager.processInboundResponse(response, messageId);
-            if (taskResult.consumed) return;
-            preserveProgress = taskResult.preserveProgress;
-        }
+        const taskResult = this._taskManager.processInboundResponse(response, messageId);
+        if (taskResult.consumed) return;
+        const preserveProgress = taskResult.preserveProgress;
 
         const handler = this._responseHandlers.get(messageId);
         if (handler === undefined) {
@@ -729,6 +737,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * This should be implemented by subclasses.
      */
     protected abstract assertRequestHandlerCapability(method: string): void;
+
+    /**
+     * A method to check if the remote side supports task creation for the given method.
+     *
+     * Called when sending a task-augmented outbound request (only when enforceStrictCapabilities is true).
+     * This should be implemented by subclasses.
+     */
+    protected abstract assertTaskCapability(method: string): void;
+
+    /**
+     * A method to check if this side supports handling task creation for the given method.
+     *
+     * Called when receiving a task-augmented inbound request.
+     * This should be implemented by subclasses.
+     */
+    protected abstract assertTaskHandlerCapability(method: string): void;
 
     /**
      * Sends a request and waits for a response, resolving the result schema
@@ -862,28 +886,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
             };
 
             let outboundQueued = false;
-            if (this._taskManager) {
-                try {
-                    const taskResult = this._taskManager.processOutboundRequest(
-                        jsonrpcRequest,
-                        options,
-                        messageId,
-                        responseHandler,
-                        error => {
-                            this._cleanupTimeout(messageId);
-                            reject(error);
-                        }
-                    );
-                    if (taskResult.queued) {
-                        outboundQueued = true;
-                    }
-                } catch (error) {
-                    this._responseHandlers.delete(messageId);
-                    this._progressHandlers.delete(messageId);
+            try {
+                const taskResult = this._taskManager.processOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, error => {
                     this._cleanupTimeout(messageId);
                     reject(error);
-                    return;
+                });
+                if (taskResult.queued) {
+                    outboundQueued = true;
                 }
+            } catch (error) {
+                this._responseHandlers.delete(messageId);
+                this._progressHandlers.delete(messageId);
+                this._cleanupTimeout(messageId);
+                reject(error);
+                return;
             }
 
             if (!outboundQueued) {
@@ -906,20 +922,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         this.assertNotificationCapability(notification.method as NotificationMethod);
 
-        // Delegate task-related notification routing and JSONRPC building to modules (if registered)
-        let queued = false;
-        let jsonrpcNotification: JSONRPCNotification | undefined;
-
-        if (this._taskManager) {
-            const taskResult = await this._taskManager.processOutboundNotification(notification, options);
-            if (taskResult.queued) {
-                queued = true;
-            } else {
-                jsonrpcNotification = taskResult.jsonrpcNotification;
-            }
-        } else {
-            jsonrpcNotification = { ...notification, jsonrpc: '2.0' };
-        }
+        // Delegate task-related notification routing and JSONRPC building to TaskManager
+        const taskResult = await this._taskManager.processOutboundNotification(notification, options);
+        const queued = taskResult.queued;
+        const jsonrpcNotification = taskResult.queued ? undefined : taskResult.jsonrpcNotification;
 
         if (queued) {
             // Don't send through transport - queued messages are delivered via tasks/result only

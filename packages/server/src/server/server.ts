@@ -36,6 +36,7 @@ import type {
 import {
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
+    extractTaskManagerOptions,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageResultSchema,
@@ -47,14 +48,12 @@ import {
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
-    NullTaskManager,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode,
-    TaskManager
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -64,8 +63,7 @@ import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
  * Extended tasks capability that includes runtime configuration (store, messageQueue).
  * The runtime-only fields are stripped before advertising capabilities to clients.
  */
-export type ServerTasksCapabilityWithRuntime = NonNullable<ServerCapabilities['tasks']> &
-    Pick<TaskManagerOptions, 'taskStore' | 'taskMessageQueue' | 'defaultTaskPollInterval' | 'maxTaskQueueSize'>;
+export type ServerTasksCapabilityWithRuntime = NonNullable<ServerCapabilities['tasks']> & TaskManagerOptions;
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -105,7 +103,6 @@ export class Server extends Protocol<ServerContext> {
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _experimental?: { tasks: ExperimentalServerTasks };
-    private _taskModule: TaskManager;
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -119,31 +116,21 @@ export class Server extends Protocol<ServerContext> {
         private _serverInfo: Implementation,
         options?: ServerOptions
     ) {
-        super(options);
+        super({
+            ...options,
+            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
+        });
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
-        // Always create TaskManager (NullTaskManager pattern for streaming support)
+        // Strip runtime-only fields from advertised capabilities
         if (options?.capabilities?.tasks) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
                 options.capabilities.tasks;
-            // Strip runtime-only config from advertised capabilities
             this._capabilities.tasks = wireCapabilities;
-            this._taskModule = new TaskManager({
-                taskStore,
-                taskMessageQueue,
-                defaultTaskPollInterval,
-                maxTaskQueueSize,
-                enforceStrictCapabilities: options?.enforceStrictCapabilities,
-                assertTaskCapability: method =>
-                    assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client'),
-                assertTaskHandlerCapability: method => assertToolsCallTaskCapability(this._capabilities.tasks?.requests, method, 'Server')
-            });
-        } else {
-            this._taskModule = new NullTaskManager();
         }
-        this.setTaskManager(this._taskModule);
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
@@ -151,13 +138,6 @@ export class Server extends Protocol<ServerContext> {
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
-    }
-
-    /**
-     * Access the task module.
-     */
-    get taskModule(): TaskManager {
-        return this._taskModule;
     }
 
     private _registerLoggingHandler(): void {
@@ -434,6 +414,14 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
         }
+    }
+
+    protected assertTaskCapability(method: string): void {
+        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
+    }
+
+    protected assertTaskHandlerCapability(method: string): void {
+        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {

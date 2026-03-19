@@ -37,23 +37,20 @@ import type {
 import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/types.js';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 
-// Test Protocol subclass that exposes setTaskManager for testing
+// Test Protocol subclass for testing
 class TestProtocolImpl extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
     protected assertNotificationCapability(): void {}
     protected assertRequestHandlerCapability(): void {}
+    protected assertTaskCapability(): void {}
+    protected assertTaskHandlerCapability(): void {}
     protected buildContext(ctx: BaseContext): BaseContext {
         return ctx;
-    }
-    public setTestTaskManager(taskManager: TaskManager): void {
-        this.setTaskManager(taskManager);
     }
 }
 
 function createTestProtocol(taskOptions?: TaskManagerOptions): TestProtocolImpl {
-    const p = new TestProtocolImpl();
-    p.setTestTaskManager(taskOptions ? new TaskManager(taskOptions) : new NullTaskManager());
-    return p;
+    return new TestProtocolImpl(taskOptions ? { tasks: taskOptions } : undefined);
 }
 
 // Type helper for accessing private/protected Protocol properties in tests
@@ -1280,12 +1277,9 @@ describe('Task-based execution', () => {
     });
 
     describe('assertTaskHandlerCapability', () => {
-        it('should invoke assertTaskHandlerCapability callback when an inbound task-augmented request arrives', async () => {
-            const assertTaskHandlerCapability = vi.fn();
-            const localProtocol = createTestProtocol({
-                taskStore: createMockTaskStore(),
-                assertTaskHandlerCapability
-            });
+        it('should invoke assertTaskHandlerCapability when an inbound task-augmented request arrives', async () => {
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            const spy = vi.spyOn(localProtocol, 'assertTaskHandlerCapability' as never);
             const localTransport = new MockTransport();
             await localProtocol.connect(localTransport);
 
@@ -1306,16 +1300,13 @@ describe('Task-based execution', () => {
 
             await new Promise(resolve => setTimeout(resolve, 20));
 
-            expect(assertTaskHandlerCapability).toHaveBeenCalledOnce();
-            expect(assertTaskHandlerCapability).toHaveBeenCalledWith('tools/call');
+            expect(spy).toHaveBeenCalledOnce();
+            expect(spy).toHaveBeenCalledWith('tools/call');
         });
 
         it('should not invoke assertTaskHandlerCapability for non-task-augmented requests', async () => {
-            const assertTaskHandlerCapability = vi.fn();
-            const localProtocol = createTestProtocol({
-                taskStore: createMockTaskStore(),
-                assertTaskHandlerCapability
-            });
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            const spy = vi.spyOn(localProtocol, 'assertTaskHandlerCapability' as never);
             const localTransport = new MockTransport();
             await localProtocol.connect(localTransport);
 
@@ -1332,11 +1323,10 @@ describe('Task-based execution', () => {
 
             await new Promise(resolve => setTimeout(resolve, 20));
 
-            expect(assertTaskHandlerCapability).not.toHaveBeenCalled();
+            expect(spy).not.toHaveBeenCalled();
         });
 
-        it('should not throw when assertTaskHandlerCapability is not provided', async () => {
-            // No assertTaskHandlerCapability callback — protocol must not error
+        it('should succeed with default no-op assertTaskHandlerCapability', async () => {
             const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
             const localTransport = new MockTransport();
             const localSendSpy = vi.spyOn(localTransport, 'send');
@@ -1366,12 +1356,10 @@ describe('Task-based execution', () => {
         });
 
         it('should send a JSON-RPC error response when assertTaskHandlerCapability throws', async () => {
-            const assertTaskHandlerCapability = vi.fn(() => {
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            vi.spyOn(localProtocol as any, 'assertTaskHandlerCapability').mockImplementation(() => {
                 throw new Error('Task handler capability not declared');
-            });
-            const localProtocol = createTestProtocol({
-                taskStore: createMockTaskStore(),
-                assertTaskHandlerCapability
             });
             const localTransport = new MockTransport();
             const sendSpy = vi.spyOn(localTransport, 'send');
@@ -1394,7 +1382,6 @@ describe('Task-based execution', () => {
 
             await new Promise(resolve => setTimeout(resolve, 20));
 
-            expect(assertTaskHandlerCapability).toHaveBeenCalledOnce();
             // Verify the error was sent back as a JSON-RPC error response (matching main's behavior)
             expect(sendSpy).toHaveBeenCalledOnce();
             const response = sendSpy.mock.calls[0]![0] as { error?: { message?: string } };
@@ -5572,30 +5559,34 @@ describe('TaskManager lifecycle via Protocol', () => {
         protocol = new TestProtocolImpl();
     });
 
-    test('bind() is called during setTaskManager()', () => {
-        const taskManager = new TaskManager({});
-        const bindSpy = vi.spyOn(taskManager, 'bind');
-        protocol.setTestTaskManager(taskManager);
-
+    test('bind() is called during Protocol construction', () => {
+        const bindSpy = vi.spyOn(TaskManager.prototype, 'bind');
+        const p = new TestProtocolImpl({ tasks: {} });
         expect(bindSpy).toHaveBeenCalled();
+        expect(p.taskManager).toBeInstanceOf(TaskManager);
+        bindSpy.mockRestore();
+    });
+
+    test('NullTaskManager is created when no tasks config is provided', () => {
+        const p = new TestProtocolImpl();
+        expect(p.taskManager).toBeInstanceOf(NullTaskManager);
     });
 
     test('onClose() is called when transport closes', async () => {
-        const taskManager = new TaskManager({});
-        const onCloseSpy = vi.spyOn(taskManager, 'onClose');
-        protocol.setTestTaskManager(taskManager);
+        const p = createTestProtocol({});
+        const onCloseSpy = vi.spyOn(p.taskManager, 'onClose');
 
-        await protocol.connect(transport);
-        await protocol.close();
+        await p.connect(transport);
+        await p.close();
 
         expect(onCloseSpy).toHaveBeenCalled();
     });
 });
 
 describe('TaskManager always present (NullTaskManager pattern)', () => {
-    test('taskModule accessor always returns a TaskManager', () => {
+    test('taskManager accessor always returns a TaskManager', () => {
         const mockTaskModule = { getTask: vi.fn() };
-        const mockClient = { taskModule: mockTaskModule } as any;
-        expect(mockClient.taskModule).toBe(mockTaskModule);
+        const mockClient = { taskManager: mockTaskModule } as any;
+        expect(mockClient.taskManager).toBe(mockTaskModule);
     });
 });

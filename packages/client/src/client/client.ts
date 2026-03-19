@@ -38,6 +38,7 @@ import type {
 import {
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
+    extractTaskManagerOptions,
     CallToolResultSchema,
     CompleteResultSchema,
     CreateMessageRequestSchema,
@@ -56,15 +57,13 @@ import {
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
-    NullTaskManager,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
     SdkError,
-    SdkErrorCode,
-    TaskManager
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -147,8 +146,7 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
  * Extended tasks capability that includes runtime configuration (store, messageQueue).
  * The runtime-only fields are stripped before advertising capabilities to servers.
  */
-export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> &
-    Pick<TaskManagerOptions, 'taskStore' | 'taskMessageQueue' | 'defaultTaskPollInterval' | 'maxTaskQueueSize'>;
+export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> & TaskManagerOptions;
 
 export type ClientOptions = ProtocolOptions & {
     /**
@@ -216,7 +214,6 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
-    private _taskModule: TaskManager;
 
     /**
      * Initializes this client with the given name and version information.
@@ -225,43 +222,26 @@ export class Client extends Protocol<ClientContext> {
         private _clientInfo: Implementation,
         options?: ClientOptions
     ) {
-        super(options);
+        super({
+            ...options,
+            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
+        });
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
 
-        // Always create TaskManager (NullTaskManager pattern for streaming support)
+        // Strip runtime-only fields from advertised capabilities
         if (options?.capabilities?.tasks) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
                 options.capabilities.tasks;
-            // Strip runtime-only config from advertised capabilities
             this._capabilities.tasks = wireCapabilities;
-            this._taskModule = new TaskManager({
-                taskStore,
-                taskMessageQueue,
-                defaultTaskPollInterval,
-                maxTaskQueueSize,
-                enforceStrictCapabilities: options?.enforceStrictCapabilities,
-                assertTaskCapability: method => assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server'),
-                assertTaskHandlerCapability: method =>
-                    assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client')
-            });
-        } else {
-            this._taskModule = new NullTaskManager();
         }
-        this.setTaskManager(this._taskModule);
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
             this._pendingListChangedConfig = options.listChanged;
         }
-    }
-
-    /**
-     * Access the task module.
-     */
-    get taskModule(): TaskManager {
-        return this._taskModule;
     }
 
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
@@ -712,6 +692,14 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
         }
+    }
+
+    protected assertTaskCapability(method: string): void {
+        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
+    }
+
+    protected assertTaskHandlerCapability(method: string): void {
+        assertClientRequestTaskCapability(this._capabilities?.tasks?.requests, method, 'Client');
     }
 
     async ping(options?: RequestOptions) {
