@@ -669,44 +669,6 @@ The new design:
 - `ProtocolError` with `ProtocolErrorCode`: For errors that are serialized and sent as JSON-RPC error responses
 - `SdkError` with `SdkErrorCode`: For local errors that are thrown/rejected locally and never leave the SDK
 
-### Client `authProvider` unified around `AuthProvider`
-
-Transport `authProvider` options now accept the minimal `AuthProvider` interface rather than being typed as `OAuthClientProvider`. `OAuthClientProvider` extends `AuthProvider`, so built-in providers and most existing code continue to work unchanged — but custom
-`OAuthClientProvider` implementations must add a `token()` method.
-
-**What changed:** transports now call `authProvider.token()` before every request (instead of `authProvider.tokens()?.access_token`), and call `authProvider.onUnauthorized()` on 401 (instead of inlining OAuth orchestration). One code path handles both simple bearer tokens and
-full OAuth.
-
-**If you implement `OAuthClientProvider` directly** (the interactive browser-redirect pattern), add:
-
-```ts
-class MyProvider implements OAuthClientProvider {
-    // ...existing 8 required members...
-
-    // Required: return the current access token
-    async token(): Promise<string | undefined> {
-        return (await this.tokens())?.access_token;
-    }
-
-    // Required: runs the OAuth flow on 401 — without this, 401 throws with no recovery
-    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
-        await handleOAuthUnauthorized(this, ctx);
-    }
-}
-```
-
-**If you use `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, or `CrossAppAccessProvider`** — no change. These already implement both methods.
-
-**If you have simple bearer tokens** (API keys, gateway tokens, externally-managed tokens), you can now skip `OAuthClientProvider` entirely:
-
-```ts
-// Before: had to implement 8 OAuthClientProvider members with no-op stubs
-// After:
-const transport = new StreamableHTTPClientTransport(url, {
-    authProvider: { token: async () => process.env.API_KEY }
-});
-```
-
 ### OAuth error refactoring
 
 The OAuth error classes have been consolidated into a single `OAuthError` class with an `OAuthErrorCode` enum.

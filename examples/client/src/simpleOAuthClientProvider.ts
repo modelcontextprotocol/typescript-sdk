@@ -1,11 +1,4 @@
-import type {
-    OAuthClientInformationMixed,
-    OAuthClientMetadata,
-    OAuthClientProvider,
-    OAuthTokens,
-    UnauthorizedContext
-} from '@modelcontextprotocol/client';
-import { handleOAuthUnauthorized } from '@modelcontextprotocol/client';
+import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthClientProvider, OAuthTokens } from '@modelcontextprotocol/client';
 
 /**
  * In-memory OAuth client provider for demonstration purposes
@@ -30,14 +23,6 @@ export class InMemoryOAuthClientProvider implements OAuthClientProvider {
     }
 
     private _onRedirect: (url: URL) => void;
-
-    async token(): Promise<string | undefined> {
-        return this._tokens?.access_token;
-    }
-
-    async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
-        await handleOAuthUnauthorized(this, ctx);
-    }
 
     get redirectUrl(): string | URL {
         return this._redirectUrl;

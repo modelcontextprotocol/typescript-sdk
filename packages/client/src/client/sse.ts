@@ -3,8 +3,8 @@ import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, 
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
-import type { AuthProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth.js';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
 
 export class SseError extends Error {
     constructor(
@@ -35,7 +35,7 @@ export type SSEClientTransportOptions = {
      * Interactive flows: after {@linkcode UnauthorizedError}, redirect the user, then call
      * {@linkcode SSEClientTransport.finishAuth | finishAuth} with the authorization code before reconnecting.
      */
-    authProvider?: AuthProvider;
+    authProvider?: AuthProvider | OAuthClientProvider;
 
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
@@ -73,6 +73,7 @@ export class SSEClientTransport implements Transport {
     private _eventSourceInit?: EventSourceInit;
     private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
+    private _oauthProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
@@ -87,7 +88,12 @@ export class SSEClientTransport implements Transport {
         this._scope = undefined;
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
-        this._authProvider = opts?.authProvider;
+        if (isOAuthClientProvider(opts?.authProvider)) {
+            this._oauthProvider = opts.authProvider;
+            this._authProvider = adaptOAuthProvider(opts.authProvider);
+        } else {
+            this._authProvider = opts?.authProvider;
+        }
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
@@ -215,11 +221,11 @@ export class SSEClientTransport implements Transport {
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
      */
     async finishAuth(authorizationCode: string): Promise<void> {
-        if (!isOAuthClientProvider(this._authProvider)) {
+        if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
-        const result = await auth(this._authProvider, {
+        const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,

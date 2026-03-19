@@ -60,8 +60,8 @@ export interface UnauthorizedContext {
  * const authProvider: AuthProvider = { token: async () => process.env.API_KEY };
  * ```
  *
- * For OAuth flows, use {@linkcode OAuthClientProvider} which extends this interface,
- * or one of the built-in providers ({@linkcode index.ClientCredentialsProvider | ClientCredentialsProvider} etc.).
+ * For OAuth flows, pass an {@linkcode OAuthClientProvider} directly — transports
+ * accept either shape and adapt OAuth providers automatically via {@linkcode adaptOAuthProvider}.
  */
 export interface AuthProvider {
     /**
@@ -82,19 +82,17 @@ export interface AuthProvider {
 }
 
 /**
- * Type guard: checks whether an `AuthProvider` is a full `OAuthClientProvider`.
- * Use this to gate OAuth-specific transport features like `finishAuth()` and
- * 403 scope upscoping.
+ * Type guard distinguishing `OAuthClientProvider` from a minimal `AuthProvider`.
+ * Transports use this at construction time to classify the `authProvider` option.
  */
-export function isOAuthClientProvider(provider: AuthProvider | undefined): provider is OAuthClientProvider {
+export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvider | undefined): provider is OAuthClientProvider {
     return provider !== undefined && 'tokens' in provider && 'clientMetadata' in provider;
 }
 
 /**
- * Default `onUnauthorized` implementation for OAuth providers: extracts
+ * Standard `onUnauthorized` behavior for OAuth providers: extracts
  * `WWW-Authenticate` parameters from the 401 response and runs {@linkcode auth}.
- * Built-in providers ({@linkcode index.ClientCredentialsProvider | ClientCredentialsProvider} etc.)
- * delegate to this. Custom `OAuthClientProvider` implementations can do the same.
+ * Used by {@linkcode adaptOAuthProvider} to bridge `OAuthClientProvider` to `AuthProvider`.
  */
 export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx: UnauthorizedContext): Promise<void> {
     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
@@ -110,27 +108,33 @@ export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx
 }
 
 /**
+ * Adapts an `OAuthClientProvider` to the minimal `AuthProvider` interface that
+ * transports consume. Called once at transport construction — the transport stores
+ * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
+ * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
+ */
+export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider {
+    return {
+        token: async () => {
+            const tokens = await provider.tokens();
+            return tokens?.access_token;
+        },
+        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
+    };
+}
+
+/**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
  *
- * Extends {@linkcode AuthProvider} — implementations must provide `token()`
- * (typically `return (await this.tokens())?.access_token`) and `onUnauthorized()`
- * (typically `return handleOAuthUnauthorized(this, ctx)`). Without `onUnauthorized()`,
- * 401 responses throw immediately with no token refresh or reauth.
+ * Transports accept `OAuthClientProvider` directly via the `authProvider` option —
+ * they adapt it to {@linkcode AuthProvider} internally via {@linkcode adaptOAuthProvider}.
+ * No changes are needed to existing implementations.
  */
-export interface OAuthClientProvider extends AuthProvider {
-    /**
-     * Runs the OAuth re-authentication flow on 401. Required on `OAuthClientProvider`
-     * (optional on the base `AuthProvider`) because OAuth providers that omit this lose
-     * all 401 recovery — no token refresh, no redirect to authorization.
-     *
-     * Most implementations should delegate: `return handleOAuthUnauthorized(this, ctx)`.
-     */
-    onUnauthorized(ctx: UnauthorizedContext): Promise<void>;
-
+export interface OAuthClientProvider {
     /**
      * The URL to redirect the user agent to after authorization.
      * Return `undefined` for non-interactive flows that don't require user interaction

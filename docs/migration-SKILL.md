@@ -203,39 +203,6 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
 
-### Client `OAuthClientProvider` now extends `AuthProvider`
-
-Transport `authProvider` options now accept the minimal `AuthProvider` interface. `OAuthClientProvider` extends it, so built-in providers work unchanged — custom implementations must add `token()`.
-
-| v1 pattern                                            | v2 equivalent                                                               |
-| ----------------------------------------------------- | --------------------------------------------------------------------------- |
-| `authProvider?: OAuthClientProvider` (option type)    | `authProvider?: AuthProvider` (accepts `OAuthClientProvider` via extension) |
-| Transport reads `authProvider.tokens()?.access_token` | Transport calls `authProvider.token()`                                      |
-| Transport inlines `auth()` on 401                     | Transport calls `authProvider.onUnauthorized()` then retries once           |
-| `_hasCompletedAuthFlow` circuit breaker               | `_authRetryInFlight` circuit breaker                                        |
-| N/A                                                   | `handleOAuthUnauthorized(provider, ctx)` — standard `onUnauthorized` impl   |
-| N/A                                                   | `isOAuthClientProvider(provider)` — type guard                              |
-| N/A                                                   | `UnauthorizedContext` — `{ response, serverUrl, fetchFn }`                  |
-
-**For custom `OAuthClientProvider` implementations**, add both methods (both required — TypeScript enforces this):
-
-```typescript
-async token(): Promise<string | undefined> {
-    return (await this.tokens())?.access_token;
-}
-
-async onUnauthorized(ctx: UnauthorizedContext): Promise<void> {
-    await handleOAuthUnauthorized(this, ctx);
-}
-```
-
-**For simple bearer tokens** (previously required stubbing 8 `OAuthClientProvider` members):
-
-```typescript
-// v2: one-liner
-const authProvider: AuthProvider = { token: async () => process.env.API_KEY };
-```
-
 **Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all
 Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
 

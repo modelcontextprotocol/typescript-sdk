@@ -8,7 +8,7 @@ import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
-import { handleOAuthUnauthorized, UnauthorizedError } from '../../src/client/auth.js';
+import { UnauthorizedError } from '../../src/client/auth.js';
 import { SSEClientTransport } from '../../src/client/sse.js';
 
 /**
@@ -430,15 +430,11 @@ describe('SSEClientTransport', () => {
                 },
                 clientInformation: vi.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
                 tokens: vi.fn(),
-                token: vi.fn(async () => undefined),
                 saveTokens: vi.fn(),
                 redirectToAuthorization: vi.fn(),
                 saveCodeVerifier: vi.fn(),
                 codeVerifier: vi.fn(),
-                invalidateCredentials: vi.fn(),
-                onUnauthorized: vi.fn(async ctx => {
-                    await handleOAuthUnauthorized(mockAuthProvider, ctx);
-                })
+                invalidateCredentials: vi.fn()
             };
         });
 
@@ -447,7 +443,6 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
-            mockAuthProvider.token.mockResolvedValue('test-token');
 
             transport = new SSEClientTransport(resourceBaseUrl, {
                 authProvider: mockAuthProvider
@@ -456,7 +451,7 @@ describe('SSEClientTransport', () => {
             await transport.start();
 
             expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
-            expect(mockAuthProvider.token).toHaveBeenCalled();
+            expect(mockAuthProvider.tokens).toHaveBeenCalled();
         });
 
         it('attaches custom header from provider on initial SSE connection', async () => {
@@ -464,7 +459,6 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
-            mockAuthProvider.token.mockResolvedValue('test-token');
             const customHeaders = {
                 'X-Custom-Header': 'custom-value'
             };
@@ -480,7 +474,7 @@ describe('SSEClientTransport', () => {
 
             expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
-            expect(mockAuthProvider.token).toHaveBeenCalled();
+            expect(mockAuthProvider.tokens).toHaveBeenCalled();
         });
 
         it('attaches auth header from provider on POST requests', async () => {
@@ -488,7 +482,6 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
-            mockAuthProvider.token.mockResolvedValue('test-token');
 
             transport = new SSEClientTransport(resourceBaseUrl, {
                 authProvider: mockAuthProvider
@@ -506,7 +499,7 @@ describe('SSEClientTransport', () => {
             await transport.send(message);
 
             expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
-            expect(mockAuthProvider.token).toHaveBeenCalled();
+            expect(mockAuthProvider.tokens).toHaveBeenCalled();
         });
 
         it('attempts auth flow on 401 during SSE connection', async () => {
@@ -638,7 +631,6 @@ describe('SSEClientTransport', () => {
                 access_token: 'test-token',
                 token_type: 'Bearer'
             });
-            mockAuthProvider.token.mockResolvedValue('test-token');
 
             const customHeaders = {
                 'X-Custom-Header': 'custom-value'
@@ -674,7 +666,6 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             };
             mockAuthProvider.tokens.mockImplementation(() => currentTokens);
-            mockAuthProvider.token.mockImplementation(async () => currentTokens.access_token);
             mockAuthProvider.saveTokens.mockImplementation(tokens => {
                 currentTokens = tokens;
             });
@@ -804,7 +795,6 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             };
             mockAuthProvider.tokens.mockImplementation(() => currentTokens);
-            mockAuthProvider.token.mockImplementation(async () => currentTokens.access_token);
             mockAuthProvider.saveTokens.mockImplementation(tokens => {
                 currentTokens = tokens;
             });
@@ -958,7 +948,6 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             };
             mockAuthProvider.tokens.mockImplementation(() => currentTokens);
-            mockAuthProvider.token.mockImplementation(async () => currentTokens.access_token);
             mockAuthProvider.saveTokens.mockImplementation(tokens => {
                 currentTokens = tokens;
             });
@@ -1229,15 +1218,11 @@ describe('SSEClientTransport', () => {
                 },
                 clientInformation: vi.fn().mockResolvedValue(clientInfo),
                 tokens: vi.fn().mockResolvedValue(tokens),
-                token: vi.fn(async () => tokens?.access_token),
                 saveTokens: vi.fn(),
                 redirectToAuthorization: vi.fn(),
                 saveCodeVerifier: vi.fn(),
                 codeVerifier: vi.fn().mockResolvedValue('test-verifier'),
-                invalidateCredentials: vi.fn(),
-                onUnauthorized: vi.fn(async ctx => {
-                    await handleOAuthUnauthorized(mockAuthProvider, ctx);
-                })
+                invalidateCredentials: vi.fn()
             };
         };
 

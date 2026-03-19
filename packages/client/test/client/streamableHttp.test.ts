@@ -3,7 +3,7 @@ import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontex
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
-import { handleOAuthUnauthorized, UnauthorizedError } from '../../src/client/auth.js';
+import { UnauthorizedError } from '../../src/client/auth.js';
 import type { StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
@@ -21,15 +21,11 @@ describe('StreamableHTTPClientTransport', () => {
             },
             clientInformation: vi.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
             tokens: vi.fn(),
-            token: vi.fn(async () => undefined),
             saveTokens: vi.fn(),
             redirectToAuthorization: vi.fn(),
             saveCodeVerifier: vi.fn(),
             codeVerifier: vi.fn(),
-            invalidateCredentials: vi.fn(),
-            onUnauthorized: vi.fn(async ctx => {
-                await handleOAuthUnauthorized(mockAuthProvider, ctx);
-            })
+            invalidateCredentials: vi.fn()
         };
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider: mockAuthProvider });
         vi.spyOn(globalThis, 'fetch');

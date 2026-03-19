@@ -33,8 +33,6 @@ describe('withOAuth', () => {
                 return { redirect_uris: ['http://localhost/callback'] };
             },
             tokens: vi.fn(),
-            token: vi.fn(async () => undefined),
-            onUnauthorized: vi.fn(async () => {}),
             saveTokens: vi.fn(),
             clientInformation: vi.fn(),
             redirectToAuthorization: vi.fn(),
@@ -761,8 +759,6 @@ describe('Integration Tests', () => {
                 return { redirect_uris: ['http://localhost/callback'] };
             },
             tokens: vi.fn(),
-            token: vi.fn(async () => undefined),
-            onUnauthorized: vi.fn(async () => {}),
             saveTokens: vi.fn(),
             clientInformation: vi.fn(),
             redirectToAuthorization: vi.fn(),

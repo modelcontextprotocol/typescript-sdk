@@ -13,8 +13,8 @@ import {
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
-import type { AuthProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth.js';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -94,11 +94,12 @@ export type StreamableHTTPClientTransportOptions = {
      * For simple bearer tokens: `{ token: async () => myApiKey }`.
      *
      * For OAuth flows, pass an {@linkcode index.OAuthClientProvider | OAuthClientProvider} implementation
-     * (which extends `AuthProvider`). Interactive flows: after {@linkcode UnauthorizedError}, redirect the
-     * user, then call {@linkcode StreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization
-     * code before reconnecting.
+     * directly — the transport adapts it to `AuthProvider` internally. Interactive flows: after
+     * {@linkcode UnauthorizedError}, redirect the user, then call
+     * {@linkcode StreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
+     * reconnecting.
      */
-    authProvider?: AuthProvider;
+    authProvider?: AuthProvider | OAuthClientProvider;
 
     /**
      * Customizes HTTP requests to the server.
@@ -141,6 +142,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _scope?: string;
     private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
+    private _oauthProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _sessionId?: string;
@@ -160,7 +162,12 @@ export class StreamableHTTPClientTransport implements Transport {
         this._resourceMetadataUrl = undefined;
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
-        this._authProvider = opts?.authProvider;
+        if (isOAuthClientProvider(opts?.authProvider)) {
+            this._oauthProvider = opts.authProvider;
+            this._authProvider = adaptOAuthProvider(opts.authProvider);
+        } else {
+            this._authProvider = opts?.authProvider;
+        }
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
@@ -435,11 +442,11 @@ export class StreamableHTTPClientTransport implements Transport {
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
      */
     async finishAuth(authorizationCode: string): Promise<void> {
-        if (!isOAuthClientProvider(this._authProvider)) {
+        if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
-        const result = await auth(this._authProvider, {
+        const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
@@ -522,7 +529,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 const text = await response.text?.().catch(() => null);
 
-                if (response.status === 403 && isOAuthClientProvider(this._authProvider)) {
+                if (response.status === 403 && this._oauthProvider) {
                     const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
 
                     if (error === 'insufficient_scope') {
@@ -546,7 +553,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Mark that upscoping was tried.
                         this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
-                        const result = await auth(this._authProvider, {
+                        const result = await auth(this._oauthProvider, {
                             serverUrl: this._url,
                             resourceMetadataUrl: this._resourceMetadataUrl,
                             scope: this._scope,
