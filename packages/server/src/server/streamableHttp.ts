@@ -394,7 +394,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
         } catch (error) {
             const err = error as Error;
-            this.onerror?.(err);
+            try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
             throw err;
         }
 
@@ -962,7 +962,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // For standalone SSE streams, we can only send requests and notifications
             if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                 const err = new Error('Cannot send a response on a standalone SSE stream unless resuming a previous client request');
-                this.onerror?.(err);
+                try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
                 throw err;
             }
 
@@ -975,7 +975,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
                 } catch (error) {
                     const err = error as Error;
-                    this.onerror?.(err);
+                    try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
                     throw err;
                 }
             }
@@ -997,7 +997,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const streamId = this._requestToStreamMapping.get(requestId);
         if (!streamId) {
             const err = new Error(`No connection established for request ID: ${String(requestId)}`);
-            this.onerror?.(err);
+            try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
             throw err;
         }
 
@@ -1012,7 +1012,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     eventId = await this._eventStore.storeEvent(streamId, message);
                 } catch (error) {
                     const err = error as Error;
-                    this.onerror?.(err);
+                    try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
                     throw err;
                 }
             }
@@ -1030,7 +1030,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (allResponsesReady) {
                 if (!stream) {
                     const err = new Error(`No connection established for request ID: ${String(requestId)}`);
-                    this.onerror?.(err);
+                    try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
                     throw err;
                 }
                 if (this._enableJsonResponse && stream.resolveJson) {

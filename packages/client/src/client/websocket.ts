@@ -65,7 +65,7 @@ export class WebSocketClientTransport implements Transport {
             try {
                 if (!this._socket) {
                     const err = new Error('Not connected');
-                    this.onerror?.(err);
+                    try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
                     reject(err);
                     return;
                 }
@@ -74,7 +74,7 @@ export class WebSocketClientTransport implements Transport {
                 resolve();
             } catch (error) {
                 const err = error instanceof Error ? error : new Error(String(error));
-                this.onerror?.(err);
+                try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
                 reject(err);
             }
         });
