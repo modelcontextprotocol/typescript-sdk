@@ -474,3 +474,236 @@ export class ToolBuilder<TArgs> {
         };
     }
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Option H machinery: ContinuationStore — keep `await ctx.elicit()` genuine
+//
+// Counterpart to python-sdk#2322's linear.py. The Option B footgun was:
+// `await elicit()` LOOKS like a suspension point but is actually a re-entry
+// point, so everything above it runs twice. This fixes that by making it a
+// REAL suspension point — the Promise chain is held in memory across MRTR
+// rounds, keyed by request_state.
+//
+// Trade-off: the server holds the frame between rounds. Client sees pure
+// MRTR (no SSE, independent HTTP requests), but the server is stateful
+// within a tool call. Horizontal scale needs sticky routing on the
+// request_state token. Same operational shape as Option A's SSE hold,
+// without the long-lived connection.
+// ───────────────────────────────────────────────────────────────────────────
+
+type LinearAsk = IncompleteResult | CallToolResult;
+
+/**
+ * One-shot Promise + its resolver. After `resolve` fires, the caller
+ * swaps in a fresh channel for the next round. Node's event loop keeps
+ * the pending Promise alive; that's what holds the continuation.
+ */
+interface Channel<T> {
+    next: Promise<T>;
+    resolve: (value: T) => void;
+    reject: (reason?: unknown) => void;
+}
+
+function channel<T>(): Channel<T> {
+    let resolve!: (v: T) => void;
+    let reject!: (r?: unknown) => void;
+    const next = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { next, resolve, reject };
+}
+
+/**
+ * In-memory state for one suspended linear handler. Two channels:
+ * `ask` carries IncompleteResult/CallToolResult from the handler to the
+ * wrapper (and onward to the client); `answer` carries inputResponses
+ * from the wrapper (the retry) back into the suspended `ctx.elicit()`.
+ */
+class Continuation {
+    private askCh: Channel<LinearAsk> = channel();
+    private answerCh: Channel<InputResponses> = channel();
+
+    ask(msg: LinearAsk): void {
+        this.askCh.resolve(msg);
+    }
+
+    async nextAsk(): Promise<LinearAsk> {
+        const msg = await this.askCh.next;
+        this.askCh = channel();
+        return msg;
+    }
+
+    answer(responses: InputResponses): void {
+        this.answerCh.resolve(responses);
+    }
+
+    async nextAnswer(): Promise<InputResponses> {
+        const responses = await this.answerCh.next;
+        this.answerCh = channel();
+        return responses;
+    }
+
+    abort(reason: string): void {
+        this.answerCh.reject(new Error(reason));
+    }
+}
+
+/**
+ * Owns the token → continuation map. One per server process. Unlike the
+ * Python version this isn't a context manager — Node's event loop keeps
+ * pending Promises alive without an explicit task group. TTL is a simple
+ * setTimeout that aborts the frame if the client never retries.
+ */
+export class ContinuationStore {
+    private frames = new Map<string, { cont: Continuation; timer: ReturnType<typeof setTimeout> }>();
+
+    constructor(private readonly ttlMs = 300_000) {}
+
+    start(token: string, runner: (cont: Continuation) => Promise<void>): Continuation {
+        const cont = new Continuation();
+        const timer = setTimeout(() => this.expire(token), this.ttlMs);
+        this.frames.set(token, { cont, timer });
+
+        // Fire-and-forget. The Promise is held alive by the event loop;
+        // the pending `cont.nextAnswer()` inside is what keeps the frame.
+        void runner(cont).finally(() => this.delete(token));
+
+        return cont;
+    }
+
+    get(token: string): Continuation | undefined {
+        const entry = this.frames.get(token);
+        if (!entry) return undefined;
+        // Reset TTL on each access — the client is still driving.
+        clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => this.expire(token), this.ttlMs);
+        return entry.cont;
+    }
+
+    private expire(token: string): void {
+        const entry = this.frames.get(token);
+        if (!entry) return;
+        entry.cont.abort(`Continuation ${token} expired after ${this.ttlMs}ms`);
+        this.frames.delete(token);
+    }
+
+    private delete(token: string): void {
+        const entry = this.frames.get(token);
+        if (!entry) return;
+        clearTimeout(entry.timer);
+        this.frames.delete(token);
+    }
+}
+
+/**
+ * Thrown inside a linear handler when the user declines/cancels.
+ * The wrapper catches this and emits a non-error CallToolResult.
+ */
+export class ElicitDeclined extends Error {
+    constructor(public readonly action: string) {
+        super(`Elicitation ${action}`);
+    }
+}
+
+/**
+ * The `ctx` handed to a linear handler. `await ctx.elicit()` genuinely
+ * suspends — the await parks on `cont.nextAnswer()` until the next MRTR
+ * round delivers the answer. No re-entry, no double-execution.
+ */
+export class LinearCtx {
+    private counter = 0;
+
+    constructor(private readonly cont: Continuation) {}
+
+    /**
+     * Send one or more input requests in a single round; returns the
+     * full responses dict on resume. Lower-level than `elicit()` —
+     * hand-rolled schemas, no decline handling, multiple asks batched.
+     */
+    async ask(inputRequests: InputRequests): Promise<InputResponses> {
+        this.cont.ask({ inputRequests });
+        return this.cont.nextAnswer();
+    }
+
+    /**
+     * Ask one elicitation question. Suspends until the answer arrives
+     * on a later round. Throws `ElicitDeclined` if the user cancels.
+     */
+    async elicit<T extends Record<string, unknown>>(
+        message: string,
+        requestedSchema: ElicitRequestFormParams['requestedSchema']
+    ): Promise<T> {
+        const key = `q${this.counter++}`;
+        const responses = await this.ask({ [key]: elicitForm({ message, requestedSchema }) });
+        const result = responses[key]?.result;
+        if (!result || result.action !== 'accept' || !result.content) {
+            throw new ElicitDeclined(result?.action ?? 'cancel');
+        }
+        return result.content as T;
+    }
+}
+
+/**
+ * Signature of a linear handler: SSE-era shape, runs exactly once
+ * front-to-back. Returning a string is shorthand for single TextContent.
+ */
+export type LinearHandler<TArgs> = (args: TArgs, ctx: LinearCtx) => Promise<CallToolResult | string>;
+
+/**
+ * Wrap a linear `await ctx.elicit()` handler into a standard MRTR
+ * handler. Round 1 spawns the handler as a detached Promise; `elicit()`
+ * sends IncompleteResult through the ask channel and parks on the answer
+ * channel. Round 2's retry resolves the answer channel; the handler
+ * continues from where it stopped. No re-entry.
+ *
+ * Zero migration from SSE-era code, zero footgun. The price: the server
+ * holds the frame in memory, so horizontal scale needs sticky routing
+ * on `request_state`. If you need true statelessness, use E/F/G instead.
+ */
+export function linearMrtr<TArgs>(handler: LinearHandler<TArgs>, store: ContinuationStore): MrtrHandler<TArgs> {
+    return async (args, mrtr) => {
+        const token = mrtr.requestState;
+
+        if (token === undefined) {
+            return start(args, handler, store);
+        }
+        return resume(token, mrtr.inputResponses ?? {}, store);
+    };
+}
+
+async function start<TArgs>(args: TArgs, handler: LinearHandler<TArgs>, store: ContinuationStore): Promise<MrtrToolResult> {
+    const token = crypto.randomUUID();
+    const cont = store.start(token, async c => {
+        const linearCtx = new LinearCtx(c);
+        try {
+            const result = await handler(args, linearCtx);
+            const wrapped: CallToolResult = typeof result === 'string' ? { content: [{ type: 'text', text: result }] } : result;
+            c.ask(wrapped);
+        } catch (error) {
+            if (error instanceof ElicitDeclined) {
+                c.ask({ content: [{ type: 'text', text: `Cancelled (${error.action}).` }] });
+                return;
+            }
+            c.ask({ content: [{ type: 'text', text: String(error) }], isError: true });
+        }
+    });
+    return next(token, cont);
+}
+
+async function resume(token: string, responses: InputResponses, store: ContinuationStore): Promise<MrtrToolResult> {
+    const cont = store.get(token);
+    if (!cont) {
+        return errorResult('Continuation expired or unknown. Retry the tool call from scratch.');
+    }
+    cont.answer(responses);
+    return next(token, cont);
+}
+
+async function next(token: string, cont: Continuation): Promise<MrtrToolResult> {
+    const msg = await cont.nextAsk();
+    if (isIncomplete(msg)) {
+        return { ...msg, requestState: token };
+    }
+    return msg;
+}
