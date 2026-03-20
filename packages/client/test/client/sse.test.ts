@@ -1624,5 +1624,76 @@ describe('SSEClientTransport', () => {
 
             await expect(transport.finishAuth('auth-code')).rejects.toThrow('finishAuth requires an OAuthClientProvider');
         });
+
+        it('SSE connect 401 retry does not poison future 401s — onUnauthorized called on each attempt', async () => {
+            // Regression: _startOrAuth(true) baked isAuthRetry=true into the retry EventSource's
+            // onerror closure, so a subsequent 401 (token expiry on reconnect) would throw
+            // instead of refreshing. Fix: retry always calls _startOrAuth() fresh.
+            await resourceServer.close();
+
+            let getAttempt = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method !== 'GET') {
+                    res.writeHead(404).end();
+                    return;
+                }
+                getAttempt++;
+                if (getAttempt < 3) {
+                    res.writeHead(401).end();
+                    return;
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache, no-transform',
+                    Connection: 'keep-alive'
+                });
+                res.write('event: endpoint\n');
+                res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+
+            await transport.start(); // should resolve on attempt 3
+
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(getAttempt).toBe(3);
+        });
+
+        it('retry failure during SSE connect fires onerror exactly once', async () => {
+            // Regression: when the retry EventSource rejected, its onerror fired inside, then
+            // the outer .then() rejection handler fired onerror AGAIN for the same error.
+            // Fix: inner retry chains to .then(resolve, reject) — no outer onerror call.
+            // onUnauthorized's own failure is handled separately and fires onerror once.
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(401).end(); // always 401
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const onUnauthorized: AuthProvider['onUnauthorized'] = vi
+                .fn()
+                .mockResolvedValueOnce(undefined) // first call succeeds → triggers retry
+                .mockRejectedValueOnce(new Error('refresh failed')); // second call (in retry) throws
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await expect(transport.start()).rejects.toThrow('refresh failed');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls[0]![0].message).toBe('refresh failed');
+        });
     });
 });

@@ -118,7 +118,7 @@ export class SSEClientTransport implements Transport {
         });
     }
 
-    private _startOrAuth(isAuthRetry = false): Promise<void> {
+    private _startOrAuth(): Promise<void> {
         const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
@@ -147,22 +147,22 @@ export class SSEClientTransport implements Transport {
 
             this._eventSource.onerror = event => {
                 if (event.code === 401 && this._authProvider) {
-                    if (this._authProvider.onUnauthorized && this._last401Response && !isAuthRetry) {
+                    if (this._authProvider.onUnauthorized && this._last401Response) {
                         const response = this._last401Response;
-                        this._authProvider
-                            .onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit })
-                            .then(() => this._startOrAuth(true))
-                            .then(resolve, error => {
+                        this._last401Response = undefined;
+                        this._eventSource?.close();
+                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
+                            // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
+                            () => this._startOrAuth().then(resolve, reject),
+                            // onUnauthorized failed → not yet reported.
+                            error => {
                                 this.onerror?.(error);
                                 reject(error);
-                            });
+                            }
+                        );
                         return;
                     }
-                    const error = isAuthRetry
-                        ? new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                              status: 401
-                          })
-                        : new UnauthorizedError();
+                    const error = new UnauthorizedError();
                     reject(error);
                     this.onerror?.(error);
                     return;
