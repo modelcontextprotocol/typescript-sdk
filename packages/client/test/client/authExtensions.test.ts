@@ -467,7 +467,7 @@ describe('CrossAppAccessProvider', () => {
             clientSecret: 'secret'
         });
 
-        // Save discovery state without resourceUrl
+        // Save discovery state without resourceMetadata
         provider.saveDiscoveryState({
             authorizationServerUrl: AUTH_SERVER_URL
         });
@@ -488,12 +488,12 @@ describe('CrossAppAccessProvider', () => {
 
         provider.saveDiscoveryState({
             authorizationServerUrl: AUTH_SERVER_URL,
-            resourceUrl: RESOURCE_SERVER_URL
+            resourceMetadata: { resource: RESOURCE_SERVER_URL }
         });
 
         const state = provider.discoveryState();
         expect(state?.authorizationServerUrl).toBe(AUTH_SERVER_URL);
-        expect(state?.resourceUrl).toBe(RESOURCE_SERVER_URL);
+        expect(state?.resourceMetadata?.resource).toBe(RESOURCE_SERVER_URL);
     });
 
     it('has correct client metadata', () => {

@@ -609,7 +609,7 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
 
     async prepareTokenRequest(scope?: string): Promise<URLSearchParams> {
         const authServerUrl = this._discoveryState?.authorizationServerUrl;
-        const resourceUrl = this._discoveryState?.resourceUrl;
+        const resourceUrl = this._discoveryState?.resourceMetadata?.resource;
 
         if (!authServerUrl) {
             throw new Error('Authorization server URL not available. Ensure auth() has been called first.');

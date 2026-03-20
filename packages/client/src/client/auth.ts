@@ -223,9 +223,6 @@ export interface OAuthClientProvider {
 export interface OAuthDiscoveryState extends OAuthServerInfo {
     /** The URL at which the protected resource metadata was found, if available. */
     resourceMetadataUrl?: string;
-
-    /** The resolved resource URL from {@linkcode selectResourceURL}, if available. */
-    resourceUrl?: string;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -448,7 +445,6 @@ async function authInternal(
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL;
     let metadata: AuthorizationServerMetadata | undefined;
-    let needsDiscoveryStateSave = false;
 
     // If resourceMetadataUrl is not provided, try to load it from cached state
     // This handles browser redirects where the URL was saved before navigation
@@ -478,19 +474,22 @@ async function authInternal(
         }
 
         // Re-save if we enriched the cached state with missing metadata
-        needsDiscoveryStateSave = metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata;
+        if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
+            await provider.saveDiscoveryState?.({
+                authorizationServerUrl: String(authorizationServerUrl),
+                resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                resourceMetadata,
+                authorizationServerMetadata: metadata
+            });
+        }
     } else {
         // Full discovery via RFC 9728
         const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
         resourceMetadata = serverInfo.resourceMetadata;
-        needsDiscoveryStateSave = true;
-    }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
-
-    if (needsDiscoveryStateSave) {
+        // Persist discovery state for future use
         // TODO: resourceMetadataUrl is only populated when explicitly provided via options
         // or loaded from cached state. The URL derived internally by
         // discoverOAuthProtectedResourceMetadata() is not captured back here.
@@ -498,10 +497,11 @@ async function authInternal(
             authorizationServerUrl: String(authorizationServerUrl),
             resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
             resourceMetadata,
-            authorizationServerMetadata: metadata,
-            resourceUrl: resource?.toString()
+            authorizationServerMetadata: metadata
         });
     }
+
+    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
     // Apply scope selection strategy (SEP-835):
     // 1. WWW-Authenticate scope (passed via `scope` param)
