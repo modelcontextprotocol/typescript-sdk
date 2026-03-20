@@ -1,8 +1,12 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import type { IncomingMessage, Server } from 'node:http';
+import { createServer } from 'node:http';
+
+import type { JSONRPCMessage, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock } from 'vitest';
 
-import type { AuthProvider } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
@@ -178,5 +182,134 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
         expect(authProvider.token).toHaveBeenCalledTimes(2);
         const [, retryInit] = (globalThis.fetch as Mock).mock.calls[1]!;
         expect(retryInit.headers.get('Authorization')).toBe('Bearer new-token');
+    });
+});
+
+describe('AuthProvider integration — both modes against a real server', () => {
+    let server: Server;
+    let serverUrl: URL;
+    let capturedRequests: IncomingMessage[];
+    let transport: StreamableHTTPClientTransport;
+
+    const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'ping', params: {}, id: '1' };
+
+    beforeEach(async () => {
+        capturedRequests = [];
+        server = createServer((req, res) => {
+            capturedRequests.push(req);
+            if (req.method === 'POST') {
+                // Consume body then respond 202 Accepted
+                req.on('data', () => {});
+                req.on('end', () => res.writeHead(202).end());
+            } else {
+                // GET SSE — reject so the transport skips it
+                res.writeHead(405).end();
+            }
+        });
+        serverUrl = await listenOnRandomPort(server);
+    });
+
+    afterEach(async () => {
+        await transport?.close().catch(() => {});
+        await new Promise<void>(resolve => server.close(() => resolve()));
+    });
+
+    it('MODE A: minimal AuthProvider { token } sends Authorization header', async () => {
+        const authProvider: AuthProvider = { token: async () => 'mode-a-token' };
+        transport = new StreamableHTTPClientTransport(serverUrl, { authProvider });
+
+        await transport.send(message);
+
+        expect(capturedRequests).toHaveLength(1);
+        expect(capturedRequests[0]!.headers.authorization).toBe('Bearer mode-a-token');
+    });
+
+    it('MODE A: onUnauthorized signals and throws — caller sees the error', async () => {
+        const uiSignal = vi.fn();
+        const authProvider: AuthProvider = {
+            token: async () => 'rejected-token',
+            onUnauthorized: async () => {
+                uiSignal('show-reauth-prompt');
+                throw new UnauthorizedError('user action required');
+            }
+        };
+
+        // Server that rejects with 401
+        await new Promise<void>(resolve => server.close(() => resolve()));
+        server = createServer((req, res) => {
+            capturedRequests.push(req);
+            req.on('data', () => {});
+            req.on('end', () => res.writeHead(401).end());
+        });
+        serverUrl = await listenOnRandomPort(server);
+
+        transport = new StreamableHTTPClientTransport(serverUrl, { authProvider });
+
+        await expect(transport.send(message)).rejects.toThrow('user action required');
+        expect(uiSignal).toHaveBeenCalledWith('show-reauth-prompt');
+    });
+
+    it('MODE B: OAuthClientProvider is adapted — tokens() becomes token() on the wire', async () => {
+        // Minimal OAuthClientProvider — the transport should adapt it via adaptOAuthProvider
+        const oauthProvider: OAuthClientProvider = {
+            get redirectUrl() {
+                return undefined;
+            },
+            get clientMetadata(): OAuthClientMetadata {
+                return { redirect_uris: [], grant_types: ['client_credentials'] };
+            },
+            clientInformation(): OAuthClientInformation {
+                return { client_id: 'test-client' };
+            },
+            tokens(): OAuthTokens {
+                return { access_token: 'mode-b-oauth-token', token_type: 'bearer' };
+            },
+            saveTokens() {},
+            redirectToAuthorization() {
+                throw new Error('not used');
+            },
+            saveCodeVerifier() {},
+            codeVerifier() {
+                throw new Error('not used');
+            }
+        };
+
+        transport = new StreamableHTTPClientTransport(serverUrl, { authProvider: oauthProvider });
+
+        await transport.send(message);
+
+        expect(capturedRequests).toHaveLength(1);
+        expect(capturedRequests[0]!.headers.authorization).toBe('Bearer mode-b-oauth-token');
+    });
+
+    it('both modes use the same option slot and same send() call', async () => {
+        // Mode A
+        const transportA = new StreamableHTTPClientTransport(serverUrl, {
+            authProvider: { token: async () => 'a-token' }
+        });
+        await transportA.send(message);
+        await transportA.close();
+
+        // Mode B — same constructor, same option name, different shape
+        const transportB = new StreamableHTTPClientTransport(serverUrl, {
+            authProvider: {
+                get redirectUrl() {
+                    return undefined;
+                },
+                get clientMetadata(): OAuthClientMetadata {
+                    return { redirect_uris: [] };
+                },
+                clientInformation: () => ({ client_id: 'x' }),
+                tokens: () => ({ access_token: 'b-token', token_type: 'bearer' }),
+                saveTokens() {},
+                redirectToAuthorization() {},
+                saveCodeVerifier() {},
+                codeVerifier: () => ''
+            } satisfies OAuthClientProvider
+        });
+        await transportB.send(message);
+        await transportB.close();
+
+        expect(capturedRequests.map(r => r.headers.authorization)).toEqual(['Bearer a-token', 'Bearer b-token']);
     });
 });
