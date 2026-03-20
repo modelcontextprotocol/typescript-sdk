@@ -98,7 +98,6 @@ export class SSEClientTransport implements Transport {
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
-    private _authRetryInFlight = false;
     private _last401Response?: Response;
 
     private async _commonHeaders(): Promise<Headers> {
@@ -119,7 +118,7 @@ export class SSEClientTransport implements Transport {
         });
     }
 
-    private _startOrAuth(): Promise<void> {
+    private _startOrAuth(isAuthRetry = false): Promise<void> {
         const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
@@ -148,22 +147,22 @@ export class SSEClientTransport implements Transport {
 
             this._eventSource.onerror = event => {
                 if (event.code === 401 && this._authProvider) {
-                    if (this._authProvider.onUnauthorized && this._last401Response && !this._authRetryInFlight) {
-                        this._authRetryInFlight = true;
+                    if (this._authProvider.onUnauthorized && this._last401Response && !isAuthRetry) {
                         const response = this._last401Response;
                         this._authProvider
                             .onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit })
-                            .then(() => this._startOrAuth())
+                            .then(() => this._startOrAuth(true))
                             .then(resolve, error => {
                                 this.onerror?.(error);
                                 reject(error);
-                            })
-                            .finally(() => {
-                                this._authRetryInFlight = false;
                             });
                         return;
                     }
-                    const error = new UnauthorizedError();
+                    const error = isAuthRetry
+                        ? new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                              status: 401
+                          })
+                        : new UnauthorizedError();
                     reject(error);
                     this.onerror?.(error);
                     return;
@@ -247,6 +246,10 @@ export class SSEClientTransport implements Transport {
     }
 
     async send(message: JSONRPCMessage): Promise<void> {
+        return this._send(message, false);
+    }
+
+    private async _send(message: JSONRPCMessage, isAuthRetry: boolean): Promise<void> {
         if (!this._endpoint) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
@@ -271,8 +274,7 @@ export class SSEClientTransport implements Transport {
                         this._scope = scope;
                     }
 
-                    if (this._authProvider.onUnauthorized && !this._authRetryInFlight) {
-                        this._authRetryInFlight = true;
+                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
@@ -280,10 +282,10 @@ export class SSEClientTransport implements Transport {
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this.send(message);
+                        return this._send(message, true);
                     }
                     await response.text?.().catch(() => {});
-                    if (this._authRetryInFlight) {
+                    if (isAuthRetry) {
                         throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
                             status: 401
                         });
@@ -295,12 +297,9 @@ export class SSEClientTransport implements Transport {
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
 
-            this._authRetryInFlight = false;
-
             // Release connection - POST responses don't have content we need
             await response.text?.().catch(() => {});
         } catch (error) {
-            this._authRetryInFlight = false;
             this.onerror?.(error as Error);
             throw error;
         }
