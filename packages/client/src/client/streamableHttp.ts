@@ -148,7 +148,8 @@ export class StreamableHTTPClientTransport implements Transport {
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
-    private _authRetryInFlight = false; // Circuit breaker: single retry per operation on 401
+    private _authRetryInFlight = false; // Circuit breaker for send() 401 retry
+    private _sseAuthRetryInFlight = false; // Circuit breaker for _startOrAuthSse() 401 retry — separate so concurrent GET/POST 401s don't interfere
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
@@ -226,8 +227,8 @@ export class StreamableHTTPClientTransport implements Transport {
                         this._scope = scope;
                     }
 
-                    if (this._authProvider.onUnauthorized && !this._authRetryInFlight) {
-                        this._authRetryInFlight = true;
+                    if (this._authProvider.onUnauthorized && !this._sseAuthRetryInFlight) {
+                        this._sseAuthRetryInFlight = true;
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
@@ -238,7 +239,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         return this._startOrAuthSse(options);
                     }
                     await response.text?.().catch(() => {});
-                    if (this._authRetryInFlight) {
+                    if (this._sseAuthRetryInFlight) {
                         throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
                             status: 401
                         });
@@ -251,7 +252,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
                 // This is an expected case that should not trigger an error
                 if (response.status === 405) {
-                    this._authRetryInFlight = false;
+                    this._sseAuthRetryInFlight = false;
                     return;
                 }
 
@@ -261,10 +262,10 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
-            this._authRetryInFlight = false;
+            this._sseAuthRetryInFlight = false;
             this._handleSseStream(response.body, options, true);
         } catch (error) {
-            this._authRetryInFlight = false;
+            this._sseAuthRetryInFlight = false;
             this.onerror?.(error as Error);
             throw error;
         }
@@ -524,7 +525,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this.send(message);
+                        return this.send(message, options);
                     }
                     await response.text?.().catch(() => {});
                     if (this._authRetryInFlight) {
@@ -572,7 +573,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             throw new UnauthorizedError();
                         }
 
-                        return this.send(message);
+                        return this.send(message, options);
                     }
                 }
 
