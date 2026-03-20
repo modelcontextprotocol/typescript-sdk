@@ -185,50 +185,6 @@ export interface OAuthClientProvider {
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 
     /**
-     * Saves the authorization server URL after RFC 9728 discovery.
-     * This method is called by {@linkcode auth} after successful discovery of the
-     * authorization server via protected resource metadata.
-     *
-     * Providers implementing Cross-App Access or other flows that need access to
-     * the discovered authorization server URL should implement this method.
-     *
-     * @param authorizationServerUrl - The authorization server URL discovered via RFC 9728
-     */
-    saveAuthorizationServerUrl?(authorizationServerUrl: string): void | Promise<void>;
-
-    /**
-     * Returns the previously saved authorization server URL, if available.
-     *
-     * Providers implementing Cross-App Access can use this to access the
-     * authorization server URL discovered during the OAuth flow.
-     *
-     * @returns The authorization server URL, or `undefined` if not available
-     */
-    authorizationServerUrl?(): string | undefined | Promise<string | undefined>;
-
-    /**
-     * Saves the resource URL after RFC 9728 discovery.
-     * This method is called by {@linkcode auth} after successful discovery of the
-     * resource metadata.
-     *
-     * Providers implementing Cross-App Access or other flows that need access to
-     * the discovered resource URL should implement this method.
-     *
-     * @param resourceUrl - The resource URL discovered via RFC 9728
-     */
-    saveResourceUrl?(resourceUrl: string): void | Promise<void>;
-
-    /**
-     * Returns the previously saved resource URL, if available.
-     *
-     * Providers implementing Cross-App Access can use this to access the
-     * resource URL discovered during the OAuth flow.
-     *
-     * @returns The resource URL, or `undefined` if not available
-     */
-    resourceUrl?(): string | undefined | Promise<string | undefined>;
-
-    /**
      * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
      * discovery. Providers can persist this state to avoid redundant discovery requests
      * on subsequent {@linkcode auth} calls.
@@ -267,6 +223,9 @@ export interface OAuthClientProvider {
 export interface OAuthDiscoveryState extends OAuthServerInfo {
     /** The URL at which the protected resource metadata was found, if available. */
     resourceMetadataUrl?: string;
+
+    /** The resolved resource URL from {@linkcode selectResourceURL}, if available. */
+    resourceUrl?: string;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -489,6 +448,7 @@ async function authInternal(
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL;
     let metadata: AuthorizationServerMetadata | undefined;
+    let needsDiscoveryStateSave = false;
 
     // If resourceMetadataUrl is not provided, try to load it from cached state
     // This handles browser redirects where the URL was saved before navigation
@@ -518,22 +478,19 @@ async function authInternal(
         }
 
         // Re-save if we enriched the cached state with missing metadata
-        if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
-            await provider.saveDiscoveryState?.({
-                authorizationServerUrl: String(authorizationServerUrl),
-                resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
-                resourceMetadata,
-                authorizationServerMetadata: metadata
-            });
-        }
+        needsDiscoveryStateSave = metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata;
     } else {
         // Full discovery via RFC 9728
         const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
         resourceMetadata = serverInfo.resourceMetadata;
+        needsDiscoveryStateSave = true;
+    }
 
-        // Persist discovery state for future use
+    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+
+    if (needsDiscoveryStateSave) {
         // TODO: resourceMetadataUrl is only populated when explicitly provided via options
         // or loaded from cached state. The URL derived internally by
         // discoverOAuthProtectedResourceMetadata() is not captured back here.
@@ -541,18 +498,9 @@ async function authInternal(
             authorizationServerUrl: String(authorizationServerUrl),
             resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
             resourceMetadata,
-            authorizationServerMetadata: metadata
+            authorizationServerMetadata: metadata,
+            resourceUrl: resource?.toString()
         });
-    }
-
-    // Save authorization server URL for providers that need it (e.g., CrossAppAccessProvider)
-    await provider.saveAuthorizationServerUrl?.(String(authorizationServerUrl));
-
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
-
-    // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
-    if (resource) {
-        await provider.saveResourceUrl?.(String(resource));
     }
 
     // Apply scope selection strategy (SEP-835):

@@ -8,7 +8,7 @@
 import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
 import type { CryptoKey, JWK } from 'jose';
 
-import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
+import type { AddClientAuthentication, OAuthClientProvider, OAuthDiscoveryState } from './auth.js';
 
 /**
  * Helper to produce a `private_key_jwt` client authentication function.
@@ -545,8 +545,7 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
     private _clientMetadata: OAuthClientMetadata;
     private _assertionCallback: AssertionCallback;
     private _fetchFn: FetchLike;
-    private _authorizationServerUrl?: string;
-    private _resourceUrl?: string;
+    private _discoveryState?: OAuthDiscoveryState;
     private _scope?: string;
 
     constructor(options: CrossAppAccessProviderOptions) {
@@ -600,40 +599,17 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
         throw new Error('codeVerifier is not used for jwt-bearer flow');
     }
 
-    /**
-     * Saves the authorization server URL discovered during OAuth flow.
-     * This is called by the auth() function after RFC 9728 discovery.
-     */
-    saveAuthorizationServerUrl?(authorizationServerUrl: string): void {
-        this._authorizationServerUrl = authorizationServerUrl;
+    saveDiscoveryState(state: OAuthDiscoveryState): void {
+        this._discoveryState = state;
     }
 
-    /**
-     * Returns the cached authorization server URL if available.
-     */
-    authorizationServerUrl?(): string | undefined {
-        return this._authorizationServerUrl;
-    }
-
-    /**
-     * Saves the resource URL discovered during OAuth flow.
-     * This is called by the auth() function after RFC 9728 discovery.
-     */
-    saveResourceUrl?(resourceUrl: string): void {
-        this._resourceUrl = resourceUrl;
-    }
-
-    /**
-     * Returns the cached resource URL if available.
-     */
-    resourceUrl?(): string | undefined {
-        return this._resourceUrl;
+    discoveryState(): OAuthDiscoveryState | undefined {
+        return this._discoveryState;
     }
 
     async prepareTokenRequest(scope?: string): Promise<URLSearchParams> {
-        // Get the authorization server URL and resource URL from cached state
-        const authServerUrl = this._authorizationServerUrl;
-        const resourceUrl = this._resourceUrl;
+        const authServerUrl = this._discoveryState?.authorizationServerUrl;
+        const resourceUrl = this._discoveryState?.resourceUrl;
 
         if (!authServerUrl) {
             throw new Error('Authorization server URL not available. Ensure auth() has been called first.');

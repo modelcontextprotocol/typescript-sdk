@@ -467,38 +467,33 @@ describe('CrossAppAccessProvider', () => {
             clientSecret: 'secret'
         });
 
-        // Manually set authorization server URL but not resource URL
-        provider.saveAuthorizationServerUrl?.(AUTH_SERVER_URL);
+        // Save discovery state without resourceUrl
+        provider.saveDiscoveryState({
+            authorizationServerUrl: AUTH_SERVER_URL
+        });
 
         await expect(provider.prepareTokenRequest()).rejects.toThrow(
             'Resource URL not available — server may not implement RFC 9728 Protected Resource Metadata'
         );
     });
 
-    it('stores and retrieves authorization server URL', () => {
+    it('stores and retrieves discovery state', () => {
         const provider = new CrossAppAccessProvider({
             assertion: async () => 'jwt-grant',
             clientId: 'client',
             clientSecret: 'secret'
         });
 
-        expect(provider.authorizationServerUrl?.()).toBeUndefined();
+        expect(provider.discoveryState()).toBeUndefined();
 
-        provider.saveAuthorizationServerUrl?.(AUTH_SERVER_URL);
-        expect(provider.authorizationServerUrl?.()).toBe(AUTH_SERVER_URL);
-    });
-
-    it('stores and retrieves resource URL', () => {
-        const provider = new CrossAppAccessProvider({
-            assertion: async () => 'jwt-grant',
-            clientId: 'client',
-            clientSecret: 'secret'
+        provider.saveDiscoveryState({
+            authorizationServerUrl: AUTH_SERVER_URL,
+            resourceUrl: RESOURCE_SERVER_URL
         });
 
-        expect(provider.resourceUrl?.()).toBeUndefined();
-
-        provider.saveResourceUrl?.(RESOURCE_SERVER_URL);
-        expect(provider.resourceUrl?.()).toBe(RESOURCE_SERVER_URL);
+        const state = provider.discoveryState();
+        expect(state?.authorizationServerUrl).toBe(AUTH_SERVER_URL);
+        expect(state?.resourceUrl).toBe(RESOURCE_SERVER_URL);
     });
 
     it('has correct client metadata', () => {
