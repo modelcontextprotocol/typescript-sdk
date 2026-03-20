@@ -302,3 +302,175 @@ export function readMrtr(args: Record<string, unknown> | undefined): MrtrParams 
     const raw = (args as { _mrtr?: MrtrParams } | undefined)?._mrtr;
     return raw ?? {};
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// requestState encode/decode — used by options F and G
+//
+// DEMO ONLY: plain base64 JSON. Real SDK MUST HMAC-sign this blob,
+// because the client can otherwise forge step-done / once-executed
+// markers and skip the guards entirely. Per-session key derived from
+// initialize keeps it stateless. Without signing, F and G's safety
+// story is advisory, not enforced.
+// ───────────────────────────────────────────────────────────────────────────
+
+export function encodeState(state: unknown): string {
+    return Buffer.from(JSON.stringify(state), 'utf8').toString('base64');
+}
+
+export function decodeState<T>(blob: string | undefined): T | undefined {
+    if (!blob) return undefined;
+    try {
+        return JSON.parse(Buffer.from(blob, 'base64').toString('utf8')) as T;
+    } catch {
+        return undefined;
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Option F machinery: ctx.once — idempotency guard for side-effects
+// ───────────────────────────────────────────────────────────────────────────
+
+interface OnceState {
+    executed: string[];
+}
+
+/**
+ * MRTR context with a `once` guard. Handler code looks like Option A/E
+ * (monolithic, guard-first) but side-effects above or below the guard
+ * can be wrapped to guarantee at-most-once execution across retries.
+ *
+ * Opt-in: an unwrapped `db.write()` above the guard still fires twice.
+ * The footgun isn't eliminated — it's made *visually distinct* from
+ * safe code, which is reviewable. Use this when ToolBuilder is overkill
+ * (single elicitation, one side-effect) or when the side-effect genuinely
+ * needs to happen before the guard.
+ *
+ * Crash window: if the server dies between `fn()` completing and
+ * `requestState` reaching the client, the next invocation re-executes
+ * `fn()`. At-most-once under normal operation, not crash-safe. For
+ * financial operations use external idempotency (request ID as DB
+ * unique constraint).
+ */
+export class MrtrCtx {
+    private executed: Set<string>;
+
+    constructor(private readonly mrtr: MrtrParams) {
+        const prior = decodeState<OnceState>(mrtr.requestState);
+        this.executed = new Set(prior?.executed);
+    }
+
+    get inputResponses(): InputResponses | undefined {
+        return this.mrtr.inputResponses;
+    }
+
+    /**
+     * Run `fn` at most once across all MRTR rounds for this tool call.
+     * On subsequent rounds where `key` is marked done in requestState,
+     * skip `fn` entirely. Makes the hazard visible at the call site.
+     */
+    once(key: string, fn: () => void): void {
+        if (this.executed.has(key)) return;
+        fn();
+        this.executed.add(key);
+    }
+
+    /**
+     * Serialize executed-keys into requestState for the next round.
+     * Call this when building an IncompleteResult so the guard holds
+     * across retry. Without this, `once` is a no-op on retry.
+     */
+    incomplete(inputRequests: InputRequests): IncompleteResult {
+        return {
+            inputRequests,
+            requestState: encodeState({ executed: [...this.executed] } satisfies OnceState)
+        };
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Option G machinery: ToolBuilder — Marcelo's explicit step decomposition
+// ───────────────────────────────────────────────────────────────────────────
+
+interface BuilderState {
+    done: string[];
+}
+
+/**
+ * An `incomplete_step` function. Receives args + all `inputResponses`
+ * collected so far. Returns either a new `IncompleteResult` (needs more
+ * input) or a data object to accumulate and pass to the next step.
+ *
+ * MUST be idempotent — this can re-run if the step before it wasn't
+ * the most-recently-completed one. Side-effects belong in `endStep`.
+ */
+export type IncompleteStep<TArgs> = (args: TArgs, inputs: InputResponses) => IncompleteResult | Record<string, unknown>;
+
+/**
+ * The `end_step` function. Receives args + the merged data from all
+ * prior steps. Runs exactly once, when every `incomplete_step` has
+ * returned data (not `IncompleteResult`). This is the safe zone —
+ * put side-effects here.
+ */
+export type EndStep<TArgs> = (args: TArgs, collected: Record<string, unknown>) => CallToolResult;
+
+/**
+ * Explicit step builder. Eliminates the "above the guard" zone by
+ * decomposing the monolithic handler into discrete step functions.
+ * `endStep` is structurally unreachable until all elicitations
+ * complete — the SDK enforces that via `requestState` tracking,
+ * not developer discipline.
+ *
+ * Steps are named (not ordinal) so reordering them during development
+ * doesn't silently remap data. Each `incompleteStep` name must be
+ * unique; the SDK would throw at build time on duplicates (demo skips
+ * that check).
+ *
+ * Boilerplate vs Option A/E: two function definitions + `.build()` to
+ * replace a 3-line guard. Worth it at 3+ elicitation rounds; overkill
+ * for single-question tools where `ctx.once` (Option F) is lighter.
+ */
+export class ToolBuilder<TArgs> {
+    private steps: Array<{ name: string; fn: IncompleteStep<TArgs> }> = [];
+    private end?: EndStep<TArgs>;
+
+    incompleteStep(name: string, fn: IncompleteStep<TArgs>): this {
+        this.steps.push({ name, fn });
+        return this;
+    }
+
+    endStep(fn: EndStep<TArgs>): this {
+        this.end = fn;
+        return this;
+    }
+
+    build(): MrtrHandler<TArgs> {
+        const steps = this.steps;
+        const end = this.end;
+        if (!end) throw new Error('ToolBuilder: endStep is required');
+
+        return async (args, mrtr) => {
+            const prior = decodeState<BuilderState>(mrtr.requestState);
+            const done = new Set(prior?.done);
+            const inputs = mrtr.inputResponses ?? {};
+            const collected: Record<string, unknown> = {};
+
+            for (const step of steps) {
+                const result = step.fn(args, inputs);
+                if ('inputRequests' in result || 'requestState' in result) {
+                    // Step needs more input. Encode which steps are done
+                    // so retry can fast-forward past them.
+                    return {
+                        ...(result as IncompleteResult),
+                        requestState: encodeState({ done: [...done] } satisfies BuilderState)
+                    };
+                }
+                // Step returned data. Merge and mark done.
+                Object.assign(collected, result);
+                done.add(step.name);
+            }
+
+            // All steps complete — this line runs exactly once per tool call.
+            return end(args, collected);
+        };
+    }
+}

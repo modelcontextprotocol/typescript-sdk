@@ -25,22 +25,39 @@ you choose to carry SSE infra." The rows collapse for E, which is the argument f
 
 ## Options
 
-|                                                                  | Author writes                   | SDK does                       | Hidden re-entry                             | Old client gets                                      |
-| ---------------------------------------------------------------- | ------------------------------- | ------------------------------ | ------------------------------------------- | ---------------------------------------------------- |
-| [A](./server/src/mrtr-dual-path/optionAShimMrtrCanonical.ts)     | MRTR-native only                | Emulates retry loop over SSE   | Yes, but safe (guard is explicit in source) | Full elicitation                                     |
-| [B](./server/src/mrtr-dual-path/optionBShimAwaitCanonical.ts)    | `await elicit()` only           | Exception → `IncompleteResult` | Yes, **unsafe** (invisible in source)       | Full elicitation                                     |
-| [C](./server/src/mrtr-dual-path/optionCExplicitVersionBranch.ts) | One handler, `if (mrtr)` branch | Version accessor               | No                                          | Full elicitation                                     |
-| [D](./server/src/mrtr-dual-path/optionDDualRegistration.ts)      | Two handlers                    | Picks by version               | No                                          | Full elicitation                                     |
-| [E](./server/src/mrtr-dual-path/optionEDegradeOnly.ts)           | MRTR-native only                | Nothing                        | No                                          | Result with default, or error — tool author's choice |
+|                                                                  | Author writes                   | SDK does                       | Hidden re-entry                             | Old client gets                                        |
+| ---------------------------------------------------------------- | ------------------------------- | ------------------------------ | ------------------------------------------- | ------------------------------------------------------ |
+| [A](./server/src/mrtr-dual-path/optionAShimMrtrCanonical.ts)     | MRTR-native only                | Emulates retry loop over SSE   | Yes, but safe (guard is explicit in source) | Full elicitation                                       |
+| [B](./server/src/mrtr-dual-path/optionBShimAwaitCanonical.ts)    | `await elicit()` only           | Exception → `IncompleteResult` | Yes, **unsafe** (invisible in source)       | Full elicitation                                       |
+| [C](./server/src/mrtr-dual-path/optionCExplicitVersionBranch.ts) | One handler, `if (mrtr)` branch | Version accessor               | No                                          | Full elicitation                                       |
+| [D](./server/src/mrtr-dual-path/optionDDualRegistration.ts)      | Two handlers                    | Picks by version               | No                                          | Full elicitation                                       |
+| [E](./server/src/mrtr-dual-path/optionEDegradeOnly.ts)           | MRTR-native only                | Nothing                        | No                                          | Result with default, or error — tool author's choice   |
+| [F](./server/src/mrtr-dual-path/optionFCtxOnce.ts)               | MRTR-native + `ctx.once` wraps  | `once()` guard in requestState | No                                          | (same as E — F/G are orthogonal to the dual-path axis) |
+| [G](./server/src/mrtr-dual-path/optionGToolBuilder.ts)           | Step functions + `.build()`     | Step-tracking in requestState  | No                                          | (same as E)                                            |
 
 "Hidden re-entry" = the handler function is invoked more than once for a single logical tool call, and the author can't tell from the source text. A is safe because MRTR-native code has the re-entry guard (`if (!prefs) return`) visible in the source even though the _loop_ is
 hidden. B is unsafe because `await elicit()` looks like a suspension point but is actually a re-entry point on MRTR sessions — see the `auditLog` landmine in that file.
 
+## Footgun prevention (F, G)
+
+A–E are about the dual-path axis (old client vs new). F and G are about a different axis: even in a pure-MRTR world, the naive handler shape has a footgun. Code above the `if (!prefs)` guard runs on every retry. If that code is a DB write or HTTP POST, it executes N times for
+N-round elicitation. The guard is present in A/E but nothing _enforces_ putting side-effects below it — safety depends on the developer knowing the convention. The analogy raised in SDK-WG review: the naive MRTR handler is de-facto GOTO — re-entry jumps to the top, and the state
+machine progression is implicit in the `inputResponses` checks.
+
+**F (`ctx.once`)** keeps the monolithic handler but wraps side-effects in an idempotency guard. `ctx.once('audit', () => auditLog(...))` checks `requestState` — if the key is already marked executed, skip. Opt-in: an unwrapped mutation still fires twice. The footgun isn't
+eliminated; it's made _visually distinct_ from safe code, which is reviewable.
+
+**G (`ToolBuilder`)** decomposes the handler into named step functions. `incompleteStep` may return `IncompleteResult` or data; `endStep` receives everything and runs exactly once. There is no "above the guard" zone because there is no guard — the SDK's step-tracking is the
+guard. Side-effects go in `endStep`; it's structurally unreachable until all elicitations complete. Boilerplate: two function definitions + `.build()` to replace A/E's 3-line check. Worth it at 3+ rounds; overkill for single-question tools where F is lighter.
+
+Both F and G depend on `requestState` integrity. The demos use plain base64 JSON; a real SDK MUST HMAC-sign the blob, because otherwise the client can forge step-done / once-executed markers and skip the guards. Per-session key derived from `initialize` keeps it stateless.
+Without signing, the safety story is advisory.
+
 ## Client impact
 
-None. All five options present identical wire behaviour to each client version. A 2025-11 client sees either a standard `elicitation/create` over SSE (A/B/C/D) or a plain `CallToolResult` (E — either a real result with a default, or an error, tool author's choice). All vanilla
-2025-11 shapes. A 2026-06 client sees `IncompleteResult` in every case. The server's internal choice doesn't leak. This is the cleanest argument against per-feature `-mrtr` capability flags: there's nothing for them to signal, because the client's behaviour is already fully
-determined by `protocolVersion` plus the existing `elicitation`/`sampling` capabilities.
+None. All seven options present identical wire behaviour to each client version (F and G are the same as E on the wire — the footgun-prevention is server-internal). A 2025-11 client sees either a standard `elicitation/create` over SSE (A/B/C/D) or a plain `CallToolResult` (E —
+either a real result with a default, or an error, tool author's choice). All vanilla 2025-11 shapes. A 2026-06 client sees `IncompleteResult` in every case. The server's internal choice doesn't leak. This is the cleanest argument against per-feature `-mrtr` capability flags:
+there's nothing for them to signal, because the client's behaviour is already fully determined by `protocolVersion` plus the existing `elicitation`/`sampling` capabilities.
 
 For the reverse direction — new client SDK connecting to an old server — see `examples/client/src/mrtr-dual-path/`. Split into two files to make the boundary explicit: [`clientDualPath.ts`](./client/src/mrtr-dual-path/clientDualPath.ts) is ~55 lines of what the app developer
 writes (one `handleElicitation` function, one registration, one tool call); [`sdkLib.ts`](./client/src/mrtr-dual-path/sdkLib.ts) is the retry loop + `IncompleteResult` parsing the SDK would ship. The app file is small on purpose — the delta from today's client code is zero.
@@ -61,6 +78,9 @@ side effects before await" as a lint rule, which is hard in practice.
 the dual-path burden on the tool author rather than the SDK.
 
 **A vs C/D** is about who owns the SSE fallback. A: SDK owns it, author writes once. C/D: author owns it, writes twice. A is less code for authors but more magic; C/D is more code for authors but no magic.
+
+**F vs G** is the footgun-prevention trade. F is minimal — one line per side-effect, composes with any handler shape (A, E, or raw MRTR). G is structural — the step decomposition makes double-execution impossible for `endStep`, but costs two function definitions per tool. Neither
+replaces A–E; they layer on top. The likely SDK answer is: ship F as a primitive on the MRTR context, ship G as an opt-in builder, recommend G for multi-round tools and F for single-question tools with one side-effect.
 
 ## Running
 
