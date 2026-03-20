@@ -219,14 +219,14 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
-                if (response.status === 401) {
+                if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
                         this._scope = scope;
                     }
 
-                    if (this._authProvider?.onUnauthorized && !this._authRetryInFlight) {
+                    if (this._authProvider.onUnauthorized && !this._authRetryInFlight) {
                         this._authRetryInFlight = true;
                         await this._authProvider.onUnauthorized({
                             response,
@@ -243,9 +243,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             status: 401
                         });
                     }
-                    if (this._authProvider) {
-                        throw new UnauthorizedError();
-                    }
+                    throw new UnauthorizedError();
                 }
 
                 await response.text?.().catch(() => {});
@@ -253,6 +251,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
                 // This is an expected case that should not trigger an error
                 if (response.status === 405) {
+                    this._authRetryInFlight = false;
                     return;
                 }
 
@@ -508,7 +507,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                if (response.status === 401) {
+                if (response.status === 401 && this._authProvider) {
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -516,7 +515,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         this._scope = scope;
                     }
 
-                    if (this._authProvider?.onUnauthorized && !this._authRetryInFlight) {
+                    if (this._authProvider.onUnauthorized && !this._authRetryInFlight) {
                         this._authRetryInFlight = true;
                         await this._authProvider.onUnauthorized({
                             response,
@@ -533,9 +532,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             status: 401
                         });
                     }
-                    if (this._authProvider) {
-                        throw new UnauthorizedError();
-                    }
+                    throw new UnauthorizedError();
                 }
 
                 const text = await response.text?.().catch(() => null);

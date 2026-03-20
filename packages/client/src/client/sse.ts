@@ -154,7 +154,10 @@ export class SSEClientTransport implements Transport {
                         this._authProvider
                             .onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit })
                             .then(() => this._startOrAuth())
-                            .then(resolve, reject)
+                            .then(resolve, error => {
+                                this.onerror?.(error);
+                                reject(error);
+                            })
                             .finally(() => {
                                 this._authRetryInFlight = false;
                             });
@@ -261,14 +264,14 @@ export class SSEClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
-                if (response.status === 401) {
+                if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
                         this._scope = scope;
                     }
 
-                    if (this._authProvider?.onUnauthorized && !this._authRetryInFlight) {
+                    if (this._authProvider.onUnauthorized && !this._authRetryInFlight) {
                         this._authRetryInFlight = true;
                         await this._authProvider.onUnauthorized({
                             response,
@@ -285,9 +288,7 @@ export class SSEClientTransport implements Transport {
                             status: 401
                         });
                     }
-                    if (this._authProvider) {
-                        throw new UnauthorizedError();
-                    }
+                    throw new UnauthorizedError();
                 }
 
                 const text = await response.text?.().catch(() => null);
