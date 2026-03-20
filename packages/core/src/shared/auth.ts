@@ -151,7 +151,7 @@ export const IdJagTokenExchangeResponseSchema = z
         issued_token_type: z.literal('urn:ietf:params:oauth:token-type:id-jag'),
         access_token: z.string(),
         token_type: z.string().optional(),
-        expires_in: z.number().optional(),
+        expires_in: z.coerce.number().optional(),
         scope: z.string().optional()
     })
     .strip();
