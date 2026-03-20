@@ -20,7 +20,7 @@ import type {
     ResourceTemplateReference,
     Result,
     ServerContext,
-    StandardJSONSchemaV1,
+    StandardSchemaWithJSON,
     Tool,
     ToolAnnotations,
     ToolExecution,
@@ -170,7 +170,7 @@ export class McpServer {
             try {
                 const isTaskRequest = !!request.params.task;
                 const taskSupport = tool.execution?.taskSupport;
-                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<StandardJSONSchemaV1>);
+                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<StandardSchemaWithJSON>);
 
                 // Validate task hint configuration
                 if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
@@ -240,8 +240,8 @@ export class McpServer {
     private async validateToolInput<
         ToolType extends RegisteredTool,
         Args extends ToolType['inputSchema'] extends infer InputSchema
-            ? InputSchema extends StandardJSONSchemaV1
-                ? StandardJSONSchemaV1.InferOutput<InputSchema>
+            ? InputSchema extends StandardSchemaWithJSON
+                ? StandardSchemaWithJSON.InferOutput<InputSchema>
                 : undefined
             : undefined
     >(tool: ToolType, args: Args, toolName: string): Promise<Args> {
@@ -385,7 +385,7 @@ export class McpServer {
         }
 
         const promptShape = getSchemaShape(prompt.argsSchema);
-        const field = promptShape?.[request.params.argument.name];
+        const field = unwrapOptionalSchema(promptShape?.[request.params.argument.name]);
         if (!isCompletable(field)) {
             return EMPTY_COMPLETION_RESULT;
         }
@@ -698,8 +698,8 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        argsSchema: StandardJSONSchemaV1 | undefined,
-        callback: PromptCallback<StandardJSONSchemaV1 | undefined>
+        argsSchema: StandardSchemaWithJSON | undefined,
+        callback: PromptCallback<StandardSchemaWithJSON | undefined>
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
         let currentArgsSchema = argsSchema;
@@ -730,7 +730,7 @@ export class McpServer {
                     needsHandlerRegen = true;
                 }
                 if (updates.callback !== undefined) {
-                    currentCallback = updates.callback as PromptCallback<StandardJSONSchemaV1 | undefined>;
+                    currentCallback = updates.callback as PromptCallback<StandardSchemaWithJSON | undefined>;
                     needsHandlerRegen = true;
                 }
                 if (needsHandlerRegen) {
@@ -764,12 +764,12 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: StandardJSONSchemaV1 | undefined,
-        outputSchema: StandardJSONSchemaV1 | undefined,
+        inputSchema: StandardSchemaWithJSON | undefined,
+        outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
-        handler: AnyToolHandler<StandardJSONSchemaV1 | undefined>
+        handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
@@ -810,7 +810,7 @@ export class McpServer {
                 }
                 if (updates.callback !== undefined) {
                     registeredTool.handler = updates.callback;
-                    currentHandler = updates.callback as AnyToolHandler<StandardJSONSchemaV1 | undefined>;
+                    currentHandler = updates.callback as AnyToolHandler<StandardSchemaWithJSON | undefined>;
                     needsExecutorRegen = true;
                 }
                 if (needsExecutorRegen) {
@@ -858,7 +858,7 @@ export class McpServer {
      * );
      * ```
      */
-    registerTool<OutputArgs extends StandardJSONSchemaV1, InputArgs extends StandardJSONSchemaV1 | undefined = undefined>(
+    registerTool<OutputArgs extends StandardSchemaWithJSON, InputArgs extends StandardSchemaWithJSON | undefined = undefined>(
         name: string,
         config: {
             title?: string;
@@ -885,7 +885,7 @@ export class McpServer {
             annotations,
             { taskSupport: 'forbidden' },
             _meta,
-            cb as ToolCallback<StandardJSONSchemaV1 | undefined>
+            cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
     }
 
@@ -915,7 +915,7 @@ export class McpServer {
      * );
      * ```
      */
-    registerPrompt<Args extends StandardJSONSchemaV1>(
+    registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
             title?: string;
@@ -935,7 +935,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
-            cb as PromptCallback<StandardJSONSchemaV1 | undefined>
+            cb as PromptCallback<StandardSchemaWithJSON | undefined>
         );
 
         this.setPromptRequestHandlers();
@@ -1059,20 +1059,24 @@ export class ResourceTemplate {
 export type BaseToolCallback<
     SendResultT extends Result,
     Ctx extends ServerContext,
-    Args extends StandardJSONSchemaV1 | undefined
-> = Args extends StandardJSONSchemaV1
-    ? (args: StandardJSONSchemaV1.InferOutput<Args>, ctx: Ctx) => SendResultT | Promise<SendResultT>
+    Args extends StandardSchemaWithJSON | undefined
+> = Args extends StandardSchemaWithJSON
+    ? (args: StandardSchemaWithJSON.InferOutput<Args>, ctx: Ctx) => SendResultT | Promise<SendResultT>
     : (ctx: Ctx) => SendResultT | Promise<SendResultT>;
 
 /**
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
-export type ToolCallback<Args extends StandardJSONSchemaV1 | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
+export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
+    CallToolResult,
+    ServerContext,
+    Args
+>;
 
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
-export type AnyToolHandler<Args extends StandardJSONSchemaV1 | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
@@ -1082,12 +1086,12 @@ type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResul
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: StandardJSONSchemaV1;
-    outputSchema?: StandardJSONSchemaV1;
+    inputSchema?: StandardSchemaWithJSON;
+    outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
-    handler: AnyToolHandler<StandardJSONSchemaV1 | undefined>;
+    handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
     executor: ToolExecutor;
     enabled: boolean;
@@ -1097,11 +1101,11 @@ export type RegisteredTool = {
         name?: string | null;
         title?: string;
         description?: string;
-        paramsSchema?: StandardJSONSchemaV1;
-        outputSchema?: StandardJSONSchemaV1;
+        paramsSchema?: StandardSchemaWithJSON;
+        outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
         _meta?: Record<string, unknown>;
-        callback?: ToolCallback<StandardJSONSchemaV1>;
+        callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
     }): void;
     remove(): void;
@@ -1113,8 +1117,8 @@ export type RegisteredTool = {
  * When `inputSchema` is undefined, the handler is called with just `(ctx)`.
  */
 function createToolExecutor(
-    inputSchema: StandardJSONSchemaV1 | undefined,
-    handler: AnyToolHandler<StandardJSONSchemaV1 | undefined>
+    inputSchema: StandardSchemaWithJSON | undefined,
+    handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
 ): ToolExecutor {
     const isTaskHandler = 'createTask' in handler;
 
@@ -1210,8 +1214,8 @@ export type RegisteredResourceTemplate = {
     remove(): void;
 };
 
-export type PromptCallback<Args extends StandardJSONSchemaV1 | undefined = undefined> = Args extends StandardJSONSchemaV1
-    ? (args: StandardJSONSchemaV1.InferOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
+export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = Args extends StandardSchemaWithJSON
+    ? (args: StandardSchemaWithJSON.InferOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
     : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
 /**
@@ -1229,13 +1233,13 @@ type TaskHandlerInternal = {
 export type RegisteredPrompt = {
     title?: string;
     description?: string;
-    argsSchema?: StandardJSONSchemaV1;
+    argsSchema?: StandardSchemaWithJSON;
     /** @hidden */
     handler: PromptHandler;
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<Args extends StandardJSONSchemaV1>(updates: {
+    update<Args extends StandardSchemaWithJSON>(updates: {
         name?: string | null;
         title?: string;
         description?: string;
@@ -1252,8 +1256,8 @@ export type RegisteredPrompt = {
  */
 function createPromptHandler(
     name: string,
-    argsSchema: StandardJSONSchemaV1 | undefined,
-    callback: PromptCallback<StandardJSONSchemaV1 | undefined>
+    argsSchema: StandardSchemaWithJSON | undefined,
+    callback: PromptCallback<StandardSchemaWithJSON | undefined>
 ): PromptHandler {
     if (argsSchema) {
         const typedCallback = callback as (args: unknown, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
@@ -1303,8 +1307,8 @@ function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
 
 /** @internal Checks if a Zod schema is optional */
 function isOptionalSchema(schema: unknown): boolean {
-    const candidate = schema as { type?: string };
-    return candidate.type === 'optional';
+    const candidate = schema as { type?: string } | null | undefined;
+    return candidate?.type === 'optional';
 }
 
 /** @internal Unwraps an optional Zod schema */

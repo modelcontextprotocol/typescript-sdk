@@ -6,9 +6,7 @@
 
 /* eslint-disable @typescript-eslint/no-namespace */
 
-import type { JsonSchemaType, jsonSchemaValidator } from '../validators/types.js';
-
-// Standard Schema interfaces (from https://standardschema.dev)
+// Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
 export interface StandardTypedV1<Input = unknown, Output = Input> {
     readonly '~standard': StandardTypedV1.Props<Input, Output>;
@@ -92,9 +90,26 @@ export namespace StandardJSONSchemaV1 {
     export type InferOutput<Schema extends StandardTypedV1> = StandardTypedV1.InferOutput<Schema>;
 }
 
-/** Combined interface for schemas with both validation and JSON Schema conversion (e.g., Zod v4). */
+/**
+ * Combined interface for schemas with both validation and JSON Schema conversion —
+ * the intersection of {@linkcode StandardSchemaV1} and {@linkcode StandardJSONSchemaV1}.
+ *
+ * This is the type accepted by `registerTool` / `registerPrompt`. The SDK needs
+ * `~standard.jsonSchema` to advertise the tool's argument shape in `tools/list`, and
+ * `~standard.validate` to check incoming arguments when a `tools/call` arrives.
+ *
+ * Zod v4, ArkType, and Valibot (via `@valibot/to-json-schema`'s `toStandardJsonSchema`)
+ * all implement both interfaces.
+ *
+ * @see https://standardschema.dev/ for the Standard Schema specification
+ */
 export interface StandardSchemaWithJSON<Input = unknown, Output = Input> {
     readonly '~standard': StandardSchemaV1.Props<Input, Output> & StandardJSONSchemaV1.Props<Input, Output>;
+}
+
+export namespace StandardSchemaWithJSON {
+    export type InferInput<Schema extends StandardTypedV1> = StandardTypedV1.InferInput<Schema>;
+    export type InferOutput<Schema extends StandardTypedV1> = StandardTypedV1.InferOutput<Schema>;
 }
 
 // Type guards
@@ -131,35 +146,21 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
 
 export type StandardSchemaValidationResult<T> = { success: true; data: T } | { success: false; error: string };
 
-export async function validateStandardSchema<T extends StandardJSONSchemaV1>(
+function formatIssue(issue: StandardSchemaV1.Issue): string {
+    if (!issue.path?.length) return issue.message;
+    const path = issue.path.map(p => String(typeof p === 'object' ? p.key : p)).join('.');
+    return `${path}: ${issue.message}`;
+}
+
+export async function validateStandardSchema<T extends StandardSchemaWithJSON>(
     schema: T,
-    data: unknown,
-    jsonSchemaValidatorInstance?: jsonSchemaValidator
-): Promise<StandardSchemaValidationResult<StandardJSONSchemaV1.InferOutput<T>>> {
-    // Use native validation if available
-    if (isStandardSchema(schema)) {
-        const result = await schema['~standard'].validate(data);
-        if (result.issues && result.issues.length > 0) {
-            const errorMessage = result.issues.map((i: StandardSchemaV1.Issue) => i.message).join(', ');
-            return { success: false, error: errorMessage };
-        }
-        return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardJSONSchemaV1.InferOutput<T> };
+    data: unknown
+): Promise<StandardSchemaValidationResult<StandardSchemaWithJSON.InferOutput<T>>> {
+    const result = await schema['~standard'].validate(data);
+    if (result.issues && result.issues.length > 0) {
+        return { success: false, error: result.issues.map(i => formatIssue(i)).join(', ') };
     }
-
-    // Fall back to JSON Schema validation
-    if (jsonSchemaValidatorInstance) {
-        const jsonSchema = standardSchemaToJsonSchema(schema, 'input');
-        const validator = jsonSchemaValidatorInstance.getValidator<StandardJSONSchemaV1.InferOutput<T>>(jsonSchema as JsonSchemaType);
-        const validationResult = validator(data);
-
-        if (validationResult.valid) {
-            return { success: true, data: validationResult.data };
-        }
-        return { success: false, error: validationResult.errorMessage ?? 'Validation failed' };
-    }
-
-    // No validation - trust the data
-    return { success: true, data: data as StandardJSONSchemaV1.InferOutput<T> };
+    return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaWithJSON.InferOutput<T> };
 }
 
 // Prompt argument extraction

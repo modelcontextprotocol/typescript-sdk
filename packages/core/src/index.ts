@@ -18,6 +18,7 @@ export * from './util/standardSchema.js';
 export * from './experimental/index.js';
 export * from './validators/ajvProvider.js';
 export * from './validators/cfWorkerProvider.js';
+export * from './validators/fromJsonSchema.js';
 /**
  * JSON Schema validation
  *

@@ -5,7 +5,7 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { TextContent } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, CompleteResultSchema, InMemoryTransport, ListToolsResultSchema } from '@modelcontextprotocol/core';
+import { AjvJsonSchemaValidator, fromJsonSchema, InMemoryTransport } from '@modelcontextprotocol/core';
 import { completable, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
@@ -54,7 +54,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                const result = await client.request({ method: 'tools/list' });
 
                 expect(result.tools).toHaveLength(1);
                 expect(result.tools[0].name).toBe('greet');
@@ -89,7 +89,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                const result = await client.request({ method: 'tools/list' });
 
                 expect(result.tools[0].outputSchema).toMatchObject({
                     $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -113,13 +113,10 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'double', arguments: { value: 21 } }
-                    },
-                    CallToolResultSchema
-                );
+                const result = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'double', arguments: { value: 21 } }
+                });
 
                 expect(result.content[0]).toEqual({ type: 'text', text: '42' });
             });
@@ -133,13 +130,10 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'double', arguments: { value: 'not a number' } }
-                    },
-                    CallToolResultSchema
-                );
+                const result = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'double', arguments: { value: 'not a number' } }
+                });
 
                 expect(result.isError).toBe(true);
                 const errorText = (result.content[0] as TextContent).text;
@@ -159,13 +153,10 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'calculate', arguments: { operation: 'divide' } }
-                    },
-                    CallToolResultSchema
-                );
+                const result = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'calculate', arguments: { operation: 'divide' } }
+                });
 
                 expect(result.isError).toBe(true);
                 const errorText = (result.content[0] as TextContent).text;
@@ -182,13 +173,10 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'greet', arguments: { name: 'Alice' } }
-                    },
-                    CallToolResultSchema
-                );
+                const result = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'greet', arguments: { name: 'Alice' } }
+                });
 
                 expect(result.isError).toBe(true);
                 const errorText = (result.content[0] as TextContent).text;
@@ -221,7 +209,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                const result = await client.request({ method: 'tools/list' });
 
                 expect(result.tools).toHaveLength(1);
                 expect(result.tools[0].name).toBe('greet');
@@ -249,7 +237,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                const result = await client.request({ method: 'tools/list' });
 
                 expect(result.tools[0].inputSchema.properties).toMatchObject({
                     city: { type: 'string', description: 'The city name' },
@@ -268,13 +256,10 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'double', arguments: { value: 21 } }
-                    },
-                    CallToolResultSchema
-                );
+                const result = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'double', arguments: { value: 21 } }
+                });
 
                 expect(result.content[0]).toEqual({ type: 'text', text: '42' });
             });
@@ -288,13 +273,10 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'double', arguments: { value: 'not a number' } }
-                    },
-                    CallToolResultSchema
-                );
+                const result = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'double', arguments: { value: 'not a number' } }
+                });
 
                 expect(result.isError).toBe(true);
                 const errorText = (result.content[0] as TextContent).text;
@@ -315,13 +297,10 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'calculate', arguments: { operation: 'divide' } }
-                    },
-                    CallToolResultSchema
-                );
+                const result = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'calculate', arguments: { operation: 'divide' } }
+                });
 
                 expect(result.isError).toBe(true);
                 const errorText = (result.content[0] as TextContent).text;
@@ -342,23 +321,17 @@ describe('Standard Schema Support', () => {
                 await connectClientAndServer();
 
                 // Valid value
-                const validResult = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'setPercentage', arguments: { percentage: 50 } }
-                    },
-                    CallToolResultSchema
-                );
+                const validResult = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'setPercentage', arguments: { percentage: 50 } }
+                });
                 expect(validResult.isError).toBeFalsy();
 
                 // Invalid value (too high)
-                const invalidResult = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: { name: 'setPercentage', arguments: { percentage: 150 } }
-                    },
-                    CallToolResultSchema
-                );
+                const invalidResult = await client.request({
+                    method: 'tools/call',
+                    params: { name: 'setPercentage', arguments: { percentage: 150 } }
+                });
                 expect(invalidResult.isError).toBe(true);
                 const errorText = (invalidResult.content[0] as TextContent).text;
                 expect(errorText).toContain('Input validation error');
@@ -387,27 +360,71 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const tools = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const tools = await client.request({ method: 'tools/list' });
             expect(tools.tools).toHaveLength(3);
 
             // Call each tool
-            const zodResult = await client.request(
-                { method: 'tools/call', params: { name: 'zod-tool', arguments: { value: 'test' } } },
-                CallToolResultSchema
-            );
+            const zodResult = await client.request({ method: 'tools/call', params: { name: 'zod-tool', arguments: { value: 'test' } } });
             expect((zodResult.content[0] as TextContent).text).toBe('zod: test');
 
-            const arktypeResult = await client.request(
-                { method: 'tools/call', params: { name: 'arktype-tool', arguments: { value: 'test' } } },
-                CallToolResultSchema
-            );
+            const arktypeResult = await client.request({
+                method: 'tools/call',
+                params: { name: 'arktype-tool', arguments: { value: 'test' } }
+            });
             expect((arktypeResult.content[0] as TextContent).text).toBe('arktype: test');
 
-            const valibotResult = await client.request(
-                { method: 'tools/call', params: { name: 'valibot-tool', arguments: { value: 'test' } } },
-                CallToolResultSchema
-            );
+            const valibotResult = await client.request({
+                method: 'tools/call',
+                params: { name: 'valibot-tool', arguments: { value: 'test' } }
+            });
             expect((valibotResult.content[0] as TextContent).text).toBe('valibot: test');
+        });
+    });
+
+    describe('Raw JSON Schema via fromJsonSchema', () => {
+        const validator = new AjvJsonSchemaValidator();
+
+        test('should register tool with raw JSON Schema input', async () => {
+            const inputSchema = fromJsonSchema<{ name: string }>(
+                { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+                validator
+            );
+
+            mcpServer.registerTool('greet', { inputSchema }, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            }));
+
+            await connectClientAndServer();
+
+            const listed = await client.request({ method: 'tools/list' });
+            expect(listed.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: { name: { type: 'string' } },
+                required: ['name']
+            });
+
+            const result = await client.request({ method: 'tools/call', params: { name: 'greet', arguments: { name: 'World' } } });
+            expect((result.content[0] as TextContent).text).toBe('Hello, World!');
+        });
+
+        test('should reject invalid input via AJV validation', async () => {
+            const inputSchema = fromJsonSchema(
+                { type: 'object', properties: { count: { type: 'number' } }, required: ['count'] },
+                validator
+            );
+
+            mcpServer.registerTool('double', { inputSchema }, async args => {
+                const { count } = args as { count: number };
+                return { content: [{ type: 'text', text: `${count * 2}` }] };
+            });
+
+            await connectClientAndServer();
+
+            const result = await client.request({ method: 'tools/call', params: { name: 'double', arguments: { count: 'not a number' } } });
+
+            expect(result.isError).toBe(true);
+            const errorText = (result.content[0] as TextContent).text;
+            expect(errorText).toContain('Input validation error');
         });
     });
 
@@ -433,16 +450,13 @@ describe('Standard Schema Support', () => {
             await connectClientAndServer();
 
             // Test completion
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: { type: 'ref/prompt', name: 'greeting' },
-                        argument: { name: 'name', value: 'a' }
-                    }
-                },
-                CompleteResultSchema
-            );
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: { type: 'ref/prompt', name: 'greeting' },
+                    argument: { name: 'name', value: 'a' }
+                }
+            });
 
             expect(result.completion.values).toEqual(['Alice']);
         });
@@ -462,19 +476,70 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: { type: 'ref/prompt', name: 'greeting' },
-                        argument: { name: 'name', value: '' }
-                    }
-                },
-                CompleteResultSchema
-            );
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: { type: 'ref/prompt', name: 'greeting' },
+                    argument: { name: 'name', value: '' }
+                }
+            });
 
             expect(result.completion.values).toEqual(['Alice', 'Bob', 'Charlie']);
             expect(result.completion.total).toBe(3);
+        });
+
+        test('should support completion for optional completable fields', async () => {
+            mcpServer.registerPrompt(
+                'greeting',
+                {
+                    argsSchema: z.object({
+                        name: completable(z.string(), value =>
+                            ['Alice', 'Bob', 'Charlie'].filter(n => n.toLowerCase().startsWith(value.toLowerCase()))
+                        ).optional()
+                    })
+                },
+                async ({ name }) => ({
+                    messages: [{ role: 'user', content: { type: 'text', text: `Hello ${name ?? 'there'}` } }]
+                })
+            );
+
+            await connectClientAndServer();
+
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: { type: 'ref/prompt', name: 'greeting' },
+                    argument: { name: 'name', value: 'b' }
+                }
+            });
+
+            expect(result.completion.values).toEqual(['Bob']);
+        });
+
+        test('should return empty result for nonexistent argument name', async () => {
+            mcpServer.registerPrompt(
+                'greeting',
+                {
+                    argsSchema: z.object({
+                        name: completable(z.string(), () => ['Alice', 'Bob'])
+                    })
+                },
+                async ({ name }) => ({
+                    messages: [{ role: 'user', content: { type: 'text', text: `Hello ${name}` } }]
+                })
+            );
+
+            await connectClientAndServer();
+
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: { type: 'ref/prompt', name: 'greeting' },
+                    argument: { name: 'nonexistent', value: '' }
+                }
+            });
+
+            expect(result.completion.values).toEqual([]);
         });
     });
 
@@ -492,20 +557,17 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {
-                            email: 123,
-                            age: 'not a number',
-                            status: 'unknown'
-                        }
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        email: 123,
+                        age: 'not a number',
+                        status: 'unknown'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.isError).toBe(true);
             const errorText = (result.content[0] as TextContent).text;
@@ -531,20 +593,17 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {
-                            email: 123,
-                            age: 'not a number',
-                            status: 'unknown'
-                        }
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        email: 123,
+                        age: 'not a number',
+                        status: 'unknown'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.isError).toBe(true);
             const errorText = (result.content[0] as TextContent).text;
@@ -568,20 +627,17 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {
-                            email: 123,
-                            age: 'not a number',
-                            status: 'unknown'
-                        }
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        email: 123,
+                        age: 'not a number',
+                        status: 'unknown'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.isError).toBe(true);
             const errorText = (result.content[0] as TextContent).text;
@@ -613,16 +669,13 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'typed-tool',
-                        arguments: { name: 'test', count: 42, enabled: true }
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'typed-tool',
+                    arguments: { name: 'test', count: 42, enabled: true }
+                }
+            });
 
             expect((result.content[0] as TextContent).text).toBe('test: 42, enabled: true');
         });
@@ -649,16 +702,13 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'typed-tool',
-                        arguments: { name: 'test', count: 42, enabled: true }
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'typed-tool',
+                    arguments: { name: 'test', count: 42, enabled: true }
+                }
+            });
 
             expect((result.content[0] as TextContent).text).toBe('test: 42, enabled: true');
         });
