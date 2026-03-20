@@ -84,9 +84,14 @@ export interface AuthProvider {
 /**
  * Type guard distinguishing `OAuthClientProvider` from a minimal `AuthProvider`.
  * Transports use this at construction time to classify the `authProvider` option.
+ *
+ * Checks for `tokens()` + `clientInformation()` — two required `OAuthClientProvider`
+ * methods that a minimal `AuthProvider` `{ token: ... }` would never have.
  */
 export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvider | undefined): provider is OAuthClientProvider {
-    return provider !== undefined && 'tokens' in provider && 'clientMetadata' in provider;
+    if (provider == null) return false;
+    const p = provider as OAuthClientProvider;
+    return typeof p.tokens === 'function' && typeof p.clientInformation === 'function';
 }
 
 /**
