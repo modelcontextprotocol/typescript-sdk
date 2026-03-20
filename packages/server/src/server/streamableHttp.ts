@@ -404,7 +404,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         // The client MUST include an Accept header, listing text/event-stream as a supported content type.
         const acceptHeader = req.headers.get('accept');
         if (!acceptHeader?.includes('text/event-stream')) {
-            return this.createJsonErrorResponse(406, -32_000, 'Not Acceptable: Client must accept text/event-stream');
+            const error = 'Not Acceptable: Client must accept text/event-stream';
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(406, -32_000, error);
         }
 
         // If an Mcp-Session-Id is returned by the server during initialization,
@@ -430,7 +432,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         // Check if there's already an active standalone SSE stream for this session
         if (this._streamMapping.get(this._standaloneSseStreamId) !== undefined) {
             // Only one GET SSE stream is allowed per session
-            return this.createJsonErrorResponse(409, -32_000, 'Conflict: Only one SSE stream is allowed per session');
+            const error = 'Conflict: Only one SSE stream is allowed per session';
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(409, -32_000, error);
         }
 
         const encoder = new TextEncoder();
@@ -481,7 +485,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      */
     private async replayEvents(lastEventId: string): Promise<Response> {
         if (!this._eventStore) {
-            return this.createJsonErrorResponse(400, -32_000, 'Event store not configured');
+            const error = 'Event store not configured';
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(400, -32_000, error);
         }
 
         try {
@@ -491,12 +497,16 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
 
                 if (!streamId) {
-                    return this.createJsonErrorResponse(400, -32_000, 'Invalid event ID format');
+                    const error = 'Invalid event ID format';
+                    this.onerror?.(new Error(error));
+                    return this.createJsonErrorResponse(400, -32_000, error);
                 }
 
                 // Check conflict with the SAME streamId we'll use for mapping
                 if (this._streamMapping.get(streamId) !== undefined) {
-                    return this.createJsonErrorResponse(409, -32_000, 'Conflict: Stream already has an active connection');
+                    const error = 'Conflict: Stream already has an active connection';
+                    this.onerror?.(new Error(error));
+                    return this.createJsonErrorResponse(409, -32_000, error);
                 }
             }
 
@@ -614,16 +624,16 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const acceptHeader = req.headers.get('accept');
             // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
             if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
-                return this.createJsonErrorResponse(
-                    406,
-                    -32_000,
-                    'Not Acceptable: Client must accept both application/json and text/event-stream'
-                );
+                const error = 'Not Acceptable: Client must accept both application/json and text/event-stream';
+                this.onerror?.(new Error(error));
+                return this.createJsonErrorResponse(406, -32_000, error);
             }
 
             const ct = req.headers.get('content-type');
             if (!ct || !ct.includes('application/json')) {
-                return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
+                const error = 'Unsupported Media Type: Content-Type must be application/json';
+                this.onerror?.(new Error(error));
+                return this.createJsonErrorResponse(415, -32_000, error);
             }
 
             // Build request info from headers
@@ -635,8 +645,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (options?.parsedBody === undefined) {
                 try {
                     rawMessage = await req.json();
-                } catch {
-                    return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
+                } catch (e) {
+                    const error = 'Parse error: Invalid JSON';
+                    this.onerror?.(new Error(error, { cause: e }));
+                    return this.createJsonErrorResponse(400, -32_700, error);
                 }
             } else {
                 rawMessage = options.parsedBody;
@@ -649,8 +661,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 messages = Array.isArray(rawMessage)
                     ? rawMessage.map(msg => JSONRPCMessageSchema.parse(msg))
                     : [JSONRPCMessageSchema.parse(rawMessage)];
-            } catch {
-                return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
+            } catch (e) {
+                const error = 'Parse error: Invalid JSON-RPC message';
+                this.onerror?.(new Error(error, { cause: e }));
+                return this.createJsonErrorResponse(400, -32_700, error);
             }
 
             // Check if this is an initialization request
@@ -660,10 +674,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 // If it's a server with session management and the session ID is already set we should reject the request
                 // to avoid re-initialization.
                 if (this._initialized && this.sessionId !== undefined) {
-                    return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: Server already initialized');
+                    const error = 'Invalid Request: Server already initialized';
+                    this.onerror?.(new Error(error));
+                    return this.createJsonErrorResponse(400, -32_600, error);
                 }
                 if (messages.length > 1) {
-                    return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: Only one initialization request is allowed');
+                    const error = 'Invalid Request: Only one initialization request is allowed';
+                    this.onerror?.(new Error(error));
+                    return this.createJsonErrorResponse(400, -32_600, error);
                 }
                 this.sessionId = this.sessionIdGenerator?.();
                 this._initialized = true;
@@ -842,19 +860,25 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
         if (!this._initialized) {
             // If the server has not been initialized yet, reject all requests
-            return this.createJsonErrorResponse(400, -32_000, 'Bad Request: Server not initialized');
+            const error = 'Bad Request: Server not initialized';
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(400, -32_000, error);
         }
 
         const sessionId = req.headers.get('mcp-session-id');
 
         if (!sessionId) {
             // Non-initialization requests without a session ID should return 400 Bad Request
-            return this.createJsonErrorResponse(400, -32_000, 'Bad Request: Mcp-Session-Id header is required');
+            const error = 'Bad Request: Mcp-Session-Id header is required';
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(400, -32_000, error);
         }
 
         if (sessionId !== this.sessionId) {
             // Reject requests with invalid session ID with 404 Not Found
-            return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            const error = 'Session not found';
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(404, -32_001, error);
         }
 
         return undefined;
@@ -877,11 +901,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const protocolVersion = req.headers.get('mcp-protocol-version');
 
         if (protocolVersion !== null && !this._supportedProtocolVersions.includes(protocolVersion)) {
-            return this.createJsonErrorResponse(
-                400,
-                -32_000,
-                `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${this._supportedProtocolVersions.join(', ')})`
-            );
+            const error = `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${this._supportedProtocolVersions.join(', ')})`;
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(400, -32_000, error);
         }
         return undefined;
     }
