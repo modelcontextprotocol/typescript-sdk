@@ -26,7 +26,22 @@ export type SchemaOutput<T extends AnySchema> = z.output<T>;
  * Converts a Zod schema to JSON Schema.
  */
 export function schemaToJson(schema: AnySchema, options?: { io?: 'input' | 'output' }): Record<string, unknown> {
-    return z.toJSONSchema(schema, options) as Record<string, unknown>;
+    const jsonSchema = z.toJSONSchema(schema, options) as Record<string, unknown>;
+
+    // OpenAI strict JSON schema mode requires the `required` field to always
+    // be present on object schemas, even when empty. Zod's toJSONSchema omits
+    // it for empty objects (e.g. z.object({}).strict()), causing tool
+    // registration to fail with OpenAI's strict mode.
+    // See: https://github.com/modelcontextprotocol/typescript-sdk/issues/1659
+    if (
+        jsonSchema.type === 'object' &&
+        jsonSchema.properties !== undefined &&
+        !Array.isArray(jsonSchema.required)
+    ) {
+        jsonSchema.required = [];
+    }
+
+    return jsonSchema;
 }
 
 /**
