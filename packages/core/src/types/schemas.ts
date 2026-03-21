@@ -517,6 +517,21 @@ export const ServerCapabilitiesSchema = z.object({
         })
         .optional(),
     /**
+     * Present if the server offers any subscribable events.
+     */
+    events: z
+        .object({
+            /**
+             * Whether this server supports subscribing to events.
+             */
+            subscribe: z.boolean().optional(),
+            /**
+             * Whether this server supports issuing notifications for changes to the event list.
+             */
+            listChanged: z.boolean().optional()
+        })
+        .optional(),
+    /**
      * Present if the server supports task creation.
      */
     tasks: ServerTasksCapabilitySchema.optional(),
@@ -2075,6 +2090,483 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
     params: NotificationsParamsSchema.optional()
 });
 
+/* Events */
+
+/**
+ * Delivery mechanisms supported for an event type.
+ * Every event type MUST support `"poll"`; `"push"` and `"webhook"` are optional upgrades.
+ */
+export const EventDeliveryModeSchema = z.enum(['poll', 'push', 'webhook']);
+
+/**
+ * Polling-interval hints for the client SDK. Values are in seconds.
+ */
+export const EventPollHintsSchema = z.object({
+    intervalSeconds: z.object({
+        /**
+         * Minimum permitted interval. Polling faster than this is a protocol violation.
+         */
+        min: z.number().optional(),
+        /**
+         * Recommended interval. The SDK SHOULD use this as the default.
+         */
+        recommended: z.number().optional(),
+        /**
+         * Maximum useful interval. Polling slower than this risks missing events (cursor expiry).
+         */
+        max: z.number().optional()
+    })
+});
+
+/**
+ * Describes an event type the server can deliver.
+ */
+export const EventDescriptorSchema = z.object({
+    ...BaseMetadataSchema.shape,
+    /**
+     * A human-readable description of what this event represents and when it fires.
+     */
+    description: z.string().optional(),
+    /**
+     * Delivery modes this event type supports. MUST include `"poll"`.
+     */
+    delivery: z.array(EventDeliveryModeSchema),
+    /**
+     * Polling interval hints. Present when `"poll"` is in `delivery`.
+     */
+    pollHints: EventPollHintsSchema.optional(),
+    /**
+     * A JSON Schema describing valid subscription parameters for this event type.
+     * Mirrors `inputSchema` on {@linkcode Tool}.
+     */
+    inputSchema: z
+        .object({
+            type: z.literal('object'),
+            properties: z.record(z.string(), JSONValueSchema).optional(),
+            required: z.array(z.string()).optional()
+        })
+        .catchall(z.unknown())
+        .optional(),
+    /**
+     * A JSON Schema describing the shape of `data` in delivered event occurrences.
+     */
+    payloadSchema: z
+        .object({
+            type: z.literal('object'),
+            properties: z.record(z.string(), JSONValueSchema).optional(),
+            required: z.array(z.string()).optional()
+        })
+        .catchall(z.unknown())
+        .optional(),
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on `_meta` usage.
+     */
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+/**
+ * A single event occurrence delivered to a subscription.
+ */
+export const EventOccurrenceSchema = z.object({
+    /**
+     * Globally unique identifier for this event occurrence. Enables client-side deduplication.
+     */
+    eventId: z.string(),
+    /**
+     * The event type name (matches an `EventDescriptor.name`).
+     */
+    name: z.string(),
+    /**
+     * ISO 8601 timestamp for when the event occurred upstream.
+     */
+    timestamp: z.string(),
+    /**
+     * Event payload. Shape is defined by `payloadSchema` on the {@linkcode EventDescriptor}.
+     */
+    data: z.record(z.string(), z.unknown()),
+    /**
+     * The subscription's position *after* this event. Present on push/webhook deliveries
+     * so the client can persist the latest cursor for reconnection.
+     */
+    cursor: z.string().optional(),
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on `_meta` usage.
+     */
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+/**
+ * A subscription entry carried in `events/poll` or `events/stream` requests.
+ */
+export const EventSubscriptionSpecSchema = z.object({
+    /**
+     * Client-provided opaque identifier. Echoed back in responses and notifications
+     * so the client can correlate results with subscriptions. Must be unique within
+     * a single request.
+     */
+    id: z.string(),
+    /**
+     * The event type to subscribe to (matches an `EventDescriptor.name`).
+     */
+    name: z.string(),
+    /**
+     * Subscription parameters. Validated against the event type's `inputSchema`.
+     */
+    params: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * Resume cursor. `null` means "start from now" (bootstrap).
+     */
+    cursor: z.string().nullable().optional()
+});
+
+/**
+ * Per-subscription error carried inside `events/poll` results or push-stream error notifications.
+ */
+export const EventSubscriptionErrorSchema = z.object({
+    /**
+     * Numeric error code. See {@linkcode EVENT_NOT_FOUND}, {@linkcode CURSOR_EXPIRED}, etc.
+     */
+    code: z.number().int(),
+    /**
+     * Short human-readable error message.
+     */
+    message: z.string(),
+    /**
+     * Optional additional structured data about the error.
+     */
+    data: z.unknown().optional()
+});
+
+/**
+ * Sent from the client to request a list of event types the server offers.
+ */
+export const ListEventsRequestSchema = PaginatedRequestSchema.extend({
+    method: z.literal('events/list')
+});
+
+/**
+ * The server's response to an {@linkcode ListEventsRequest | events/list} request.
+ */
+export const ListEventsResultSchema = PaginatedResultSchema.extend({
+    events: z.array(EventDescriptorSchema)
+});
+
+/**
+ * Parameters for an {@linkcode PollEventsRequest | events/poll} request.
+ */
+export const PollEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * Optional cap on events returned per subscription. If more are available,
+     * the server returns a partial batch with `hasMore: true`.
+     */
+    maxEvents: z.number().int().positive().optional(),
+    /**
+     * Subscriptions to poll. Each must have a unique `id` within this request.
+     */
+    subscriptions: z.array(EventSubscriptionSpecSchema)
+});
+
+/**
+ * Sent from the client to poll for new events across one or more subscriptions.
+ * The server is fully stateless — each request is self-contained.
+ */
+export const PollEventsRequestSchema = RequestSchema.extend({
+    method: z.literal('events/poll'),
+    params: PollEventsRequestParamsSchema
+});
+
+/**
+ * A single subscription's result within a {@linkcode PollEventsResult}.
+ * Either carries events + cursor metadata, or an error for that subscription.
+ */
+export const PollEventsResultEntrySchema = z.object({
+    /**
+     * The client-provided subscription identifier, echoed from the request.
+     */
+    id: z.string(),
+    /**
+     * Events that occurred since the cursor. Empty array means "nothing new".
+     * Absent when `error` is present.
+     */
+    events: z.array(EventOccurrenceSchema).optional(),
+    /**
+     * The subscription's new cursor after consuming these events.
+     * The client stores this and passes it on the next poll.
+     */
+    cursor: z.string().optional(),
+    /**
+     * If `true`, more events are available beyond this batch. The client SHOULD
+     * poll again immediately (ignoring `nextPollSeconds`) to drain the backlog.
+     */
+    hasMore: z.boolean().optional(),
+    /**
+     * Recommended seconds until the next poll for this subscription.
+     * Allows the server to dynamically adjust polling frequency.
+     * Ignored when `hasMore` is `true`.
+     */
+    nextPollSeconds: z.number().optional(),
+    /**
+     * Error for this subscription. When present, `events`/`cursor`/`hasMore` are absent.
+     */
+    error: EventSubscriptionErrorSchema.optional()
+});
+
+/**
+ * The server's response to an {@linkcode PollEventsRequest | events/poll} request.
+ */
+export const PollEventsResultSchema = ResultSchema.extend({
+    results: z.array(PollEventsResultEntrySchema)
+});
+
+/**
+ * Parameters for an {@linkcode StreamEventsRequest | events/stream} request.
+ */
+export const StreamEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * Subscriptions to stream. May be empty to receive only non-event notifications.
+     */
+    subscriptions: z.array(EventSubscriptionSpecSchema)
+});
+
+/**
+ * A long-lived request that opens a push channel for event delivery.
+ * The server confirms each subscription via `notifications/events/active`, reports
+ * per-subscription errors via `notifications/events/error`, and delivers events
+ * via `notifications/event`. The request terminates via connection close (HTTP)
+ * or `notifications/cancelled` (stdio).
+ */
+export const StreamEventsRequestSchema = RequestSchema.extend({
+    method: z.literal('events/stream'),
+    params: StreamEventsRequestParamsSchema
+});
+
+/**
+ * Webhook delivery configuration for an `events/subscribe` request.
+ */
+export const WebhookDeliverySpecSchema = z.object({
+    mode: z.literal('webhook'),
+    /**
+     * The callback URL the server will POST events to.
+     */
+    url: z.string(),
+    /**
+     * Shared secret for HMAC-SHA256 signature verification of webhook deliveries.
+     * The client generates this; the server stores it alongside the subscription.
+     */
+    secret: z.string()
+});
+
+/**
+ * Parameters for an {@linkcode SubscribeEventRequest | events/subscribe} request.
+ * Used ONLY for webhook delivery — poll and push do not need it.
+ */
+export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * Client-provided subscription identifier. Calling `events/subscribe` again
+     * with the same `id` refreshes the TTL (idempotent upsert).
+     */
+    id: z.string(),
+    /**
+     * The event type to subscribe to (matches an `EventDescriptor.name`).
+     */
+    name: z.string(),
+    /**
+     * Subscription parameters. Validated against the event type's `inputSchema`.
+     */
+    params: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * Delivery configuration. Currently only `mode: "webhook"` is defined.
+     */
+    delivery: WebhookDeliverySpecSchema,
+    /**
+     * Resume cursor. `null` means "start from now" (bootstrap).
+     */
+    cursor: z.string().nullable().optional()
+});
+
+/**
+ * Sent from the client to register a webhook subscription. Idempotent — calling
+ * again with the same `id` refreshes the TTL and updates the cursor.
+ */
+export const SubscribeEventRequestSchema = RequestSchema.extend({
+    method: z.literal('events/subscribe'),
+    params: SubscribeEventRequestParamsSchema
+});
+
+/**
+ * Delivery health information for a webhook subscription.
+ * Optionally returned on refresh to help clients detect delivery problems.
+ */
+export const WebhookDeliveryStatusSchema = z.object({
+    /**
+     * `true` if the server is currently delivering events. `false` means it has
+     * stopped retrying after repeated failures.
+     */
+    active: z.boolean(),
+    /**
+     * ISO 8601 timestamp of the last successful delivery. `null` if none.
+     */
+    lastDeliveryAt: z.string().nullable().optional(),
+    /**
+     * Human-readable description of the most recent failure. `null` if none.
+     */
+    lastError: z.string().nullable().optional(),
+    /**
+     * ISO 8601 timestamp since which deliveries have been failing.
+     */
+    failedSince: z.string().nullable().optional()
+});
+
+/**
+ * The server's response to an {@linkcode SubscribeEventRequest | events/subscribe} request.
+ */
+export const SubscribeEventResultSchema = ResultSchema.extend({
+    /**
+     * The subscription identifier, echoed from the request.
+     */
+    id: z.string(),
+    /**
+     * The subscription's current cursor position.
+     */
+    cursor: z.string(),
+    /**
+     * ISO 8601 timestamp. The client MUST re-call `events/subscribe` before
+     * this time to keep the subscription alive. The server resets the TTL on
+     * each refresh.
+     */
+    refreshBefore: z.string(),
+    /**
+     * Optional delivery health status. Present when refreshing an existing subscription.
+     */
+    deliveryStatus: WebhookDeliveryStatusSchema.optional()
+});
+
+/**
+ * Parameters for an {@linkcode UnsubscribeEventRequest | events/unsubscribe} request.
+ */
+export const UnsubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * The subscription identifier to unsubscribe.
+     */
+    id: z.string()
+});
+
+/**
+ * Eagerly removes a webhook subscription without waiting for TTL expiry.
+ * Used ONLY for webhook delivery.
+ */
+export const UnsubscribeEventRequestSchema = RequestSchema.extend({
+    method: z.literal('events/unsubscribe'),
+    params: UnsubscribeEventRequestParamsSchema
+});
+
+/**
+ * A notification from the server informing the client that the set of available
+ * event types has changed. The client SHOULD re-call `events/list`.
+ */
+export const EventListChangedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/events/list_changed'),
+    params: NotificationsParamsSchema.optional()
+});
+
+/**
+ * Parameters for a {@linkcode EventNotification | notifications/event} notification.
+ */
+export const EventNotificationParamsSchema = NotificationsParamsSchema.extend({
+    /**
+     * The client-provided subscription identifier this event belongs to.
+     */
+    id: z.string(),
+    ...EventOccurrenceSchema.shape
+});
+
+/**
+ * A single event occurrence delivered on a push stream.
+ */
+export const EventNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/event'),
+    params: EventNotificationParamsSchema
+});
+
+/**
+ * Parameters for a {@linkcode EventActiveNotification | notifications/events/active} notification.
+ */
+export const EventActiveNotificationParamsSchema = NotificationsParamsSchema.extend({
+    /**
+     * The client-provided subscription identifier being confirmed.
+     */
+    id: z.string(),
+    /**
+     * The subscription's starting cursor position.
+     */
+    cursor: z.string()
+});
+
+/**
+ * Confirmation that a subscription within an `events/stream` request is active.
+ * The server sends one of these per valid subscription before any events.
+ */
+export const EventActiveNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/events/active'),
+    params: EventActiveNotificationParamsSchema
+});
+
+/**
+ * Parameters for a {@linkcode EventErrorNotification | notifications/events/error} notification.
+ */
+export const EventErrorNotificationParamsSchema = NotificationsParamsSchema.extend({
+    /**
+     * The client-provided subscription identifier that encountered an error.
+     */
+    id: z.string(),
+    ...EventSubscriptionErrorSchema.shape
+});
+
+/**
+ * A per-subscription error on a push stream. The stream remains open for other
+ * valid subscriptions.
+ */
+export const EventErrorNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/events/error'),
+    params: EventErrorNotificationParamsSchema
+});
+
+/**
+ * Parameters for a {@linkcode EventTerminatedNotification | notifications/events/terminated} notification.
+ */
+export const EventTerminatedNotificationParamsSchema = NotificationsParamsSchema.extend({
+    /**
+     * The client-provided subscription identifier being terminated.
+     */
+    id: z.string(),
+    /**
+     * Human-readable reason for termination (e.g., "Access revoked").
+     */
+    reason: z.string().optional()
+});
+
+/**
+ * Sent by the server to terminate a single subscription on a push stream
+ * (e.g., because the user's access was revoked). The client SDK SHOULD remove
+ * the subscription and notify the application.
+ */
+export const EventTerminatedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/events/terminated'),
+    params: EventTerminatedNotificationParamsSchema
+});
+
+/**
+ * Keepalive notification sent periodically on a push stream so the client can
+ * distinguish "nothing to send" from "connection is dead".
+ */
+export const EventHeartbeatNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/events/heartbeat'),
+    params: NotificationsParamsSchema.optional()
+});
+
+
 /* Client messages */
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
@@ -2090,6 +2582,11 @@ export const ClientRequestSchema = z.union([
     UnsubscribeRequestSchema,
     CallToolRequestSchema,
     ListToolsRequestSchema,
+    ListEventsRequestSchema,
+    PollEventsRequestSchema,
+    StreamEventsRequestSchema,
+    SubscribeEventRequestSchema,
+    UnsubscribeEventRequestSchema,
     GetTaskRequestSchema,
     GetTaskPayloadRequestSchema,
     ListTasksRequestSchema,
@@ -2135,6 +2632,12 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
+    EventListChangedNotificationSchema,
+    EventNotificationSchema,
+    EventActiveNotificationSchema,
+    EventErrorNotificationSchema,
+    EventTerminatedNotificationSchema,
+    EventHeartbeatNotificationSchema,
     TaskStatusNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
@@ -2150,6 +2653,9 @@ export const ServerResultSchema = z.union([
     ReadResourceResultSchema,
     CallToolResultSchema,
     ListToolsResultSchema,
+    ListEventsResultSchema,
+    PollEventsResultSchema,
+    SubscribeEventResultSchema,
     GetTaskResultSchema,
     ListTasksResultSchema,
     CreateTaskResultSchema
@@ -2170,6 +2676,11 @@ const resultSchemas: Record<string, z.core.$ZodType> = {
     'resources/unsubscribe': EmptyResultSchema,
     'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
     'tools/list': ListToolsResultSchema,
+    'events/list': ListEventsResultSchema,
+    'events/poll': PollEventsResultSchema,
+    'events/stream': EmptyResultSchema,
+    'events/subscribe': SubscribeEventResultSchema,
+    'events/unsubscribe': EmptyResultSchema,
     'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
     'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
     'roots/list': ListRootsResultSchema,

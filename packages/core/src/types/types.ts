@@ -44,6 +44,22 @@ import type {
     EmbeddedResourceSchema,
     EmptyResultSchema,
     EnumSchemaSchema,
+    EventActiveNotificationParamsSchema,
+    EventActiveNotificationSchema,
+    EventDeliveryModeSchema,
+    EventDescriptorSchema,
+    EventErrorNotificationParamsSchema,
+    EventErrorNotificationSchema,
+    EventHeartbeatNotificationSchema,
+    EventListChangedNotificationSchema,
+    EventNotificationParamsSchema,
+    EventNotificationSchema,
+    EventOccurrenceSchema,
+    EventPollHintsSchema,
+    EventSubscriptionErrorSchema,
+    EventSubscriptionSpecSchema,
+    EventTerminatedNotificationParamsSchema,
+    EventTerminatedNotificationSchema,
     GetPromptRequestParamsSchema,
     GetPromptRequestSchema,
     GetPromptResultSchema,
@@ -66,6 +82,8 @@ import type {
     JSONRPCResponseSchema,
     JSONRPCResultResponseSchema,
     LegacyTitledEnumSchemaSchema,
+    ListEventsRequestSchema,
+    ListEventsResultSchema,
     ListPromptsRequestSchema,
     ListPromptsResultSchema,
     ListResourcesRequestSchema,
@@ -91,6 +109,10 @@ import type {
     PaginatedRequestSchema,
     PaginatedResultSchema,
     PingRequestSchema,
+    PollEventsRequestParamsSchema,
+    PollEventsRequestSchema,
+    PollEventsResultEntrySchema,
+    PollEventsResultSchema,
     PrimitiveSchemaDefinitionSchema,
     ProgressNotificationParamsSchema,
     ProgressNotificationSchema,
@@ -131,7 +153,12 @@ import type {
     SetLevelRequestParamsSchema,
     SetLevelRequestSchema,
     SingleSelectEnumSchemaSchema,
+    StreamEventsRequestParamsSchema,
+    StreamEventsRequestSchema,
     StringSchemaSchema,
+    SubscribeEventRequestParamsSchema,
+    SubscribeEventRequestSchema,
+    SubscribeEventResultSchema,
     SubscribeRequestParamsSchema,
     SubscribeRequestSchema,
     TaskAugmentedRequestParamsSchema,
@@ -152,10 +179,14 @@ import type {
     ToolResultContentSchema,
     ToolSchema,
     ToolUseContentSchema,
+    UnsubscribeEventRequestParamsSchema,
+    UnsubscribeEventRequestSchema,
     UnsubscribeRequestParamsSchema,
     UnsubscribeRequestSchema,
     UntitledMultiSelectEnumSchemaSchema,
-    UntitledSingleSelectEnumSchemaSchema
+    UntitledSingleSelectEnumSchemaSchema,
+    WebhookDeliverySpecSchema,
+    WebhookDeliveryStatusSchema
 } from './schemas.js';
 
 /* JSON types */
@@ -362,6 +393,39 @@ export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
 export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
 export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
 
+/* Events */
+export type EventDeliveryMode = Infer<typeof EventDeliveryModeSchema>;
+export type EventPollHints = Infer<typeof EventPollHintsSchema>;
+export type EventDescriptor = Infer<typeof EventDescriptorSchema>;
+export type EventOccurrence = Infer<typeof EventOccurrenceSchema>;
+export type EventSubscriptionSpec = Infer<typeof EventSubscriptionSpecSchema>;
+export type EventSubscriptionError = Infer<typeof EventSubscriptionErrorSchema>;
+export type ListEventsRequest = Infer<typeof ListEventsRequestSchema>;
+export type ListEventsResult = Infer<typeof ListEventsResultSchema>;
+export type PollEventsRequestParams = Infer<typeof PollEventsRequestParamsSchema>;
+export type PollEventsRequest = Infer<typeof PollEventsRequestSchema>;
+export type PollEventsResultEntry = Infer<typeof PollEventsResultEntrySchema>;
+export type PollEventsResult = Infer<typeof PollEventsResultSchema>;
+export type StreamEventsRequestParams = Infer<typeof StreamEventsRequestParamsSchema>;
+export type StreamEventsRequest = Infer<typeof StreamEventsRequestSchema>;
+export type WebhookDeliverySpec = Infer<typeof WebhookDeliverySpecSchema>;
+export type SubscribeEventRequestParams = Infer<typeof SubscribeEventRequestParamsSchema>;
+export type SubscribeEventRequest = Infer<typeof SubscribeEventRequestSchema>;
+export type WebhookDeliveryStatus = Infer<typeof WebhookDeliveryStatusSchema>;
+export type SubscribeEventResult = Infer<typeof SubscribeEventResultSchema>;
+export type UnsubscribeEventRequestParams = Infer<typeof UnsubscribeEventRequestParamsSchema>;
+export type UnsubscribeEventRequest = Infer<typeof UnsubscribeEventRequestSchema>;
+export type EventListChangedNotification = Infer<typeof EventListChangedNotificationSchema>;
+export type EventNotificationParams = Infer<typeof EventNotificationParamsSchema>;
+export type EventNotification = Infer<typeof EventNotificationSchema>;
+export type EventActiveNotificationParams = Infer<typeof EventActiveNotificationParamsSchema>;
+export type EventActiveNotification = Infer<typeof EventActiveNotificationSchema>;
+export type EventErrorNotificationParams = Infer<typeof EventErrorNotificationParamsSchema>;
+export type EventErrorNotification = Infer<typeof EventErrorNotificationSchema>;
+export type EventTerminatedNotificationParams = Infer<typeof EventTerminatedNotificationParamsSchema>;
+export type EventTerminatedNotification = Infer<typeof EventTerminatedNotificationSchema>;
+export type EventHeartbeatNotification = Infer<typeof EventHeartbeatNotificationSchema>;
+
 /* Client messages */
 export type ClientRequest = Infer<typeof ClientRequestSchema>;
 export type ClientNotification = Infer<typeof ClientNotificationSchema>;
@@ -394,6 +458,11 @@ export type ResultTypeMap = {
     'resources/unsubscribe': EmptyResult;
     'tools/call': CallToolResult | CreateTaskResult;
     'tools/list': ListToolsResult;
+    'events/list': ListEventsResult;
+    'events/poll': PollEventsResult;
+    'events/stream': EmptyResult;
+    'events/subscribe': SubscribeEventResult;
+    'events/unsubscribe': EmptyResult;
     'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
     'elicitation/create': ElicitResult | CreateTaskResult;
     'roots/list': ListRootsResult;
@@ -511,6 +580,10 @@ export type ListChangedHandlers = {
      * Handler for resource list changes.
      */
     resources?: ListChangedOptions<Resource>;
+    /**
+     * Handler for event type list changes.
+     */
+    events?: ListChangedOptions<EventDescriptor>;
 };
 
 /**

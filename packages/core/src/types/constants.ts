@@ -13,3 +13,17 @@ export const INVALID_REQUEST = -32_600;
 export const METHOD_NOT_FOUND = -32_601;
 export const INVALID_PARAMS = -32_602;
 export const INTERNAL_ERROR = -32_603;
+
+/* Events-specific error code constants */
+/** MCP-specific error code: Unknown event name. */
+export const EVENT_NOT_FOUND = -32_011;
+/** MCP-specific error code: User lacks permission for this event/params combination. */
+export const EVENT_UNAUTHORIZED = -32_012;
+/** MCP-specific error code: Subscription limit reached. */
+export const TOO_MANY_SUBSCRIPTIONS = -32_013;
+/** MCP-specific error code: Provided cursor is no longer valid; client must resubscribe. */
+export const CURSOR_EXPIRED = -32_014;
+/** MCP-specific error code: Webhook callback URL was rejected by server policy. */
+export const INVALID_CALLBACK_URL = -32_015;
+/** MCP-specific error code: Subscription ID does not exist. */
+export const SUBSCRIPTION_NOT_FOUND = -32_016;

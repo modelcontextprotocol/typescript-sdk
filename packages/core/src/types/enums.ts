@@ -12,5 +12,13 @@ export enum ProtocolErrorCode {
 
     // MCP-specific error codes
     ResourceNotFound = -32_002,
-    UrlElicitationRequired = -32_042
+    UrlElicitationRequired = -32_042,
+
+    // Events-specific error codes
+    EventNotFound = -32_011,
+    EventUnauthorized = -32_012,
+    TooManySubscriptions = -32_013,
+    CursorExpired = -32_014,
+    InvalidCallbackUrl = -32_015,
+    SubscriptionNotFound = -32_016
 }

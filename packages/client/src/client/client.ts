@@ -15,6 +15,7 @@ import type {
     jsonSchemaValidator,
     ListChangedHandlers,
     ListChangedOptions,
+    ListEventsRequest,
     ListPromptsRequest,
     ListResourcesRequest,
     ListResourceTemplatesRequest,
@@ -22,6 +23,7 @@ import type {
     LoggingLevel,
     MessageExtraInfo,
     NotificationMethod,
+    PollEventsRequest,
     ProtocolOptions,
     ReadResourceRequest,
     RequestMethod,
@@ -29,10 +31,12 @@ import type {
     RequestTypeMap,
     ResultTypeMap,
     ServerCapabilities,
+    SubscribeEventRequest,
     SubscribeRequest,
     TaskManagerOptions,
     Tool,
     Transport,
+    UnsubscribeEventRequest,
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
@@ -52,18 +56,21 @@ import {
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
+    ListEventsResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
     parseSchema,
+    PollEventsResultSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SubscribeEventResultSchema
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -274,6 +281,13 @@ export class Client extends Protocol<ClientContext> {
             this._setupListChangedHandler('resources', 'notifications/resources/list_changed', config.resources, async () => {
                 const result = await this.listResources();
                 return result.resources;
+            });
+        }
+
+        if (config.events && this._serverCapabilities?.events?.listChanged) {
+            this._setupListChangedHandler('events', 'notifications/events/list_changed', config.events, async () => {
+                const result = await this.listEvents();
+                return result.events;
             });
         }
     }
@@ -618,6 +632,17 @@ export class Client extends Protocol<ClientContext> {
             case 'tools/list': {
                 if (!this._serverCapabilities?.tools) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
+                }
+                break;
+            }
+
+            case 'events/list':
+            case 'events/poll':
+            case 'events/stream':
+            case 'events/subscribe':
+            case 'events/unsubscribe': {
+                if (!this._serverCapabilities?.events) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support events (required for ${method})`);
                 }
                 break;
             }
@@ -999,6 +1024,49 @@ export class Client extends Protocol<ClientContext> {
         this.cacheToolMetadata(result.tools);
 
         return result;
+    }
+
+    /**
+     * Lists available event types. Results may be paginated — see {@linkcode listTools | listTools()} for the cursor pattern.
+     *
+     * Returns an empty list if the server does not advertise events capability
+     * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
+     */
+    async listEvents(params?: ListEventsRequest['params'], options?: RequestOptions) {
+        if (!this._serverCapabilities?.events && !this._enforceStrictCapabilities) {
+            console.debug('Client.listEvents() called but server does not advertise events capability - returning empty list');
+            return { events: [] };
+        }
+        return this._requestWithSchema({ method: 'events/list', params }, ListEventsResultSchema, options);
+    }
+
+    /**
+     * Polls for new events across one or more subscriptions. The server is fully
+     * stateless — each request is self-contained with event name, params, and cursor.
+     *
+     * For the high-level subscription API that manages cursors and polling automatically,
+     * use the `ClientEventManager` (`client.events.subscribe()`) instead.
+     */
+    async pollEvents(params: PollEventsRequest['params'], options?: RequestOptions) {
+        return this._requestWithSchema({ method: 'events/poll', params }, PollEventsResultSchema, options);
+    }
+
+    /**
+     * Registers a webhook subscription. Idempotent — calling again with the same
+     * `id` refreshes the TTL and updates the cursor.
+     *
+     * For the high-level subscription API that manages TTL refresh automatically,
+     * use the `ClientEventManager` (`client.events.subscribe()`) instead.
+     */
+    async subscribeEvent(params: SubscribeEventRequest['params'], options?: RequestOptions) {
+        return this._requestWithSchema({ method: 'events/subscribe', params }, SubscribeEventResultSchema, options);
+    }
+
+    /**
+     * Eagerly removes a webhook subscription without waiting for TTL expiry.
+     */
+    async unsubscribeEvent(params: UnsubscribeEventRequest['params'], options?: RequestOptions) {
+        return this._requestWithSchema({ method: 'events/unsubscribe', params }, EmptyResultSchema, options);
     }
 
     /**

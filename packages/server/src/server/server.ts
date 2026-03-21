@@ -344,6 +344,18 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
 
+            case 'notifications/event':
+            case 'notifications/events/active':
+            case 'notifications/events/error':
+            case 'notifications/events/terminated':
+            case 'notifications/events/heartbeat':
+            case 'notifications/events/list_changed': {
+                if (!this._capabilities.events) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support events (required for ${method})`);
+                }
+                break;
+            }
+
             case 'notifications/elicitation/complete': {
                 if (!this._clientCapabilities?.elicitation?.url) {
                     throw new SdkError(
@@ -403,6 +415,17 @@ export class Server extends Protocol<ServerContext> {
             case 'tools/list': {
                 if (!this._capabilities.tools) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
+                }
+                break;
+            }
+
+            case 'events/list':
+            case 'events/poll':
+            case 'events/stream':
+            case 'events/subscribe':
+            case 'events/unsubscribe': {
+                if (!this._capabilities.events) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support events (required for ${method})`);
                 }
                 break;
             }
@@ -673,5 +696,9 @@ export class Server extends Protocol<ServerContext> {
 
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
+    }
+
+    async sendEventListChanged() {
+        return this.notification({ method: 'notifications/events/list_changed' });
     }
 }

@@ -2,6 +2,7 @@ export * from './auth/errors.js';
 export * from './errors/sdkErrors.js';
 export * from './shared/auth.js';
 export * from './shared/authUtils.js';
+export * from './shared/eventWebhook.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';

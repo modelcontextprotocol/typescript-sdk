@@ -9,6 +9,18 @@
 export type { CompletableSchema, CompleteCallback } from './server/completable.js';
 export { completable, isCompletable } from './server/completable.js';
 export type {
+    EventCheckCallback,
+    EventCheckResult,
+    EventConfig,
+    EventMatchCallback,
+    EventPushOptions,
+    EventSubscriptionHooks,
+    EventWebhookOptions,
+    RegisteredEvent,
+    ServerEventManagerOptions
+} from './server/events.js';
+export { ServerEventManager } from './server/events.js';
+export type {
     AnyToolHandler,
     BaseToolCallback,
     CompleteResourceTemplateCallback,

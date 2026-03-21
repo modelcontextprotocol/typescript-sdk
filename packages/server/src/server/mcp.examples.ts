@@ -143,3 +143,27 @@ function McpServer_registerTool_logging(server: McpServer) {
     );
     //#endregion McpServer_registerTool_logging
 }
+
+/**
+ * Example: Registering an event type with a check callback.
+ */
+function McpServer_registerEvent_basic(server: McpServer, counter: { current: number }) {
+    //#region McpServer_registerEvent_basic
+    server.registerEvent(
+        'counter.tick',
+        {
+            description: 'Fires every time the in-memory counter is incremented',
+            pollHints: { intervalSeconds: { recommended: 5 } },
+            inputSchema: z.object({ minValue: z.number().default(0) })
+        },
+        async ({ minValue }, cursor) => {
+            const position = cursor === null ? counter.current : Number(cursor);
+            const events = [];
+            for (let i = position + 1; i <= counter.current; i++) {
+                if (i >= minValue) events.push({ name: 'counter.tick', data: { value: i } });
+            }
+            return { events, cursor: String(counter.current) };
+        }
+    );
+    //#endregion McpServer_registerEvent_basic
+}

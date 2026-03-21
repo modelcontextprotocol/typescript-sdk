@@ -42,8 +42,22 @@ import {
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
+import type { EventCheckCallback, EventConfig, RegisteredEvent, ServerEventManagerOptions } from './events.js';
+import { ServerEventManager } from './events.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
+
+/**
+ * Options for {@linkcode McpServer}, extending the low-level {@linkcode ServerOptions}
+ * with configuration for the high-level registration APIs.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Configuration for event delivery (push heartbeat interval, webhook TTL, etc.).
+     * Applies to event types registered via {@linkcode McpServer.registerEvent}.
+     */
+    events?: ServerEventManagerOptions;
+};
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -70,10 +84,14 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private _eventManager?: ServerEventManager;
+    private _eventManagerOptions?: ServerEventManagerOptions;
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this.server = new Server(serverInfo, options);
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
+        const { events, ...serverOptions } = options ?? {};
+        this.server = new Server(serverInfo, serverOptions);
+        this._eventManagerOptions = events;
     }
 
     /**
@@ -112,6 +130,7 @@ export class McpServer {
      * Closes the connection.
      */
     async close(): Promise<void> {
+        this._eventManager?.close();
         await this.server.close();
     }
 
@@ -948,6 +967,78 @@ export class McpServer {
         this.sendPromptListChanged();
 
         return registeredPrompt;
+    }
+
+    private _getOrCreateEventManager(): ServerEventManager {
+        if (!this._eventManager) {
+            this._eventManager = new ServerEventManager(this.server, this._eventManagerOptions);
+        }
+        return this._eventManager;
+    }
+
+    /**
+     * Registers an event type with a config object and a "check since cursor"
+     * callback. The same callback backs all three delivery modes (poll, push,
+     * webhook); the SDK handles delivery mechanics transparently.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_registerEvent_basic"
+     * server.registerEvent(
+     *     'counter.tick',
+     *     {
+     *         description: 'Fires every time the in-memory counter is incremented',
+     *         pollHints: { intervalSeconds: { recommended: 5 } },
+     *         inputSchema: z.object({ minValue: z.number().default(0) })
+     *     },
+     *     async ({ minValue }, cursor) => {
+     *         const position = cursor === null ? counter.current : Number(cursor);
+     *         const events = [];
+     *         for (let i = position + 1; i <= counter.current; i++) {
+     *             if (i >= minValue) events.push({ name: 'counter.tick', data: { value: i } });
+     *         }
+     *         return { events, cursor: String(counter.current) };
+     *     }
+     * );
+     * ```
+     */
+    registerEvent<InputArgs extends AnySchema | undefined = undefined>(
+        name: string,
+        config: EventConfig<InputArgs>,
+        check: InputArgs extends AnySchema ? EventCheckCallback<SchemaOutput<InputArgs>> : EventCheckCallback
+    ): RegisteredEvent {
+        return this._getOrCreateEventManager().register(name, config, check);
+    }
+
+    /**
+     * Emits an event directly to active subscriptions (push streams and webhooks).
+     * Bypasses the check callback — the caller asserts this occurrence matches.
+     *
+     * - Omit `subscriptionId` for **broadcast** delivery (filtered by the event's
+     *   `matches` callback if provided).
+     * - Pass `subscriptionId` for **targeted** delivery to a single subscription.
+     */
+    emitEvent(eventName: string, data: Record<string, unknown>, options: { subscriptionId?: string } = {}): void {
+        this._getOrCreateEventManager().emit(eventName, data, options);
+    }
+
+    /**
+     * Terminates a single active event subscription (push or webhook) by ID.
+     * The server stops delivering events to that subscription and notifies the
+     * client via `notifications/events/terminated` so it can clean up.
+     *
+     * Use this when the user's access to an upstream resource is revoked mid-stream.
+     */
+    terminateEventSubscription(subscriptionId: string, reason?: string): void {
+        this._eventManager?.terminate(subscriptionId, reason);
+    }
+
+    /**
+     * Sends an event list changed notification to the client, if connected.
+     */
+    sendEventListChanged(): void {
+        if (this.isConnected()) {
+            void this.server.sendEventListChanged();
+        }
     }
 
     /**
