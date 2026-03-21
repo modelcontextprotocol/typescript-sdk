@@ -1,18 +1,10 @@
 import { Client } from '@modelcontextprotocol/client';
 import type { CallToolResult, Notification, TextContent } from '@modelcontextprotocol/core';
 import {
-    CallToolResultSchema,
-    CompleteResultSchema,
     getDisplayName,
-    GetPromptResultSchema,
     InMemoryTaskStore,
     InMemoryTransport,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ListToolsResultSchema,
     ProtocolErrorCode,
-    ReadResourceResultSchema,
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
@@ -321,7 +313,6 @@ describe('Zod v4', () => {
                         }
                     }
                 },
-                CallToolResultSchema,
                 {
                     onprogress: progress => {
                         progressUpdates.push(progress);
@@ -433,12 +424,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -514,15 +502,12 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool and verify we get the updated response
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test'
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test'
+                }
+            });
 
             expect(result.content).toEqual([
                 {
@@ -591,12 +576,9 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the schema was updated
-            const listResult = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'tools/list'
+            });
 
             expect(listResult.tools[0]!.inputSchema).toMatchObject({
                 properties: {
@@ -606,19 +588,16 @@ describe('Zod v4', () => {
             });
 
             // Call the tool with the new schema
-            const callResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
+            const callResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 42
-                        }
+                        value: 42
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(callResult.content).toEqual([
                 {
@@ -684,12 +663,9 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the outputSchema was updated
-            const listResult = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'tools/list'
+            });
 
             expect(listResult.tools[0]!.outputSchema).toMatchObject({
                 type: 'object',
@@ -700,16 +676,13 @@ describe('Zod v4', () => {
             });
 
             // Call the tool to verify it works with the updated outputSchema
-            const callResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {}
-                    }
-                },
-                CallToolResultSchema
-            );
+            const callResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {}
+                }
+            });
 
             expect(callResult.structuredContent).toEqual({
                 result: 42,
@@ -899,12 +872,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -959,12 +929,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(2);
             expect(result.tools[0]!.name).toBe('test');
@@ -1005,12 +972,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1048,7 +1012,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1095,7 +1059,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1143,7 +1107,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1194,19 +1158,16 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.isError).toBe(true);
             expect(result.content).toEqual(
@@ -1317,12 +1278,9 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Verify the tool registration includes outputSchema
-            const listResult = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'tools/list'
+            });
 
             expect(listResult.tools).toHaveLength(1);
             expect(listResult.tools[0]!.outputSchema).toMatchObject({
@@ -1336,18 +1294,15 @@ describe('Zod v4', () => {
             });
 
             // Call the tool and verify it returns valid structuredContent
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {
-                            input: 'hello'
-                        }
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.structuredContent).toBeDefined();
             const structuredContent = result.structuredContent as {
@@ -1593,15 +1548,12 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test-tool'
-                    }
-                },
-                CallToolResultSchema
-            );
+            await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool'
+                }
+            });
 
             expect(receivedSessionId).toBe('test-session-123');
         });
@@ -1637,15 +1589,12 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'request-id-test'
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'request-id-test'
+                }
+            });
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
@@ -1700,15 +1649,12 @@ describe('Zod v4', () => {
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
-            await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test-tool'
-                    }
-                },
-                CallToolResultSchema
-            );
+            await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool'
+                }
+            });
             expect(receivedLogMessage).toBe(loggingMessage);
         });
 
@@ -1748,18 +1694,15 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {
-                            input: 'hello'
-                        }
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.content).toEqual([
                 {
@@ -1791,15 +1734,12 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'error-test'
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'error-test'
+                }
+            });
 
             expect(result.isError).toBe(true);
             expect(result.content).toEqual([
@@ -1837,25 +1777,59 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
+            await expect(
+                client.request({
                     method: 'tools/call',
                     params: {
                         name: 'nonexistent-tool'
                     }
-                },
-                CallToolResultSchema
-            );
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('nonexistent-tool')
+            });
+        });
 
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
+        /***
+         * Test: ProtocolError for Disabled Tool
+         */
+        test('should throw ProtocolError for disabled tool', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool('test-tool', {}, async () => ({
+                content: [
                     {
                         type: 'text',
-                        text: expect.stringContaining('Tool nonexistent-tool not found')
+                        text: 'Test response'
                     }
-                ])
-            );
+                ]
+            }));
+
+            tool.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-tool'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -2045,7 +2019,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-with-meta');
@@ -2081,7 +2055,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-without-meta');
@@ -2146,7 +2120,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('task-tool');
@@ -2215,7 +2189,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('optional-task-tool');
@@ -2304,12 +2278,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.name).toBe('test');
@@ -2360,15 +2331,12 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Read the resource and verify we get the updated content
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource'
+                }
+            });
 
             expect(result.contents).toHaveLength(1);
             expect(result.contents).toEqual(
@@ -2433,15 +2401,12 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Read the resource and verify we get the updated content
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource/123'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource/123'
+                }
+            });
 
             expect(result.contents).toHaveLength(1);
             expect(result.contents).toEqual(
@@ -2539,7 +2504,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both resources are registered
-            let result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+            let result = await client.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(2);
 
@@ -2555,7 +2520,7 @@ describe('Zod v4', () => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the resource was removed
-            result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+            result = await client.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.uri).toBe('test://resource2');
@@ -2598,7 +2563,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify template is registered
-            const result = await client.request({ method: 'resources/templates/list' }, ListResourceTemplatesResultSchema);
+            const result = await client.request({ method: 'resources/templates/list' });
 
             expect(result.resourceTemplates).toHaveLength(1);
             expect(notifications).toHaveLength(0);
@@ -2613,7 +2578,7 @@ describe('Zod v4', () => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the template was removed
-            const result2 = await client.request({ method: 'resources/templates/list' }, ListResourceTemplatesResultSchema);
+            const result2 = await client.request({ method: 'resources/templates/list' });
 
             expect(result2.resourceTemplates).toHaveLength(0);
         });
@@ -2658,12 +2623,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.description).toBe('Test resource');
@@ -2701,12 +2663,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/templates/list'
-                },
-                ListResourceTemplatesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/templates/list'
+            });
 
             expect(result.resourceTemplates).toHaveLength(1);
             expect(result.resourceTemplates[0]!.name).toBe('test');
@@ -2757,12 +2716,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(2);
             expect(result.resources[0]!.name).toBe('Resource 1');
@@ -2804,15 +2760,12 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource/books/123'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource/books/123'
+                }
+            });
 
             expect(result.contents).toEqual(
                 expect.arrayContaining([
@@ -2936,15 +2889,12 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
-                    {
-                        method: 'resources/read',
-                        params: {
-                            uri: 'test://error'
-                        }
-                    },
-                    ReadResourceResultSchema
-                )
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://error'
+                    }
+                })
             ).rejects.toThrow(/Resource read failed/);
         });
 
@@ -2975,16 +2925,57 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://nonexistent'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.ResourceNotFound,
+                message: expect.stringContaining('not found')
+            });
+        });
+
+        /***
+         * Test: ProtocolError for Disabled Resource
+         */
+        test('should throw ProtocolError for disabled resource', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resource = mcpServer.registerResource('test', 'test://resource', {}, async () => ({
+                contents: [
                     {
-                        method: 'resources/read',
-                        params: {
-                            uri: 'test://nonexistent'
-                        }
-                    },
-                    ReadResourceResultSchema
-                )
-            ).rejects.toThrow(/Resource test:\/\/nonexistent not found/);
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            resource.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://resource'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -3099,22 +3090,19 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'test://resource/{category}'
-                        },
-                        argument: {
-                            name: 'category',
-                            value: ''
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'test://resource/{category}'
+                    },
+                    argument: {
+                        name: 'category',
+                        value: ''
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['books', 'movies', 'music']);
             expect(result.completion.total).toBe(3);
@@ -3157,22 +3145,19 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'test://resource/{category}'
-                        },
-                        argument: {
-                            name: 'category',
-                            value: 'm'
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'test://resource/{category}'
+                    },
+                    argument: {
+                        name: 'category',
+                        value: 'm'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['movies', 'music']);
             expect(result.completion.total).toBe(2);
@@ -3209,15 +3194,12 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource'
+                }
+            });
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
@@ -3262,12 +3244,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
@@ -3323,15 +3302,12 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the prompt and verify we get the updated response
-            const result = await client.request(
-                {
-                    method: 'prompts/get',
-                    params: {
-                        name: 'test'
-                    }
-                },
-                GetPromptResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'test'
+                }
+            });
 
             expect(result.messages).toHaveLength(1);
             expect(result.messages).toEqual(
@@ -3412,30 +3388,24 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the schema was updated
-            const listResult = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(listResult.prompts[0]!.arguments).toHaveLength(2);
             expect(listResult.prompts[0]!.arguments!.map(a => a.name).toSorted()).toEqual(['name', 'value']);
 
             // Call the prompt with the new schema
-            const getResult = await client.request(
-                {
-                    method: 'prompts/get',
-                    params: {
+            const getResult = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 'value'
-                        }
+                        value: 'value'
                     }
-                },
-                GetPromptResultSchema
-            );
+                }
+            });
 
             expect(getResult.messages).toHaveLength(1);
             expect(getResult.messages).toEqual(
@@ -3558,7 +3528,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both prompts are registered
-            let result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
+            let result = await client.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(2);
             expect(result.prompts.map(p => p.name).toSorted()).toEqual(['prompt1', 'prompt2']);
@@ -3575,7 +3545,7 @@ describe('Zod v4', () => {
             expect(notifications).toMatchObject([{ method: 'notifications/prompts/list_changed' }]);
 
             // Verify the prompt was removed
-            result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
+            result = await client.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('prompt2');
@@ -3619,12 +3589,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
@@ -3663,12 +3630,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
@@ -3715,19 +3679,16 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
-                    {
-                        method: 'prompts/get',
-                        params: {
+                client.request({
+                    method: 'prompts/get',
+                    params: {
+                        name: 'test',
+                        arguments: {
                             name: 'test',
-                            arguments: {
-                                name: 'test',
-                                value: 'ab' // Too short
-                            }
+                            value: 'ab' // Too short
                         }
-                    },
-                    GetPromptResultSchema
-                )
+                    }
+                })
             ).rejects.toThrow(/Invalid arguments/);
         });
 
@@ -3904,16 +3865,16 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
-                    {
-                        method: 'prompts/get',
-                        params: {
-                            name: 'nonexistent-prompt'
-                        }
-                    },
-                    GetPromptResultSchema
-                )
-            ).rejects.toThrow(/Prompt nonexistent-prompt not found/);
+                client.request({
+                    method: 'prompts/get',
+                    params: {
+                        name: 'nonexistent-prompt'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('not found')
+            });
         });
 
         /***
@@ -4036,22 +3997,19 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: ''
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: ''
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['Alice', 'Bob', 'Charlie']);
             expect(result.completion.total).toBe(3);
@@ -4095,22 +4053,19 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'A'
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'A'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['Alice']);
             expect(result.completion.total).toBe(1);
@@ -4150,15 +4105,12 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/get',
-                    params: {
-                        name: 'request-id-test'
-                    }
-                },
-                GetPromptResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'request-id-test'
+                }
+            });
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
@@ -4225,12 +4177,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(2);
 
@@ -4292,12 +4241,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
 
@@ -4334,12 +4280,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test-prompt');
@@ -4413,7 +4356,7 @@ describe('Zod v4', () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 
@@ -4535,74 +4478,65 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with microsoft owner
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'p'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org1'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'p'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org1'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['project1', 'project2', 'project3']);
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'r'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org2'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'r'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org2'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['repo1', 'repo2', 'repo3']);
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 't'
-                        }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 't'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual([]);
             expect(result3.completion.total).toBe(0);
@@ -4664,97 +4598,85 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with engineering department
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'A'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'engineering'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'A'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'engineering'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['Alice']);
 
             // Test with sales department
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'D'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'sales'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'D'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'sales'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['David']);
 
             // Test with marketing department
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'marketing'
-                            }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'marketing'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual(['Grace']);
 
             // Test with no resolved context
-            const result4 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        }
+            const result4 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result4.completion.values).toEqual(['Guest']);
         });
@@ -5417,12 +5339,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.name).toBe('test');
@@ -5475,15 +5394,12 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource'
+                }
+            });
 
             expect(result.contents).toEqual([
                 {
@@ -5560,12 +5476,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(2);
 
@@ -5627,12 +5540,9 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
 
@@ -5703,7 +5613,7 @@ describe('Zod v4', () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 
@@ -5825,74 +5735,65 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with microsoft owner
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'p'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org1'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'p'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org1'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['project1', 'project2', 'project3']);
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'r'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org2'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'r'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org2'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['repo1', 'repo2', 'repo3']);
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 't'
-                        }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 't'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual([]);
             expect(result3.completion.total).toBe(0);
@@ -5954,97 +5855,85 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with engineering department
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'A'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'engineering'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'A'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'engineering'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['Alice']);
 
             // Test with sales department
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'D'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'sales'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'D'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'sales'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['David']);
 
             // Test with marketing department
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'marketing'
-                            }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'marketing'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual(['Grace']);
 
             // Test with no resolved context
-            const result4 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        }
+            const result4 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result4.completion.values).toEqual(['Guest']);
         });
@@ -6593,13 +6482,10 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation - should return error
-            const result = await client.callTool(
-                {
-                    name: 'long-running-task',
-                    arguments: { input: 'test data' }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'long-running-task',
+                arguments: { input: 'test data' }
+            });
 
             // Should receive error result
             expect(result.isError).toBe(true);
@@ -6699,13 +6585,10 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation
-            const result = await client.callTool(
-                {
-                    name: 'optional-task',
-                    arguments: { value: 21 }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'optional-task',
+                arguments: { value: 21 }
+            });
 
             // Should receive CallToolResult directly, not CreateTaskResult
             expect(result).toHaveProperty('content');
@@ -6925,13 +6808,10 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation
-            const result = await client.callTool(
-                {
-                    name: 'failing-task',
-                    arguments: {}
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'failing-task',
+                arguments: {}
+            });
 
             // Should receive the error result
             expect(result).toHaveProperty('content');
@@ -7028,13 +6908,10 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation
-            const result = await client.callTool(
-                {
-                    name: 'cancelled-task',
-                    arguments: {}
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'cancelled-task',
+                arguments: {}
+            });
 
             // Should receive an error since cancelled tasks don't have results
             expect(result).toHaveProperty('content');

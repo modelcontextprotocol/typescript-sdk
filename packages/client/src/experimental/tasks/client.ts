@@ -8,15 +8,18 @@
 import type {
     AnyObjectSchema,
     CallToolRequest,
+    CallToolResult,
     CancelTaskResult,
+    CreateTaskResult,
     GetTaskResult,
     ListTasksResult,
-    Request,
+    RequestMethod,
     RequestOptions,
     ResponseMessage,
+    ResultTypeMap,
     SchemaOutput
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
+import { ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -25,11 +28,10 @@ import type { Client } from '../../client/client.js';
  * @internal
  */
 interface ClientInternal {
-    requestStream<T extends AnyObjectSchema>(
-        request: Request,
-        resultSchema: T,
+    requestStream<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void>;
+    ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void>;
     isToolTask(toolName: string): boolean;
     getToolOutputValidator(toolName: string): ((data: unknown) => { valid: boolean; errorMessage?: string }) | undefined;
 }
@@ -90,7 +92,7 @@ export class ExperimentalClientTasks {
     async *callToolStream(
         params: CallToolRequest['params'],
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<typeof CallToolResultSchema>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<CallToolResult | CreateTaskResult>, void, void> {
         // Access Client's internal methods
         const clientInternal = this._client as unknown as ClientInternal;
 
@@ -102,7 +104,7 @@ export class ExperimentalClientTasks {
             task: options?.task ?? (clientInternal.isToolTask(params.name) ? {} : undefined)
         };
 
-        const stream = clientInternal.requestStream({ method: 'tools/call', params }, CallToolResultSchema, optionsWithTask);
+        const stream = clientInternal.requestStream({ method: 'tools/call', params }, optionsWithTask);
 
         // Get the validator for this tool (if it has an output schema)
         const validator = clientInternal.getToolOutputValidator(params.name);
@@ -110,8 +112,9 @@ export class ExperimentalClientTasks {
         // Iterate through the stream and validate the final result if needed
         for await (const message of stream) {
             // If this is a result message and the tool has an output schema, validate it
-            if (message.type === 'result' && validator) {
-                const result = message.result;
+            // Only validate CallToolResult (has 'content'), not CreateTaskResult (has 'task')
+            if (message.type === 'result' && validator && 'content' in message.result) {
+                const result = message.result as CallToolResult;
 
                 // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
                 if (!result.structuredContent && !result.isError) {
@@ -245,7 +248,7 @@ export class ExperimentalClientTasks {
      *
      * @example
      * ```ts source="./client.examples.ts#ExperimentalClientTasks_requestStream"
-     * const stream = client.experimental.tasks.requestStream(request, CallToolResultSchema, options);
+     * const stream = client.experimental.tasks.requestStream({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } }, options);
      * for await (const message of stream) {
      *     switch (message.type) {
      *         case 'taskCreated': {
@@ -269,25 +272,16 @@ export class ExperimentalClientTasks {
      * ```
      *
      * @param request - The request to send
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
      * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
-    requestStream<T extends AnyObjectSchema>(
-        request: Request,
-        resultSchema: T,
+    requestStream<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
         // Delegate to the client's underlying Protocol method
-        type ClientWithRequestStream = {
-            requestStream<U extends AnyObjectSchema>(
-                request: Request,
-                resultSchema: U,
-                options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;
-        };
-        return (this._client as unknown as ClientWithRequestStream).requestStream(request, resultSchema, options);
+        return (this._client as unknown as ClientInternal).requestStream(request, options);
     }
 }

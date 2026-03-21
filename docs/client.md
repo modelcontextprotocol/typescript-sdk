@@ -16,10 +16,11 @@ The examples below use these imports. Adjust based on which features and transpo
 import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
-    CallToolResultSchema,
     Client,
     ClientCredentialsProvider,
     createMiddleware,
+    CrossAppAccessProvider,
+    discoverAndRequestJwtAuthGrant,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
@@ -153,6 +154,51 @@ For user-facing applications, implement the {@linkcode @modelcontextprotocol/cli
 
 For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClient.ts) and [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClientProvider.ts).
 
+### Cross-App Access (Enterprise Managed Authorization)
+
+{@linkcode @modelcontextprotocol/client!client/authExtensions.CrossAppAccessProvider | CrossAppAccessProvider} implements Enterprise Managed Authorization (SEP-990) for scenarios where users authenticate with an enterprise identity provider (IdP) and clients need to access protected MCP servers on their behalf.
+
+This provider handles a two-step OAuth flow:
+1. Exchange the user's ID Token from the enterprise IdP for a JWT Authorization Grant (JAG) via RFC 8693 token exchange
+2. Exchange the JAG for an access token from the MCP server via RFC 7523 JWT bearer grant
+
+```ts source="../examples/client/src/clientGuide.examples.ts#auth_crossAppAccess"
+const authProvider = new CrossAppAccessProvider({
+    assertion: async ctx => {
+        // ctx provides: authorizationServerUrl, resourceUrl, scope, fetchFn
+        const result = await discoverAndRequestJwtAuthGrant({
+            idpUrl: 'https://idp.example.com',
+            audience: ctx.authorizationServerUrl,
+            resource: ctx.resourceUrl,
+            idToken: await getIdToken(),
+            clientId: 'my-idp-client',
+            clientSecret: 'my-idp-secret',
+            scope: ctx.scope,
+            fetchFn: ctx.fetchFn
+        });
+        return result.jwtAuthGrant;
+    },
+    clientId: 'my-mcp-client',
+    clientSecret: 'my-mcp-secret'
+});
+
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
+```
+
+The `assertion` callback receives a context object with:
+- `authorizationServerUrl` – The MCP server's authorization server (discovered automatically)
+- `resourceUrl` – The MCP resource URL (discovered automatically)
+- `scope` – Optional scope passed to `auth()` or from `clientMetadata`
+- `fetchFn` – Fetch implementation to use for HTTP requests
+
+For manual control over the token exchange steps, use the Layer 2 utilities from `@modelcontextprotocol/client`:
+- `requestJwtAuthorizationGrant()` – Exchange ID Token for JAG at IdP
+- `discoverAndRequestJwtAuthGrant()` – Discovery + JAG acquisition
+- `exchangeJwtAuthGrant()` – Exchange JAG for access token at MCP server
+
+> [!NOTE]
+> See [RFC 8693 (Token Exchange)](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7523 (JWT Bearer Grant)](https://datatracker.ietf.org/doc/html/rfc7523), and [RFC 9728 (Resource Discovery)](https://datatracker.ietf.org/doc/html/rfc9728) for the underlying OAuth standards.
+
 ## Tools
 
 Tools are callable actions offered by servers — discovering and invoking them is usually how your client enables an LLM to take action (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
@@ -198,13 +244,16 @@ if (result.structuredContent) {
 Pass `onprogress` to receive incremental progress notifications from long-running tools. Use `resetTimeoutOnProgress` to keep the request alive while the server is actively reporting, and `maxTotalTimeout` as an absolute cap:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#callTool_progress"
-const result = await client.callTool({ name: 'long-operation', arguments: {} }, undefined, {
-    onprogress: ({ progress, total }) => {
-        console.log(`Progress: ${progress}/${total ?? '?'}`);
-    },
-    resetTimeoutOnProgress: true,
-    maxTotalTimeout: 600_000
-});
+const result = await client.callTool(
+    { name: 'long-operation', arguments: {} },
+    {
+        onprogress: ({ progress, total }: { progress: number; total?: number }) => {
+            console.log(`Progress: ${progress}/${total ?? '?'}`);
+        },
+        resetTimeoutOnProgress: true,
+        maxTotalTimeout: 600_000
+    }
+);
 console.log(result.content);
 ```
 
@@ -484,7 +533,6 @@ All requests have a 60-second default timeout. Pass a custom `timeout` in the op
 try {
     const result = await client.callTool(
         { name: 'slow-task', arguments: {} },
-        undefined,
         { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
     );
     console.log(result.content);
@@ -523,7 +571,6 @@ const result = await client.request(
         method: 'tools/call',
         params: { name: 'long-running-task', arguments: {} }
     },
-    CallToolResultSchema,
     {
         resumptionToken: lastToken,
         onresumptiontoken: (token: string) => {
