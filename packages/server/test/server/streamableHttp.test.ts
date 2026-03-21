@@ -993,4 +993,93 @@ describe('Zod v4', () => {
             expect(cleanupCalls).toEqual(['stream-1']);
         });
     });
+
+    describe('HTTPServerTransport - keepAliveInterval', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(async () => {
+            vi.useRealTimers();
+            await transport.close();
+        });
+
+        async function setupTransport(keepAliveInterval?: number): Promise<string> {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                keepAliveInterval
+            });
+
+            await mcpServer.connect(transport);
+
+            const initReq = createRequest('POST', TEST_MESSAGES.initialize);
+            const initRes = await transport.handleRequest(initReq);
+            return initRes.headers.get('mcp-session-id') as string;
+        }
+
+        it('should send SSE keepalive comments periodically when keepAliveInterval is set', async () => {
+            const sessionId = await setupTransport(50);
+
+            const getReq = createRequest('GET', undefined, { sessionId });
+            const getRes = await transport.handleRequest(getReq);
+
+            expect(getRes.status).toBe(200);
+            expect(getRes.body).not.toBeNull();
+
+            const reader = getRes.body!.getReader();
+
+            // Advance past two intervals to accumulate keepalive comments
+            vi.advanceTimersByTime(120);
+
+            const { value } = await reader.read();
+            const text = new TextDecoder().decode(value);
+            expect(text).toContain(': keepalive');
+        });
+
+        it('should not send SSE comments when keepAliveInterval is not set', async () => {
+            const sessionId = await setupTransport(undefined);
+
+            const getReq = createRequest('GET', undefined, { sessionId });
+            const getRes = await transport.handleRequest(getReq);
+
+            expect(getRes.status).toBe(200);
+            expect(getRes.body).not.toBeNull();
+
+            const reader = getRes.body!.getReader();
+
+            // Advance time; no keepalive should be enqueued
+            vi.advanceTimersByTime(200);
+
+            // Close the transport to end the stream, then read whatever was buffered
+            await transport.close();
+
+            const chunks: string[] = [];
+            for (let result = await reader.read(); !result.done; result = await reader.read()) {
+                chunks.push(new TextDecoder().decode(result.value));
+            }
+
+            const allText = chunks.join('');
+            expect(allText).not.toContain(': keepalive');
+        });
+
+        it('should clear the keepalive interval when the transport is closed', async () => {
+            const sessionId = await setupTransport(50);
+
+            const getReq = createRequest('GET', undefined, { sessionId });
+            const getRes = await transport.handleRequest(getReq);
+
+            expect(getRes.status).toBe(200);
+
+            // Close the transport, which should clear the interval
+            await transport.close();
+
+            // Advancing timers after close should not throw
+            vi.advanceTimersByTime(200);
+        });
+    });
 });
