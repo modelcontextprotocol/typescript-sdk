@@ -2,6 +2,7 @@ import {
     InitializedNotificationSchema,
     InitializeRequestSchema,
     JSONRPCErrorResponseSchema,
+    JSONRPCMessageSchema,
     JSONRPCNotificationSchema,
     JSONRPCRequestSchema,
     JSONRPCResultResponseSchema,
@@ -14,11 +15,26 @@ import type {
     InitializedNotification,
     InitializeRequest,
     JSONRPCErrorResponse,
+    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResultResponse,
     TaskAugmentedRequestParams
 } from './types.js';
+
+/**
+ * Validates and parses an unknown value as a JSON-RPC message.
+ *
+ * Use this to validate incoming messages in custom transport implementations.
+ * Throws if the value does not conform to the JSON-RPC message schema.
+ *
+ * @param value - The value to validate (typically a parsed JSON object).
+ * @returns The validated {@linkcode JSONRPCMessage}.
+ * @throws If validation fails.
+ */
+export function parseJSONRPCMessage(value: unknown): JSONRPCMessage {
+    return JSONRPCMessageSchema.parse(value);
+}
 
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest => JSONRPCRequestSchema.safeParse(value).success;
 

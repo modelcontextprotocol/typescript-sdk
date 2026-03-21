@@ -97,7 +97,7 @@ export { ProtocolErrorCode } from '../../types/enums.js';
 // Error classes
 export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.js';
 
-// Type guards
+// Type guards and message parsing
 export {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
@@ -107,7 +107,8 @@ export {
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    isTaskAugmentedRequestParams
+    isTaskAugmentedRequestParams,
+    parseJSONRPCMessage
 } from '../../types/guards.js';
 
 // Experimental task types and classes

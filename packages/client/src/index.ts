@@ -36,13 +36,17 @@ export {
     UnauthorizedError
 } from './client/auth.js';
 export type {
+    AssertionCallback,
     ClientCredentialsProviderOptions,
+    CrossAppAccessContext,
+    CrossAppAccessProviderOptions,
     PrivateKeyJwtProviderOptions,
     StaticPrivateKeyJwtProviderOptions
 } from './client/authExtensions.js';
 export {
     ClientCredentialsProvider,
     createPrivateKeyJwtAuth,
+    CrossAppAccessProvider,
     PrivateKeyJwtProvider,
     StaticPrivateKeyJwtProvider
 } from './client/authExtensions.js';
