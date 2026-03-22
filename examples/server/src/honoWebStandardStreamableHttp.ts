@@ -41,11 +41,12 @@ const transport = new WebStandardStreamableHTTPServerTransport();
 // Create the Hono app
 const app = new Hono();
 
-// Enable CORS for all origins
+// Enable CORS for browser-based clients (demo only)
+// WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
 app.use(
     '*',
     cors({
-        origin: '*',
+        origin: '*', // WARNING: This allows all origins to access the MCP server. In production, you should restrict this to specific origins.
         allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'mcp-session-id', 'Last-Event-ID', 'mcp-protocol-version'],
         exposeHeaders: ['mcp-session-id', 'mcp-protocol-version']

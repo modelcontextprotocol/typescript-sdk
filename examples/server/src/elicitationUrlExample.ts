@@ -220,11 +220,13 @@ const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AU
 
 const app = createMcpExpressApp();
 
-// Allow CORS all domains, expose the Mcp-Session-Id header
+// Enable CORS for browser-based clients (demo only)
+// WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
+// NOTE: credentials: true with origin: '*' is rejected by browsers. In production, set a specific origin.
 app.use(
     cors({
-        origin: '*', // Allow all origins
         exposedHeaders: ['Mcp-Session-Id'],
+        origin: '*', // WARNING: This allows all origins to access the MCP server. In production, you should restrict this to specific origins.
         credentials: true // Allow cookies to be sent cross-origin
     })
 );

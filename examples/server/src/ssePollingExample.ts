@@ -88,7 +88,15 @@ const getServer = () => {
 
 // Set up Express app
 const app = createMcpExpressApp();
-app.use(cors());
+
+// Enable CORS for browser-based clients (demo only)
+// WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
+app.use(
+    cors({
+        exposedHeaders: ['Mcp-Session-Id', 'Last-Event-Id', 'Mcp-Protocol-Version'],
+        origin: '*' // WARNING: This allows all origins to access the MCP server. In production, you should restrict this to specific origins.
+    })
+);
 
 // Create event store for resumability
 const eventStore = new InMemoryEventStore();
