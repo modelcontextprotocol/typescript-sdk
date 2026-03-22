@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { Authenticator, AuthInfo } from '@modelcontextprotocol/server';
 
 /**
@@ -23,13 +23,11 @@ export interface AuthMiddlewareOptions {
  *
  * @example
  * ```ts
- * const authenticator = new BearerTokenAuthenticator({
- *   validate: async (token) => ({ name: 'user', scopes: ['read'] })
- * });
+ * const authenticator = new BearerTokenAuthenticator((token) => Promise.resolve({ token, clientId: 'user', scopes: ['read'] }));
  * app.use(auth({ authenticator }));
  * ```
  */
-export function auth(options: AuthMiddlewareOptions) {
+export function auth(options: AuthMiddlewareOptions): RequestHandler {
     return async (req: Request & { auth?: AuthInfo }, res: Response, next: NextFunction) => {
         try {
             const headers: Record<string, string> = {};
@@ -53,6 +51,7 @@ export function auth(options: AuthMiddlewareOptions) {
             // If authentication fails, we let the MCP server handle it later,
             // or the developer can choose to reject here.
             // By default, we just proceed to allow the MCP server to decide (e.g., if auth is optional).
+            console.error('[MCP Express Auth Middleware] Authentication failed:', error);
             next();
         }
     };

@@ -180,7 +180,7 @@ export class Server extends Protocol<ServerContext> {
             });
 
             if (!authInfo) {
-                throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Unauthorized');
+                throw new ProtocolError(ProtocolErrorCode.Unauthorized, 'Unauthorized');
             }
 
             // Inject authInfo into extra for buildContext

@@ -824,19 +824,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }));
                 } catch (error) {
                     if (error instanceof ProtocolError) {
-                        const message = error.message;
-                        if (message.includes('Unauthorized')) {
+                        if (error.code === ProtocolErrorCode.Unauthorized) {
                             const response = this.createJsonErrorResponse(401, error.code, 'Unauthorized', { headers: { 'WWW-Authenticate': 'Bearer' } });
                             this._streamMapping.delete(streamId);
                             return response;
                         }
-                        if (message.includes('Forbidden')) {
-                            const response = this.createJsonErrorResponse(403, error.code, message);
+                        if (error.code === ProtocolErrorCode.Forbidden) {
+                            const response = this.createJsonErrorResponse(403, error.code, error.message);
                             this._streamMapping.delete(streamId);
                             return response;
                         }
+                        if (error.code === ProtocolErrorCode.UrlElicitationRequired) {
+                            throw error;
+                        }
                     }
                     console.error('Transport caught error in onmessage:', error);
+                    // Standard tools should return a CallToolResult with isError: true.
+                    // For onmessage we only rethrow auth-related errors and UrlElicitationRequired.
                     throw error;
                 }
             }
@@ -846,13 +850,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return new Response(readable, { status: 200, headers });
         } catch (error) {
             if (error instanceof ProtocolError) {
-                const message = error.message;
-                if (message.includes('Unauthorized')) {
+                if (error.code === ProtocolErrorCode.Unauthorized) {
                     return this.createJsonErrorResponse(401, error.code, 'Unauthorized', { headers: { 'WWW-Authenticate': 'Bearer' } });
                 }
-                if (message.includes('Forbidden')) {
-                    console.log('[Transport] Mapping Forbidden to 403');
-                    return this.createJsonErrorResponse(403, error.code, message);
+                if (error.code === ProtocolErrorCode.Forbidden) {
+                    return this.createJsonErrorResponse(403, error.code, error.message);
                 }
             }
             // return JSON-RPC formatted error

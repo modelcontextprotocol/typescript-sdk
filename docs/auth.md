@@ -24,17 +24,16 @@ const server = new McpServer({
   name: "my-authenticated-server",
   version: "1.0.0",
 }, {
-  authenticator: new BearerTokenAuthenticator({
-    validate: async (token) => {
-      // Validate the token (e.g., verify with an OAuth provider)
-      if (token === "valid-token") {
-        return {
-          name: "john_doe",
-          scopes: ["read:resources", "execute:tools"]
-        };
-      }
-      return undefined; // Invalid token
+  authenticator: new BearerTokenAuthenticator(async (token) => {
+    // Validate the token (e.g., verify with an OAuth provider)
+    if (token === "valid-token") {
+      return {
+        token,
+        clientId: "john_doe",
+        scopes: ["read:resources", "execute:tools"]
+      };
     }
+    return undefined; // Invalid token
   })
 });
 ```

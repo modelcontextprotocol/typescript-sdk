@@ -453,11 +453,9 @@ Quick example:
 
 ```ts
 const server = new McpServer({ name: 'my-server', version: '1.0.0' }, {
-    authenticator: new BearerTokenAuthenticator({
-        validate: async (token) => {
-            if (token === 'secret') return { name: 'admin', scopes: ['all'] };
-            return undefined;
-        }
+    authenticator: new BearerTokenAuthenticator(async (token) => {
+        if (token === 'secret') return { token, clientId: 'admin', scopes: ['all'] };
+        return undefined;
     })
 });
 

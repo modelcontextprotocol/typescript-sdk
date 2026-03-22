@@ -211,7 +211,7 @@ export class McpServer {
                 // Authorization check
                 if (tool.scopes && tool.scopes.length > 0) {
                     if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, tool.scopes)) {
-                        throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                        throw new ProtocolError(ProtocolErrorCode.Forbidden, 'Forbidden');
                     }
                 }
 
@@ -229,10 +229,13 @@ export class McpServer {
                 return result;
             } catch (error) {
                 if (error instanceof ProtocolError) {
-                    if (error.message.includes('Forbidden') || error.message.includes('Unauthorized')) {
+                    if (
+                        error.code === ProtocolErrorCode.Forbidden ||
+                        error.code === ProtocolErrorCode.Unauthorized ||
+                        error.code === ProtocolErrorCode.UrlElicitationRequired
+                    ) {
                         throw error;
                     }
-                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
