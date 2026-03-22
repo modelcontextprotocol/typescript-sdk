@@ -520,7 +520,7 @@ export class McpServer {
                 // Authorization check
                 if (resource.scopes && resource.scopes.length > 0) {
                     if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, resource.scopes)) {
-                        throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                        throw new ProtocolError(ProtocolErrorCode.Forbidden, 'Forbidden');
                     }
                 }
 
@@ -534,7 +534,7 @@ export class McpServer {
                     // Authorization check
                     if (template.scopes && template.scopes.length > 0) {
                         if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, template.scopes)) {
-                            throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                            throw new ProtocolError(ProtocolErrorCode.Forbidden, 'Forbidden');
                         }
                     }
 
@@ -593,7 +593,7 @@ export class McpServer {
             // Authorization check
             if (prompt.scopes && prompt.scopes.length > 0) {
                 if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, prompt.scopes)) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                    throw new ProtocolError(ProtocolErrorCode.Forbidden, 'Forbidden');
                 }
             }
 

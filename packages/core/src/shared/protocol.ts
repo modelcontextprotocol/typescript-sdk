@@ -718,7 +718,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
                 }
             } catch (error) {
-                if (error instanceof ProtocolError && (error.message.includes('Unauthorized') || error.message.includes('Forbidden'))) {
+                if (error instanceof ProtocolError && (error.code === ProtocolErrorCode.Unauthorized || error.code === ProtocolErrorCode.Forbidden)) {
                     throw error;
                 }
                 this._onerror(error instanceof Error ? error : new Error(String(error)));
