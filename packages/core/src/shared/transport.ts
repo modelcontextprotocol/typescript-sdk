@@ -114,7 +114,7 @@ export interface Transport {
      *
      * The {@linkcode MessageExtraInfo.requestInfo | requestInfo} can be used to get the original request information (headers, etc.)
      */
-    onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
+    onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void | Promise<void>;
 
     /**
      * The session ID generated for this connection.

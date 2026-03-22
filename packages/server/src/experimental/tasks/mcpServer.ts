@@ -22,6 +22,7 @@ interface McpServerInternal {
         inputSchema: AnySchema | undefined,
         outputSchema: AnySchema | undefined,
         annotations: ToolAnnotations | undefined,
+        scopes: string[] | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<AnySchema | undefined>
@@ -83,6 +84,7 @@ export class ExperimentalMcpServerTasks {
             description?: string;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            scopes?: string[];
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
         },
@@ -97,6 +99,7 @@ export class ExperimentalMcpServerTasks {
             inputSchema: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            scopes?: string[];
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
         },
@@ -111,6 +114,7 @@ export class ExperimentalMcpServerTasks {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            scopes?: string[];
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
         },
@@ -131,6 +135,7 @@ export class ExperimentalMcpServerTasks {
             config.inputSchema,
             config.outputSchema,
             config.annotations,
+            config.scopes,
             execution,
             config._meta,
             handler as AnyToolHandler<AnySchema | undefined>

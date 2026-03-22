@@ -15,6 +15,8 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    ProtocolError,
+    ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
@@ -714,7 +716,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (this._enableJsonResponse) {
                 // For JSON response mode, return a Promise that resolves when all responses are ready
-                return new Promise<Response>(resolve => {
+                return new Promise<Response>(async resolve => {
                     this._streamMapping.set(streamId, {
                         resolveJson: resolve,
                         cleanup: () => {
@@ -729,7 +731,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     for (const message of messages) {
-                        this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
+                        try {
+                            await Promise.resolve(this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo }));
+                        } catch (error) {
+                            if (error instanceof ProtocolError) {
+                                if (error.message.includes('Unauthorized')) {
+                                    resolve(this.createJsonErrorResponse(401, error.code, 'Unauthorized', { headers: { 'WWW-Authenticate': 'Bearer' } }));
+                                    return;
+                                }
+                                if (error.message.includes('Forbidden')) {
+                                    resolve(this.createJsonErrorResponse(403, error.code, error.message));
+                                    return;
+                                }
+                            }
+                            throw error;
+                        }
                     }
                 });
             }
@@ -799,13 +815,46 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     };
                 }
 
-                this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
+                try {
+                    await Promise.resolve(this.onmessage?.(message, {
+                        authInfo: options?.authInfo,
+                        requestInfo,
+                        closeSSEStream,
+                        closeStandaloneSSEStream
+                    }));
+                } catch (error) {
+                    if (error instanceof ProtocolError) {
+                        const message = error.message;
+                        if (message.includes('Unauthorized')) {
+                            const response = this.createJsonErrorResponse(401, error.code, 'Unauthorized', { headers: { 'WWW-Authenticate': 'Bearer' } });
+                            this._streamMapping.delete(streamId);
+                            return response;
+                        }
+                        if (message.includes('Forbidden')) {
+                            const response = this.createJsonErrorResponse(403, error.code, message);
+                            this._streamMapping.delete(streamId);
+                            return response;
+                        }
+                    }
+                    console.error('Transport caught error in onmessage:', error);
+                    throw error;
+                }
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
 
             return new Response(readable, { status: 200, headers });
         } catch (error) {
+            if (error instanceof ProtocolError) {
+                const message = error.message;
+                if (message.includes('Unauthorized')) {
+                    return this.createJsonErrorResponse(401, error.code, 'Unauthorized', { headers: { 'WWW-Authenticate': 'Bearer' } });
+                }
+                if (message.includes('Forbidden')) {
+                    console.log('[Transport] Mapping Forbidden to 403');
+                    return this.createJsonErrorResponse(403, error.code, message);
+                }
+            }
             // return JSON-RPC formatted error
             this.onerror?.(error as Error);
             return this.createJsonErrorResponse(400, -32_700, 'Parse error', { data: String(error) });
@@ -888,8 +937,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     async close(): Promise<void> {
         // Close all SSE connections
-        for (const { cleanup } of this._streamMapping.values()) {
-            cleanup();
+        for (const mapping of Array.from(this._streamMapping.values())) {
+            mapping.cleanup();
         }
         this._streamMapping.clear();
 
@@ -982,7 +1031,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
             this._requestResponseMap.set(requestId, message);
-            const relatedIds = [...this._requestToStreamMapping.entries()].filter(([_, sid]) => sid === streamId).map(([id]) => id);
+            const relatedIds = Array.from(this._requestToStreamMapping.entries())
+                .filter(([, sid]) => sid === streamId)
+                .map(([id]) => id);
 
             // Check if we have responses for all requests using this connection
             const allResponsesReady = relatedIds.every(id => this._requestResponseMap.has(id));

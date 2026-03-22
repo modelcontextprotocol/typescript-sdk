@@ -44,8 +44,9 @@ import {
     validateAndWarnToolName
 } from '@modelcontextprotocol/core';
 
-import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
+import { Authenticator } from './auth/authenticator.js';
+import { Authorizer } from './auth/authorizer.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
@@ -79,6 +80,13 @@ export class McpServer {
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+    }
+
+    /**
+     * Returns the authenticator for this server, if one was provided.
+     */
+    get authenticator(): Authenticator | undefined {
+        return this.server.authenticator;
     }
 
     /**
@@ -200,6 +208,13 @@ export class McpServer {
                     return await this.handleAutomaticTaskPolling(tool, request, ctx);
                 }
 
+                // Authorization check
+                if (tool.scopes && tool.scopes.length > 0) {
+                    if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, tool.scopes)) {
+                        throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                    }
+                }
+
                 // Normal execution path
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
                 const result = await this.executeToolHandler(tool, args, ctx);
@@ -213,8 +228,11 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                if (error instanceof ProtocolError) {
+                    if (error.message.includes('Forbidden') || error.message.includes('Unauthorized')) {
+                        throw error;
+                    }
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
@@ -258,7 +276,7 @@ export class McpServer {
 
         const parseResult = await parseSchemaAsync(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
-            const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+            const errorMessage = (parseResult as any).error.issues.map((i: { message: string }) => i.message).join(', ');
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`
@@ -295,7 +313,7 @@ export class McpServer {
         // if the tool has an output schema, validate structured content
         const parseResult = await parseSchemaAsync(tool.outputSchema, result.structuredContent);
         if (!parseResult.success) {
-            const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+            const errorMessage = (parseResult as { error: any }).error.issues.map((i: { message: string }) => i.message).join(', ');
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Output validation error: Invalid structured content for tool ${toolName}: ${errorMessage}`
@@ -495,6 +513,14 @@ export class McpServer {
                 if (!resource.enabled) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} disabled`);
                 }
+
+                // Authorization check
+                if (resource.scopes && resource.scopes.length > 0) {
+                    if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, resource.scopes)) {
+                        throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                    }
+                }
+
                 return resource.readCallback(uri, ctx);
             }
 
@@ -502,6 +528,13 @@ export class McpServer {
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
+                    // Authorization check
+                    if (template.scopes && template.scopes.length > 0) {
+                        if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, template.scopes)) {
+                            throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                        }
+                    }
+
                     return template.readCallback(uri, variables, ctx);
                 }
             }
@@ -554,6 +587,13 @@ export class McpServer {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
             }
 
+            // Authorization check
+            if (prompt.scopes && prompt.scopes.length > 0) {
+                if (!ctx.http?.authInfo || !Authorizer.isAuthorized(ctx.http.authInfo, prompt.scopes)) {
+                    throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Forbidden');
+                }
+            }
+
             // Handler encapsulates parsing and callback invocation with proper types
             return prompt.handler(request.params.arguments, ctx);
         });
@@ -580,19 +620,25 @@ export class McpServer {
      * );
      * ```
      */
-    registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    registerResource(
+        name: string,
+        uriOrTemplate: string,
+        config: ResourceMetadata & { scopes?: string[] },
+        readCallback: ReadResourceCallback
+    ): RegisteredResource;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { scopes?: string[] },
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { scopes?: string[] },
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
+        const { scopes, ...metadata } = config;
         if (typeof uriOrTemplate === 'string') {
             if (this._registeredResources[uriOrTemplate]) {
                 throw new Error(`Resource ${uriOrTemplate} is already registered`);
@@ -602,7 +648,8 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
+                scopes,
                 readCallback as ReadResourceCallback
             );
 
@@ -618,7 +665,8 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
+                scopes,
                 readCallback as ReadResourceTemplateCallback
             );
 
@@ -633,6 +681,7 @@ export class McpServer {
         title: string | undefined,
         uri: string,
         metadata: ResourceMetadata | undefined,
+        scopes: string[] | undefined,
         readCallback: ReadResourceCallback
     ): RegisteredResource {
         const registeredResource: RegisteredResource = {
@@ -652,6 +701,7 @@ export class McpServer {
                 if (updates.name !== undefined) registeredResource.name = updates.name;
                 if (updates.title !== undefined) registeredResource.title = updates.title;
                 if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
+                if (updates.scopes !== undefined) registeredResource.scopes = updates.scopes;
                 if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
                 if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
                 this.sendResourceListChanged();
@@ -666,12 +716,14 @@ export class McpServer {
         title: string | undefined,
         template: ResourceTemplate,
         metadata: ResourceMetadata | undefined,
+        scopes: string[] | undefined,
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate {
         const registeredResourceTemplate: RegisteredResourceTemplate = {
             resourceTemplate: template,
             title,
             metadata,
+            scopes,
             readCallback,
             enabled: true,
             disable: () => registeredResourceTemplate.update({ enabled: false }),
@@ -685,6 +737,7 @@ export class McpServer {
                 if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
                 if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
+                if (updates.scopes !== undefined) registeredResourceTemplate.scopes = updates.scopes;
                 if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
                 if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
                 this.sendResourceListChanged();
@@ -707,6 +760,7 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: AnySchema | undefined,
+        scopes: string[] | undefined,
         callback: PromptCallback<AnySchema | undefined>
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
@@ -717,6 +771,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            scopes,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
@@ -746,6 +801,7 @@ export class McpServer {
                 }
 
                 if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
+                if (updates.scopes !== undefined) registeredPrompt.scopes = updates.scopes;
                 this.sendPromptListChanged();
             }
         };
@@ -775,6 +831,7 @@ export class McpServer {
         inputSchema: AnySchema | undefined,
         outputSchema: AnySchema | undefined,
         annotations: ToolAnnotations | undefined,
+        scopes: string[] | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<AnySchema | undefined>
@@ -792,6 +849,7 @@ export class McpServer {
             outputSchema,
             annotations,
             execution,
+            scopes,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -874,6 +932,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            scopes?: string[];
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -882,7 +941,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, scopes, _meta } = config;
 
         return this._createRegisteredTool(
             name,
@@ -891,6 +950,7 @@ export class McpServer {
             inputSchema,
             outputSchema,
             annotations,
+            scopes,
             { taskSupport: 'forbidden' },
             _meta,
             cb as ToolCallback<AnySchema | undefined>
@@ -929,6 +989,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            scopes?: string[];
         },
         cb: PromptCallback<Args>
     ): RegisteredPrompt {
@@ -936,13 +997,14 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema } = config;
+        const { title, description, argsSchema, scopes } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
             title,
             description,
             argsSchema,
+            scopes,
             cb as PromptCallback<AnySchema | undefined>
         );
 
@@ -1074,9 +1136,16 @@ export type BaseToolCallback<ResultT extends Result, Ctx extends ServerContext, 
 export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
 
 /**
+ * Handler for a tool that creates a task.
+ */
+export type McpToolTaskHandler<Args extends AnySchema | undefined = undefined> = {
+    createTask: BaseToolCallback<CreateTaskResult, CreateTaskServerContext, Args>;
+};
+
+/**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
-export type AnyToolHandler<Args extends AnySchema | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends AnySchema | undefined = undefined> = ToolCallback<Args> | McpToolTaskHandler<Args>;
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
@@ -1091,6 +1160,7 @@ export type RegisteredTool = {
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
+    scopes?: string[];
     handler: AnyToolHandler<AnySchema | undefined>;
     /** @hidden */
     executor: ToolExecutor;
@@ -1104,6 +1174,7 @@ export type RegisteredTool = {
         paramsSchema?: AnySchema;
         outputSchema?: AnySchema;
         annotations?: ToolAnnotations;
+        scopes?: string[];
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<AnySchema>;
         enabled?: boolean;
@@ -1168,6 +1239,7 @@ export type RegisteredResource = {
     name: string;
     title?: string;
     metadata?: ResourceMetadata;
+    scopes?: string[];
     readCallback: ReadResourceCallback;
     enabled: boolean;
     enable(): void;
@@ -1177,6 +1249,7 @@ export type RegisteredResource = {
         title?: string;
         uri?: string | null;
         metadata?: ResourceMetadata;
+        scopes?: string[];
         callback?: ReadResourceCallback;
         enabled?: boolean;
     }): void;
@@ -1196,6 +1269,7 @@ export type RegisteredResourceTemplate = {
     resourceTemplate: ResourceTemplate;
     title?: string;
     metadata?: ResourceMetadata;
+    scopes?: string[];
     readCallback: ReadResourceTemplateCallback;
     enabled: boolean;
     enable(): void;
@@ -1205,6 +1279,7 @@ export type RegisteredResourceTemplate = {
         title?: string;
         template?: ResourceTemplate;
         metadata?: ResourceMetadata;
+        scopes?: string[];
         callback?: ReadResourceTemplateCallback;
         enabled?: boolean;
     }): void;
@@ -1231,6 +1306,7 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: AnySchema;
+    scopes?: string[];
     /** @hidden */
     handler: PromptHandler;
     enabled: boolean;
@@ -1241,6 +1317,7 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        scopes?: string[];
         callback?: PromptCallback<Args>;
         enabled?: boolean;
     }): void;
@@ -1262,10 +1339,10 @@ function createPromptHandler(
         return async (args, ctx) => {
             const parseResult = await parseSchemaAsync(argsSchema, args);
             if (!parseResult.success) {
-                const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
+                const errorMessage = parseResult.error.issues.map(i => i.message).join(', ');
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${errorMessage}`);
             }
-            return typedCallback(parseResult.data as SchemaOutput<AnySchema>, ctx);
+            return typedCallback(parseResult.data, ctx);
         };
     } else {
         const typedCallback = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;

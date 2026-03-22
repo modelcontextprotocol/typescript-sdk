@@ -1,3 +1,6 @@
+export * from './server/auth/authenticator.js';
+export * from './server/auth/bearer.js';
+export * from './server/auth/authorizer.js';
 export * from './server/completable.js';
 export * from './server/mcp.js';
 export * from './server/middleware/hostHeaderValidation.js';

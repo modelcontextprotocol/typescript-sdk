@@ -136,6 +136,7 @@ Next steps:
 
 - Local SDK docs:
     - [docs/server.md](docs/server.md) – building MCP servers, transports, tools/resources/prompts, sampling, elicitation, tasks, and deployment patterns.
+    - [docs/auth.md](docs/auth.md) – implementing authentication and authorization in MCP servers.
     - [docs/client.md](docs/client.md) – building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
     - [docs/faq.md](docs/faq.md) – frequently asked questions and troubleshooting
 - External references:

@@ -11,6 +11,7 @@ Building a server takes three steps:
 1. Create an {@linkcode @modelcontextprotocol/server!server/mcp.McpServer | McpServer} and register your [tools, resources, and prompts](#tools-resources-and-prompts).
 2. Create a transport — [Streamable HTTP](#streamable-http) for remote servers or [stdio](#stdio) for local, process‑spawned integrations.
 3. Wire the transport into your HTTP framework (or use stdio directly) and call `server.connect(transport)`.
+1. (Optional) Configure [authentication and authorization](#authentication-and-authorization) to protect your server.
 
 The sections below cover each of these. For a feature‑rich starting point, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) — remove what you don't need and register your own tools, resources, and prompts. For stateless or JSON‑response‑mode alternatives, see the examples linked in [Transports](#transports) below.
 
@@ -443,6 +444,27 @@ Task-based execution enables "call-now, fetch-later" patterns for long-running o
 
 > [!WARNING]
 > The tasks API is experimental and may change without notice.
+
+## Authentication and Authorization
+
+The MCP TypeScript SDK provides optional, opt-in support for authentication (AuthN) and authorization (AuthZ). For a comprehensive guide, see the [Authentication and Authorization guide](./auth.md).
+
+Quick example:
+
+```ts
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, {
+    authenticator: new BearerTokenAuthenticator({
+        validate: async (token) => {
+            if (token === 'secret') return { name: 'admin', scopes: ['all'] };
+            return undefined;
+        }
+    })
+});
+
+server.tool('secure-tool', { scopes: ['all'] }, async (args) => {
+    return { content: [{ type: 'text', text: 'Success' }] };
+});
+```
 
 ## Deployment
 

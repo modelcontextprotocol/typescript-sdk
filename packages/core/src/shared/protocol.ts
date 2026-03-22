@@ -704,16 +704,24 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
 
         const _onmessage = this._transport?.onmessage;
-        this._transport.onmessage = (message, extra) => {
-            _onmessage?.(message, extra);
-            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-                this._onresponse(message);
-            } else if (isJSONRPCRequest(message)) {
-                this._onrequest(message, extra);
-            } else if (isJSONRPCNotification(message)) {
-                this._onnotification(message);
-            } else {
-                this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+        this._transport.onmessage = async (message, extra) => {
+            try {
+                if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
+                    await _onmessage?.(message, extra);
+                    this._onresponse(message);
+                } else if (isJSONRPCRequest(message)) {
+                    await this._onrequest(message, extra);
+                } else if (isJSONRPCNotification(message)) {
+                    await this._onnotification(message);
+                } else {
+                    await _onmessage?.(message, extra);
+                    this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+                }
+            } catch (error) {
+                if (error instanceof ProtocolError && (error.message.includes('Unauthorized') || error.message.includes('Forbidden'))) {
+                    throw error;
+                }
+                this._onerror(error instanceof Error ? error : new Error(String(error)));
             }
         };
 
@@ -758,7 +766,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
     }
 
-    private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
+    protected async _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): Promise<void> {
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
         // Capture the current transport at request time to ensure responses go to the correct client
@@ -838,7 +846,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const ctx = this.buildContext(baseCtx, extra);
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
+        return Promise.resolve()
             .then(() => {
                 // If this request asked for task creation, check capability first
                 if (taskCreationParams) {
@@ -879,6 +887,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         return;
                     }
 
+                    if (error instanceof ProtocolError && (error.message.includes('Unauthorized') || error.message.includes('Forbidden'))) {
+                        throw error;
+                    }
+
                     const errorResponse: JSONRPCErrorResponse = {
                         jsonrpc: '2.0',
                         id: request.id,
@@ -903,7 +915,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         : capturedTransport?.send(errorResponse));
                 }
             )
-            .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
+            .catch(error => {
+                if (error instanceof ProtocolError && (error.message.includes('Unauthorized') || error.message.includes('Forbidden'))) {
+                    throw error;
+                }
+                // Do not report as protocol error if it's already an auth error we're escaping
+                this._onerror(new Error(`Failed to send response: ${error}`));
+            })
             .finally(() => {
                 this._requestHandlerAbortControllers.delete(request.id);
             });

@@ -12,6 +12,9 @@ import type {
     Implementation,
     InitializeRequest,
     InitializeResult,
+    JSONRPCErrorResponse,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
@@ -53,8 +56,8 @@ import {
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
+import { Authenticator } from './auth/authenticator.js';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
-
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
 export type ServerOptions = ProtocolOptions & {
@@ -77,6 +80,11 @@ export type ServerOptions = ProtocolOptions & {
      * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Optional authenticator for incoming requests.
+     */
+    authenticator?: Authenticator;
 };
 
 /**
@@ -92,6 +100,7 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _authenticator?: Authenticator;
     private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
@@ -110,6 +119,7 @@ export class Server extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
+        this._authenticator = options?.authenticator;
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
@@ -117,6 +127,13 @@ export class Server extends Protocol<ServerContext> {
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    /**
+     * Returns the authenticator for this server, if one was provided.
+     */
+    get authenticator(): Authenticator | undefined {
+        return this._authenticator;
     }
 
     private _registerLoggingHandler(): void {
@@ -148,11 +165,32 @@ export class Server extends Protocol<ServerContext> {
                 ? {
                       ...ctx.http,
                       req: transportInfo?.requestInfo,
+                      authInfo: transportInfo?.authInfo,
                       closeSSE: transportInfo?.closeSSEStream,
                       closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
                   }
                 : undefined
         };
+    }
+
+    protected override async _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): Promise<void> {
+        if (this._authenticator && request.method !== 'initialize' && request.method !== 'ping') {
+            const authInfo = await this._authenticator.authenticate({
+                headers: Object.fromEntries(extra?.requestInfo?.headers.entries() ?? [])
+            });
+
+            if (!authInfo) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Unauthorized');
+            }
+
+            // Inject authInfo into extra for buildContext
+            if (!extra) {
+                extra = {};
+            }
+            extra.authInfo = authInfo;
+        }
+
+        return super._onrequest(request, extra);
     }
 
     /**
@@ -210,23 +248,26 @@ export class Server extends Protocol<ServerContext> {
             const wrappedHandler = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
                 const validatedRequest = parseSchema(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
-                    const errorMessage =
-                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    const errorMessage = validatedRequest.error.issues.map(i => i.message).join(', ');
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
                 }
 
                 const { params } = validatedRequest.data;
-
-                const result = await Promise.resolve(handler(request, ctx));
+                let result: ResultTypeMap[M];
+                try {
+                    result = await Promise.resolve(handler(request, ctx));
+                } catch (error) {
+                    if (error instanceof ProtocolError) {
+                        throw error;
+                    }
+                    throw error;
+                }
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
                     const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
+                        const errorMessage = taskValidationResult.error.issues.map(i => i.message).join(', ');
                         throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
                     }
                     return taskValidationResult.data;
@@ -235,8 +276,7 @@ export class Server extends Protocol<ServerContext> {
                 // For non-task requests, validate against CallToolResultSchema
                 const validationResult = parseSchema(CallToolResultSchema, result);
                 if (!validationResult.success) {
-                    const errorMessage =
-                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    const errorMessage = validationResult.error.issues.map(i => i.message).join(', ');
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
                 }
 
@@ -506,11 +546,12 @@ export class Server extends Protocol<ServerContext> {
         // These may appear even without tools/toolChoice in the current request when
         // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
-            const lastMessage = params.messages.at(-1)!;
-            const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
-            const hasToolResults = lastContent.some(c => c.type === 'tool_result');
+            const lastMessage = params.messages[params.messages.length - 1];
+            if (lastMessage && lastMessage.content) {
+                const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
+                const hasToolResults = lastContent.some(c => c.type === 'tool_result');
 
-            const previousMessage = params.messages.length > 1 ? params.messages.at(-2) : undefined;
+            const previousMessage = params.messages.length > 1 ? params.messages[params.messages.length - 2] : undefined;
             const previousContent = previousMessage
                 ? Array.isArray(previousMessage.content)
                     ? previousMessage.content
@@ -537,11 +578,12 @@ export class Server extends Protocol<ServerContext> {
                 const toolResultIds = new Set(
                     lastContent.filter(c => c.type === 'tool_result').map(c => (c as ToolResultContent).toolUseId)
                 );
-                if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every(id => toolResultIds.has(id))) {
+                if (toolUseIds.size !== toolResultIds.size || !Array.from(toolUseIds).every(id => toolResultIds.has(id))) {
                     throw new ProtocolError(
                         ProtocolErrorCode.InvalidParams,
                         'ids of tool_result blocks and tool_use blocks from previous message do not match'
                     );
+                }
                 }
             }
         }
@@ -561,54 +603,47 @@ export class Server extends Protocol<ServerContext> {
      * @returns The result of the elicitation request.
      */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
-        const mode = (params.mode ?? 'form') as 'form' | 'url';
-
-        switch (mode) {
-            case 'url': {
-                if (!this._clientCapabilities?.elicitation?.url) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
-                }
-
-                const urlParams = params as ElicitRequestURLParams;
-                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+        if (params.mode === 'url') {
+            if (!this._clientCapabilities?.elicitation?.url) {
+                throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
             }
-            case 'form': {
-                if (!this._clientCapabilities?.elicitation?.form) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
-                }
 
-                const formParams: ElicitRequestFormParams =
-                    params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
+            return this._requestWithSchema({ method: 'elicitation/create', params }, ElicitResultSchema, options);
+        } else {
+            if (!this._clientCapabilities?.elicitation?.form) {
+                throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
+            }
 
-                const result = await this._requestWithSchema(
-                    { method: 'elicitation/create', params: formParams },
-                    ElicitResultSchema,
-                    options
-                );
+            const formParams: ElicitRequestFormParams = params.mode === 'form' ? params : { ...params, mode: 'form' };
 
-                if (result.action === 'accept' && result.content && formParams.requestedSchema) {
-                    try {
-                        const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
-                        const validationResult = validator(result.content);
+            const result = await this._requestWithSchema(
+                { method: 'elicitation/create', params: formParams },
+                ElicitResultSchema,
+                options
+            );
 
-                        if (!validationResult.valid) {
-                            throw new ProtocolError(
-                                ProtocolErrorCode.InvalidParams,
-                                `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
-                            );
-                        }
-                    } catch (error) {
-                        if (error instanceof ProtocolError) {
-                            throw error;
-                        }
+            if (result.action === 'accept' && result.content && formParams.requestedSchema) {
+                try {
+                    const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
+                    const validationResult = validator(result.content);
+
+                    if (!validationResult.valid) {
                         throw new ProtocolError(
-                            ProtocolErrorCode.InternalError,
-                            `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
+                            ProtocolErrorCode.InvalidParams,
+                            `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
                         );
                     }
+                } catch (error: unknown) {
+                    if (error instanceof ProtocolError) {
+                        throw error;
+                    }
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
+                    );
                 }
-                return result;
             }
+            return result;
         }
     }
 
