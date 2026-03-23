@@ -730,6 +730,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._taskProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
 
+        const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
+        this._requestHandlerAbortControllers = new Map();
+
         const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
 
         this._transport = undefined;
@@ -737,6 +740,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         for (const handler of responseHandlers.values()) {
             handler(error);
+        }
+
+        for (const controller of requestHandlerAbortControllers.values()) {
+            controller.abort(error);
         }
     }
 
