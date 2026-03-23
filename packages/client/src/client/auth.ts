@@ -1,3 +1,4 @@
+import { CORS_IS_POSSIBLE } from '@modelcontextprotocol/client/_shims';
 import type {
     AuthorizationServerMetadata,
     FetchLike,
@@ -844,13 +845,10 @@ export async function discoverOAuthProtectedResourceMetadata(
  * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
-    // CORS only exists in browsers. In Node.js/Workers/etc., a TypeError from fetch is always a
-    // real network or configuration error, never CORS.
-    const corsIsPossible = (globalThis as { document?: unknown }).document !== undefined;
     try {
         return await fetchFn(url, { headers });
     } catch (error) {
-        if (!(error instanceof TypeError) || !corsIsPossible) {
+        if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
             throw error;
         }
         if (headers) {

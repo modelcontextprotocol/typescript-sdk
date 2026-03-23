@@ -34,17 +34,24 @@ const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
 /**
- * fetchWithCorsRetry gates its CORS-swallowing heuristic on running in a browser (where `document`
- * exists). CORS doesn't apply in Node.js, so there a fetch TypeError is always a real network error
- * and is thrown instead of swallowed. Tests that specifically exercise the CORS retry logic call
- * this helper to simulate a browser environment. Cleanup is done by `restoreBrowserLikeEnvironment`
- * in an `afterEach` hook so a failed assertion can't leak the `document` stub into later tests.
+ * fetchWithCorsRetry gates its CORS-swallowing heuristic on the `CORS_IS_POSSIBLE` shim constant.
+ * Tests run under the Node shim (`false`), so a fetch TypeError is treated as a real network error
+ * and thrown instead of swallowed. Tests that specifically exercise the browser CORS retry path
+ * call `withBrowserLikeEnvironment()` to flip the mocked constant to `true`. The `afterEach` hook
+ * resets it so a failed assertion can't leak the override into later tests.
  */
+let mockedCorsIsPossible = false;
+vi.mock('@modelcontextprotocol/client/_shims', async importOriginal => {
+    const actual = await importOriginal<typeof import('@modelcontextprotocol/client/_shims')>();
+    return {
+        ...actual,
+        get CORS_IS_POSSIBLE() {
+            return mockedCorsIsPossible;
+        }
+    };
+});
 function withBrowserLikeEnvironment(): void {
-    (globalThis as { document?: unknown }).document = {};
-}
-function restoreBrowserLikeEnvironment(): void {
-    delete (globalThis as { document?: unknown }).document;
+    mockedCorsIsPossible = true;
 }
 
 describe('OAuth Authorization', () => {
@@ -52,7 +59,7 @@ describe('OAuth Authorization', () => {
         mockFetch.mockReset();
     });
     afterEach(() => {
-        restoreBrowserLikeEnvironment();
+        mockedCorsIsPossible = false;
     });
 
     describe('extractWWWAuthenticateParams', () => {
