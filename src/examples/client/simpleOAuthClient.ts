@@ -3,7 +3,6 @@
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
-import { exec } from 'node:child_process';
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
 import { OAuthClientMetadata } from '../../shared/auth.js';
@@ -41,21 +40,6 @@ class InteractiveOAuthClient {
         });
     }
 
-    /**
-     * Opens the authorization URL in the user's default browser
-     */
-    private async openBrowser(url: string): Promise<void> {
-        console.log(`🌐 Opening browser for authorization: ${url}`);
-
-        const command = `open "${url}"`;
-
-        exec(command, error => {
-            if (error) {
-                console.error(`Failed to open browser: ${error.message}`);
-                console.log(`Please manually open: ${url}`);
-            }
-        });
-    }
     /**
      * Example OAuth callback handler - in production, use a more robust approach
      * for handling callbacks and storing tokens
@@ -166,9 +150,7 @@ class InteractiveOAuthClient {
             CALLBACK_URL,
             clientMetadata,
             (redirectUrl: URL) => {
-                console.log(`📌 OAuth redirect handler called - opening browser`);
-                console.log(`Opening browser to: ${redirectUrl.toString()}`);
-                this.openBrowser(redirectUrl.toString());
+                console.log(`\n🔗 Please open this URL in your browser to authorize:\n  ${redirectUrl.toString()}`);
             },
             this.clientMetadataUrl
         );

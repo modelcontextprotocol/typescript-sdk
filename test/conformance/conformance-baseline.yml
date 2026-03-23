@@ -1,0 +1,8 @@
+# Known conformance test failures for v1.x
+# These are tracked and should be removed as they're fixed.
+#
+# auth/cross-app-access-complete-flow: SEP-990 Enterprise Managed OAuth
+# scenario added in conformance 0.1.14. Requires implementing token
+# exchange (RFC 8693) and JWT bearer grant (RFC 7523) in the client.
+client:
+    - auth/cross-app-access-complete-flow

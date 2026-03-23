@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.25.3",
+    "version": "1.27.1",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -83,7 +83,12 @@
         "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "client": "tsx scripts/cli.ts client",
+        "test:conformance:server": "test/conformance/scripts/run-server-conformance.sh --expected-failures test/conformance/conformance-baseline.yml",
+        "test:conformance:server:all": "test/conformance/scripts/run-server-conformance.sh --suite all --expected-failures test/conformance/conformance-baseline.yml",
+        "test:conformance:server:run": "npx tsx test/conformance/src/everythingServer.ts",
+        "test:conformance:client": "npx @modelcontextprotocol/conformance client --command 'npx tsx test/conformance/src/everythingClient.ts' --expected-failures test/conformance/conformance-baseline.yml",
+        "test:conformance:client:all": "npx @modelcontextprotocol/conformance client --command 'npx tsx test/conformance/src/everythingClient.ts' --suite all --expected-failures test/conformance/conformance-baseline.yml"
     },
     "dependencies": {
         "@hono/node-server": "^1.19.9",
@@ -119,6 +124,7 @@
     "devDependencies": {
         "@cfworker/json-schema": "^4.1.1",
         "@eslint/js": "^9.39.1",
+        "@modelcontextprotocol/conformance": "^0.1.14",
         "@types/content-type": "^1.1.8",
         "@types/cors": "^2.8.17",
         "@types/cross-spawn": "^6.0.6",
