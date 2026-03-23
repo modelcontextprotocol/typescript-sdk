@@ -13,8 +13,7 @@
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
     },
     "engines": {
-        "node": ">=20",
-        "pnpm": ">=10.24.0"
+        "node": ">=20"
     },
     "packageManager": "pnpm@10.26.1",
     "keywords": [
@@ -26,6 +25,7 @@
         "sync:snippets": "tsx scripts/sync-snippets.ts",
         "examples:simple-server:w": "pnpm --filter @modelcontextprotocol/examples-server exec tsx --watch src/simpleStreamableHttp.ts --oauth",
         "docs": "typedoc",
+        "docs:multi": "bash scripts/generate-multidoc.sh",
         "docs:check": "typedoc",
         "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",

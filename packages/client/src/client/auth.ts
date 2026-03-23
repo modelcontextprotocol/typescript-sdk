@@ -185,6 +185,50 @@ export interface OAuthClientProvider {
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 
     /**
+     * Saves the authorization server URL after RFC 9728 discovery.
+     * This method is called by {@linkcode auth} after successful discovery of the
+     * authorization server via protected resource metadata.
+     *
+     * Providers implementing Cross-App Access or other flows that need access to
+     * the discovered authorization server URL should implement this method.
+     *
+     * @param authorizationServerUrl - The authorization server URL discovered via RFC 9728
+     */
+    saveAuthorizationServerUrl?(authorizationServerUrl: string): void | Promise<void>;
+
+    /**
+     * Returns the previously saved authorization server URL, if available.
+     *
+     * Providers implementing Cross-App Access can use this to access the
+     * authorization server URL discovered during the OAuth flow.
+     *
+     * @returns The authorization server URL, or `undefined` if not available
+     */
+    authorizationServerUrl?(): string | undefined | Promise<string | undefined>;
+
+    /**
+     * Saves the resource URL after RFC 9728 discovery.
+     * This method is called by {@linkcode auth} after successful discovery of the
+     * resource metadata.
+     *
+     * Providers implementing Cross-App Access or other flows that need access to
+     * the discovered resource URL should implement this method.
+     *
+     * @param resourceUrl - The resource URL discovered via RFC 9728
+     */
+    saveResourceUrl?(resourceUrl: string): void | Promise<void>;
+
+    /**
+     * Returns the previously saved resource URL, if available.
+     *
+     * Providers implementing Cross-App Access can use this to access the
+     * resource URL discovered during the OAuth flow.
+     *
+     * @returns The resource URL, or `undefined` if not available
+     */
+    resourceUrl?(): string | undefined | Promise<string | undefined>;
+
+    /**
      * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
      * discovery. Providers can persist this state to avoid redundant discovery requests
      * on subsequent {@linkcode auth} calls.
@@ -257,19 +301,23 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
 export function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
     const hasClientSecret = clientInformation.client_secret !== undefined;
 
-    // If server doesn't specify supported methods, use RFC 6749 defaults
-    if (supportedMethods.length === 0) {
-        return hasClientSecret ? 'client_secret_post' : 'none';
-    }
-
-    // Prefer the method returned by the server during client registration if valid and supported
+    // Prefer the method returned by the server during client registration, if valid.
+    // When server metadata is present we also require the method to be listed as supported;
+    // when supportedMethods is empty (metadata omitted the field) the DCR hint stands alone.
     if (
         'token_endpoint_auth_method' in clientInformation &&
         clientInformation.token_endpoint_auth_method &&
         isClientAuthMethod(clientInformation.token_endpoint_auth_method) &&
-        supportedMethods.includes(clientInformation.token_endpoint_auth_method)
+        (supportedMethods.length === 0 || supportedMethods.includes(clientInformation.token_endpoint_auth_method))
     ) {
         return clientInformation.token_endpoint_auth_method;
+    }
+
+    // If server metadata omits token_endpoint_auth_methods_supported, RFC 8414 §2 says the
+    // default is client_secret_basic. RFC 6749 §2.3.1 also requires servers to support HTTP
+    // Basic authentication for clients with a secret, making it the safest default.
+    if (supportedMethods.length === 0) {
+        return hasClientSecret ? 'client_secret_basic' : 'none';
     }
 
     // Try methods in priority order (most secure first)
@@ -303,7 +351,7 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * @param params - URL search parameters to modify
  * @throws {Error} When required credentials are missing
  */
-function applyClientAuthentication(
+export function applyClientAuthentication(
     method: ClientAuthMethod,
     clientInformation: OAuthClientInformation,
     headers: Headers,
@@ -497,7 +545,22 @@ async function authInternal(
         });
     }
 
+    // Save authorization server URL for providers that need it (e.g., CrossAppAccessProvider)
+    await provider.saveAuthorizationServerUrl?.(String(authorizationServerUrl));
+
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+
+    // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
+    if (resource) {
+        await provider.saveResourceUrl?.(String(resource));
+    }
+
+    // Apply scope selection strategy (SEP-835):
+    // 1. WWW-Authenticate scope (passed via `scope` param)
+    // 2. PRM scopes_supported
+    // 3. Client metadata scope (user-configured fallback)
+    // The resolved scope is used consistently for both DCR and the authorization request.
+    const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
 
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -533,6 +596,7 @@ async function authInternal(
             const fullInformation = await registerClient(authorizationServerUrl, {
                 metadata,
                 clientMetadata: provider.clientMetadata,
+                scope: resolvedScope,
                 fetchFn
             });
 
@@ -550,6 +614,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
+            scope,
             fetchFn
         });
 
@@ -593,7 +658,7 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
+        scope: resolvedScope,
         resource
     });
 
@@ -1419,21 +1484,25 @@ export async function fetchToken(
         metadata,
         resource,
         authorizationCode,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: URL;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
+        /** Optional scope parameter from auth() options */
+        scope?: string;
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
-    const scope = provider.clientMetadata.scope;
+    // Prefer scope from options, fallback to provider.clientMetadata.scope
+    const effectiveScope = scope ?? provider.clientMetadata.scope;
 
     // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
     let tokenRequestParams: URLSearchParams | undefined;
     if (provider.prepareTokenRequest) {
-        tokenRequestParams = await provider.prepareTokenRequest(scope);
+        tokenRequestParams = await provider.prepareTokenRequest(effectiveScope);
     }
 
     // Default to authorization_code grant if no custom prepareTokenRequest
@@ -1463,16 +1532,22 @@ export async function fetchToken(
 /**
  * Performs OAuth 2.0 Dynamic Client Registration according to
  * {@link https://datatracker.ietf.org/doc/html/rfc7591 | RFC 7591}.
+ *
+ * If `scope` is provided, it overrides `clientMetadata.scope` in the registration
+ * request body. This allows callers to apply the Scope Selection Strategy (SEP-835)
+ * consistently across both DCR and the subsequent authorization request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
     {
         metadata,
         clientMetadata,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         clientMetadata: OAuthClientMetadata;
+        scope?: string;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthClientInformationFull> {
@@ -1493,7 +1568,10 @@ export async function registerClient(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(clientMetadata)
+        body: JSON.stringify({
+            ...clientMetadata,
+            ...(scope === undefined ? {} : { scope })
+        })
     });
 
     if (!response.ok) {

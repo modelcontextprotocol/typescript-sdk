@@ -1,5 +1,5 @@
-import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/client';
-import { CallToolResultSchema, Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { CallToolResult } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Multiple Clients MCP Example
@@ -48,19 +48,14 @@ async function createAndRunClient(config: ClientConfig): Promise<{ id: string; r
 
         // Call the specified tool
         console.log(`[${config.id}] Calling tool: ${config.toolName}`);
-        const toolRequest: CallToolRequest = {
-            method: 'tools/call',
-            params: {
-                name: config.toolName,
-                arguments: {
-                    ...config.toolArguments,
-                    // Add client ID to arguments for identification in notifications
-                    caller: config.id
-                }
+        const result = await client.callTool({
+            name: config.toolName,
+            arguments: {
+                ...config.toolArguments,
+                // Add client ID to arguments for identification in notifications
+                caller: config.id
             }
-        };
-
-        const result = await client.request(toolRequest, CallToolResultSchema);
+        });
         console.log(`[${config.id}] Tool call completed`);
 
         // Keep the connection open for a bit to receive notifications

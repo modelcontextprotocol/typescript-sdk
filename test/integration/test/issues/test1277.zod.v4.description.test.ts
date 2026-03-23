@@ -7,7 +7,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport, ListPromptsResultSchema } from '@modelcontextprotocol/core';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
@@ -47,12 +47,9 @@ describe('Issue #1277: Zod v4', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        const result = await client.request(
-            {
-                method: 'prompts/list'
-            },
-            ListPromptsResultSchema
-        );
+        const result = await client.request({
+            method: 'prompts/list'
+        });
 
         expect(result.prompts).toHaveLength(1);
         expect(result.prompts[0]!.name).toBe('test');

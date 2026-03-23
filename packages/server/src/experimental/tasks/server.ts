@@ -6,22 +6,21 @@
  */
 
 import type {
-    AnySchema,
     CancelTaskResult,
     CreateMessageRequestParams,
     CreateMessageResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    GetTaskPayloadResult,
     GetTaskResult,
     ListTasksResult,
-    Request,
+    RequestMethod,
     RequestOptions,
     ResponseMessage,
-    Result,
-    SchemaOutput
+    ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { CreateMessageResultSchema, ElicitResultSchema } from '@modelcontextprotocol/core';
+import { GetTaskPayloadResultSchema } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 
@@ -30,7 +29,7 @@ import type { Server } from '../../server/server.js';
  *
  * Access via `server.experimental.tasks`:
  * ```typescript
- * const stream = server.experimental.tasks.requestStream(request, schema, options);
+ * const stream = server.experimental.tasks.requestStream(request, options);
  * ```
  *
  * For high-level server usage with task-based tools, use {@linkcode index.McpServer | McpServer}.experimental.tasks instead.
@@ -47,27 +46,24 @@ export class ExperimentalServerTasks {
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.
      *
-     * @param request - The request to send
-     * @param resultSchema - Zod schema for validating the result
+     * @param request - The request to send (method name determines the result schema)
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
      * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
-    requestStream<T extends AnySchema>(
-        request: Request,
-        resultSchema: T,
+    requestStream<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
+    ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
         // Delegate to the server's underlying Protocol method
         type ServerWithRequestStream = {
-            requestStream<U extends AnySchema>(
-                request: Request,
-                resultSchema: U,
+            requestStream<N extends RequestMethod>(
+                request: { method: N; params?: Record<string, unknown> },
                 options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
+            ): AsyncGenerator<ResponseMessage<ResultTypeMap[N]>, void, void>;
         };
-        return (this._server as unknown as ServerWithRequestStream).requestStream(request, resultSchema, options);
+        return (this._server as unknown as ServerWithRequestStream).requestStream(request, options);
     }
 
     /**
@@ -163,9 +159,8 @@ export class ExperimentalServerTasks {
                 method: 'sampling/createMessage',
                 params
             },
-            CreateMessageResultSchema,
             options
-        );
+        ) as AsyncGenerator<ResponseMessage<CreateMessageResult>, void, void>;
     }
 
     /**
@@ -241,9 +236,8 @@ export class ExperimentalServerTasks {
                 method: 'elicitation/create',
                 params: normalizedParams
             },
-            ElicitResultSchema,
             options
-        );
+        ) as AsyncGenerator<ResponseMessage<ElicitResult>, void, void>;
     }
 
     /**
@@ -264,22 +258,22 @@ export class ExperimentalServerTasks {
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options
-     * @returns The task result
+     * @returns The task result. The payload structure matches the result type of the
+     *   original request (e.g., a `tools/call` task returns a `CallToolResult`).
      *
      * @experimental
      */
-    async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async getTaskResult(taskId: string, options?: RequestOptions): Promise<GetTaskPayloadResult> {
         return (
             this._server as unknown as {
-                getTaskResult: <U extends AnySchema>(
+                getTaskResult: (
                     params: { taskId: string },
-                    resultSchema?: U,
+                    resultSchema: typeof GetTaskPayloadResultSchema,
                     options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
+                ) => Promise<GetTaskPayloadResult>;
             }
-        ).getTaskResult({ taskId }, resultSchema, options);
+        ).getTaskResult({ taskId }, GetTaskPayloadResultSchema, options);
     }
 
     /**

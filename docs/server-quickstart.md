@@ -36,6 +36,9 @@ node --version
 npm --version
 ```
 
+> [!TIP]
+> The MCP SDK also works with **Bun** and **Deno**. This tutorial uses Node.js, but you can substitute `bun` or `deno` commands where appropriate. For HTTP-based servers on Bun or Deno, use `WebStandardStreamableHTTPServerTransport` instead of the Node.js-specific transport — see the [server guide](./server.md) for details.
+
 ## Set up your environment
 
 First, let's install Node.js and npm if you haven't already. You can download them from [nodejs.org](https://nodejs.org/).

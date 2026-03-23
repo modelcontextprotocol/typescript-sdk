@@ -25,22 +25,32 @@ Streamable HTTP is the HTTP‑based transport. It supports:
 - Optional JSON‑only response mode with no SSE
 - Session management and resumability
 
-A minimal stateful setup:
+A minimal stateless server using `createMcpExpressApp()`, which includes [DNS rebinding protection](#dns-rebinding-protection) by default:
 
-```ts source="../examples/server/src/serverGuide.examples.ts#streamableHttp_stateful"
-const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+```ts
+const app = createMcpExpressApp();
 
-const transport = new NodeStreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID()
+app.post('/mcp', async (req, res) => {
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+    const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined // stateless
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
 });
 
-await server.connect(transport);
+app.listen(3000, '127.0.0.1');
 ```
+
+For stateful servers with session management, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts).
 
 > [!NOTE]
 > For full runnable examples, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) (sessions, logging, tasks, elicitation, auth hooks), [`jsonResponseStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/jsonResponseStreamableHttp.ts) (`enableJsonResponse: true`, no SSE), and [`standaloneSseWithGetStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/standaloneSseWithGetStreamableHttp.ts) (notifications with Streamable HTTP GET + SSE).
 >
 > For protocol details, see [Transports](https://modelcontextprotocol.io/specification/latest/basic/transports) in the MCP specification.
+
+> [!WARNING]
+> If your server listens on localhost, use [`createMcpExpressApp()`](#dns-rebinding-protection) or [`createMcpHonoApp()`](#dns-rebinding-protection) instead of using `NodeStreamableHTTPServerTransport` directly — they include [DNS rebinding protection](#dns-rebinding-protection) by default.
 
 #### Stateless vs stateful sessions
 
@@ -438,7 +448,9 @@ Task-based execution enables "call-now, fetch-later" patterns for long-running o
 
 ### DNS rebinding protection
 
-MCP servers running on localhost are vulnerable to DNS rebinding attacks. Use `createMcpExpressApp()` from `@modelcontextprotocol/express` to create an Express app with DNS rebinding protection enabled by default:
+Under normal circumstances, cross-origin browser restrictions limit what a malicious website can do to your localhost server. [DNS rebinding attacks](https://en.wikipedia.org/wiki/DNS_rebinding) get around those restrictions entirely by making the requests appear as same-origin, since the attacking domain resolves to localhost. Validating the host header on the server side protects against this scenario.  **All localhost MCP servers should use DNS rebinding protection.**
+
+The recommended approach is to use `createMcpExpressApp()` (from `@modelcontextprotocol/express`) or `createMcpHonoApp()` (from `@modelcontextprotocol/hono`), which enable Host header validation by default:
 
 ```ts source="../examples/server/src/serverGuide.examples.ts#dnsRebinding_basic"
 // Default: DNS rebinding protection auto-enabled (host is 127.0.0.1)
@@ -459,6 +471,10 @@ const app = createMcpExpressApp({
     allowedHosts: ['localhost', '127.0.0.1', 'myhost.local']
 });
 ```
+
+`createMcpHonoApp()` from `@modelcontextprotocol/hono` provides the same protection for Hono-based servers and Web Standard runtimes (Cloudflare Workers, Deno, Bun).
+
+If you use `NodeStreamableHTTPServerTransport` directly with your own HTTP framework, you must implement Host header validation yourself. See the [`hostHeaderValidation`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/middleware/express/src/express.ts) middleware source for reference.
 
 ## More server features
 

@@ -200,17 +200,17 @@ import * as z from 'zod/v4';
 const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
-server.registerTool('greet', { inputSchema: { name: z.string() } }, async ({ name }) => {
+server.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, async ({ name }) => {
     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
-server.registerTool('greet', { description: 'Greet a user', inputSchema: { name: z.string() } }, async ({ name }) => {
+server.registerTool('greet', { description: 'Greet a user', inputSchema: z.object({ name: z.string() }) }, async ({ name }) => {
     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
-server.registerPrompt('summarize', { argsSchema: { text: z.string() } }, async ({ text }) => {
+server.registerPrompt('summarize', { argsSchema: z.object({ text: z.string() }) }, async ({ text }) => {
     return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
@@ -220,9 +220,9 @@ server.registerResource('config', 'config://app', {}, async uri => {
 });
 ```
 
-### Zod schemas required (raw shapes no longer supported)
+### Standard Schema objects required (raw shapes no longer supported)
 
-v2 requires full Zod schemas for `inputSchema` and `argsSchema`. Raw object shapes are no longer accepted.
+v2 requires schema objects implementing the [Standard Schema spec](https://standardschema.dev/) for `inputSchema`, `outputSchema`, and `argsSchema`. Raw object shapes are no longer accepted. Zod v4, ArkType, and Valibot all implement the spec.
 
 **Before (v1):**
 
@@ -240,10 +240,22 @@ server.registerTool('greet', {
 ```typescript
 import * as z from 'zod/v4';
 
-// Must wrap with z.object()
+// Wrap with z.object() (or use any Standard Schema library)
 server.registerTool('greet', {
-  inputSchema: z.object({ name: z.string() })  // full Zod schema
+  inputSchema: z.object({ name: z.string() })
 }, async ({ name }) => { ... });
+
+// ArkType works too
+import { type } from 'arktype';
+server.registerTool('greet', {
+  inputSchema: type({ name: 'string' })
+}, async ({ name }) => { ... });
+
+// Raw JSON Schema via fromJsonSchema
+import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+server.registerTool('greet', {
+  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
+}, handler);
 
 // For tools with no parameters, use z.object({})
 server.registerTool('ping', {
@@ -255,6 +267,15 @@ This applies to:
 - `inputSchema` in `registerTool()`
 - `outputSchema` in `registerTool()`
 - `argsSchema` in `registerPrompt()`
+
+**Removed Zod-specific helpers** from `@modelcontextprotocol/core` (use Standard Schema equivalents):
+
+| Removed | Replacement |
+|---|---|
+| `schemaToJson(schema)` | `standardSchemaToJsonSchema(schema)` |
+| `parseSchemaAsync(schema, data)` | `validateStandardSchema(schema, data)` |
+| `SchemaInput<T>` | `StandardSchemaWithJSON.InferInput<T>` |
+| `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema` | No replacement — these are now internal Zod introspection helpers |
 
 ### Host header validation moved
 
@@ -336,6 +357,73 @@ Common method string replacements:
 | `ToolListChangedNotificationSchema`     | `'notifications/tools/list_changed'`     |
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
+
+### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
+
+The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+
+**`client.request()` — Before (v1):**
+
+```typescript
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+const result = await client.request(
+    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } },
+    CallToolResultSchema
+);
+```
+
+**After (v2):**
+
+```typescript
+const result = await client.request(
+    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } }
+);
+```
+
+**`ctx.mcpReq.send()` — Before (v1):**
+
+```typescript
+import { CreateMessageResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const samplingResult = await ctx.mcpReq.send(
+        { method: 'sampling/createMessage', params: { messages: [...], maxTokens: 100 } },
+        CreateMessageResultSchema
+    );
+    return { content: [{ type: 'text', text: 'done' }] };
+});
+```
+
+**After (v2):**
+
+```typescript
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const samplingResult = await ctx.mcpReq.send(
+        { method: 'sampling/createMessage', params: { messages: [...], maxTokens: 100 } }
+    );
+    return { content: [{ type: 'text', text: 'done' }] };
+});
+```
+
+**`client.callTool()` — Before (v1):**
+
+```typescript
+import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+const result = await client.callTool(
+    { name: 'my-tool', arguments: {} },
+    CompatibilityCallToolResultSchema
+);
+```
+
+**After (v2):**
+
+```typescript
+const result = await client.callTool({ name: 'my-tool', arguments: {} });
+```
+
+The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
 
 ### Client list methods return empty results for missing capabilities
 
@@ -708,7 +796,7 @@ import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator } from '@modelconte
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):
 
-- `Client` constructor and all client methods (`connect`, `callTool`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.)
+- `Client` constructor and most client methods (`connect`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.) — note: `callTool()` signature changed (schema parameter removed)
 - `McpServer` constructor, `server.connect(transport)`, `server.close()`
 - `Server` (low-level) constructor and all methods
 - `StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport` constructors and options

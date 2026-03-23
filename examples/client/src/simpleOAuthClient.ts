@@ -1,18 +1,12 @@
 #!/usr/bin/env node
 
-import { exec } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 
-import type { CallToolRequest, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ListToolsResultSchema,
-    StreamableHTTPClientTransport,
-    UnauthorizedError
-} from '@modelcontextprotocol/client';
+import type { CallToolResult, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import open from 'open';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
@@ -49,17 +43,27 @@ class InteractiveOAuthClient {
     /**
      * Opens the authorization URL in the user's default browser
      */
+    private static readonly ALLOWED_SCHEMES = new Set(['http:', 'https:']);
+
     private async openBrowser(url: string): Promise<void> {
         console.log(`🌐 Opening browser for authorization: ${url}`);
 
-        const command = `open "${url}"`;
-
-        exec(command, error => {
-            if (error) {
-                console.error(`Failed to open browser: ${error.message}`);
-                console.log(`Please manually open: ${url}`);
+        try {
+            const parsed = new URL(url);
+            if (!InteractiveOAuthClient.ALLOWED_SCHEMES.has(parsed.protocol)) {
+                console.error(`Refusing to open URL with unsupported scheme '${parsed.protocol}': ${url}`);
+                return;
             }
-        });
+        } catch {
+            console.error(`Invalid URL: ${url}`);
+            return;
+        }
+
+        try {
+            await open(url);
+        } catch {
+            console.log(`Please manually open: ${url}`);
+        }
     }
     /**
      * Example OAuth callback handler - in production, use a more robust approach
@@ -252,7 +256,7 @@ class InteractiveOAuthClient {
                 params: {}
             };
 
-            const result = await this.client.request(request, ListToolsResultSchema);
+            const result = await this.client.request(request);
 
             if (result.tools && result.tools.length > 0) {
                 console.log('\n📋 Available tools:');
@@ -302,15 +306,10 @@ class InteractiveOAuthClient {
         }
 
         try {
-            const request: CallToolRequest = {
-                method: 'tools/call',
-                params: {
-                    name: toolName,
-                    arguments: toolArgs
-                }
-            };
-
-            const result = await this.client.request(request, CallToolResultSchema);
+            const result = await this.client.callTool({
+                name: toolName,
+                arguments: toolArgs
+            });
 
             console.log(`\n🔧 Tool '${toolName}' result:`);
             if (result.content) {
@@ -394,7 +393,8 @@ class InteractiveOAuthClient {
 
                     case 'result': {
                         console.log('✓ Completed!');
-                        for (const content of message.result.content) {
+                        const toolResult = message.result as CallToolResult;
+                        for (const content of toolResult.content) {
                             if (content.type === 'text') {
                                 console.log(content.text);
                             } else {
