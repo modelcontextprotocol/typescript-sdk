@@ -7,7 +7,6 @@ import type {
     ClientNotification,
     ClientRequest,
     ClientResult,
-    CompatibilityCallToolResultSchema,
     CompleteRequest,
     GetPromptRequest,
     Implementation,
@@ -481,7 +480,7 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
         try {
-            const result = await this.request(
+            const result = await this._requestWithSchema(
                 {
                     method: 'initialize',
                     params: {
@@ -724,22 +723,22 @@ export class Client extends Protocol<ClientContext> {
 
     /** Sends a ping to the server to check connectivity. */
     async ping(options?: RequestOptions) {
-        return this.request({ method: 'ping' }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
     async complete(params: CompleteRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'completion/complete', params }, CompleteResultSchema, options);
+        return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
     /** Sets the minimum severity level for log messages sent by the server. */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
-        return this.request({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
     /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
     }
 
     /**
@@ -769,7 +768,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this.request({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
+        return this._requestWithSchema({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
     }
 
     /**
@@ -799,7 +798,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/list', params }, ListResourcesResultSchema, options);
     }
 
     /**
@@ -816,22 +815,22 @@ export class Client extends Protocol<ClientContext> {
             );
             return { resourceTemplates: [] };
         }
-        return this.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
     }
 
     /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
     /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
     /**
@@ -873,11 +872,7 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    async callTool(
-        params: CallToolRequest['params'],
-        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
-        options?: RequestOptions
-    ) {
+    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
         // Guard: required-task tools need experimental API
         if (this.isToolTaskRequired(params.name)) {
             throw new ProtocolError(
@@ -886,7 +881,7 @@ export class Client extends Protocol<ClientContext> {
             );
         }
 
-        const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
+        const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
@@ -1003,7 +998,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
+        const result = await this._requestWithSchema({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
         this.cacheToolMetadata(result.tools);
