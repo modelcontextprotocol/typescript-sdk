@@ -245,7 +245,7 @@ export class SSEClientTransport implements Transport {
             const GRACEFUL_CLOSE_TIMEOUT = 2000;
             await Promise.race([
                 Promise.allSettled(this._pendingRequests),
-                new Promise<void>((resolve) => setTimeout(resolve, GRACEFUL_CLOSE_TIMEOUT))
+                new Promise<void>(resolve => setTimeout(resolve, GRACEFUL_CLOSE_TIMEOUT))
             ]);
         }
         this._abortController?.abort();
