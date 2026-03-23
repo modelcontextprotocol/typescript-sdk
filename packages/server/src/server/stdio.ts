@@ -25,9 +25,9 @@ export class StdioServerTransport implements Transport {
         private _stdout: Writable = process.stdout
     ) {}
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     // Arrow functions to bind `this` properly, while maintaining function identity.
     _ondata = (chunk: Buffer) => {

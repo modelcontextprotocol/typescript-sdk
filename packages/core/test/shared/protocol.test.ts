@@ -54,9 +54,9 @@ interface TestProtocol {
 
 // Mock Transport class
 class MockTransport implements Transport {
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: unknown) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: unknown) => void) | undefined;
 
     async start(): Promise<void> {}
     async close(): Promise<void> {

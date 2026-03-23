@@ -76,9 +76,9 @@ export class SSEClientTransport implements Transport {
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     constructor(url: URL, opts?: SSEClientTransportOptions) {
         this._url = url;

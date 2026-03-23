@@ -149,9 +149,9 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
         this._url = url;

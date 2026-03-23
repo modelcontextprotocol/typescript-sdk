@@ -10,9 +10,9 @@ export class WebSocketClientTransport implements Transport {
     private _socket?: WebSocket;
     private _url: URL;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     constructor(url: URL) {
         this._url = url;

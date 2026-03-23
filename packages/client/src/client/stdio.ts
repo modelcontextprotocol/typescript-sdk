@@ -96,9 +96,9 @@ export class StdioClientTransport implements Transport {
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     constructor(server: StdioServerParameters) {
         this._serverParams = server;

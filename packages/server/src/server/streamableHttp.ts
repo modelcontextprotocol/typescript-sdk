@@ -240,10 +240,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
 
-    sessionId?: string;
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    sessionId?: string | undefined;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined;
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;

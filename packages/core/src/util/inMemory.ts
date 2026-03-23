@@ -14,10 +14,10 @@ export class InMemoryTransport implements Transport {
     private _otherTransport?: InMemoryTransport;
     private _messageQueue: QueuedMessage[] = [];
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
-    sessionId?: string;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void) | undefined;
+    sessionId?: string | undefined;
 
     /**
      * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a {@linkcode @modelcontextprotocol/client!client/client.Client | Client} and one to a {@linkcode @modelcontextprotocol/server!server/server.Server | Server}.
