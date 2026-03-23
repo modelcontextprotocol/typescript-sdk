@@ -1,11 +1,9 @@
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 import { describe, expect, it } from 'vitest';
 
 import { completable, getCompleter } from '../../src/server/completable.js';
 
-describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
+describe('completable with Zod v4', () => {
     it('preserves types and values of underlying schema', () => {
         const baseSchema = z.string();
         const schema = completable(baseSchema, () => []);

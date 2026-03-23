@@ -26,16 +26,26 @@ export function requireBearerAuth(
 ): (req: Request, res: Response, next: NextFunction) => Promise<void> {
     const { requiredScopes = [], resourceMetadataUrl, strictResource = false, expectedResource } = options;
 
+    // Build WWW-Authenticate header matching v1.x format
+    const buildWwwAuthHeader = (errorCode: string, message: string): string => {
+        let header = `Bearer error="${errorCode}", error_description="${message}"`;
+        if (requiredScopes.length > 0) {
+            header += `, scope="${requiredScopes.join(' ')}"`;
+        }
+        if (resourceMetadataUrl) {
+            header += `, resource_metadata="${resourceMetadataUrl.toString()}"`;
+        }
+        return header;
+    };
+
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            const wwwAuthenticate = resourceMetadataUrl ? `Bearer resource_metadata="${resourceMetadataUrl.toString()}"` : 'Bearer';
-
-            res.set('WWW-Authenticate', wwwAuthenticate);
+            res.set('WWW-Authenticate', buildWwwAuthHeader('invalid_token', 'Missing Authorization header'));
             res.status(401).json({
-                error: 'unauthorized',
-                error_description: 'Missing or invalid Authorization header'
+                error: 'invalid_token',
+                error_description: 'Missing Authorization header'
             });
             return;
         }
@@ -52,6 +62,7 @@ export function requireBearerAuth(
             if (requiredScopes.length > 0) {
                 const hasAllScopes = requiredScopes.every(scope => authInfo.scopes.includes(scope));
                 if (!hasAllScopes) {
+                    res.set('WWW-Authenticate', buildWwwAuthHeader('insufficient_scope', `Required scopes: ${requiredScopes.join(', ')}`));
                     res.status(403).json({
                         error: 'insufficient_scope',
                         error_description: `Required scopes: ${requiredScopes.join(', ')}`
@@ -63,14 +74,11 @@ export function requireBearerAuth(
             req.app.locals.auth = authInfo;
             next();
         } catch (error) {
-            const wwwAuthenticate = resourceMetadataUrl
-                ? `Bearer error="invalid_token", resource_metadata="${resourceMetadataUrl.toString()}"`
-                : 'Bearer error="invalid_token"';
-
-            res.set('WWW-Authenticate', wwwAuthenticate);
+            const message = error instanceof Error ? error.message : 'Invalid token';
+            res.set('WWW-Authenticate', buildWwwAuthHeader('invalid_token', message));
             res.status(401).json({
                 error: 'invalid_token',
-                error_description: error instanceof Error ? error.message : 'Invalid token'
+                error_description: message
             });
         }
     };

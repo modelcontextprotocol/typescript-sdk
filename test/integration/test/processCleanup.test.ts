@@ -2,13 +2,13 @@ import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
 import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
-import { LoggingMessageNotificationSchema, Server, StdioServerTransport } from '@modelcontextprotocol/server';
+import { Server, StdioServerTransport } from '@modelcontextprotocol/server';
 
 // Use the local fixtures directory alongside this test file
 const FIXTURES_DIR = path.resolve(__dirname, './__fixtures__');
 
 describe('Process cleanup', () => {
-    vi.setConfig({ testTimeout: 5000 }); // 5 second timeout
+    vi.setConfig({ testTimeout: 15_000 }); // 15 second timeout (needs margin for CI; close() alone can take ~4s for hanging servers)
 
     it('server should exit cleanly after closing transport', async () => {
         const server = new Server(
@@ -89,7 +89,7 @@ describe('Process cleanup', () => {
 
         await client.connect(transport);
         await client.setLoggingLevel('debug');
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             console.debug('server log: ' + notification.params.data);
         });
         const serverPid = transport.pid!;

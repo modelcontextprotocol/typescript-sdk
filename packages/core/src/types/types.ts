@@ -6,6 +6,17 @@ export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
+/* JSON types */
+export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
+export type JSONObject = { [key: string]: JSONValue };
+export type JSONArray = JSONValue[];
+
+export const JSONValueSchema: z.ZodType<JSONValue> = z.lazy(() =>
+    z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])
+);
+export const JSONObjectSchema: z.ZodType<JSONObject> = z.record(z.string(), JSONValueSchema);
+export const JSONArraySchema: z.ZodType<JSONArray> = z.array(JSONValueSchema);
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
 
@@ -51,12 +62,6 @@ export interface AuthInfo {
  */
 type ExpandRecursively<T> = T extends object ? (T extends infer O ? { [K in keyof O]: ExpandRecursively<O[K]> } : never) : T;
 /**
- * Assert 'object' type schema.
- *
- * @internal
- */
-const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (typeof v === 'object' || typeof v === 'function'));
-/**
  * A progress token, used to associate progress notifications with the original request.
  */
 export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
@@ -72,7 +77,7 @@ export const CursorSchema = z.string();
 export const TaskCreationParamsSchema = z.looseObject({
     /**
      * Time in milliseconds to keep task results available after completion.
-     * If null, the task has unlimited lifetime until manually cleaned up.
+     * If `null`, the task has unlimited lifetime until manually cleaned up.
      */
     ttl: z.union([z.number(), z.null()]).optional(),
 
@@ -121,8 +126,8 @@ const BaseRequestParamsSchema = z.object({
 export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * If specified, the caller is requesting task-augmented execution for this request.
-     * The request will return a CreateTaskResult immediately, and the actual result can be
-     * retrieved later via tasks/result.
+     * The request will return a {@linkcode CreateTaskResult} immediately, and the actual result can be
+     * retrieved later via {@linkcode GetTaskPayloadRequest | tasks/result}.
      *
      * Task augmentation is subject to capability negotiation - receivers MUST declare support
      * for task augmentation of specific request types in their capabilities.
@@ -131,10 +136,10 @@ export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
 });
 
 /**
- * Checks if a value is a valid TaskAugmentedRequestParams.
+ * Checks if a value is a valid {@linkcode TaskAugmentedRequestParams}.
  * @param value - The value to check.
  *
- * @returns True if the value is a valid TaskAugmentedRequestParams, false otherwise.
+ * @returns True if the value is a valid {@linkcode TaskAugmentedRequestParams}, false otherwise.
  */
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;
@@ -147,7 +152,7 @@ export const RequestSchema = z.object({
 const NotificationsParamsSchema = z.object({
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: RequestMetaSchema.optional()
 });
@@ -160,7 +165,7 @@ export const NotificationSchema = z.object({
 export const ResultSchema = z.looseObject({
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: RequestMetaSchema.optional()
 });
@@ -207,22 +212,19 @@ export const JSONRPCResultResponseSchema = z
     .strict();
 
 /**
- * Checks if a value is a valid JSONRPCResultResponse.
+ * Checks if a value is a valid {@linkcode JSONRPCResultResponse}.
  * @param value - The value to check.
  *
- * @returns True if the value is a valid JSONRPCResultResponse, false otherwise.
+ * @returns True if the value is a valid {@linkcode JSONRPCResultResponse}, false otherwise.
  */
 export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultResponse =>
     JSONRPCResultResponseSchema.safeParse(value).success;
 
 /**
- * Error codes defined by the JSON-RPC specification.
+ * Error codes for protocol errors that cross the wire as JSON-RPC error responses.
+ * These follow the JSON-RPC specification and MCP-specific extensions.
  */
-export enum ErrorCode {
-    // SDK error codes
-    ConnectionClosed = -32_000,
-    RequestTimeout = -32_001,
-
+export enum ProtocolErrorCode {
     // Standard JSON-RPC error codes
     ParseError = -32_700,
     InvalidRequest = -32_600,
@@ -231,7 +233,33 @@ export enum ErrorCode {
     InternalError = -32_603,
 
     // MCP-specific error codes
+    ResourceNotFound = -32_002,
     UrlElicitationRequired = -32_042
+}
+
+/* Standard JSON-RPC error code constants */
+export const PARSE_ERROR = -32_700;
+export const INVALID_REQUEST = -32_600;
+export const METHOD_NOT_FOUND = -32_601;
+export const INVALID_PARAMS = -32_602;
+export const INTERNAL_ERROR = -32_603;
+
+type JSONRPCErrorObject = { code: number; message: string; data?: unknown };
+
+export interface ParseError extends JSONRPCErrorObject {
+    code: typeof PARSE_ERROR;
+}
+export interface InvalidRequestError extends JSONRPCErrorObject {
+    code: typeof INVALID_REQUEST;
+}
+export interface MethodNotFoundError extends JSONRPCErrorObject {
+    code: typeof METHOD_NOT_FOUND;
+}
+export interface InvalidParamsError extends JSONRPCErrorObject {
+    code: typeof INVALID_PARAMS;
+}
+export interface InternalError extends JSONRPCErrorObject {
+    code: typeof INTERNAL_ERROR;
 }
 
 /**
@@ -259,10 +287,10 @@ export const JSONRPCErrorResponseSchema = z
     .strict();
 
 /**
- * Checks if a value is a valid JSONRPCErrorResponse.
+ * Checks if a value is a valid {@linkcode JSONRPCErrorResponse}.
  * @param value - The value to check.
  *
- * @returns True if the value is a valid JSONRPCErrorResponse, false otherwise.
+ * @returns True if the value is a valid {@linkcode JSONRPCErrorResponse}, false otherwise.
  */
 export const isJSONRPCErrorResponse = (value: unknown): value is JSONRPCErrorResponse =>
     JSONRPCErrorResponseSchema.safeParse(value).success;
@@ -302,7 +330,7 @@ export const CancelledNotificationParamsSchema = NotificationsParamsSchema.exten
  *
  * This notification indicates that the result will be unused, so any associated processing SHOULD cease.
  *
- * A client MUST NOT attempt to cancel its `initialize` request.
+ * A client MUST NOT attempt to cancel its {@linkcode InitializeRequest | initialize} request.
  */
 export const CancelledNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/cancelled'),
@@ -311,7 +339,7 @@ export const CancelledNotificationSchema = NotificationSchema.extend({
 
 /* Base Metadata */
 /**
- * Icon schema for use in tools, prompts, resources, and implementations.
+ * Icon schema for use in {@link Tool | tools}, {@link Prompt | prompts}, {@link Resource | resources}, and {@link Implementation | implementations}.
  */
 export const IconSchema = z.object({
     /**
@@ -359,7 +387,7 @@ export const IconsSchema = z.object({
 });
 
 /**
- * Base metadata interface for common properties across resources, tools, prompts, and implementations.
+ * Base metadata interface for common properties across {@link Resource | resources}, {@link Tool | tools}, {@link Prompt | prompts}, and {@link Implementation | implementations}.
  */
 export const BaseMetadataSchema = z.object({
     /** Intended for programmatic or logical use, but used as a display name in past specs or fallback */
@@ -368,7 +396,7 @@ export const BaseMetadataSchema = z.object({
      * Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
      * even by those unfamiliar with domain-specific terminology.
      *
-     * If not provided, the name should be used for display (except for Tool,
+     * If not provided, the `name` should be used for display (except for {@linkcode Tool},
      * where `annotations.title` should be given precedence over using `name`,
      * if present).
      */
@@ -402,7 +430,7 @@ const FormElicitationCapabilitySchema = z.intersection(
     z.object({
         applyDefaults: z.boolean().optional()
     }),
-    z.record(z.string(), z.unknown())
+    JSONObjectSchema
 );
 
 const ElicitationCapabilitySchema = z.preprocess(
@@ -415,9 +443,9 @@ const ElicitationCapabilitySchema = z.preprocess(
     z.intersection(
         z.object({
             form: FormElicitationCapabilitySchema.optional(),
-            url: AssertObjectSchema.optional()
+            url: JSONObjectSchema.optional()
         }),
-        z.record(z.string(), z.unknown()).optional()
+        JSONObjectSchema.optional()
     )
 );
 
@@ -428,11 +456,11 @@ export const ClientTasksCapabilitySchema = z.looseObject({
     /**
      * Present if the client supports listing tasks.
      */
-    list: AssertObjectSchema.optional(),
+    list: JSONObjectSchema.optional(),
     /**
      * Present if the client supports cancelling tasks.
      */
-    cancel: AssertObjectSchema.optional(),
+    cancel: JSONObjectSchema.optional(),
     /**
      * Capabilities for task creation on specific request types.
      */
@@ -443,7 +471,7 @@ export const ClientTasksCapabilitySchema = z.looseObject({
              */
             sampling: z
                 .looseObject({
-                    createMessage: AssertObjectSchema.optional()
+                    createMessage: JSONObjectSchema.optional()
                 })
                 .optional(),
             /**
@@ -451,7 +479,7 @@ export const ClientTasksCapabilitySchema = z.looseObject({
              */
             elicitation: z
                 .looseObject({
-                    create: AssertObjectSchema.optional()
+                    create: JSONObjectSchema.optional()
                 })
                 .optional()
         })
@@ -465,11 +493,11 @@ export const ServerTasksCapabilitySchema = z.looseObject({
     /**
      * Present if the server supports listing tasks.
      */
-    list: AssertObjectSchema.optional(),
+    list: JSONObjectSchema.optional(),
     /**
      * Present if the server supports cancelling tasks.
      */
-    cancel: AssertObjectSchema.optional(),
+    cancel: JSONObjectSchema.optional(),
     /**
      * Capabilities for task creation on specific request types.
      */
@@ -480,7 +508,7 @@ export const ServerTasksCapabilitySchema = z.looseObject({
              */
             tools: z
                 .looseObject({
-                    call: AssertObjectSchema.optional()
+                    call: JSONObjectSchema.optional()
                 })
                 .optional()
         })
@@ -494,21 +522,21 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Experimental, non-standard capabilities that the client supports.
      */
-    experimental: z.record(z.string(), AssertObjectSchema).optional(),
+    experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the client supports sampling from an LLM.
      */
     sampling: z
         .object({
             /**
-             * Present if the client supports context inclusion via includeContext parameter.
+             * Present if the client supports context inclusion via `includeContext` parameter.
              * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
              */
-            context: AssertObjectSchema.optional(),
+            context: JSONObjectSchema.optional(),
             /**
-             * Present if the client supports tool use via tools and toolChoice parameters.
+             * Present if the client supports tool use via `tools` and `toolChoice` parameters.
              */
-            tools: AssertObjectSchema.optional()
+            tools: JSONObjectSchema.optional()
         })
         .optional(),
     /**
@@ -557,15 +585,15 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Experimental, non-standard capabilities that the server supports.
      */
-    experimental: z.record(z.string(), AssertObjectSchema).optional(),
+    experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the server supports sending log messages to the client.
      */
-    logging: AssertObjectSchema.optional(),
+    logging: JSONObjectSchema.optional(),
     /**
      * Present if the server supports sending completions to the client.
      */
-    completions: AssertObjectSchema.optional(),
+    completions: JSONObjectSchema.optional(),
     /**
      * Present if the server offers any prompt templates.
      */
@@ -717,7 +745,7 @@ export const TaskSchema = z.object({
     status: TaskStatusSchema,
     /**
      * Time in milliseconds to keep task results available after completion.
-     * If null, the task has unlimited lifetime until manually cleaned up.
+     * If `null`, the task has unlimited lifetime until manually cleaned up.
      */
     ttl: z.union([z.number(), z.null()]),
     /**
@@ -736,7 +764,7 @@ export const TaskSchema = z.object({
 });
 
 /**
- * Result returned when a task is created, containing the task data wrapped in a task field.
+ * Result returned when a task is created, containing the task data wrapped in a `task` field.
  */
 export const CreateTaskResultSchema = ResultSchema.extend({
     task: TaskSchema
@@ -766,7 +794,7 @@ export const GetTaskRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The response to a tasks/get request.
+ * The response to a {@linkcode GetTaskRequest | tasks/get} request.
  */
 export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
 
@@ -781,9 +809,9 @@ export const GetTaskPayloadRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The response to a tasks/result request.
+ * The response to a {@linkcode GetTaskPayloadRequest | tasks/result} request.
  * The structure matches the result type of the original request.
- * For example, a tools/call task would return the CallToolResult structure.
+ * For example, a {@linkcode CallToolRequest | tools/call} task would return the {@linkcode CallToolResult} structure.
  *
  */
 export const GetTaskPayloadResultSchema = ResultSchema.loose();
@@ -796,7 +824,7 @@ export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
 });
 
 /**
- * The response to a tasks/list request.
+ * The response to a {@linkcode ListTasksRequest | tasks/list} request.
  */
 export const ListTasksResultSchema = PaginatedResultSchema.extend({
     tasks: z.array(TaskSchema)
@@ -813,7 +841,7 @@ export const CancelTaskRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The response to a tasks/cancel request.
+ * The response to a {@linkcode CancelTaskRequest | tasks/cancel} request.
  */
 export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
@@ -832,7 +860,7 @@ export const ResourceContentsSchema = z.object({
     mimeType: z.optional(z.string()),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -925,7 +953,7 @@ export const ResourceSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.optional(z.looseObject({}))
 });
@@ -960,7 +988,7 @@ export const ResourceTemplateSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.optional(z.looseObject({}))
 });
@@ -973,7 +1001,7 @@ export const ListResourcesRequestSchema = PaginatedRequestSchema.extend({
 });
 
 /**
- * The server's response to a resources/list request from the client.
+ * The server's response to a {@linkcode ListResourcesRequest | resources/list} request from the client.
  */
 export const ListResourcesResultSchema = PaginatedResultSchema.extend({
     resources: z.array(ResourceSchema)
@@ -987,7 +1015,7 @@ export const ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend(
 });
 
 /**
- * The server's response to a resources/templates/list request from the client.
+ * The server's response to a {@linkcode ListResourceTemplatesRequest | resources/templates/list} request from the client.
  */
 export const ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
     resourceTemplates: z.array(ResourceTemplateSchema)
@@ -1003,7 +1031,7 @@ export const ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
 });
 
 /**
- * Parameters for a `resources/read` request.
+ * Parameters for a {@linkcode ReadResourceRequest | resources/read} request.
  */
 export const ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
 
@@ -1016,7 +1044,7 @@ export const ReadResourceRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The server's response to a resources/read request from the client.
+ * The server's response to a {@linkcode ReadResourceRequest | resources/read} request from the client.
  */
 export const ReadResourceResultSchema = ResultSchema.extend({
     contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
@@ -1032,7 +1060,7 @@ export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
 
 export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 /**
- * Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
+ * Sent from the client to request `resources/updated` notifications from the server whenever a particular resource changes.
  */
 export const SubscribeRequestSchema = RequestSchema.extend({
     method: z.literal('resources/subscribe'),
@@ -1041,7 +1069,7 @@ export const SubscribeRequestSchema = RequestSchema.extend({
 
 export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 /**
- * Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
+ * Sent from the client to request cancellation of {@linkcode ResourceUpdatedNotification | resources/updated} notifications from the server. This should follow a previous {@linkcode SubscribeRequest | resources/subscribe} request.
  */
 export const UnsubscribeRequestSchema = RequestSchema.extend({
     method: z.literal('resources/unsubscribe'),
@@ -1049,7 +1077,7 @@ export const UnsubscribeRequestSchema = RequestSchema.extend({
 });
 
 /**
- * Parameters for a `notifications/resources/updated` notification.
+ * Parameters for a {@linkcode ResourceUpdatedNotification | notifications/resources/updated} notification.
  */
 export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
@@ -1059,7 +1087,7 @@ export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema
 });
 
 /**
- * A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
+ * A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a {@linkcode SubscribeRequest | resources/subscribe} request.
  */
 export const ResourceUpdatedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/resources/updated'),
@@ -1101,7 +1129,7 @@ export const PromptSchema = z.object({
     arguments: z.optional(z.array(PromptArgumentSchema)),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.optional(z.looseObject({}))
 });
@@ -1114,14 +1142,14 @@ export const ListPromptsRequestSchema = PaginatedRequestSchema.extend({
 });
 
 /**
- * The server's response to a prompts/list request from the client.
+ * The server's response to a {@linkcode ListPromptsRequest | prompts/list} request from the client.
  */
 export const ListPromptsResultSchema = PaginatedResultSchema.extend({
     prompts: z.array(PromptSchema)
 });
 
 /**
- * Parameters for a `prompts/get` request.
+ * Parameters for a {@linkcode GetPromptRequest | prompts/get} request.
  */
 export const GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -1158,7 +1186,7 @@ export const TextContentSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -1184,13 +1212,13 @@ export const ImageContentSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
 
 /**
- * An Audio provided to or from an LLM.
+ * Audio content provided to or from an LLM.
  */
 export const AudioContentSchema = z.object({
     type: z.literal('audio'),
@@ -1210,7 +1238,7 @@ export const AudioContentSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -1228,17 +1256,17 @@ export const ToolUseContentSchema = z.object({
     name: z.string(),
     /**
      * Unique identifier for this tool call.
-     * Used to correlate with ToolResultContent in subsequent messages.
+     * Used to correlate with {@linkcode ToolResultContent} in subsequent messages.
      */
     id: z.string(),
     /**
      * Arguments to pass to the tool.
-     * Must conform to the tool's inputSchema.
+     * Must conform to the tool's `inputSchema`.
      */
     input: z.record(z.string(), z.unknown()),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -1255,7 +1283,7 @@ export const EmbeddedResourceSchema = z.object({
     annotations: AnnotationsSchema.optional(),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -1263,7 +1291,7 @@ export const EmbeddedResourceSchema = z.object({
 /**
  * A resource that the server is capable of reading, included in a prompt or tool call result.
  *
- * Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
+ * Note: resource links returned by tools are not guaranteed to appear in the results of {@linkcode ListResourcesRequest | resources/list} requests.
  */
 export const ResourceLinkSchema = ResourceSchema.extend({
     type: z.literal('resource_link')
@@ -1289,7 +1317,7 @@ export const PromptMessageSchema = z.object({
 });
 
 /**
- * The server's response to a prompts/get request from the client.
+ * The server's response to a {@linkcode GetPromptRequest | prompts/get} request from the client.
  */
 export const GetPromptResultSchema = ResultSchema.extend({
     /**
@@ -1309,13 +1337,13 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
 
 /* Tools */
 /**
- * Additional properties describing a Tool to clients.
+ * Additional properties describing a {@linkcode Tool} to clients.
  *
- * NOTE: all properties in ToolAnnotations are **hints**.
+ * NOTE: all properties in {@linkcode ToolAnnotations} are **hints**.
  * They are not guaranteed to provide a faithful description of
  * tool behavior (including descriptive properties like `title`).
  *
- * Clients should never make tool use decisions based on ToolAnnotations
+ * Clients should never make tool use decisions based on {@linkcode ToolAnnotations}
  * received from untrusted servers.
  */
 export const ToolAnnotationsSchema = z.object({
@@ -1325,39 +1353,39 @@ export const ToolAnnotationsSchema = z.object({
     title: z.string().optional(),
 
     /**
-     * If true, the tool does not modify its environment.
+     * If `true`, the tool does not modify its environment.
      *
-     * Default: false
+     * Default: `false`
      */
     readOnlyHint: z.boolean().optional(),
 
     /**
-     * If true, the tool may perform destructive updates to its environment.
-     * If false, the tool performs only additive updates.
+     * If `true`, the tool may perform destructive updates to its environment.
+     * If `false`, the tool performs only additive updates.
      *
      * (This property is meaningful only when `readOnlyHint == false`)
      *
-     * Default: true
+     * Default: `true`
      */
     destructiveHint: z.boolean().optional(),
 
     /**
-     * If true, calling the tool repeatedly with the same arguments
-     * will have no additional effect on the its environment.
+     * If `true`, calling the tool repeatedly with the same arguments
+     * will have no additional effect on its environment.
      *
      * (This property is meaningful only when `readOnlyHint == false`)
      *
-     * Default: false
+     * Default: `false`
      */
     idempotentHint: z.boolean().optional(),
 
     /**
-     * If true, this tool may interact with an "open world" of external
-     * entities. If false, the tool's domain of interaction is closed.
+     * If `true`, this tool may interact with an "open world" of external
+     * entities. If `false`, the tool's domain of interaction is closed.
      * For example, the world of a web search tool is open, whereas that
      * of a memory tool is not.
      *
-     * Default: true
+     * Default: `true`
      */
     openWorldHint: z.boolean().optional()
 });
@@ -1368,11 +1396,11 @@ export const ToolAnnotationsSchema = z.object({
 export const ToolExecutionSchema = z.object({
     /**
      * Indicates the tool's preference for task-augmented execution.
-     * - "required": Clients MUST invoke the tool as a task
-     * - "optional": Clients MAY invoke the tool as a task or normal request
-     * - "forbidden": Clients MUST NOT attempt to invoke the tool as a task
+     * - `"required"`: Clients MUST invoke the tool as a task
+     * - `"optional"`: Clients MAY invoke the tool as a task or normal request
+     * - `"forbidden"`: Clients MUST NOT attempt to invoke the tool as a task
      *
-     * If not present, defaults to "forbidden".
+     * If not present, defaults to `"forbidden"`.
      */
     taskSupport: z.enum(['required', 'optional', 'forbidden']).optional()
 });
@@ -1389,24 +1417,24 @@ export const ToolSchema = z.object({
     description: z.string().optional(),
     /**
      * A JSON Schema 2020-12 object defining the expected parameters for the tool.
-     * Must have type: 'object' at the root level per MCP spec.
+     * Must have `type: 'object'` at the root level per MCP spec.
      */
     inputSchema: z
         .object({
             type: z.literal('object'),
-            properties: z.record(z.string(), AssertObjectSchema).optional(),
+            properties: z.record(z.string(), JSONValueSchema).optional(),
             required: z.array(z.string()).optional()
         })
         .catchall(z.unknown()),
     /**
      * An optional JSON Schema 2020-12 object defining the structure of the tool's output
-     * returned in the structuredContent field of a CallToolResult.
-     * Must have type: 'object' at the root level per MCP spec.
+     * returned in the `structuredContent` field of a {@linkcode CallToolResult}.
+     * Must have `type: 'object'` at the root level per MCP spec.
      */
     outputSchema: z
         .object({
             type: z.literal('object'),
-            properties: z.record(z.string(), AssertObjectSchema).optional(),
+            properties: z.record(z.string(), JSONValueSchema).optional(),
             required: z.array(z.string()).optional()
         })
         .catchall(z.unknown())
@@ -1422,7 +1450,7 @@ export const ToolSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -1435,7 +1463,7 @@ export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
 });
 
 /**
- * The server's response to a tools/list request from the client.
+ * The server's response to a {@linkcode ListToolsRequest | tools/list} request from the client.
  */
 export const ListToolsResultSchema = PaginatedResultSchema.extend({
     tools: z.array(ToolSchema)
@@ -1448,7 +1476,7 @@ export const CallToolResultSchema = ResultSchema.extend({
     /**
      * A list of content objects that represent the result of the tool call.
      *
-     * If the Tool does not define an outputSchema, this field MUST be present in the result.
+     * If the {@linkcode Tool} does not define an outputSchema, this field MUST be present in the result.
      * For backwards compatibility, this field is always present, but it may be empty.
      */
     content: z.array(ContentBlockSchema).default([]),
@@ -1456,17 +1484,17 @@ export const CallToolResultSchema = ResultSchema.extend({
     /**
      * An object containing structured tool output.
      *
-     * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+     * If the {@linkcode Tool} defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
      */
     structuredContent: z.record(z.string(), z.unknown()).optional(),
 
     /**
      * Whether the tool call ended in an error.
      *
-     * If not set, this is assumed to be false (the call was successful).
+     * If not set, this is assumed to be `false` (the call was successful).
      *
      * Any errors that originate from the tool SHOULD be reported inside the result
-     * object, with `isError` set to true, _not_ as an MCP protocol-level error
+     * object, with `isError` set to `true`, _not_ as an MCP protocol-level error
      * response. Otherwise, the LLM would not be able to see that an error occurred
      * and self-correct.
      *
@@ -1478,7 +1506,7 @@ export const CallToolResultSchema = ResultSchema.extend({
 });
 
 /**
- * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
+ * {@linkcode CallToolResultSchema} extended with backwards compatibility to protocol version 2024-10-07.
  */
 export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
     ResultSchema.extend({
@@ -1523,14 +1551,14 @@ export type ListChangedCallback<T> = (error: Error | null, items: T[] | null) =>
 
 /**
  * Base schema for list changed subscription options (without callback).
- * Used internally for Zod validation of autoRefresh and debounceMs.
+ * Used internally for Zod validation of `autoRefresh` and `debounceMs`.
  */
 export const ListChangedOptionsBaseSchema = z.object({
     /**
-     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * If `true`, the list will be refreshed automatically when a list changed notification is received.
      * The callback will be called with the updated list.
      *
-     * If false, the callback will be called with null items, allowing manual refresh.
+     * If `false`, the callback will be called with `null` items, allowing manual refresh.
      *
      * @default true
      */
@@ -1539,7 +1567,7 @@ export const ListChangedOptionsBaseSchema = z.object({
      * Debounce time in milliseconds for list changed notification processing.
      *
      * Multiple notifications received within this timeframe will only trigger one refresh.
-     * Set to 0 to disable debouncing.
+     * Set to `0` to disable debouncing.
      *
      * @default 300
      */
@@ -1549,24 +1577,24 @@ export const ListChangedOptionsBaseSchema = z.object({
 /**
  * Options for subscribing to list changed notifications.
  *
- * @typeParam T - The type of items in the list (Tool, Prompt, or Resource)
+ * @typeParam T - The type of items in the list ({@linkcode Tool}, {@linkcode Prompt}, or {@linkcode Resource})
  */
 export type ListChangedOptions<T> = {
     /**
-     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * If `true`, the list will be refreshed automatically when a list changed notification is received.
      * @default true
      */
     autoRefresh?: boolean;
     /**
-     * Debounce time in milliseconds. Set to 0 to disable.
+     * Debounce time in milliseconds. Set to `0` to disable.
      * @default 300
      */
     debounceMs?: number;
     /**
      * Callback invoked when the list changes.
      *
-     * If autoRefresh is true, items contains the updated list.
-     * If autoRefresh is false, items is null (caller should refresh manually).
+     * If `autoRefresh` is `true`, `items` contains the updated list.
+     * If `autoRefresh` is `false`, `items` is `null` (caller should refresh manually).
      */
     onChanged: ListChangedCallback<T>;
 };
@@ -1607,7 +1635,7 @@ export const LoggingLevelSchema = z.enum(['debug', 'info', 'notice', 'warning', 
  */
 export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
-     * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
+     * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as `notifications/logging/message`.
      */
     level: LoggingLevelSchema
 });
@@ -1637,7 +1665,7 @@ export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.
     data: z.unknown()
 });
 /**
- * Notification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
+ * Notification of a log message passed from server to client. If no `logging/setLevel` request has been sent from the client, the server MAY decide which messages to send automatically.
  */
 export const LoggingMessageNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/message'),
@@ -1683,16 +1711,16 @@ export const ModelPreferencesSchema = z.object({
 export const ToolChoiceSchema = z.object({
     /**
      * Controls when tools are used:
-     * - "auto": Model decides whether to use tools (default)
-     * - "required": Model MUST use at least one tool before completing
-     * - "none": Model MUST NOT use any tools
+     * - `"auto"`: Model decides whether to use tools (default)
+     * - `"required"`: Model MUST use at least one tool before completing
+     * - `"none"`: Model MUST NOT use any tools
      */
     mode: z.enum(['auto', 'required', 'none']).optional()
 });
 
 /**
  * The result of a tool execution, provided by the user (server).
- * Represents the outcome of invoking a tool requested via ToolUseContent.
+ * Represents the outcome of invoking a tool requested via {@linkcode ToolUseContent}.
  */
 export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
@@ -1703,14 +1731,14 @@ export const ToolResultContentSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
 
 /**
  * Basic content types for sampling responses (without tool use).
- * Used for backwards-compatible CreateMessageResult when tools are not used.
+ * Used for backwards-compatible {@linkcode CreateMessageResult} when tools are not used.
  */
 export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 
@@ -1734,7 +1762,7 @@ export const SamplingMessageSchema = z.object({
     content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -1756,8 +1784,8 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
      * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
      * The client MAY ignore this request.
      *
-     * Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
-     * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
+     * Default is `"none"`. Values `"thisServer"` and `"allServers"` are soft-deprecated. Servers SHOULD only use these values if the client
+     * declares {@linkcode ClientCapabilities}.`sampling.context`. These values may be removed in future spec releases.
      */
     includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
     temperature: z.number().optional(),
@@ -1771,15 +1799,15 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
     /**
      * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
      */
-    metadata: AssertObjectSchema.optional(),
+    metadata: JSONObjectSchema.optional(),
     /**
      * Tools that the model may use during generation.
-     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+     * The client MUST return an error if this field is provided but {@linkcode ClientCapabilities}.`sampling.tools` is not declared.
      */
     tools: z.array(ToolSchema).optional(),
     /**
      * Controls how the model uses tools.
-     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+     * The client MUST return an error if this field is provided but {@linkcode ClientCapabilities}.`sampling.tools` is not declared.
      * Default is `{ mode: "auto" }`.
      */
     toolChoice: ToolChoiceSchema.optional()
@@ -1793,7 +1821,7 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The client's response to a sampling/create_message request from the server.
+ * The client's response to a `sampling/create_message` request from the server.
  * This is the backwards-compatible version that returns single content (no arrays).
  * Used when the request does not include tools.
  */
@@ -1806,9 +1834,9 @@ export const CreateMessageResultSchema = ResultSchema.extend({
      * The reason why sampling stopped, if known.
      *
      * Standard values:
-     * - "endTurn": Natural end of the assistant's turn
-     * - "stopSequence": A stop sequence was encountered
-     * - "maxTokens": Maximum token limit was reached
+     * - `"endTurn"`: Natural end of the assistant's turn
+     * - `"stopSequence"`: A stop sequence was encountered
+     * - `"maxTokens"`: Maximum token limit was reached
      *
      * This field is an open string to allow for provider-specific stop reasons.
      */
@@ -1821,7 +1849,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
 });
 
 /**
- * The client's response to a sampling/create_message request when tools were provided.
+ * The client's response to a `sampling/create_message` request when tools were provided.
  * This version supports array content for tool use flows.
  */
 export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
@@ -1833,17 +1861,17 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
      * The reason why sampling stopped, if known.
      *
      * Standard values:
-     * - "endTurn": Natural end of the assistant's turn
-     * - "stopSequence": A stop sequence was encountered
-     * - "maxTokens": Maximum token limit was reached
-     * - "toolUse": The model wants to use one or more tools
+     * - `"endTurn"`: Natural end of the assistant's turn
+     * - `"stopSequence"`: A stop sequence was encountered
+     * - `"maxTokens"`: Maximum token limit was reached
+     * - `"toolUse"`: The model wants to use one or more tools
      *
      * This field is an open string to allow for provider-specific stop reasons.
      */
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
     role: RoleSchema,
     /**
-     * Response content. May be a single block or array. May include ToolUseContent if stopReason is "toolUse".
+     * Response content. May be a single block or array. May include {@linkcode ToolUseContent} if `stopReason` is `"toolUse"`.
      */
     content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)])
 });
@@ -1912,7 +1940,7 @@ export const TitledSingleSelectEnumSchemaSchema = z.object({
 });
 
 /**
- * Use TitledSingleSelectEnumSchema instead.
+ * Use {@linkcode TitledSingleSelectEnumSchema} instead.
  * This interface will be removed in a future version.
  */
 export const LegacyTitledEnumSchemaSchema = z.object({
@@ -1985,7 +2013,7 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
     /**
      * The elicitation mode.
      *
-     * Optional for backward compatibility. Clients MUST treat missing mode as "form".
+     * Optional for backward compatibility. Clients MUST treat missing `mode` as `"form"`.
      */
     mode: z.literal('form').optional(),
     /**
@@ -2004,7 +2032,7 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
 });
 
 /**
- * Parameters for an `elicitation/create` request for URL-based elicitation.
+ * Parameters for an {@linkcode ElicitRequest | elicitation/create} request for URL-based elicitation.
  */
 export const ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.extend({
     /**
@@ -2042,7 +2070,7 @@ export const ElicitRequestSchema = RequestSchema.extend({
 });
 
 /**
- * Parameters for a `notifications/elicitation/complete` notification.
+ * Parameters for a {@linkcode ElicitationCompleteNotification | notifications/elicitation/complete} notification.
  *
  * @category notifications/elicitation/complete
  */
@@ -2064,21 +2092,21 @@ export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
 });
 
 /**
- * The client's response to an elicitation/create request from the server.
+ * The client's response to an {@linkcode ElicitRequest | elicitation/create} request from the server.
  */
 export const ElicitResultSchema = ResultSchema.extend({
     /**
      * The user action in response to the elicitation.
-     * - "accept": User submitted the form/confirmed the action
-     * - "decline": User explicitly decline the action
-     * - "cancel": User dismissed without making an explicit choice
+     * - `"accept"`: User submitted the form/confirmed the action
+     * - `"decline"`: User explicitly declined the action
+     * - `"cancel"`: User dismissed without making an explicit choice
      */
     action: z.enum(['accept', 'decline', 'cancel']),
     /**
-     * The submitted form data, only present when action is "accept".
+     * The submitted form data, only present when action is `"accept"`.
      * Contains values matching the requested schema.
      * Per MCP spec, content is "typically omitted" for decline/cancel actions.
-     * We normalize null to undefined for leniency while maintaining type compatibility.
+     * We normalize `null` to `undefined` for leniency while maintaining type compatibility.
      */
     content: z.preprocess(
         val => (val === null ? undefined : val),
@@ -2110,7 +2138,7 @@ export const PromptReferenceSchema = z.object({
 });
 
 /**
- * Parameters for a `completion/complete` request.
+ * Parameters for a {@linkcode CompleteRequest | completion/complete} request.
  */
 export const CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
     ref: z.union([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
@@ -2159,7 +2187,7 @@ export function assertCompleteRequestResourceTemplate(request: CompleteRequest):
 }
 
 /**
- * The server's response to a completion/complete request
+ * The server's response to a {@linkcode CompleteRequest | completion/complete} request
  */
 export const CompleteResultSchema = ResultSchema.extend({
     completion: z.looseObject({
@@ -2184,7 +2212,7 @@ export const CompleteResultSchema = ResultSchema.extend({
  */
 export const RootSchema = z.object({
     /**
-     * The URI identifying the root. This *must* start with file:// for now.
+     * The URI identifying the root. This *must* start with `file://` for now.
      */
     uri: z.string().startsWith('file://'),
     /**
@@ -2194,7 +2222,7 @@ export const RootSchema = z.object({
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
+     * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
 });
@@ -2208,7 +2236,7 @@ export const ListRootsRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The client's response to a roots/list request from the server.
+ * The client's response to a `roots/list` request from the server.
  */
 export const ListRootsResultSchema = ResultSchema.extend({
     roots: z.array(RootSchema)
@@ -2302,30 +2330,34 @@ export const ServerResultSchema = z.union([
     CreateTaskResultSchema
 ]);
 
-export class McpError extends Error {
+/**
+ * Protocol errors are JSON-RPC errors that cross the wire as error responses.
+ * They use numeric error codes from the {@linkcode ProtocolErrorCode} enum.
+ */
+export class ProtocolError extends Error {
     constructor(
         public readonly code: number,
         message: string,
         public readonly data?: unknown
     ) {
-        super(`MCP error ${code}: ${message}`);
-        this.name = 'McpError';
+        super(message);
+        this.name = 'ProtocolError';
     }
 
     /**
      * Factory method to create the appropriate error type based on the error code and data
      */
-    static fromError(code: number, message: string, data?: unknown): McpError {
+    static fromError(code: number, message: string, data?: unknown): ProtocolError {
         // Check for specific error types
-        if (code === ErrorCode.UrlElicitationRequired && data) {
+        if (code === ProtocolErrorCode.UrlElicitationRequired && data) {
             const errorData = data as { elicitations?: unknown[] };
             if (errorData.elicitations) {
                 return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], message);
             }
         }
 
-        // Default to generic McpError
-        return new McpError(code, message, data);
+        // Default to generic ProtocolError
+        return new ProtocolError(code, message, data);
     }
 }
 
@@ -2333,9 +2365,9 @@ export class McpError extends Error {
  * Specialized error type when a tool requires a URL mode elicitation.
  * This makes it nicer for the client to handle since there is specific data to work with instead of just a code to check against.
  */
-export class UrlElicitationRequiredError extends McpError {
+export class UrlElicitationRequiredError extends ProtocolError {
     constructor(elicitations: ElicitRequestURLParams[], message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`) {
-        super(ErrorCode.UrlElicitationRequired, message, {
+        super(ProtocolErrorCode.UrlElicitationRequired, message, {
             elicitations: elicitations
         });
     }
@@ -2386,13 +2418,13 @@ export interface MessageExtraInfo {
 
     /**
      * Callback to close the SSE stream for this request, triggering client reconnection.
-     * Only available when using NodeStreamableHTTPServerTransport with eventStore configured.
+     * Only available when using {@linkcode @modelcontextprotocol/node!streamableHttp.NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} with eventStore configured.
      */
     closeSSEStream?: () => void;
 
     /**
      * Callback to close the standalone GET SSE stream, triggering client reconnection.
-     * Only available when using NodeStreamableHTTPServerTransport with eventStore configured.
+     * Only available when using {@linkcode @modelcontextprotocol/node!streamableHttp.NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} with eventStore configured.
      */
     closeStandaloneSSEStream?: () => void;
 }
@@ -2403,6 +2435,8 @@ export type Cursor = Infer<typeof CursorSchema>;
 export type Request = Infer<typeof RequestSchema>;
 export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
 export type RequestMeta = Infer<typeof RequestMetaSchema>;
+export type MetaObject = Record<string, unknown>;
+export type RequestMetaObject = RequestMeta;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
 export type RequestId = Infer<typeof RequestIdSchema>;
@@ -2544,13 +2578,13 @@ export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
 export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
 
 /**
- * CreateMessageRequestParams without tools - for backwards-compatible overload.
+ * {@linkcode CreateMessageRequestParams} without tools - for backwards-compatible overload.
  * Excludes tools/toolChoice to indicate they should not be provided.
  */
 export type CreateMessageRequestParamsBase = Omit<CreateMessageRequestParams, 'tools' | 'toolChoice'>;
 
 /**
- * CreateMessageRequestParams with required tools - for tool-enabled overload.
+ * {@linkcode CreateMessageRequestParams} with required tools - for tool-enabled overload.
  */
 export interface CreateMessageRequestParamsWithTools extends CreateMessageRequestParams {
     tools: Tool[];
@@ -2605,3 +2639,110 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Protocol type maps */
+type MethodToTypeMap<U> = {
+    [T in U as T extends { method: infer M extends string } ? M : never]: T;
+};
+export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
+export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
+export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
+export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+export type ResultTypeMap = {
+    ping: EmptyResult;
+    initialize: InitializeResult;
+    'completion/complete': CompleteResult;
+    'logging/setLevel': EmptyResult;
+    'prompts/get': GetPromptResult;
+    'prompts/list': ListPromptsResult;
+    'resources/list': ListResourcesResult;
+    'resources/templates/list': ListResourceTemplatesResult;
+    'resources/read': ReadResourceResult;
+    'resources/subscribe': EmptyResult;
+    'resources/unsubscribe': EmptyResult;
+    'tools/call': CallToolResult | CreateTaskResult;
+    'tools/list': ListToolsResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
+    'elicitation/create': ElicitResult | CreateTaskResult;
+    'roots/list': ListRootsResult;
+    'tasks/get': GetTaskResult;
+    'tasks/result': Result;
+    'tasks/list': ListTasksResult;
+    'tasks/cancel': CancelTaskResult;
+};
+
+/* Runtime schema lookup — result schemas by method */
+const resultSchemas: Record<string, z.core.$ZodType> = {
+    ping: EmptyResultSchema,
+    initialize: InitializeResultSchema,
+    'completion/complete': CompleteResultSchema,
+    'logging/setLevel': EmptyResultSchema,
+    'prompts/get': GetPromptResultSchema,
+    'prompts/list': ListPromptsResultSchema,
+    'resources/list': ListResourcesResultSchema,
+    'resources/templates/list': ListResourceTemplatesResultSchema,
+    'resources/read': ReadResourceResultSchema,
+    'resources/subscribe': EmptyResultSchema,
+    'resources/unsubscribe': EmptyResultSchema,
+    'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
+    'tools/list': ListToolsResultSchema,
+    'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
+    'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
+    'roots/list': ListRootsResultSchema,
+    'tasks/get': GetTaskResultSchema,
+    'tasks/result': ResultSchema,
+    'tasks/list': ListTasksResultSchema,
+    'tasks/cancel': CancelTaskResultSchema
+};
+
+/**
+ * Gets the Zod schema for validating results of a given request method.
+ * @see getRequestSchema for explanation of the internal type assertion.
+ */
+export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> {
+    return resultSchemas[method] as unknown as z.ZodType<ResultTypeMap[M]>;
+}
+
+/* Runtime schema lookup — request schemas by method */
+type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
+type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
+
+function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
+    const map: Record<string, T> = {};
+    for (const schema of schemas) {
+        const method = schema.shape.method.value;
+        map[method] = schema;
+    }
+    return map;
+}
+
+const requestSchemas = buildSchemaMap([...ClientRequestSchema.options, ...ServerRequestSchema.options] as const) as Record<
+    RequestMethod,
+    RequestSchemaType
+>;
+const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options, ...ServerNotificationSchema.options] as const) as Record<
+    NotificationMethod,
+    NotificationSchemaType
+>;
+
+/**
+ * Gets the Zod schema for a given request method.
+ * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
+ * to use schema.parse() without needing additional type assertions.
+ *
+ * Note: The internal cast is necessary because TypeScript can't correlate the
+ * Record-based schema lookup with the MethodToTypeMap-based RequestTypeMap
+ * when M is a generic type parameter. Both compute to the same type at
+ * instantiation, but TypeScript can't prove this statically.
+ */
+export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> {
+    return requestSchemas[method] as unknown as z.ZodType<RequestTypeMap[M]>;
+}
+
+/**
+ * Gets the Zod schema for a given notification method.
+ * @see getRequestSchema for explanation of the internal type assertion.
+ */
+export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]> {
+    return notificationSchemas[method] as unknown as z.ZodType<NotificationTypeMap[M]>;
+}

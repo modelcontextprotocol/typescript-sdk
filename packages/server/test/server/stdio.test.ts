@@ -17,7 +17,7 @@ beforeEach(() => {
 
     outputBuffer = new ReadBuffer();
     output = new Writable({
-        write(chunk, encoding, callback) {
+        write(chunk, _encoding, callback) {
             outputBuffer.append(chunk);
             callback();
         }

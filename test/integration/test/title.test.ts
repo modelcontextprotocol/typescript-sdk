@@ -1,12 +1,9 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Zod v4', () => {
     describe('Title field backwards compatibility', () => {
         it('should work with tools that have title', async () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -19,9 +16,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     title: 'Test Tool Display Name',
                     description: 'A test tool',
-                    inputSchema: {
+                    inputSchema: z.object({
                         value: z.string()
-                    }
+                    })
                 },
                 async () => ({ content: [{ type: 'text', text: 'result' }] })
             );
@@ -44,7 +41,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
             // Register tool without title
-            server.registerTool('test-tool', { description: 'A test tool', inputSchema: { value: z.string() } }, async () => ({
+            server.registerTool('test-tool', { description: 'A test tool', inputSchema: z.object({ value: z.string() }) }, async () => ({
                 content: [{ type: 'text', text: 'result' }]
             }));
 
@@ -94,7 +91,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     title: 'Test Prompt Display Name',
                     description: 'A test prompt',
-                    argsSchema: { input: z.string() }
+                    argsSchema: z.object({ input: z.string() })
                 },
                 async ({ input }) => ({
                     messages: [

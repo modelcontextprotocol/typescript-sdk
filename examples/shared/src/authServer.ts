@@ -11,6 +11,7 @@
 
 import { toNodeHandler } from 'better-auth/node';
 import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from 'better-auth/plugins';
+import cors from 'cors';
 import type { Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
 
@@ -25,6 +26,12 @@ export interface SetupAuthServerOptions {
      * Examples should be used for **demo** only and not for production purposes, however this mode disables some logging and other features.
      */
     demoMode: boolean;
+    /**
+     * Enable verbose logging of better-auth requests/responses.
+     * WARNING: This may log sensitive information like tokens and cookies.
+     * Only use for debugging purposes.
+     */
+    dangerousLoggingEnabled?: boolean;
 }
 
 // Store auth instance globally so it can be used for token verification
@@ -79,7 +86,7 @@ async function ensureDemoUserExists(auth: DemoAuth): Promise<void> {
  * @param options - Server configuration
  */
 export function setupAuthServer(options: SetupAuthServerOptions): void {
-    const { authServerUrl, mcpServerUrl, demoMode } = options;
+    const { authServerUrl, mcpServerUrl, demoMode, dangerousLoggingEnabled = false } = options;
 
     // Create better-auth instance with MCP plugin
     const auth = createDemoAuth({
@@ -96,54 +103,68 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     const authApp = express();
 
     // Enable CORS for all origins (demo only) - must be before other middleware
-    authApp.use((_req, res, next) => {
-        res.header('Access-Control-Allow-Origin', '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        res.header('Access-Control-Expose-Headers', 'WWW-Authenticate');
-        if (_req.method === 'OPTIONS') {
-            res.sendStatus(200);
-            return;
-        }
-        next();
-    });
+    // WARNING: This configuration is for demo purposes only. In production, you should restrict this to specific origins and configure CORS yourself.
+    authApp.use(
+        cors({
+            origin: '*' // WARNING: This allows all origins to access the auth server. In production, you should restrict this to specific origins.
+        })
+    );
 
-    // Request logging middleware for OAuth endpoints
-    authApp.use('/api/auth', (req, res, next) => {
-        const timestamp = new Date().toISOString();
-        console.log(`${timestamp} [Auth Request] ${req.method} ${req.url}`);
-        if (req.method === 'POST') {
-            console.log(`${timestamp} [Auth Request] Content-Type: ${req.headers['content-type']}`);
-        }
-
-        if (demoMode) {
-            // Log response when it finishes
-            const originalSend = res.send.bind(res);
-            res.send = function (body) {
-                console.log(`${timestamp} [Auth Response] ${res.statusCode} ${req.url}`);
-                if (res.statusCode >= 400 && body) {
-                    try {
-                        const parsed = typeof body === 'string' ? JSON.parse(body) : body;
-                        console.log(`${timestamp} [Auth Response] Error:`, parsed);
-                    } catch {
-                        // Not JSON, log as-is if short
-                        if (typeof body === 'string' && body.length < 200) {
-                            console.log(`${timestamp} [Auth Response] Body: ${body}`);
-                        }
-                    }
-                }
-                return originalSend(body);
-            };
-        }
-        next();
-    });
+    // Create better-auth handler
+    // toNodeHandler bypasses Express methods
+    const betterAuthHandler = toNodeHandler(auth);
 
     // Mount better-auth handler BEFORE body parsers
     // toNodeHandler reads the raw request body, so Express must not consume it first
-    authApp.all('/api/auth/{*splat}', toNodeHandler(auth));
+    if (dangerousLoggingEnabled) {
+        // Verbose logging mode - intercept at Node.js level to see all requests/responses
+        // WARNING: This may log sensitive information like tokens and cookies
+        authApp.all('/api/auth/{*splat}', (req, res) => {
+            const ts = new Date().toISOString();
+            console.log(`\n${'='.repeat(60)}`);
+            console.log(`${ts} [AUTH] ${req.method} ${req.originalUrl}`);
+            console.log(`${ts} [AUTH] Query:`, JSON.stringify(req.query));
+            console.log(`${ts} [AUTH] Headers.Cookie:`, req.headers.cookie?.slice(0, 100));
+
+            // Intercept writeHead to capture status and headers (including redirects)
+            const originalWriteHead = res.writeHead.bind(res);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            res.writeHead = function (statusCode: number, ...args: any[]) {
+                console.log(`${ts} [AUTH] >>> Response Status: ${statusCode}`);
+                // Headers can be in different positions depending on the overload
+                const headers = args.find(a => typeof a === 'object' && a !== null);
+                if (headers) {
+                    if (headers.location || headers.Location) {
+                        console.log(`${ts} [AUTH] >>> Location (redirect): ${headers.location || headers.Location}`);
+                    }
+                    console.log(`${ts} [AUTH] >>> Headers:`, JSON.stringify(headers));
+                }
+                return originalWriteHead(statusCode, ...args);
+            };
+
+            // Intercept write to capture response body
+            const originalWrite = res.write.bind(res);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            res.write = function (chunk: any, ...args: any[]) {
+                if (chunk) {
+                    const bodyPreview = typeof chunk === 'string' ? chunk.slice(0, 500) : chunk.toString().slice(0, 500);
+                    console.log(`${ts} [AUTH] >>> Body: ${bodyPreview}`);
+                }
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return originalWrite(chunk, ...(args as [any]));
+            };
+
+            return betterAuthHandler(req, res);
+        });
+    } else {
+        // Normal mode - no verbose logging
+        authApp.all('/api/auth/{*splat}', toNodeHandler(auth));
+    }
 
     // OAuth metadata endpoints using better-auth's built-in handlers
-    authApp.get('/.well-known/oauth-authorization-server', toNodeHandler(oAuthDiscoveryMetadata(auth)));
+    // Add explicit OPTIONS handler for CORS preflight
+    authApp.options('/.well-known/oauth-authorization-server', cors());
+    authApp.get('/.well-known/oauth-authorization-server', cors(), toNodeHandler(oAuthDiscoveryMetadata(auth)));
 
     // Body parsers for non-better-auth routes (like /sign-in)
     authApp.use(express.json());
@@ -239,14 +260,25 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
  * This is needed because MCP clients discover the auth server by first
  * fetching protected resource metadata from the MCP server.
  *
+ * Per RFC 9728 Section 3, the metadata URL includes the resource path.
+ * E.g., for resource http://localhost:3000/mcp, metadata is at
+ * http://localhost:3000/.well-known/oauth-protected-resource/mcp
+ *
  * See: https://www.better-auth.com/docs/plugins/mcp#oauth-protected-resource-metadata
+ *
+ * @param resourcePath - The path of the MCP resource (e.g., '/mcp'). Defaults to '/mcp'.
  */
-export function createProtectedResourceMetadataRouter(): Router {
+export function createProtectedResourceMetadataRouter(resourcePath = '/mcp'): Router {
     const auth = getAuth();
     const router = express.Router();
 
-    // Serve at the standard well-known path
-    router.get('/.well-known/oauth-protected-resource', toNodeHandler(oAuthProtectedResourceMetadata(auth)));
+    // Construct the metadata path per RFC 9728 Section 3
+    const metadataPath = `/.well-known/oauth-protected-resource${resourcePath}`;
+
+    // Enable CORS for browser-based clients to discover the auth server
+    // Add explicit OPTIONS handler for CORS preflight
+    router.options(metadataPath, cors());
+    router.get(metadataPath, cors(), toNodeHandler(oAuthProtectedResourceMetadata(auth)));
 
     return router;
 }

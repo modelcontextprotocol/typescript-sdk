@@ -3,13 +3,28 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import { SSEClientTransport } from '../../src/client/sse.js';
+
+/**
+ * Parses HTTP Basic auth from a request's Authorization header.
+ * Returns the decoded client_id and client_secret, or undefined if the header is absent or malformed.
+ * client_secret_basic is the default client auth method when server metadata omits
+ * token_endpoint_auth_methods_supported (RFC 8414 §2).
+ */
+function parseBasicAuth(req: IncomingMessage): { clientId: string; clientSecret: string } | undefined {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Basic ')) return undefined;
+    const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
+    const sep = decoded.indexOf(':');
+    if (sep === -1) return undefined;
+    return { clientId: decoded.slice(0, sep), clientSecret: decoded.slice(sep + 1) };
+}
 
 describe('SSEClientTransport', () => {
     let resourceServer: Server;
@@ -111,7 +126,7 @@ describe('SSEClientTransport', () => {
             // Create a server that returns 403
             await resourceServer.close();
 
-            resourceServer = createServer((req, res) => {
+            resourceServer = createServer((_req, res) => {
                 res.writeHead(403);
                 res.end();
             });
@@ -673,11 +688,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'refresh_token' &&
                             params.get('refresh_token') === 'refresh-token' &&
-                            params.get('client_id') === 'test-client-id' &&
-                            params.get('client_secret') === 'test-client-secret'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -801,11 +817,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'refresh_token' &&
                             params.get('refresh_token') === 'refresh-token' &&
-                            params.get('client_id') === 'test-client-id' &&
-                            params.get('client_secret') === 'test-client-secret'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -1001,7 +1018,7 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
         });
 
-        it('invalidates all credentials on InvalidClientError during token refresh', async () => {
+        it('invalidates all credentials on OAuthErrorCode.InvalidClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1009,9 +1026,10 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             });
 
+            const expectedError = new OAuthError(OAuthErrorCode.InvalidClient, 'Client authentication failed');
             let baseUrl = resourceBaseUrl;
 
-            // Create server that returns InvalidClientError on token refresh
+            // Create server that returns OAuthErrorCode.InvalidClient on token refresh
             const server = createServer((req, res) => {
                 lastServerRequest = req;
 
@@ -1031,9 +1049,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return InvalidClientError
-                    const error = new InvalidClientError('Client authentication failed');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1050,11 +1066,11 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(InvalidClientError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
         });
 
-        it('invalidates all credentials on UnauthorizedClientError during token refresh', async () => {
+        it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1062,6 +1078,7 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             });
 
+            const expectedError = new OAuthError(OAuthErrorCode.UnauthorizedClient, 'Client not authorized');
             let baseUrl = resourceBaseUrl;
 
             const server = createServer((req, res) => {
@@ -1083,9 +1100,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return UnauthorizedClientError
-                    const error = new UnauthorizedClientError('Client not authorized');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1102,17 +1117,19 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(UnauthorizedClientError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
         });
 
-        it('invalidates tokens on InvalidGrantError during token refresh', async () => {
+        it('invalidates tokens on OAuthErrorCode.InvalidGrant during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
                 token_type: 'Bearer',
                 refresh_token: 'refresh-token'
             });
+
+            const expectedError = new OAuthError(OAuthErrorCode.InvalidGrant, 'Invalid refresh token');
             let baseUrl = resourceBaseUrl;
 
             const server = createServer((req, res) => {
@@ -1134,9 +1151,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return InvalidGrantError
-                    const error = new InvalidGrantError('Invalid refresh token');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1153,7 +1168,7 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(InvalidGrantError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
         });
     });
@@ -1236,10 +1251,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'authorization_code' &&
                             params.get('code') === 'test-auth-code' &&
-                            params.get('client_id') === 'test-client-id'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
