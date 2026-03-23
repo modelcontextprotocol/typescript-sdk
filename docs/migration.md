@@ -200,17 +200,17 @@ import * as z from 'zod/v4';
 const server = new McpServer({ name: 'demo', version: '1.0.0' });
 
 // Tool with schema
-server.registerTool('greet', { inputSchema: { name: z.string() } }, async ({ name }) => {
+server.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, async ({ name }) => {
     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Tool with description
-server.registerTool('greet', { description: 'Greet a user', inputSchema: { name: z.string() } }, async ({ name }) => {
+server.registerTool('greet', { description: 'Greet a user', inputSchema: z.object({ name: z.string() }) }, async ({ name }) => {
     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
 });
 
 // Prompt
-server.registerPrompt('summarize', { argsSchema: { text: z.string() } }, async ({ text }) => {
+server.registerPrompt('summarize', { argsSchema: z.object({ text: z.string() }) }, async ({ text }) => {
     return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }] };
 });
 
@@ -220,9 +220,9 @@ server.registerResource('config', 'config://app', {}, async uri => {
 });
 ```
 
-### Zod schemas required (raw shapes no longer supported)
+### Standard Schema objects required (raw shapes no longer supported)
 
-v2 requires full Zod schemas for `inputSchema` and `argsSchema`. Raw object shapes are no longer accepted.
+v2 requires schema objects implementing the [Standard Schema spec](https://standardschema.dev/) for `inputSchema`, `outputSchema`, and `argsSchema`. Raw object shapes are no longer accepted. Zod v4, ArkType, and Valibot all implement the spec.
 
 **Before (v1):**
 
@@ -240,10 +240,22 @@ server.registerTool('greet', {
 ```typescript
 import * as z from 'zod/v4';
 
-// Must wrap with z.object()
+// Wrap with z.object() (or use any Standard Schema library)
 server.registerTool('greet', {
-  inputSchema: z.object({ name: z.string() })  // full Zod schema
+  inputSchema: z.object({ name: z.string() })
 }, async ({ name }) => { ... });
+
+// ArkType works too
+import { type } from 'arktype';
+server.registerTool('greet', {
+  inputSchema: type({ name: 'string' })
+}, async ({ name }) => { ... });
+
+// Raw JSON Schema via fromJsonSchema
+import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+server.registerTool('greet', {
+  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
+}, handler);
 
 // For tools with no parameters, use z.object({})
 server.registerTool('ping', {
@@ -255,6 +267,15 @@ This applies to:
 - `inputSchema` in `registerTool()`
 - `outputSchema` in `registerTool()`
 - `argsSchema` in `registerPrompt()`
+
+**Removed Zod-specific helpers** from `@modelcontextprotocol/core` (use Standard Schema equivalents):
+
+| Removed | Replacement |
+|---|---|
+| `schemaToJson(schema)` | `standardSchemaToJsonSchema(schema)` |
+| `parseSchemaAsync(schema, data)` | `validateStandardSchema(schema, data)` |
+| `SchemaInput<T>` | `StandardSchemaWithJSON.InferInput<T>` |
+| `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema` | No replacement — these are now internal Zod introspection helpers |
 
 ### Host header validation moved
 
