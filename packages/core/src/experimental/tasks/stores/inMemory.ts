@@ -1,5 +1,5 @@
 /**
- * In-memory implementations of TaskStore and TaskMessageQueue.
+ * In-memory implementations of {@linkcode TaskStore} and {@linkcode TaskMessageQueue}.
  * @experimental
  */
 
@@ -16,7 +16,7 @@ interface StoredTask {
 }
 
 /**
- * In-memory TaskStore implementation for development and testing.
+ * In-memory {@linkcode TaskStore} implementation for development and testing.
  * For production, use a database or distributed cache.
  * @experimental
  */
@@ -31,6 +31,7 @@ export class InMemoryTaskStore implements TaskStore {
         return crypto.randomUUID().replaceAll('-', '');
     }
 
+    /** {@inheritDoc TaskStore.createTask} */
     async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task> {
         // Generate a unique task ID
         const taskId = this.generateTaskId();
@@ -96,6 +97,7 @@ export class InMemoryTaskStore implements TaskStore {
         return stored ? { ...stored.task } : null;
     }
 
+    /** {@inheritDoc TaskStore.storeTaskResult} */
     async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, sessionId?: string): Promise<void> {
         const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
@@ -129,6 +131,7 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
+    /** {@inheritDoc TaskStore.getTaskResult} */
     async getTaskResult(taskId: string, sessionId?: string): Promise<Result> {
         const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
@@ -142,6 +145,7 @@ export class InMemoryTaskStore implements TaskStore {
         return stored.result;
     }
 
+    /** {@inheritDoc TaskStore.updateTaskStatus} */
     async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, sessionId?: string): Promise<void> {
         const stored = this.getStoredTask(taskId, sessionId);
         if (!stored) {
@@ -178,6 +182,7 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
+    /** {@inheritDoc TaskStore.listTasks} */
     async listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
         const PAGE_SIZE = 10;
 
@@ -233,7 +238,7 @@ export class InMemoryTaskStore implements TaskStore {
 }
 
 /**
- * In-memory TaskMessageQueue implementation for development and testing.
+ * In-memory {@linkcode TaskMessageQueue} implementation for development and testing.
  * For production, use Redis or another distributed queue.
  * @experimental
  */
@@ -286,7 +291,7 @@ export class InMemoryTaskMessageQueue implements TaskMessageQueue {
      * Removes and returns the first message from the queue for a specific task.
      * @param taskId The task identifier
      * @param sessionId Optional session ID for binding the query to a specific session
-     * @returns The first message, or undefined if the queue is empty
+     * @returns The first message, or `undefined` if the queue is empty
      */
     async dequeue(taskId: string, sessionId?: string): Promise<QueuedMessage | undefined> {
         const queue = this.getQueue(taskId, sessionId);

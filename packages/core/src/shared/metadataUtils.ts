@@ -1,13 +1,13 @@
 import type { BaseMetadata } from '../types/types.js';
 
 /**
- * Utilities for working with BaseMetadata objects.
+ * Utilities for working with {@linkcode BaseMetadata} objects.
  */
 
 /**
- * Gets the display name for an object with BaseMetadata.
- * For tools, the precedence is: title → annotations.title → name
- * For other objects: title → name
+ * Gets the display name for an object with {@linkcode BaseMetadata}.
+ * For tools, the precedence is: `title` → {@linkcode index.ToolAnnotations | annotations}.`title` → `name`
+ * For other objects: `title` → `name`
  * This implements the spec requirement: "if no title is provided, name should be used for display purposes"
  */
 export function getDisplayName(metadata: BaseMetadata | (BaseMetadata & { annotations?: { title?: string } })): string {

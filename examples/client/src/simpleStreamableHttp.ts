@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 
 import type {
-    CallToolRequest,
+    CallToolResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -10,16 +10,11 @@ import type {
     ResourceLink
 } from '@modelcontextprotocol/client';
 import {
-    CallToolResultSchema,
     Client,
     getDisplayName,
-    GetPromptResultSchema,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListToolsResultSchema,
+    InMemoryTaskStore,
     ProtocolError,
     ProtocolErrorCode,
-    ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -65,6 +60,7 @@ function printHelp(): void {
     console.log('  greet [name]               - Call the greet tool');
     console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
     console.log('  collect-info [type]        - Test form elicitation with collect-user-info tool (contact/preferences/feedback)');
+    console.log('  collect-info-task [type]   - Test bidirectional task support (server+client tasks) with elicitation');
     console.log('  start-notifications [interval] [count] - Start periodic notifications');
     console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
     console.log('  list-prompts               - List available prompts');
@@ -137,6 +133,11 @@ function commandLoop(): void {
 
                 case 'collect-info': {
                     await callCollectInfoTool(args[1] || 'contact');
+                    break;
+                }
+
+                case 'collect-info-task': {
+                    await callCollectInfoWithTask(args[1] || 'contact');
                     break;
                 }
 
@@ -249,7 +250,10 @@ async function connect(url?: string): Promise<void> {
     console.log(`Connecting to ${serverUrl}...`);
 
     try {
-        // Create a new client with form elicitation capability
+        // Create task store for client-side task support
+        const clientTaskStore = new InMemoryTaskStore();
+
+        // Create a new client with form elicitation capability and task support
         client = new Client(
             {
                 name: 'example-client',
@@ -259,24 +263,48 @@ async function connect(url?: string): Promise<void> {
                 capabilities: {
                     elicitation: {
                         form: {}
+                    },
+                    tasks: {
+                        requests: {
+                            elicitation: {
+                                create: {}
+                            }
+                        }
                     }
-                }
+                },
+                taskStore: clientTaskStore
             }
         );
         client.onerror = error => {
             console.error('\u001B[31mClient error:', error, '\u001B[0m');
         };
 
-        // Set up elicitation request handler with proper validation
-        client.setRequestHandler('elicitation/create', async request => {
+        // Set up elicitation request handler with proper validation and task support
+        client.setRequestHandler('elicitation/create', async (request, extra) => {
             if (request.params.mode !== 'form') {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
             console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);
+            console.log(`Task Creation Requested: ${request.params.task ? 'yes' : 'no'}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
+
+            // Helper to return result, optionally creating a task if requested
+            const returnResult = async (result: {
+                action: 'accept' | 'decline' | 'cancel';
+                content?: Record<string, string | number | boolean | string[]>;
+            }) => {
+                if (request.params.task && extra.task?.store) {
+                    // Create a task and store the result
+                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
+                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
+                    console.log(`📋 Created client-side task: ${task.taskId}`);
+                    return { task };
+                }
+                return result;
+            };
 
             const schema = request.params.requestedSchema;
             const properties = schema.properties;
@@ -411,7 +439,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return { action: 'cancel' };
+                    return returnResult({ action: 'cancel' });
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -424,7 +452,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return returnResult({ action: 'decline' });
                     }
                 }
 
@@ -443,7 +471,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return returnResult({ action: 'decline' });
                     }
                 }
 
@@ -460,14 +488,14 @@ async function connect(url?: string): Promise<void> {
                 switch (confirmAnswer) {
                     case 'yes':
                     case 'y': {
-                        return {
+                        return returnResult({
                             action: 'accept',
                             content
-                        };
+                        });
                     }
                     case 'cancel':
                     case 'c': {
-                        return { action: 'cancel' };
+                        return returnResult({ action: 'cancel' });
                     }
                     case 'no':
                     case 'n': {
@@ -475,7 +503,7 @@ async function connect(url?: string): Promise<void> {
                             console.log('Please re-enter the information...');
                             continue;
                         } else {
-                            return { action: 'decline' };
+                            return returnResult({ action: 'decline' });
                         }
 
                         break;
@@ -485,7 +513,7 @@ async function connect(url?: string): Promise<void> {
             }
 
             console.log('Maximum attempts reached. Declining request.');
-            return { action: 'decline' };
+            return returnResult({ action: 'decline' });
         });
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
@@ -507,13 +535,10 @@ async function connect(url?: string): Promise<void> {
                     console.log('Client disconnected, cannot fetch resources');
                     return;
                 }
-                const resourcesResult = await client.request(
-                    {
-                        method: 'resources/list',
-                        params: {}
-                    },
-                    ListResourcesResultSchema
-                );
+                const resourcesResult = await client.request({
+                    method: 'resources/list',
+                    params: {}
+                });
                 console.log('Available resources count:', resourcesResult.resources.length);
             } catch {
                 console.log('Failed to list resources after change notification');
@@ -598,7 +623,7 @@ async function listTools(): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -620,16 +645,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     }
 
     try {
-        const request: CallToolRequest = {
-            method: 'tools/call',
-            params: {
-                name,
-                arguments: args
-            }
-        };
-
         console.log(`Calling tool '${name}' with args:`, args);
-        const result = await client.request(request, CallToolResultSchema);
+        const result = await client.callTool({ name, arguments: args });
 
         console.log('Tool result:');
         const resourceLinks: ResourceLink[] = [];
@@ -699,6 +716,12 @@ async function callCollectInfoTool(infoType: string): Promise<void> {
     await callTool('collect-user-info', { infoType });
 }
 
+async function callCollectInfoWithTask(infoType: string): Promise<void> {
+    console.log(`\n🔄 Testing bidirectional task support with collect-user-info-task tool (${infoType})...`);
+    console.log('This will create a task on the server, which will elicit input and create a task on the client.\n');
+    await callToolTask('collect-user-info-task', { infoType });
+}
+
 async function startNotifications(interval: number, count: number): Promise<void> {
     console.log(`Starting notification stream: interval=${interval}ms, count=${count || 'unlimited'}`);
     await callTool('start-notification-stream', { interval, count });
@@ -714,23 +737,18 @@ async function runNotificationsToolWithResumability(interval: number, count: num
         console.log(`Starting notification stream with resumability: interval=${interval}ms, count=${count || 'unlimited'}`);
         console.log(`Using resumption token: ${notificationsToolLastEventId || 'none'}`);
 
-        const request: CallToolRequest = {
-            method: 'tools/call',
-            params: {
-                name: 'start-notification-stream',
-                arguments: { interval, count }
-            }
-        };
-
         const onLastEventIdUpdate = (event: string) => {
             notificationsToolLastEventId = event;
             console.log(`Updated resumption token: ${event}`);
         };
 
-        const result = await client.request(request, CallToolResultSchema, {
-            resumptionToken: notificationsToolLastEventId,
-            onresumptiontoken: onLastEventIdUpdate
-        });
+        const result = await client.callTool(
+            { name: 'start-notification-stream', arguments: { interval, count } },
+            {
+                resumptionToken: notificationsToolLastEventId,
+                onresumptiontoken: onLastEventIdUpdate
+            }
+        );
 
         console.log('Tool result:');
         for (const item of result.content) {
@@ -756,7 +774,7 @@ async function listPrompts(): Promise<void> {
             method: 'prompts/list',
             params: {}
         };
-        const promptsResult = await client.request(promptsRequest, ListPromptsResultSchema);
+        const promptsResult = await client.request(promptsRequest);
         console.log('Available prompts:');
         if (promptsResult.prompts.length === 0) {
             console.log('  No prompts available');
@@ -785,7 +803,7 @@ async function getPrompt(name: string, args: Record<string, unknown>): Promise<v
             }
         };
 
-        const promptResult = await client.request(promptRequest, GetPromptResultSchema);
+        const promptResult = await client.request(promptRequest);
         console.log('Prompt template:');
         for (const [index, msg] of promptResult.messages.entries()) {
             console.log(`  [${index + 1}] ${msg.role}: ${msg.content.type === 'text' ? msg.content.text : JSON.stringify(msg.content)}`);
@@ -806,7 +824,7 @@ async function listResources(): Promise<void> {
             method: 'resources/list',
             params: {}
         };
-        const resourcesResult = await client.request(resourcesRequest, ListResourcesResultSchema);
+        const resourcesResult = await client.request(resourcesRequest);
 
         console.log('Available resources:');
         if (resourcesResult.resources.length === 0) {
@@ -834,7 +852,7 @@ async function readResource(uri: string): Promise<void> {
         };
 
         console.log(`Reading resource: ${uri}`);
-        const result = await client.request(request, ReadResourceResultSchema);
+        const result = await client.request(request);
 
         console.log('Resource contents:');
         for (const content of result.contents) {
@@ -908,7 +926,8 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
                 case 'result': {
                     console.log('Task completed!');
                     console.log('Tool result:');
-                    for (const item of message.result.content) {
+                    const toolResult = message.result as CallToolResult;
+                    for (const item of toolResult.content) {
                         if (item.type === 'text') {
                             console.log(`  ${item.text}`);
                         }

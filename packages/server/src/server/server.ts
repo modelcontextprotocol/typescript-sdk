@@ -74,7 +74,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default DefaultJsonSchemaValidator (AjvJsonSchemaValidator on Node.js, CfWorkerJsonSchemaValidator on Cloudflare Workers)
+     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
@@ -84,7 +84,7 @@ export type ServerOptions = ProtocolOptions & {
  *
  * This server will automatically respond to the initialization flow as initiated from the client.
  *
- * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
+ * @deprecated Use {@linkcode server/mcp.McpServer | McpServer} instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
@@ -95,7 +95,7 @@ export class Server extends Protocol<ServerContext> {
     private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
-     * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
+     * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
      */
     oninitialized?: () => void;
 
@@ -115,17 +115,21 @@ export class Server extends Protocol<ServerContext> {
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
-            this.setRequestHandler('logging/setLevel', async (request, ctx) => {
-                const transportSessionId: string | undefined =
-                    ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
-                const { level } = request.params;
-                const parseResult = parseSchema(LoggingLevelSchema, level);
-                if (parseResult.success) {
-                    this._loggingLevels.set(transportSessionId, parseResult.data);
-                }
-                return {};
-            });
+            this._registerLoggingHandler();
         }
+    }
+
+    private _registerLoggingHandler(): void {
+        this.setRequestHandler('logging/setLevel', async (request, ctx) => {
+            const transportSessionId: string | undefined =
+                ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
+            const { level } = request.params;
+            const parseResult = parseSchema(LoggingLevelSchema, level);
+            if (parseResult.success) {
+                this._loggingLevels.set(transportSessionId, parseResult.data);
+            }
+            return {};
+        });
     }
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
@@ -188,11 +192,15 @@ export class Server extends Protocol<ServerContext> {
         if (this.transport) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
+        const hadLogging = !!this._capabilities.logging;
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+        if (!hadLogging && this._capabilities.logging) {
+            this._registerLoggingHandler();
+        }
     }
 
     /**
-     * Override request handler registration to enforce server-side validation for tools/call.
+     * Override request handler registration to enforce server-side validation for `tools/call`.
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
@@ -460,7 +468,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async ping() {
-        return this.request({ method: 'ping' }, EmptyResultSchema);
+        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
     }
 
     /**
@@ -540,14 +548,14 @@ export class Server extends Protocol<ServerContext> {
 
         // Use different schemas based on whether tools are provided
         if (params.tools) {
-            return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+            return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
-        return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**
      * Creates an elicitation request for the given parameters.
-     * For backwards compatibility, `mode` may be omitted for form requests and will default to `'form'`.
+     * For backwards compatibility, `mode` may be omitted for form requests and will default to `"form"`.
      * @param params The parameters for the elicitation request.
      * @param options Optional request options.
      * @returns The result of the elicitation request.
@@ -562,7 +570,7 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
-                return this.request({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
@@ -572,7 +580,11 @@ export class Server extends Protocol<ServerContext> {
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+                const result = await this._requestWithSchema(
+                    { method: 'elicitation/create', params: formParams },
+                    ElicitResultSchema,
+                    options
+                );
 
                 if (result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
@@ -629,15 +641,15 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'roots/list', params }, ListRootsResultSchema, options);
+        return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 
     /**
      * Sends a logging message to the client, if connected.
-     * Note: You only need to send the parameters object, not the entire JSON RPC message
-     * @see LoggingMessageNotification
+     * Note: You only need to send the parameters object, not the entire JSON-RPC message.
+     * @see {@linkcode LoggingMessageNotification}
      * @param params
-     * @param sessionId optional for stateless and backward compatibility
+     * @param sessionId Optional for stateless transports and backward compatibility.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {

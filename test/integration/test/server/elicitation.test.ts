@@ -841,7 +841,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['color']
                 }
             })
-        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+        ).rejects.toThrow(/^Elicitation response content does not match requested schema/);
     });
 
     test(`${validatorName}: should reject invalid selection in single-select titled enum`, async () => {
@@ -875,7 +875,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['color']
                 }
             })
-        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+        ).rejects.toThrow(/^Elicitation response content does not match requested schema/);
     });
 
     test(`${validatorName}: should reject invalid selection in single-select titled legacy enum`, async () => {
@@ -906,7 +906,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['color']
                 }
             })
-        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+        ).rejects.toThrow(/^Elicitation response content does not match requested schema/);
     });
 
     // Enums - Invalid - Multi Select - Untitled / Titled
@@ -943,7 +943,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['color']
                 }
             })
-        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+        ).rejects.toThrow(/^Elicitation response content does not match requested schema/);
     });
 
     test(`${validatorName}: should reject invalid selection in multi-select titled enum`, async () => {
@@ -981,6 +981,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['colors']
                 }
             })
-        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+        ).rejects.toThrow(/^Elicitation response content does not match requested schema/);
     });
 }

@@ -150,14 +150,28 @@ export default {
     it('should handle MCP requests', async () => {
         expect(env).not.toBeNull();
 
-        const client = new Client({ name: 'test-client', version: '1.0.0' });
-        const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
-
-        await client.connect(transport);
+        // Retry connection — wrangler may report "Ready" before it can handle requests
+        let client!: Client;
+        let lastError: unknown;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+                client = new Client({ name: 'test-client', version: '1.0.0' });
+                const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
+                await client.connect(transport);
+                lastError = undefined;
+                break;
+            } catch (error) {
+                lastError = error;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        if (lastError) {
+            throw lastError;
+        }
 
         const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
         expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
 
         await client.close();
-    });
+    }, 30_000);
 });

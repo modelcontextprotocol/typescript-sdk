@@ -44,13 +44,13 @@ export interface StartSSEOptions {
 
     /**
      * Override Message ID to associate with the replay message
-     * so that response can be associate with the new resumed request.
+     * so that the response can be associated with the new resumed request.
      */
     replayMessageId?: string | number;
 }
 
 /**
- * Configuration options for reconnection behavior of the StreamableHTTPClientTransport.
+ * Configuration options for reconnection behavior of the {@linkcode StreamableHTTPClientTransport}.
  */
 export interface StreamableHTTPReconnectionOptions {
     /**
@@ -79,7 +79,7 @@ export interface StreamableHTTPReconnectionOptions {
 }
 
 /**
- * Configuration options for the `StreamableHTTPClientTransport`.
+ * Configuration options for the {@linkcode StreamableHTTPClientTransport}.
  */
 export type StreamableHTTPClientTransportOptions = {
     /**
@@ -88,13 +88,13 @@ export type StreamableHTTPClientTransportOptions = {
      * When an `authProvider` is specified and the connection is started:
      * 1. The connection is attempted with any existing access token from the `authProvider`.
      * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, `OAuthClientProvider.redirectToAuthorization` is called, and an `UnauthorizedError` will be thrown from `connect`/`start`.
+     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode index.Protocol.connect | connect}/{@linkcode StreamableHTTPClientTransport.start | start}.
      *
-     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call `StreamableHTTPClientTransport.finishAuth` with the authorization code before retrying the connection.
+     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call {@linkcode StreamableHTTPClientTransport.finishAuth} with the authorization code before retrying the connection.
      *
-     * If an `authProvider` is not provided, and auth is required, an `UnauthorizedError` will be thrown.
+     * If an `authProvider` is not provided, and auth is required, an {@linkcode UnauthorizedError} will be thrown.
      *
-     * `UnauthorizedError` might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
+     * {@linkcode UnauthorizedError} might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
      */
     authProvider?: OAuthClientProvider;
 
@@ -118,11 +118,18 @@ export type StreamableHTTPClientTransportOptions = {
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
     sessionId?: string;
+
+    /**
+     * The MCP protocol version to include in the `mcp-protocol-version` header on all requests.
+     * When reconnecting with a preserved `sessionId`, set this to the version negotiated during the original
+     * handshake so the reconnected transport continues sending the required header.
+     */
+    protocolVersion?: string;
 };
 
 /**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
- * It will connect to a server using HTTP POST for sending messages and HTTP GET with Server-Sent Events
+ * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
  */
 export class StreamableHTTPClientTransport implements Transport {
@@ -155,6 +162,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
+        this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
     }
 
@@ -222,6 +230,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const response = await (this._fetch ?? fetch)(this._url, {
+                ...this._requestInit,
                 method: 'GET',
                 headers,
                 signal: this._abortController?.signal
@@ -255,7 +264,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Calculates the next reconnection delay using  backoff algorithm
+     * Calculates the next reconnection delay using a backoff algorithm
      *
      * @param attempt Current reconnection attempt count for the specific stream
      * @returns Time to wait in milliseconds before next reconnection attempt
@@ -463,7 +472,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const { resumptionToken, onresumptiontoken } = options || {};
 
             if (resumptionToken) {
-                // If we have at last event ID, we need to reconnect the SSE stream
+                // If we have a last event ID, we need to reconnect the SSE stream
                 this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
                     error => this.onerror?.(error)
                 );
@@ -628,14 +637,14 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Terminates the current session by sending a DELETE request to the server.
+     * Terminates the current session by sending a `DELETE` request to the server.
      *
      * Clients that no longer need a particular session
      * (e.g., because the user is leaving the client application) SHOULD send an
-     * HTTP DELETE to the MCP endpoint with the Mcp-Session-Id header to explicitly
+     * HTTP `DELETE` to the MCP endpoint with the `Mcp-Session-Id` header to explicitly
      * terminate the session.
      *
-     * The server MAY respond with HTTP 405 Method Not Allowed, indicating that
+     * The server MAY respond with HTTP `405 Method Not Allowed`, indicating that
      * the server does not allow clients to terminate sessions.
      */
     async terminateSession(): Promise<void> {
@@ -681,7 +690,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     /**
      * Resume an SSE stream from a previous event ID.
-     * Opens a GET SSE connection with Last-Event-ID header to replay missed events.
+     * Opens a `GET` SSE connection with `Last-Event-ID` header to replay missed events.
      *
      * @param lastEventId The event ID to resume from
      * @param options Optional callback to receive new resumption tokens
