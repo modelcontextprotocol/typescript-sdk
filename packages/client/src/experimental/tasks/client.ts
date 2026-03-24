@@ -6,20 +6,19 @@
  */
 
 import type {
-    AnyObjectSchema,
     CallToolRequest,
     CallToolResult,
     CancelTaskResult,
     CreateTaskResult,
+    GetTaskPayloadResult,
     GetTaskResult,
     ListTasksResult,
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    ResultTypeMap,
-    SchemaOutput
+    ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
+import { GetTaskPayloadResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -185,23 +184,22 @@ export class ExperimentalClientTasks {
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options
-     * @returns The task result
+     * @returns The task result. The payload structure matches the result type of the
+     *   original request (e.g., a `tools/call` task returns a `CallToolResult`).
      *
      * @experimental
      */
-    async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        // Delegate to the client's underlying Protocol method
+    async getTaskResult(taskId: string, options?: RequestOptions): Promise<GetTaskPayloadResult> {
         return (
             this._client as unknown as {
-                getTaskResult: <U extends AnyObjectSchema>(
+                getTaskResult: (
                     params: { taskId: string },
-                    resultSchema?: U,
+                    resultSchema: typeof GetTaskPayloadResultSchema,
                     options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
+                ) => Promise<GetTaskPayloadResult>;
             }
-        ).getTaskResult({ taskId }, resultSchema, options);
+        ).getTaskResult({ taskId }, GetTaskPayloadResultSchema, options);
     }
 
     /**

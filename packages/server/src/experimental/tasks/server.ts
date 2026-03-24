@@ -6,21 +6,21 @@
  */
 
 import type {
-    AnySchema,
     CancelTaskResult,
     CreateMessageRequestParams,
     CreateMessageResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    GetTaskPayloadResult,
     GetTaskResult,
     ListTasksResult,
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    ResultTypeMap,
-    SchemaOutput
+    ResultTypeMap
 } from '@modelcontextprotocol/core';
+import { GetTaskPayloadResultSchema } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 
@@ -258,22 +258,22 @@ export class ExperimentalServerTasks {
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options
-     * @returns The task result
+     * @returns The task result. The payload structure matches the result type of the
+     *   original request (e.g., a `tools/call` task returns a `CallToolResult`).
      *
      * @experimental
      */
-    async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async getTaskResult(taskId: string, options?: RequestOptions): Promise<GetTaskPayloadResult> {
         return (
             this._server as unknown as {
-                getTaskResult: <U extends AnySchema>(
+                getTaskResult: (
                     params: { taskId: string },
-                    resultSchema?: U,
+                    resultSchema: typeof GetTaskPayloadResultSchema,
                     options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
+                ) => Promise<GetTaskPayloadResult>;
             }
-        ).getTaskResult({ taskId }, resultSchema, options);
+        ).getTaskResult({ taskId }, GetTaskPayloadResultSchema, options);
     }
 
     /**
