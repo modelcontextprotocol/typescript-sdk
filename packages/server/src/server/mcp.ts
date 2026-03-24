@@ -940,8 +940,8 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             _meta,
-            cb as PromptCallback<StandardSchemaWithJSON | undefined>
         );
 
         this.setPromptRequestHandlers();
