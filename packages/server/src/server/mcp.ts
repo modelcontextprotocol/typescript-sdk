@@ -701,7 +701,7 @@ export class McpServer {
         description: string | undefined,
         argsSchema: StandardSchemaWithJSON | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
-        _meta: Record<string, unknown> | undefined,         
+        _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
         let currentArgsSchema = argsSchema;
@@ -941,7 +941,7 @@ export class McpServer {
             description,
             argsSchema,
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
-            _meta,
+            _meta
         );
 
         this.setPromptRequestHandlers();
