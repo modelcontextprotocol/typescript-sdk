@@ -233,6 +233,7 @@ export enum ProtocolErrorCode {
     InternalError = -32_603,
 
     // MCP-specific error codes
+    ResourceNotFound = -32_002,
     UrlElicitationRequired = -32_042
 }
 
@@ -556,7 +557,11 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports task creation.
      */
-    tasks: ClientTasksCapabilitySchema.optional()
+    tasks: ClientTasksCapabilitySchema.optional(),
+    /**
+     * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
+     */
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
 export const InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -634,7 +639,11 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Present if the server supports task creation.
      */
-    tasks: ServerTasksCapabilitySchema.optional()
+    tasks: ServerTasksCapabilitySchema.optional(),
+    /**
+     * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
+     */
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
 /**
@@ -2339,7 +2348,7 @@ export class ProtocolError extends Error {
         message: string,
         public readonly data?: unknown
     ) {
-        super(`MCP error ${code}: ${message}`);
+        super(message);
         this.name = 'ProtocolError';
     }
 

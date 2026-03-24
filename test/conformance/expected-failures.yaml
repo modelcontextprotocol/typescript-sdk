@@ -1,0 +1,4 @@
+# Conformance scenarios not yet implemented in the v2 TypeScript SDK.
+# CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
+
+client: []

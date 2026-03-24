@@ -102,10 +102,10 @@ The SDK uses `zod/v4` internally. Schema utilities live in:
 
 ### Validation
 
-Pluggable JSON Schema validation (`packages/core/src/validation/`):
+Pluggable JSON Schema validation (`packages/core/src/validators/`):
 
-- `ajv-provider.ts` - Default Ajv-based validator
-- `cfworker-provider.ts` - Cloudflare Workers-compatible alternative
+- `ajvProvider.ts` - Default Ajv-based validator
+- `cfWorkerProvider.ts` - Cloudflare Workers-compatible alternative
 
 ### Examples
 
