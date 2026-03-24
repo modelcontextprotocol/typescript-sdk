@@ -1063,6 +1063,15 @@ describe('OAuth Authorization', () => {
             // Verify the override URL was used instead of the default well-known path
             expect(mockFetch.mock.calls[0]![0].toString()).toBe(overrideUrl.toString());
         });
+
+        it('propagates network failures instead of silently falling back (non-browser)', async () => {
+            // PRM discovery hits a DNS/connection failure. That's a transient reachability problem,
+            // not "server doesn't support RFC 9728" — the caller should see the real error rather
+            // than silently falling back to treating the MCP server URL as the auth server.
+            mockFetch.mockImplementation(() => Promise.reject(new TypeError('getaddrinfo ENOTFOUND resource.example.com')));
+
+            await expect(discoverOAuthServerInfo('https://resource.example.com')).rejects.toThrow(TypeError);
+        });
     });
 
     describe('auth with provider authorization server URL caching', () => {

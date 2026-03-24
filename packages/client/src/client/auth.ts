@@ -1174,7 +1174,13 @@ export async function discoverOAuthServerInfo(
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
         }
-    } catch {
+    } catch (error) {
+        // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
+        // transient reachability problems, not "server doesn't support PRM" — propagate so the
+        // caller sees the real error instead of silently falling back to a different auth server.
+        if (error instanceof TypeError) {
+            throw error;
+        }
         // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
     }
 
