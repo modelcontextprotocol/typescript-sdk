@@ -45,12 +45,7 @@ export function redirectUriMatches(requested: string, registered: string): boole
     // RFC 8252 relaxes the port only — scheme, host, path, and query must
     // still match exactly. Note: hostname must match exactly too (the RFC
     // does not allow localhost↔127.0.0.1 cross-matching).
-    return (
-        req.protocol === reg.protocol &&
-        req.hostname === reg.hostname &&
-        req.pathname === reg.pathname &&
-        req.search === reg.search
-    );
+    return req.protocol === reg.protocol && req.hostname === reg.hostname && req.pathname === reg.pathname && req.search === reg.search;
 }
 
 // Parameters that must be validated in order to issue redirects.
