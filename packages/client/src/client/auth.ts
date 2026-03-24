@@ -513,7 +513,12 @@ async function authInternal(
                     { resourceMetadataUrl: effectiveResourceMetadataUrl },
                     fetchFn
                 );
-            } catch {
+            } catch (error) {
+                // Network failures (DNS, connection refused) surface as TypeError — propagate
+                // those rather than masking a transient reachability problem.
+                if (error instanceof TypeError) {
+                    throw error;
+                }
                 // RFC 9728 not available — selectResourceURL will handle undefined
             }
         }
