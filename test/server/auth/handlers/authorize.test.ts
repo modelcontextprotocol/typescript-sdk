@@ -1,4 +1,4 @@
-import { authorizationHandler, AuthorizationHandlerOptions } from '../../../../src/server/auth/handlers/authorize.js';
+import { authorizationHandler, AuthorizationHandlerOptions, redirectUriMatches } from '../../../../src/server/auth/handlers/authorize.js';
 import { OAuthServerProvider, AuthorizationParams } from '../../../../src/server/auth/provider.js';
 import { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
 import { OAuthClientInformationFull, OAuthTokens } from '../../../../src/shared/auth.js';
@@ -23,6 +23,14 @@ describe('Authorization Handler', () => {
         scope: 'profile email'
     };
 
+    // Native app client with a portless loopback redirect (e.g., from CIMD / SEP-991)
+    const loopbackClient: OAuthClientInformationFull = {
+        client_id: 'loopback-client',
+        client_secret: 'valid-secret',
+        redirect_uris: ['http://localhost/callback', 'http://127.0.0.1/callback'],
+        scope: 'profile email'
+    };
+
     // Mock client store
     const mockClientStore: OAuthRegisteredClientsStore = {
         async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
@@ -30,6 +38,8 @@ describe('Authorization Handler', () => {
                 return validClient;
             } else if (clientId === 'multi-redirect-client') {
                 return multiRedirectClient;
+            } else if (clientId === 'loopback-client') {
+                return loopbackClient;
             }
             return undefined;
         }
@@ -171,6 +181,102 @@ describe('Authorization Handler', () => {
             expect(response.status).toBe(302);
             const location = new URL(response.header.location);
             expect(location.origin + location.pathname).toBe('https://example.com/callback');
+        });
+
+        // RFC 8252 §7.3: authorization servers MUST allow any port for loopback
+        // redirect URIs. Native apps obtain ephemeral ports from the OS.
+        it('accepts loopback redirect_uri with ephemeral port (RFC 8252)', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'loopback-client',
+                redirect_uri: 'http://localhost:53428/callback',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'S256'
+            });
+
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location);
+            expect(location.hostname).toBe('localhost');
+            expect(location.port).toBe('53428');
+            expect(location.pathname).toBe('/callback');
+        });
+
+        it('accepts 127.0.0.1 loopback redirect_uri with ephemeral port (RFC 8252)', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'loopback-client',
+                redirect_uri: 'http://127.0.0.1:9000/callback',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'S256'
+            });
+
+            expect(response.status).toBe(302);
+        });
+
+        it('rejects loopback redirect_uri with different path', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'loopback-client',
+                redirect_uri: 'http://localhost:53428/evil',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'S256'
+            });
+
+            expect(response.status).toBe(400);
+        });
+
+        it('does not relax port for non-loopback redirect_uri', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com:8443/callback',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'S256'
+            });
+
+            expect(response.status).toBe(400);
+        });
+    });
+
+    describe('redirectUriMatches (RFC 8252 §7.3)', () => {
+        it('exact match passes', () => {
+            expect(redirectUriMatches('https://example.com/cb', 'https://example.com/cb')).toBe(true);
+        });
+
+        it('loopback: any port matches portless registration', () => {
+            expect(redirectUriMatches('http://localhost:53428/callback', 'http://localhost/callback')).toBe(true);
+            expect(redirectUriMatches('http://127.0.0.1:8080/callback', 'http://127.0.0.1/callback')).toBe(true);
+            expect(redirectUriMatches('http://[::1]:9000/cb', 'http://[::1]/cb')).toBe(true);
+        });
+
+        it('loopback: any port matches ported registration', () => {
+            expect(redirectUriMatches('http://localhost:53428/callback', 'http://localhost:3118/callback')).toBe(true);
+        });
+
+        it('loopback: different path rejected', () => {
+            expect(redirectUriMatches('http://localhost:53428/evil', 'http://localhost/callback')).toBe(false);
+        });
+
+        it('loopback: different scheme rejected', () => {
+            expect(redirectUriMatches('https://localhost:53428/callback', 'http://localhost/callback')).toBe(false);
+        });
+
+        it('loopback: localhost↔127.0.0.1 cross-match rejected', () => {
+            // RFC 8252 relaxes port only, not host
+            expect(redirectUriMatches('http://127.0.0.1:53428/callback', 'http://localhost/callback')).toBe(false);
+        });
+
+        it('non-loopback: port must match exactly', () => {
+            expect(redirectUriMatches('https://example.com:8443/cb', 'https://example.com/cb')).toBe(false);
+        });
+
+        it('non-loopback: no relaxation for private IPs', () => {
+            expect(redirectUriMatches('http://192.168.1.1:8080/cb', 'http://192.168.1.1/cb')).toBe(false);
+        });
+
+        it('malformed URIs rejected', () => {
+            expect(redirectUriMatches('not a url', 'http://localhost/cb')).toBe(false);
+            expect(redirectUriMatches('http://localhost/cb', 'not a url')).toBe(false);
         });
     });
 
