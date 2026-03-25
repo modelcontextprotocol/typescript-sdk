@@ -1,9 +1,10 @@
-import { Request, Response } from 'express';
-import { McpServer } from '../../server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { createMcpExpressApp } from '../../server/express.js';
-import { CallToolResult, isInitializeRequest } from '../../types.js';
 import { randomUUID } from 'node:crypto';
+
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import type { CallToolResult } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
+import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
 // Usage: npx tsx disconnectTestServer.ts [--abort]
@@ -18,13 +19,13 @@ server.registerTool(
     'slow-task',
     {
         description: 'Task with progress notifications',
-        inputSchema: { steps: z.number() }
+        inputSchema: z.object({ steps: z.number() })
     },
-    async ({ steps }, extra): Promise<CallToolResult> => {
+    async ({ steps }, ctx): Promise<CallToolResult> => {
         // SIMULATING A PROXY: create abort controller for "upstream" request
         const abortController = new AbortController();
-        if (extra.sessionId) {
-            sessionAbortControllers[extra.sessionId] = abortController;
+        if (ctx.sessionId) {
+            sessionAbortControllers[ctx.sessionId] = abortController;
         }
 
         try {
@@ -38,14 +39,14 @@ server.registerTool(
                 console.log(`Sending notification ${i}/${steps}`);
 
                 // SIMULATING A PROXY RELAY: onprogress forwards with same progress token
-                const progressToken = extra._meta?.progressToken;
+                const progressToken = ctx.mcpReq._meta?.progressToken;
                 if (progressToken !== undefined) {
                     server.server.notification(
                         {
                             method: 'notifications/progress',
                             params: { progressToken, progress: i, total: steps }
                         },
-                        { relatedRequestId: extra.requestId }
+                        { relatedRequestId: ctx.mcpReq.id }
                     );
                 }
 
@@ -54,15 +55,15 @@ server.registerTool(
             return { content: [{ type: 'text', text: 'SUCCESS' }] };
         } finally {
             // Cleanup abort controller
-            if (extra.sessionId) {
-                delete sessionAbortControllers[extra.sessionId];
+            if (ctx.sessionId) {
+                delete sessionAbortControllers[ctx.sessionId];
             }
         }
     }
 );
 
 const app = createMcpExpressApp();
-const transports: Record<string, StreamableHTTPServerTransport> = {};
+const transports: Record<string, NodeStreamableHTTPServerTransport> = {};
 // SIMULATING A PROXY: track abort controllers for upstream requests per session
 const sessionAbortControllers: Record<string, AbortController> = {};
 
@@ -71,7 +72,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
     let transport = sessionId ? transports[sessionId] : undefined;
 
     if (!transport && isInitializeRequest(req.body)) {
-        transport = new StreamableHTTPServerTransport({
+        transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: id => {
                 console.log(`Session initialized: ${id}`);
@@ -108,7 +109,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
         });
         await transport.handleRequest(req, res, req.body);
     } else {
-        res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad request' }, id: null });
+        res.status(400).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Bad request' }, id: null });
     }
 });
 
