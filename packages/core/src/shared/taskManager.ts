@@ -877,9 +877,7 @@ export class NullTaskManager extends TaskManager {
             sendRequest: ctx.sendRequest,
             routeResponse: async () => false,
             hasTaskCreationParams,
-            validateInbound: hasTaskCreationParams
-                ? () => this._requireHost.assertTaskHandlerCapability(request.method)
-                : undefined
+            validateInbound: hasTaskCreationParams ? () => this._requireHost.assertTaskHandlerCapability(request.method) : undefined
         };
     }
 
