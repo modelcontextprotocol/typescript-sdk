@@ -265,7 +265,7 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
 
     taskStore?: RequestTaskStore;
 
-    taskRequestedTtl?: number | null;
+    taskRequestedTtl?: number;
 
     /**
      * The original HTTP request.
