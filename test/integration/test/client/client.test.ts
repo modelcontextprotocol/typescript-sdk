@@ -2258,10 +2258,13 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client({
-            name: 'test-client',
-            version: '1.0.0'
-        });
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+        );
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2302,10 +2305,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2342,10 +2346,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2381,10 +2388,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2421,10 +2429,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2461,10 +2472,11 @@ describe('Task-based execution', () => {
                                     call: {},
                                     list: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2501,10 +2513,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2545,10 +2560,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2585,10 +2601,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2652,10 +2671,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2744,10 +2764,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2835,10 +2856,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2925,10 +2947,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -3027,10 +3050,11 @@ describe('Task-based execution', () => {
                             tools: {
                                 call: {}
                             }
-                        }
+                        },
+
+                        taskStore: serverTaskStore
                     }
-                },
-                taskStore: serverTaskStore
+                }
             }
         );
 
@@ -3152,10 +3176,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -3199,10 +3224,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -3246,10 +3272,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -3300,10 +3327,11 @@ test('should respect server task capabilities', async () => {
                         tools: {
                             call: {}
                         }
-                    }
+                    },
+
+                    taskStore: serverTaskStore
                 }
-            },
-            taskStore: serverTaskStore
+            }
         }
     );
 
@@ -3346,7 +3374,16 @@ test('should respect server task capabilities', async () => {
             version: '1.0.0'
         },
         {
-            enforceStrictCapabilities: true
+            enforceStrictCapabilities: true,
+            capabilities: {
+                tasks: {
+                    requests: {
+                        tools: {
+                            call: {}
+                        }
+                    }
+                }
+            }
         }
     );
 
@@ -3419,7 +3456,7 @@ test('should expose requestStream() method for streaming responses', async () =>
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3481,7 +3518,7 @@ test('should expose callToolStream() method for streaming tool calls', async () 
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3559,7 +3596,7 @@ test('should validate structured output in callToolStream()', async () => {
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3637,7 +3674,7 @@ test('callToolStream() should yield error when structuredContent does not match 
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3710,7 +3747,7 @@ test('callToolStream() should yield error when tool with outputSchema returns no
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3775,7 +3812,7 @@ test('callToolStream() should handle tools without outputSchema normally', async
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3870,7 +3907,7 @@ test('callToolStream() should handle complex JSON schema validation', async () =
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3949,7 +3986,7 @@ test('callToolStream() should yield error with additional properties when not al
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -4023,7 +4060,7 @@ test('callToolStream() should not validate structuredContent when isError is tru
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
