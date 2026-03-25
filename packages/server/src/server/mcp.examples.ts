@@ -153,7 +153,6 @@ function McpServer_registerEvent_basic(server: McpServer, counter: { current: nu
         'counter.tick',
         {
             description: 'Fires every time the in-memory counter is incremented',
-            pollHints: { intervalSeconds: { recommended: 5 } },
             inputSchema: z.object({ minValue: z.number().default(0) })
         },
         async ({ minValue }, cursor) => {
@@ -162,7 +161,7 @@ function McpServer_registerEvent_basic(server: McpServer, counter: { current: nu
             for (let i = position + 1; i <= counter.current; i++) {
                 if (i >= minValue) events.push({ name: 'counter.tick', data: { value: i } });
             }
-            return { events, cursor: String(counter.current) };
+            return { events, cursor: String(counter.current), nextPollSeconds: 5 };
         }
     );
     //#endregion McpServer_registerEvent_basic

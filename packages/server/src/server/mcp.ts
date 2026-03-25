@@ -987,7 +987,6 @@ export class McpServer {
      *     'counter.tick',
      *     {
      *         description: 'Fires every time the in-memory counter is incremented',
-     *         pollHints: { intervalSeconds: { recommended: 5 } },
      *         inputSchema: z.object({ minValue: z.number().default(0) })
      *     },
      *     async ({ minValue }, cursor) => {
@@ -996,7 +995,7 @@ export class McpServer {
      *         for (let i = position + 1; i <= counter.current; i++) {
      *             if (i >= minValue) events.push({ name: 'counter.tick', data: { value: i } });
      *         }
-     *         return { events, cursor: String(counter.current) };
+     *         return { events, cursor: String(counter.current), nextPollSeconds: 5 };
      *     }
      * );
      * ```

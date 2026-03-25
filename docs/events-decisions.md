@@ -51,6 +51,21 @@ the server side, and per-event delivery mode variation wasn't described.
 **Reversible:** the `_computeDeliveryModes()` method can be parameterised per
 event with minimal fanout.
 
+## Poll interval is driven entirely by `nextPollSeconds` (no static hints)
+
+**Design change:** `pollHints` was removed from the spec. The check callback's
+`nextPollSeconds` return value is now the sole source of polling cadence.
+
+**Implemented:** the server's internal poll-driven loops (`_schedulePushPoll`,
+`_scheduleWebhookPoll`) receive the bootstrap check's `nextPollSeconds` as their
+initial interval and then track the most recent value returned by subsequent
+checks. `_pollOne` falls back to `DEFAULT_POLL_SECONDS` (30s) only when the
+check callback omits it.
+
+**Rationale:** one fewer concept, and the dynamic value can do everything the
+static hint could — a check callback that wants a fixed interval just returns
+the same `nextPollSeconds` every time.
+
 ## `events/stream` handler does not return per-subscription errors as a request-level error
 
 **Design says:** subscription errors are sent as `notifications/events/error`
@@ -93,20 +108,56 @@ a badly-behaved client could.
 **Reversible:** a stateful server could track seen IDs, but that contradicts
 the statelessness guarantee.
 
+## Webhook subscription identity — compound key scoping
+
+**Design says:** subscriptions are keyed by `(principal, id)` on authenticated
+servers, `(delivery.url, id)` on unauthenticated servers. `id` must be ≥122
+bits of entropy. Two scopes never overlap.
+
+**Implemented:**
+- `ServerEventManager._subscriptionKey(ctx, id, url)` produces a prefixed
+  compound key (`p:<principal>\0<id>` or `u:<url>\0<id>`); the NUL byte rules
+  out separator-injection collisions.
+- `_getPrincipal` defaults to `ctx.http?.authInfo?.clientId` (the SDK's
+  `AuthInfo` has no `sub` field; `clientId` is the closest canonical
+  identifier). Servers with a real user subject override via
+  `EventWebhookOptions.getPrincipal`.
+- `id.length < 16` is rejected with `InvalidParams` as a cheap low-entropy
+  guard. A UUIDv4 is 36 chars.
+- `ClientEventManager` generates `crypto.randomUUID()` per subscription rather
+  than a sequential counter.
+- `events/unsubscribe` accepts optional `delivery.url`; required on
+  unauthenticated servers to form the key, ignored when a principal is
+  present.
+
+**Mutable-on-refresh fields:** `name`, `params`, `secret`, TTL always replace.
+`url` replaces only in principal scope (in url scope it's part of the key — a
+different URL is a different subscription). `cursor: null` on refresh means
+"keep the server's current position" (the refresh loop doesn't have to track
+it); non-null replaces.
+
+**Rationale (open question 2 resolution):** chose to require `delivery.url` in
+unsubscribe params on unauthenticated servers rather than maintain a reverse
+index. The reverse index would reintroduce a (bounded) cross-tenant collision
+surface if two UUIDv4s ever collide; strictly keying on `(url, id)` eliminates
+it.
+
 ## Webhook subscription `cursor` refresh semantics
 
-**Design says:** on refresh, "the server resets the TTL and updates the cursor
-to the latest position."
+**Design says:** `cursor: null` on refresh = keep server's current position;
+non-null = replace. On a fresh subscription, `null` = bootstrap.
 
-**Implemented:** on refresh, the check callback is invoked with the existing
-cursor (or client-provided cursor). The response's `cursor` is the new tracked
-cursor, and any backlog events from the check are delivered via webhook POST.
-This means a refresh after a server restart replays events from the client's
-last-known position.
+**Implemented:** yes. `_handleSubscribe` short-circuits the check callback when
+refreshing with `cursor: null`, returning the existing cursor unchanged. A
+non-null cursor invokes the check callback and replays any backlog — this is
+the server-restart recovery path where the client's persisted cursor is the
+source of truth.
 
-**Rationale:** matches the design's "clients will re-subscribe on their next
-refresh cycle, passing their last-known cursor to resume without missing
-events."
+**Rationale (open question 1 resolution):** a refresh loop that only cares
+about TTL shouldn't have to track and re-send the cursor. The client SDK still
+*does* send `sub.cursor` on refresh (not null) so that a restarted server can
+resume from the client's position; the null path exists for clients that don't
+persist cursors.
 
 ## Direct emit cursor advancement
 
@@ -120,12 +171,38 @@ the cursor is not meaningful to the check callback unless the server author's
 upstream uses the same ID space.
 
 **Rationale:** for pure emit-driven events (no check-callback history), there
-is no upstream cursor to use. The `eventId` serves as a monotonic marker. If
-the server author needs check-callback replay of emitted events, they must
-record the events and implement cursor resume in the check callback.
+is no upstream cursor to use. The `eventId` serves as a monotonic marker.
 
-**Alternative:** the SDK could require emit-driven events to provide a cursor
-explicitly. Deferred for simplicity.
+## `emit()` visibility to poll-mode clients (`bufferEmits`)
+
+**Problem:** poll mode is stateless — the server doesn't know about poll
+clients between requests, so `emit()` has nowhere to deliver. The design says
+"direct emit works across all modes" but a naive implementation only reaches
+push/webhook subscriptions.
+
+**Implemented:** opt-in per-event ring buffer via `EventConfig.bufferEmits:
+{ capacity }`. When set:
+
+- Broadcast `emit()` calls append to a bounded in-memory buffer with a
+  monotonic sequence number. Targeted emits (with `subscriptionId`) are not
+  buffered — they address a specific push/webhook sub.
+- `_pollOne()` wraps the check callback's cursor in a composite
+  `JSON.stringify({ c: checkCursor, b: bufferSeq })`. On each poll it unwraps,
+  passes the inner cursor to the check callback, scans the buffer for entries
+  newer than `bufferSeq`, applies the `matches` filter, and merges both result
+  sets.
+- Bootstrap (`cursor: null`) sets `bufferSeq = nextSeq` — "start from now", no
+  historical replay of buffered emits.
+- If the ring buffer evicts entries the client hasn't seen (`bufferSeq <
+  oldestRetainedSeq`), the poll returns `CursorExpired` and the client
+  re-bootstraps.
+- A non-composite cursor passed to a buffered event also returns
+  `CursorExpired` (handles the case where `bufferEmits` was enabled after
+  clients already held plain cursors).
+
+**Trade-offs:** memory is bounded by `capacity × average_payload_size` per
+event type. The composite cursor is visible to clients (it's JSON, not opaque)
+but they're not expected to parse it — cursors remain opaque per spec.
 
 ## `ClientEventManager` push stream is a single shared request
 

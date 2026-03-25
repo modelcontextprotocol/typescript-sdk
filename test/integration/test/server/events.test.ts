@@ -29,7 +29,7 @@ function openStream(client: Client, subscriptions: unknown[], controller: AbortC
         .catch(() => {});
 }
 
-function makeCounterEvent() {
+function makeCounterEvent(nextPollSeconds?: number) {
     const state = { value: 0 };
     const check = async (params: { minValue: number }, cursor: string | null) => {
         const position = cursor === null ? state.value : Number(cursor);
@@ -37,7 +37,7 @@ function makeCounterEvent() {
         for (let i = position + 1; i <= state.value; i++) {
             if (i >= params.minValue) events.push({ name: 'counter.tick', data: { value: i } });
         }
-        return { events, cursor: String(state.value) };
+        return { events, cursor: String(state.value), nextPollSeconds };
     };
     return { state, check };
 }
@@ -63,7 +63,6 @@ describe('Events', () => {
                 'counter.tick',
                 {
                     description: 'Fires every time the counter is incremented',
-                    pollHints: { intervalSeconds: { min: 1, recommended: 5, max: 60 } },
                     inputSchema: z.object({ minValue: z.number().default(0) }),
                     payloadSchema: z.object({ value: z.number() })
                 },
@@ -79,7 +78,6 @@ describe('Events', () => {
             expect(result.events[0]!.delivery).toContain('poll');
             expect(result.events[0]!.delivery).toContain('push');
             expect(result.events[0]!.delivery).not.toContain('webhook'); // no webhook TTL configured
-            expect(result.events[0]!.pollHints?.intervalSeconds.recommended).toBe(5);
             expect(result.events[0]!.inputSchema?.type).toBe('object');
         });
 
@@ -138,7 +136,7 @@ describe('Events', () => {
 
     describe('events/poll', () => {
         it('returns empty events and a fresh cursor on bootstrap', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
 
             await connectPair(server, client);
@@ -155,7 +153,7 @@ describe('Events', () => {
         });
 
         it('returns events since the cursor on subsequent polls', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
 
             await connectPair(server, client);
@@ -178,7 +176,7 @@ describe('Events', () => {
         });
 
         it('respects subscription params as filters', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
 
             await connectPair(server, client);
@@ -228,7 +226,7 @@ describe('Events', () => {
         });
 
         it('respects maxEvents and signals hasMore', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
 
             await connectPair(server, client);
@@ -267,12 +265,11 @@ describe('Events', () => {
 
     describe('events/stream (push mode)', () => {
         it('confirms subscriptions with notifications/events/active and delivers events as notifications/event', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent(
                 'counter.tick',
                 {
-                    inputSchema: z.object({ minValue: z.number().default(0) }),
-                    pollHints: { intervalSeconds: { recommended: 0.01 } }
+                    inputSchema: z.object({ minValue: z.number().default(0) })
                 },
                 check
             );
@@ -491,7 +488,149 @@ describe('Events', () => {
         });
     });
 
+    describe('emit() buffering for poll mode', () => {
+        function registerIncidentEvent(capacity: number) {
+            server.registerEvent(
+                'incident.created',
+                {
+                    inputSchema: z.object({ severity: z.string().optional() }),
+                    matches: (params, data) => !params.severity || params.severity === data.severity,
+                    bufferEmits: { capacity }
+                },
+                // Check callback returns nothing — emits drive everything.
+                async (_params, _cursor) => ({ events: [], cursor: 'check-cursor', nextPollSeconds: 30 })
+            );
+        }
+
+        it('delivers buffered emits to poll clients on next poll', async () => {
+            registerIncidentEvent(100);
+            await connectPair(server, client);
+
+            // Bootstrap.
+            let r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: null }]
+            });
+            expect(r.results[0]!.events).toEqual([]);
+            const bootCursor = r.results[0]!.cursor!;
+
+            // Emit three events.
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P2' });
+            server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P3' });
+
+            r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: bootCursor }]
+            });
+            expect(r.results[0]!.events).toHaveLength(3);
+            expect(r.results[0]!.events!.map(e => e.data.incidentId)).toEqual(['INC-1', 'INC-2', 'INC-3']);
+
+            // Second poll with new cursor returns nothing.
+            const nextCursor = r.results[0]!.cursor!;
+            r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: nextCursor }]
+            });
+            expect(r.results[0]!.events).toEqual([]);
+        });
+
+        it('applies matches filter to buffered emits at poll time', async () => {
+            registerIncidentEvent(100);
+            await connectPair(server, client);
+
+            let r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: { severity: 'P1' }, cursor: null }]
+            });
+            const cursor = r.results[0]!.cursor!;
+
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P3' });
+            server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
+
+            r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: { severity: 'P1' }, cursor }]
+            });
+            expect(r.results[0]!.events!.map(e => e.data.incidentId)).toEqual(['INC-1', 'INC-3']);
+        });
+
+        it('returns CursorExpired when buffer wraps past the client cursor', async () => {
+            registerIncidentEvent(2);
+            await connectPair(server, client);
+
+            let r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: null }]
+            });
+            const staleCursor = r.results[0]!.cursor!;
+
+            // Emit 3 events into a capacity-2 buffer — oldest is evicted.
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
+
+            r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: staleCursor }]
+            });
+            expect(r.results[0]!.error?.code).toBe(CURSOR_EXPIRED);
+        });
+
+        it('does not buffer targeted emits (subscriptionId set)', async () => {
+            registerIncidentEvent(100);
+            await connectPair(server, client);
+
+            let r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: null }]
+            });
+            const cursor = r.results[0]!.cursor!;
+
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' }, { subscriptionId: 'some-push-sub' });
+
+            r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor }]
+            });
+            expect(r.results[0]!.events).toEqual([]);
+        });
+
+        it('merges check-callback events with buffered emits', async () => {
+            const { state, check } = makeCounterEvent(30);
+            server.registerEvent(
+                'mixed.event',
+                {
+                    inputSchema: z.object({ minValue: z.number().default(0) }),
+                    bufferEmits: { capacity: 100 }
+                },
+                check
+            );
+            await connectPair(server, client);
+
+            let r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'mixed.event', params: { minValue: 0 }, cursor: null }]
+            });
+            const cursor = r.results[0]!.cursor!;
+
+            state.value = 2; // check callback will return 2 events
+            server.emitEvent('mixed.event', { source: 'emit' }); // buffer adds 1
+
+            r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'mixed.event', params: { minValue: 0 }, cursor }]
+            });
+            expect(r.results[0]!.events).toHaveLength(3);
+        });
+
+        it('bootstrap skips events already in the buffer (start from now)', async () => {
+            registerIncidentEvent(100);
+            await connectPair(server, client);
+
+            // Emit before any client bootstraps.
+            server.emitEvent('incident.created', { incidentId: 'INC-OLD', severity: 'P1' });
+
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: null }]
+            });
+            expect(r.results[0]!.events).toEqual([]);
+        });
+    });
+
     describe('events/subscribe and events/unsubscribe (webhook mode)', () => {
+        const SUB_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+        const HOOK_URL = 'http://localhost:9999/hook';
         let fetchMock: ReturnType<typeof vi.fn>;
 
         beforeEach(() => {
@@ -517,26 +656,25 @@ describe('Events', () => {
             await connectPair(server, client);
 
             const result = await client.subscribeEvent({
-                id: 'whsub1',
+                id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook', secret: 'secret123' },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 'secret123' },
                 cursor: null
             });
 
-            expect(result.id).toBe('whsub1');
+            expect(result.id).toBe(SUB_ID);
             expect(result.cursor).toBe('0');
             expect(result.refreshBefore).toBeDefined();
             expect(new Date(result.refreshBefore).getTime()).toBeGreaterThan(Date.now());
         });
 
         it('delivers events via webhook POST with HMAC signature', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent(
                 'counter.tick',
                 {
-                    inputSchema: z.object({ minValue: z.number().default(0) }),
-                    pollHints: { intervalSeconds: { recommended: 0.01 } }
+                    inputSchema: z.object({ minValue: z.number().default(0) })
                 },
                 check
             );
@@ -544,10 +682,10 @@ describe('Events', () => {
             await connectPair(server, client);
 
             await client.subscribeEvent({
-                id: 'whsub1',
+                id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook', secret: 'secret123' },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 'secret123' },
                 cursor: null
             });
 
@@ -556,12 +694,12 @@ describe('Events', () => {
             await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
             const [url, init] = fetchMock.mock.calls[0]!;
-            expect(url).toBe('http://localhost:9999/hook');
+            expect(url).toBe(HOOK_URL);
             expect(init.method).toBe('POST');
 
             const body = init.body as string;
             const parsed = JSON.parse(body);
-            expect(parsed.id).toBe('whsub1');
+            expect(parsed.id).toBe(SUB_ID);
             expect(parsed.name).toBe('counter.tick');
             expect(parsed.eventId).toBeDefined();
 
@@ -578,24 +716,24 @@ describe('Events', () => {
             await connectPair(server, client);
 
             const first = await client.subscribeEvent({
-                id: 'whsub1',
+                id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook', secret: 'a' },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 'a' },
                 cursor: null
             });
 
             await new Promise(r => setTimeout(r, 10));
 
             const second = await client.subscribeEvent({
-                id: 'whsub1',
+                id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook', secret: 'b' },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 'b' },
                 cursor: first.cursor
             });
 
-            expect(second.id).toBe('whsub1');
+            expect(second.id).toBe(SUB_ID);
             expect(new Date(second.refreshBefore).getTime()).toBeGreaterThan(new Date(first.refreshBefore).getTime());
             // Second call is a refresh of an existing sub so deliveryStatus is present.
             expect(second.deliveryStatus).toBeDefined();
@@ -609,16 +747,166 @@ describe('Events', () => {
             await connectPair(server, client);
 
             await client.subscribeEvent({
-                id: 'whsub1',
+                id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook', secret: 's' },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
                 cursor: null
             });
 
-            await client.unsubscribeEvent({ id: 'whsub1' });
+            await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: HOOK_URL } });
 
-            await expect(client.unsubscribeEvent({ id: 'whsub1' })).rejects.toMatchObject({ code: SUBSCRIPTION_NOT_FOUND });
+            await expect(client.unsubscribeEvent({ id: SUB_ID, delivery: { url: HOOK_URL } })).rejects.toMatchObject({
+                code: SUBSCRIPTION_NOT_FOUND
+            });
+        });
+
+        it('rejects low-entropy subscription ids', async () => {
+            const { check } = makeCounterEvent();
+            server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
+
+            await connectPair(server, client);
+
+            await expect(
+                client.subscribeEvent({
+                    id: 'short',
+                    name: 'counter.tick',
+                    params: { minValue: 0 },
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
+                    cursor: null
+                })
+            ).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
+        });
+
+        it('isolates subscriptions by (delivery.url, id) on unauthenticated servers', async () => {
+            const { check } = makeCounterEvent();
+            server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
+
+            await connectPair(server, client);
+
+            const urlA = 'http://localhost:9991/hook';
+            const urlB = 'http://localhost:9992/hook';
+
+            // Same id, different URLs → two distinct subscriptions.
+            const subA = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: urlA, secret: 'secretA' },
+                cursor: null
+            });
+            const subB = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: urlB, secret: 'secretB' },
+                cursor: null
+            });
+
+            expect(subA.deliveryStatus).toBeUndefined(); // new sub
+            expect(subB.deliveryStatus).toBeUndefined(); // also a new sub, not a refresh of A
+
+            // Unsubscribing A does not affect B.
+            await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: urlA } });
+            await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: urlB } });
+
+            // Unsubscribing B without URL fails (cannot form key).
+            await expect(client.unsubscribeEvent({ id: SUB_ID })).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams
+            });
+        });
+
+        it('scopes by (principal, id) when a principal is present and allows URL rotation', async () => {
+            let currentPrincipal = 'alice';
+            server = new McpServer(
+                { name: 's', version: '1.0.0' },
+                {
+                    events: {
+                        webhook: {
+                            ttlMs: 30_000,
+                            urlValidation: { allowPrivateNetworks: true, allowInsecure: true },
+                            fetch: fetchMock as unknown as typeof fetch,
+                            getPrincipal: () => currentPrincipal
+                        }
+                    }
+                }
+            );
+            const { check } = makeCounterEvent();
+            server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
+
+            await connectPair(server, client);
+
+            // Alice subscribes.
+            const first = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: 'http://localhost:1111/a', secret: 's' },
+                cursor: null
+            });
+            expect(first.deliveryStatus).toBeUndefined();
+
+            // Alice refreshes with a DIFFERENT URL → same key (principal, id), URL is mutable.
+            const rotated = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: 'http://localhost:2222/a', secret: 's' },
+                cursor: null
+            });
+            expect(rotated.deliveryStatus).toBeDefined(); // refresh, not a new sub
+
+            // Bob subscribes with the same id → distinct key (different principal).
+            currentPrincipal = 'bob';
+            const bob = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: 'http://localhost:3333/b', secret: 's' },
+                cursor: null
+            });
+            expect(bob.deliveryStatus).toBeUndefined(); // new sub, not a refresh of Alice's
+
+            // Bob's unsubscribe doesn't need delivery.url (principal forms the key).
+            await client.unsubscribeEvent({ id: SUB_ID });
+
+            // Alice's subscription is still there.
+            currentPrincipal = 'alice';
+            await client.unsubscribeEvent({ id: SUB_ID });
+        });
+
+        it('keeps server cursor on refresh with cursor: null', async () => {
+            const { state, check } = makeCounterEvent(0.01);
+            server.registerEvent(
+                'counter.tick',
+                {
+                    inputSchema: z.object({ minValue: z.number().default(0) })
+                },
+                check
+            );
+
+            await connectPair(server, client);
+
+            await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
+                cursor: null
+            });
+
+            state.value = 5;
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+            // Refresh with cursor: null — server keeps its position (5), doesn't rewind to 0.
+            const refreshed = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
+                cursor: null
+            });
+            expect(refreshed.cursor).toBe('5');
         });
 
         it('rejects unsafe callback URLs with InvalidCallbackUrl', async () => {
@@ -633,7 +921,7 @@ describe('Events', () => {
 
             await expect(
                 client.subscribeEvent({
-                    id: 'whsub1',
+                    id: SUB_ID,
                     name: 'counter.tick',
                     params: { minValue: 0 },
                     delivery: { mode: 'webhook', url: 'http://127.0.0.1:1234/hook', secret: 's' },
@@ -659,12 +947,11 @@ describe('Events', () => {
                     }
                 }
             );
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent(
                 'counter.tick',
                 {
-                    inputSchema: z.object({ minValue: z.number().default(0) }),
-                    pollHints: { intervalSeconds: { recommended: 0.01 } }
+                    inputSchema: z.object({ minValue: z.number().default(0) })
                 },
                 check
             );
@@ -672,10 +959,10 @@ describe('Events', () => {
             await connectPair(server, client);
 
             await client.subscribeEvent({
-                id: 'whsub1',
+                id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook', secret: 's' },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
                 cursor: null
             });
 
@@ -684,10 +971,10 @@ describe('Events', () => {
             await vi.waitFor(() => expect(failFetch).toHaveBeenCalledTimes(2));
 
             const refreshed = await client.subscribeEvent({
-                id: 'whsub1',
+                id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook', secret: 's' },
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
                 cursor: null
             });
 
@@ -728,12 +1015,11 @@ describe('Events', () => {
 
     describe('ClientEventManager (high-level client API)', () => {
         it('subscribes via poll mode and yields events as AsyncIterable', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent(
                 'counter.tick',
                 {
-                    inputSchema: z.object({ minValue: z.number().default(0) }),
-                    pollHints: { intervalSeconds: { recommended: 0.01 } }
+                    inputSchema: z.object({ minValue: z.number().default(0) })
                 },
                 check
             );
@@ -760,12 +1046,11 @@ describe('Events', () => {
         });
 
         it('subscribes via push mode and yields events as AsyncIterable', async () => {
-            const { state, check } = makeCounterEvent();
+            const { state, check } = makeCounterEvent(0.01);
             server.registerEvent(
                 'counter.tick',
                 {
-                    inputSchema: z.object({ minValue: z.number().default(0) }),
-                    pollHints: { intervalSeconds: { recommended: 0.01 } }
+                    inputSchema: z.object({ minValue: z.number().default(0) })
                 },
                 check
             );

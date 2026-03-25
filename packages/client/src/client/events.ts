@@ -218,7 +218,6 @@ export class ClientEventManager {
     private _eventTypes = new Map<string, EventDescriptor>();
     private _eventTypesLoaded = false;
     private _subscriptions = new Map<string, EventSubscription>();
-    private _subCounter = 0;
 
     // Poll-mode state: one shared loop drives all poll-mode subscriptions.
     private _pollSubs = new Map<string, EventSubscription>();
@@ -276,7 +275,7 @@ export class ClientEventManager {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Event '${name}' does not support delivery mode '${mode}'`);
         }
 
-        const id = `sub_${(this._subCounter++).toString(36)}`;
+        const id = crypto.randomUUID();
         const dedupe = options.dedupeWindow ?? DEFAULT_DEDUPE_WINDOW;
 
         const sub = new EventSubscription(id, name, params, mode, dedupe, async () => {
@@ -363,7 +362,13 @@ export class ClientEventManager {
                 if (timer) clearTimeout(timer);
                 this._webhookTimers.delete(sub.id);
                 try {
-                    await this._client.unsubscribeEvent({ id: sub.id }, this._options.requestOptions);
+                    await this._client.unsubscribeEvent(
+                        {
+                            id: sub.id,
+                            delivery: this._options.webhook ? { url: this._options.webhook.url } : undefined
+                        },
+                        this._options.requestOptions
+                    );
                 } catch {
                     // Best-effort cleanup — TTL will reclaim it.
                 }

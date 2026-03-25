@@ -2099,26 +2099,6 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 export const EventDeliveryModeSchema = z.enum(['poll', 'push', 'webhook']);
 
 /**
- * Polling-interval hints for the client SDK. Values are in seconds.
- */
-export const EventPollHintsSchema = z.object({
-    intervalSeconds: z.object({
-        /**
-         * Minimum permitted interval. Polling faster than this is a protocol violation.
-         */
-        min: z.number().optional(),
-        /**
-         * Recommended interval. The SDK SHOULD use this as the default.
-         */
-        recommended: z.number().optional(),
-        /**
-         * Maximum useful interval. Polling slower than this risks missing events (cursor expiry).
-         */
-        max: z.number().optional()
-    })
-});
-
-/**
  * Describes an event type the server can deliver.
  */
 export const EventDescriptorSchema = z.object({
@@ -2131,10 +2111,6 @@ export const EventDescriptorSchema = z.object({
      * Delivery modes this event type supports. MUST include `"poll"`.
      */
     delivery: z.array(EventDeliveryModeSchema),
-    /**
-     * Polling interval hints. Present when `"poll"` is in `delivery`.
-     */
-    pollHints: EventPollHintsSchema.optional(),
     /**
      * A JSON Schema describing valid subscription parameters for this event type.
      * Mirrors `inputSchema` on {@linkcode Tool}.
@@ -2364,8 +2340,12 @@ export const WebhookDeliverySpecSchema = z.object({
  */
 export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
-     * Client-provided subscription identifier. Calling `events/subscribe` again
-     * with the same `id` refreshes the TTL (idempotent upsert).
+     * Client-generated, high-entropy identifier for this logical subscription.
+     * MUST contain at least 122 bits of randomness (a UUIDv4 is recommended).
+     *
+     * Subscriptions are keyed by `(principal, id)` on authenticated servers or
+     * `(delivery.url, id)` on unauthenticated servers. Calling `events/subscribe`
+     * again with the same scoped key refreshes the TTL (idempotent upsert).
      */
     id: z.string(),
     /**
@@ -2381,14 +2361,17 @@ export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend(
      */
     delivery: WebhookDeliverySpecSchema,
     /**
-     * Resume cursor. `null` means "start from now" (bootstrap).
+     * Resume cursor. On a fresh subscription, `null` means "start from now"
+     * (bootstrap). On a refresh of an existing subscription, `null` means "keep
+     * the server's current position" (no-op); a non-null value replaces it.
      */
     cursor: z.string().nullable().optional()
 });
 
 /**
- * Sent from the client to register a webhook subscription. Idempotent — calling
- * again with the same `id` refreshes the TTL and updates the cursor.
+ * Sent from the client to register a webhook subscription. Idempotent within
+ * the caller's subscription scope — calling again with the same `(principal, id)`
+ * or `(delivery.url, id)` refreshes the TTL and updates mutable fields.
  */
 export const SubscribeEventRequestSchema = RequestSchema.extend({
     method: z.literal('events/subscribe'),
@@ -2450,7 +2433,14 @@ export const UnsubscribeEventRequestParamsSchema = BaseRequestParamsSchema.exten
     /**
      * The subscription identifier to unsubscribe.
      */
-    id: z.string()
+    id: z.string(),
+    /**
+     * The callback URL the subscription was created with. Required on
+     * unauthenticated servers so the server can form the `(delivery.url, id)`
+     * compound key. Ignored when the caller is authenticated (the server uses
+     * `(principal, id)` instead).
+     */
+    delivery: z.object({ url: z.string() }).optional()
 });
 
 /**

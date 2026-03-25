@@ -55,7 +55,6 @@ import type {
     EventNotificationParamsSchema,
     EventNotificationSchema,
     EventOccurrenceSchema,
-    EventPollHintsSchema,
     EventSubscriptionErrorSchema,
     EventSubscriptionSpecSchema,
     EventTerminatedNotificationParamsSchema,
@@ -395,7 +394,6 @@ export type RootsListChangedNotification = Infer<typeof RootsListChangedNotifica
 
 /* Events */
 export type EventDeliveryMode = Infer<typeof EventDeliveryModeSchema>;
-export type EventPollHints = Infer<typeof EventPollHintsSchema>;
 export type EventDescriptor = Infer<typeof EventDescriptorSchema>;
 export type EventOccurrence = Infer<typeof EventOccurrenceSchema>;
 export type EventSubscriptionSpec = Infer<typeof EventSubscriptionSpecSchema>;

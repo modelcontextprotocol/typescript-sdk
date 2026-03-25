@@ -45,7 +45,15 @@
         "express": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly",
         "valibot": "catalog:devTools",
-        "zod": "catalog:runtimeShared"
+        "zod": "catalog:runtimeShared",
+        "googleapis": "^144.0.0",
+        "@slack/socket-mode": "^2.0.3",
+        "@slack/web-api": "^7.9.1",
+        "@octokit/webhooks": "^13.4.2",
+        "@kubernetes/client-node": "^1.0.0",
+        "stripe": "^17.5.0",
+        "@shopify/shopify-api": "^11.7.0",
+        "discord.js": "^14.16.3"
     },
     "devDependencies": {
         "@modelcontextprotocol/eslint-config": "workspace:^",

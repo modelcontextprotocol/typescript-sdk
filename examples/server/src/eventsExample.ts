@@ -55,7 +55,6 @@ server.registerEvent(
     'counter.tick',
     {
         description: 'Fires every time the in-memory counter is incremented (once per second)',
-        pollHints: { intervalSeconds: { min: 1, recommended: 2, max: 60 } },
         inputSchema: z.object({
             minValue: z.number().default(0).describe('Only deliver ticks >= this value'),
             modulo: z.number().int().positive().default(1).describe('Only deliver ticks divisible by this')
@@ -76,7 +75,7 @@ server.registerEvent(
                 });
             }
         }
-        return { events, cursor: String(counter) };
+        return { events, cursor: String(counter), nextPollSeconds: 2 };
     }
 );
 
@@ -88,7 +87,6 @@ server.registerEvent(
     'incident.created',
     {
         description: 'Fires when a (simulated) PagerDuty incident is created',
-        pollHints: { intervalSeconds: { recommended: 10 } },
         inputSchema: z.object({
             severity: z.enum(['P1', 'P2', 'P3', 'P4']).optional().describe('Filter by severity')
         }),
@@ -108,11 +106,14 @@ server.registerEvent(
                 console.error(`[incidents] subscriber ${id} left`);
             }
         },
-        matches: (params, data) => !params.severity || params.severity === data.severity
+        matches: (params, data) => !params.severity || params.severity === data.severity,
+        // Buffer broadcast emits so poll-mode clients see them on their next poll.
+        bufferEmits: { capacity: 500 }
     },
-    // For emit-driven events, the check callback only handles bootstrap/replay.
-    // Here we bootstrap with no history — emit() drives all deliveries.
-    async (_params, _cursor) => ({ events: [], cursor: String(Date.now()) })
+    // For emit-driven events, the check callback only handles bootstrap.
+    // With bufferEmits configured, the SDK merges buffered emits into poll
+    // responses — the callback just returns a stable cursor.
+    async (_params, _cursor) => ({ events: [], cursor: 'emit-only', nextPollSeconds: 10 })
 );
 
 // Simulate incidents arriving from upstream every 15 seconds.
