@@ -2,6 +2,7 @@ import { createServer, type Server, IncomingMessage, ServerResponse } from 'node
 import { AddressInfo, createServer as netCreateServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from '../../src/server/streamableHttp.js';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/webStandardStreamableHttp.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { CallToolResult, JSONRPCMessage } from '../../src/types.js';
 import { AuthInfo } from '../../src/server/auth/types.js';
@@ -443,7 +444,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'user-agent': expect.any(String),
                     'accept-encoding': expect.any(String),
                     'content-length': expect.any(String)
-                }
+                },
+                url: baseUrl.toString()
             });
         });
 
@@ -1529,19 +1531,55 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     // Test stateless mode
     describe('StreamableHTTPServerTransport in stateless mode', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
         let baseUrl: URL;
 
+        // In stateless mode, each request must use a fresh transport + server pair.
+        // The HTTP server creates these per-request and delegates accordingly.
         beforeEach(async () => {
-            const result = await createTestServer({ sessionIdGenerator: undefined });
-            server = result.server;
-            transport = result.transport;
-            baseUrl = result.baseUrl;
+            server = createServer(async (req, res) => {
+                try {
+                    const { transport, mcpServer } = await createStatelessHandler();
+                    await transport.handleRequest(req, res);
+                    // Close the per-request mcpServer after handling to avoid leaks
+                    await mcpServer.close();
+                } catch (error) {
+                    console.error('Error handling request:', error);
+                    if (!res.headersSent) res.writeHead(500).end();
+                }
+            });
+            baseUrl = await listenOnRandomPort(server);
         });
 
         afterEach(async () => {
-            await stopTestServer({ server, transport });
+            server.close();
         });
+
+        /**
+         * Creates a fresh transport + mcpServer pair for a single stateless request.
+         */
+        async function createStatelessHandler(): Promise<{
+            transport: StreamableHTTPServerTransport;
+            mcpServer: McpServer;
+        }> {
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.tool(
+                'greet',
+                'A simple greeting tool',
+                { name: z.string().describe('Name to greet') },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: undefined
+            });
+
+            await mcpServer.connect(transport);
+
+            return { transport, mcpServer };
+        }
 
         it('should operate without session ID validation', async () => {
             // Initialize the server first
@@ -1552,6 +1590,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(initResponse.headers.get('mcp-session-id')).toBeNull();
 
             // Try request without session ID - should work in stateless mode
+            // (a fresh transport is created per request)
             const toolsResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList);
 
             expect(toolsResponse.status).toBe(200);
@@ -1585,14 +1624,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(response2.status).toBe(200);
         });
 
-        it('should reject second SSE stream even in stateless mode', async () => {
-            // Despite no session ID requirement, the transport still only allows
-            // one standalone SSE stream at a time
+        it('should allow multiple SSE streams in stateless mode with per-request transports', async () => {
+            // Each request gets its own transport, so multiple SSE streams can
+            // coexist since they are handled by separate transport instances
 
             // Initialize the server first
             await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
 
-            // Open first SSE stream
+            // Open first SSE stream - this uses its own per-request transport
             const stream1 = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
@@ -1602,7 +1641,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
             expect(stream1.status).toBe(200);
 
-            // Open second SSE stream - should still be rejected, stateless mode still only allows one
+            // Open second SSE stream - also gets its own per-request transport,
+            // so it should also succeed (each transport only handles one request)
             const stream2 = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
@@ -1610,7 +1650,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'mcp-protocol-version': '2025-11-25'
                 }
             });
-            expect(stream2.status).toBe(409); // Conflict - only one stream allowed
+            // With per-request transports in stateless mode, each GET gets its own
+            // transport, so the second one also succeeds
+            expect(stream2.status).toBe(200);
         });
     });
 
@@ -2868,17 +2910,20 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
         describe('Combined validations', () => {
             it('should validate both host and origin when both are configured', async () => {
-                const result = await createTestServerWithDnsProtection({
+                // In stateless mode, each request needs a fresh transport, so we
+                // test invalid and valid origins with separate server instances.
+
+                // Test with invalid origin
+                const result1 = await createTestServerWithDnsProtection({
                     sessionIdGenerator: undefined,
                     allowedHosts: ['localhost'],
                     allowedOrigins: ['http://localhost:3001'],
                     enableDnsRebindingProtection: true
                 });
-                server = result.server;
-                transport = result.transport;
-                baseUrl = result.baseUrl;
+                server = result1.server;
+                transport = result1.transport;
+                baseUrl = result1.baseUrl;
 
-                // Test with invalid origin (host will be automatically correct via fetch)
                 const response1 = await fetch(baseUrl, {
                     method: 'POST',
                     headers: {
@@ -2893,7 +2938,20 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 const body1 = await response1.json();
                 expect(body1.error.message).toBe('Invalid Origin header: http://evil.com');
 
-                // Test with valid origin
+                // Clean up first server
+                await stopTestServer({ server, transport });
+
+                // Test with valid origin using a fresh server+transport
+                const result2 = await createTestServerWithDnsProtection({
+                    sessionIdGenerator: undefined,
+                    allowedHosts: ['localhost'],
+                    allowedOrigins: ['http://localhost:3001'],
+                    enableDnsRebindingProtection: true
+                });
+                server = result2.server;
+                transport = result2.transport;
+                baseUrl = result2.baseUrl;
+
                 const response2 = await fetch(baseUrl, {
                     method: 'POST',
                     headers: {
@@ -2907,6 +2965,89 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 expect(response2.status).toBe(200);
             });
         });
+    });
+});
+
+describe('StreamableHTTPServerTransport global Response preservation', () => {
+    it('should not override the global Response object', () => {
+        // Store reference to the original global Response constructor
+        const OriginalResponse = globalThis.Response;
+
+        // Create a custom class that extends Response (similar to Next.js's NextResponse)
+        class CustomResponse extends Response {
+            customProperty = 'test';
+        }
+
+        // Verify instanceof works before creating transport
+        const customResponseBefore = new CustomResponse('test body');
+        expect(customResponseBefore instanceof Response).toBe(true);
+        expect(customResponseBefore instanceof OriginalResponse).toBe(true);
+
+        // Create the transport - this should NOT override globalThis.Response
+        const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID()
+        });
+
+        // Verify the global Response is still the original
+        expect(globalThis.Response).toBe(OriginalResponse);
+
+        // Verify instanceof still works after creating transport
+        const customResponseAfter = new CustomResponse('test body');
+        expect(customResponseAfter instanceof Response).toBe(true);
+        expect(customResponseAfter instanceof OriginalResponse).toBe(true);
+
+        // Verify that instances created before transport initialization still work
+        expect(customResponseBefore instanceof Response).toBe(true);
+
+        // Clean up
+        transport.close();
+    });
+
+    it('should not override the global Response object when calling handleRequest', async () => {
+        // Store reference to the original global Response constructor
+        const OriginalResponse = globalThis.Response;
+
+        // Create a custom class that extends Response
+        class CustomResponse extends Response {
+            customProperty = 'test';
+        }
+
+        const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID()
+        });
+
+        // Create a mock server to test handleRequest
+        const port = await getFreePort();
+        const httpServer = createServer(async (req, res) => {
+            await transport.handleRequest(req as IncomingMessage & { auth?: AuthInfo }, res);
+        });
+
+        await new Promise<void>(resolve => {
+            httpServer.listen(port, () => resolve());
+        });
+
+        try {
+            // Make a request to trigger handleRequest
+            await fetch(`http://localhost:${port}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+
+            // Verify the global Response is still the original after handleRequest
+            expect(globalThis.Response).toBe(OriginalResponse);
+
+            // Verify instanceof still works
+            const customResponse = new CustomResponse('test body');
+            expect(customResponse instanceof Response).toBe(true);
+            expect(customResponse instanceof OriginalResponse).toBe(true);
+        } finally {
+            await transport.close();
+            httpServer.close();
+        }
     });
 });
 
@@ -2972,3 +3113,162 @@ async function createTestServerWithDnsProtection(config: {
         baseUrl: serverUrl
     };
 }
+
+describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
+    let transport: WebStandardStreamableHTTPServerTransport;
+    let mcpServer: McpServer;
+    let onerrorSpy: ReturnType<typeof vi.fn<(error: Error) => void>>;
+
+    /** Shorthand to build a Web Standard Request for direct transport testing. */
+    function req(method: string, opts?: { body?: unknown; headers?: Record<string, string> }): Request {
+        const headers: Record<string, string> = { ...opts?.headers };
+        if (method === 'POST') {
+            headers['Accept'] ??= 'application/json, text/event-stream';
+            headers['Content-Type'] ??= 'application/json';
+        } else if (method === 'GET') {
+            headers['Accept'] ??= 'text/event-stream';
+        }
+        return new Request('http://localhost/mcp', {
+            method,
+            headers,
+            body: opts?.body !== undefined ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : undefined
+        });
+    }
+
+    function withSession(sessionId: string, extra?: Record<string, string>): Record<string, string> {
+        return { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25', ...extra };
+    }
+
+    beforeEach(async () => {
+        onerrorSpy = vi.fn<(error: Error) => void>();
+        mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+        transport.onerror = onerrorSpy;
+        await mcpServer.connect(transport);
+    });
+
+    afterEach(async () => {
+        await transport.close();
+    });
+
+    async function initializeServer(): Promise<string> {
+        onerrorSpy.mockClear();
+        const response = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        expect(response.status).toBe(200);
+        return response.headers.get('mcp-session-id') as string;
+    }
+
+    it('should call onerror for invalid JSON in POST', async () => {
+        await initializeServer();
+        await transport.handleRequest(req('POST', { body: 'not valid json' }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Invalid JSON/);
+    });
+
+    it('should call onerror for invalid JSON-RPC message', async () => {
+        const sid = await initializeServer();
+        await transport.handleRequest(req('POST', { body: { not: 'valid' }, headers: withSession(sid) }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Invalid JSON-RPC message/);
+    });
+
+    it('should call onerror for missing Accept header on POST', async () => {
+        await transport.handleRequest(
+            req('POST', { body: TEST_MESSAGES.initialize, headers: { Accept: 'application/json', 'Content-Type': 'application/json' } })
+        );
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Not Acceptable/);
+    });
+
+    it('should call onerror for unsupported Content-Type', async () => {
+        await transport.handleRequest(
+            req('POST', {
+                body: TEST_MESSAGES.initialize,
+                headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'text/plain' }
+            })
+        );
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Unsupported Media Type/);
+    });
+
+    it('should call onerror when server is not initialized', async () => {
+        await transport.handleRequest(req('POST', { body: TEST_MESSAGES.toolsList }));
+        expect(onerrorSpy).toHaveBeenCalledTimes(1);
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Server not initialized/);
+    });
+
+    it('should call onerror for invalid session ID', async () => {
+        await initializeServer();
+        await transport.handleRequest(req('POST', { body: TEST_MESSAGES.toolsList, headers: withSession('invalid-session-id') }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Session not found/);
+    });
+
+    it('should call onerror for re-initialization attempt', async () => {
+        await initializeServer();
+        await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Server already initialized/);
+    });
+
+    it('should call onerror for missing Accept header on GET', async () => {
+        const sid = await initializeServer();
+        await transport.handleRequest(req('GET', { headers: { Accept: 'application/json', ...withSession(sid) } }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Not Acceptable/);
+    });
+
+    it('should call onerror for concurrent SSE streams', async () => {
+        const sid = await initializeServer();
+        const response1 = await transport.handleRequest(req('GET', { headers: withSession(sid) }));
+        expect(response1.status).toBe(200);
+        await transport.handleRequest(req('GET', { headers: withSession(sid) }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Only one SSE stream/);
+    });
+
+    it('should call onerror for unsupported protocol version', async () => {
+        const sid = await initializeServer();
+        await transport.handleRequest(
+            req('POST', { body: TEST_MESSAGES.toolsList, headers: withSession(sid, { 'mcp-protocol-version': 'unsupported-version' }) })
+        );
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Unsupported protocol version/);
+    });
+
+    it('should call onerror for unsupported HTTP methods', async () => {
+        await transport.handleRequest(req('PUT'));
+        expect(onerrorSpy).toHaveBeenCalledTimes(1);
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Method not allowed/);
+    });
+
+    it('should call onerror for invalid event ID in replay', async () => {
+        const eventStore: EventStore = {
+            async storeEvent(): Promise<EventId> {
+                return 'evt-1';
+            },
+            async getStreamIdForEventId(): Promise<StreamId | undefined> {
+                return undefined;
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                return 'stream-1';
+            }
+        };
+        const storeTransport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const storeSpy = vi.fn<(error: Error) => void>();
+        storeTransport.onerror = storeSpy;
+        await new McpServer({ name: 'test', version: '1.0.0' }).connect(storeTransport);
+
+        const initResp = await storeTransport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sid = initResp.headers.get('mcp-session-id') as string;
+        storeSpy.mockClear();
+
+        const response = await storeTransport.handleRequest(
+            req('GET', { headers: { ...withSession(sid), 'Last-Event-ID': 'unknown-event-id' } })
+        );
+        expect(response.status).toBe(400);
+        expect(storeSpy).toHaveBeenCalledTimes(1);
+        expect(storeSpy.mock.calls[0]![0]!.message).toMatch(/Invalid event ID format/);
+        await storeTransport.close();
+    });
+});

@@ -12,7 +12,7 @@
  * Run with: npx tsx src/examples/server/ssePollingExample.ts
  * Test with: curl or the MCP Inspector
  */
-import { Request, Response } from 'express';
+import { type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { createMcpExpressApp } from '../../server/express.js';
@@ -21,87 +21,92 @@ import { CallToolResult } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import cors from 'cors';
 
-// Create the MCP server
-const server = new McpServer(
-    {
-        name: 'sse-polling-example',
-        version: '1.0.0'
-    },
-    {
-        capabilities: { logging: {} }
-    }
-);
-
-// Register a long-running tool that demonstrates server-initiated disconnect
-server.tool(
-    'long-task',
-    'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.',
-    {},
-    async (_args, extra): Promise<CallToolResult> => {
-        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-        console.log(`[${extra.sessionId}] Starting long-task...`);
-
-        // Send first progress notification
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 25% - Starting work...'
-            },
-            extra.sessionId
-        );
-        await sleep(1000);
-
-        // Send second progress notification
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 50% - Halfway there...'
-            },
-            extra.sessionId
-        );
-        await sleep(1000);
-
-        // Server decides to disconnect the client to free resources
-        // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
-        // Use extra.closeSSEStream callback - available when eventStore is configured
-        if (extra.closeSSEStream) {
-            console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-            extra.closeSSEStream();
+// Factory to create a new MCP server per session.
+// Each session needs its own server+transport pair to avoid cross-session contamination.
+const getServer = () => {
+    const server = new McpServer(
+        {
+            name: 'sse-polling-example',
+            version: '1.0.0'
+        },
+        {
+            capabilities: { logging: {} }
         }
+    );
 
-        // Continue processing while client is disconnected
-        // Events are stored in eventStore and will be replayed on reconnect
-        await sleep(500);
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 75% - Almost done (sent while client disconnected)...'
-            },
-            extra.sessionId
-        );
+    // Register a long-running tool that demonstrates server-initiated disconnect
+    server.tool(
+        'long-task',
+        'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.',
+        {},
+        async (_args, extra): Promise<CallToolResult> => {
+            const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-        await sleep(500);
-        await server.sendLoggingMessage(
-            {
-                level: 'info',
-                data: 'Progress: 100% - Complete!'
-            },
-            extra.sessionId
-        );
+            console.log(`[${extra.sessionId}] Starting long-task...`);
 
-        console.log(`[${extra.sessionId}] Task complete`);
-
-        return {
-            content: [
+            // Send first progress notification
+            await server.sendLoggingMessage(
                 {
-                    type: 'text',
-                    text: 'Long task completed successfully!'
-                }
-            ]
-        };
-    }
-);
+                    level: 'info',
+                    data: 'Progress: 25% - Starting work...'
+                },
+                extra.sessionId
+            );
+            await sleep(1000);
+
+            // Send second progress notification
+            await server.sendLoggingMessage(
+                {
+                    level: 'info',
+                    data: 'Progress: 50% - Halfway there...'
+                },
+                extra.sessionId
+            );
+            await sleep(1000);
+
+            // Server decides to disconnect the client to free resources
+            // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
+            // Use extra.closeSSEStream callback - available when eventStore is configured
+            if (extra.closeSSEStream) {
+                console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
+                extra.closeSSEStream();
+            }
+
+            // Continue processing while client is disconnected
+            // Events are stored in eventStore and will be replayed on reconnect
+            await sleep(500);
+            await server.sendLoggingMessage(
+                {
+                    level: 'info',
+                    data: 'Progress: 75% - Almost done (sent while client disconnected)...'
+                },
+                extra.sessionId
+            );
+
+            await sleep(500);
+            await server.sendLoggingMessage(
+                {
+                    level: 'info',
+                    data: 'Progress: 100% - Complete!'
+                },
+                extra.sessionId
+            );
+
+            console.log(`[${extra.sessionId}] Task complete`);
+
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Long task completed successfully!'
+                    }
+                ]
+            };
+        }
+    );
+
+    return server;
+};
 
 // Set up Express app
 const app = createMcpExpressApp();
@@ -131,7 +136,8 @@ app.all('/mcp', async (req: Request, res: Response) => {
             }
         });
 
-        // Connect the MCP server to the transport
+        // Create a new server per session and connect it to the transport
+        const server = getServer();
         await server.connect(transport);
     }
 

@@ -49,6 +49,35 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         expect(tokens?.access_token).toBe('test-access-token');
     });
 
+    it('sends scope in token request when ClientCredentialsProvider is configured with scope', async () => {
+        const provider = new ClientCredentialsProvider({
+            clientId: 'my-client',
+            clientSecret: 'my-secret',
+            clientName: 'test-client',
+            scope: 'read write'
+        });
+
+        expect(provider.clientMetadata.scope).toBe('read write');
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params).toBeInstanceOf(URLSearchParams);
+                expect(params.get('grant_type')).toBe('client_credentials');
+                expect(params.get('scope')).toBe('read write');
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
+    });
+
     it('authenticates using PrivateKeyJwtProvider with private_key_jwt', async () => {
         const provider = new PrivateKeyJwtProvider({
             clientId: 'client-id',
@@ -90,6 +119,38 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         expect(tokens).toBeTruthy();
         expect(tokens?.access_token).toBe('test-access-token');
         expect(assertionFromRequest).toBeTruthy();
+    });
+
+    it('sends scope in token request when PrivateKeyJwtProvider is configured with scope', async () => {
+        const provider = new PrivateKeyJwtProvider({
+            clientId: 'client-id',
+            privateKey: 'a-string-secret-at-least-256-bits-long',
+            algorithm: 'HS256',
+            clientName: 'private-key-jwt-client',
+            scope: 'openid profile'
+        });
+
+        expect(provider.clientMetadata.scope).toBe('openid profile');
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params).toBeInstanceOf(URLSearchParams);
+                expect(params.get('grant_type')).toBe('client_credentials');
+                expect(params.get('scope')).toBe('openid profile');
+                expect(params.get('client_assertion')).toBeTruthy();
+                expect(params.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
     });
 
     it('fails when PrivateKeyJwtProvider is configured with an unsupported algorithm', async () => {
@@ -148,6 +209,39 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         const tokens = provider.tokens();
         expect(tokens).toBeTruthy();
         expect(tokens?.access_token).toBe('test-access-token');
+    });
+
+    it('sends scope in token request when StaticPrivateKeyJwtProvider is configured with scope', async () => {
+        const staticAssertion = 'header.payload.signature';
+
+        const provider = new StaticPrivateKeyJwtProvider({
+            clientId: 'static-client',
+            jwtBearerAssertion: staticAssertion,
+            clientName: 'static-private-key-jwt-client',
+            scope: 'api:read api:write'
+        });
+
+        expect(provider.clientMetadata.scope).toBe('api:read api:write');
+
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                const params = init?.body as URLSearchParams;
+                expect(params).toBeInstanceOf(URLSearchParams);
+                expect(params.get('grant_type')).toBe('client_credentials');
+                expect(params.get('scope')).toBe('api:read api:write');
+                expect(params.get('client_assertion')).toBe(staticAssertion);
+                expect(params.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+            }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
     });
 });
 
@@ -304,7 +398,7 @@ describe('createPrivateKeyJwtAuth', () => {
 
         const params = new URLSearchParams();
         await expect(addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)).rejects.toThrow(
-            /Invalid character/
+            /Invalid character|cannot be part of a valid base64/
         );
     });
 

@@ -40,6 +40,7 @@ import {
     CreateTaskResultSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
     ResourceListChangedNotificationSchema,
@@ -452,8 +453,10 @@ export class Client<
                     return taskValidationResult.data;
                 }
 
-                // For non-task requests, validate against CreateMessageResultSchema
-                const validationResult = safeParse(CreateMessageResultSchema, result);
+                // For non-task requests, validate against appropriate schema based on tools presence
+                const hasTools = params.tools || params.toolChoice;
+                const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
+                const validationResult = safeParse(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
