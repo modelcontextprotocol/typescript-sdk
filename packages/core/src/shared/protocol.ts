@@ -742,14 +742,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
 
         this._transport = undefined;
-        this.onclose?.();
 
-        for (const handler of responseHandlers.values()) {
-            handler(error);
-        }
+        try {
+            this.onclose?.();
+        } finally {
+            for (const handler of responseHandlers.values()) {
+                handler(error);
+            }
 
-        for (const controller of requestHandlerAbortControllers.values()) {
-            controller.abort(error);
+            for (const controller of requestHandlerAbortControllers.values()) {
+                controller.abort(error);
+            }
         }
     }
 
