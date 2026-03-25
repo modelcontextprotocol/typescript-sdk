@@ -87,12 +87,18 @@ export class StdioServerTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
-            const json = serializeMessage(message);
-            if (this._stdout.write(json)) {
-                resolve();
-            } else {
-                this._stdout.once('drain', resolve);
+        return new Promise((resolve, reject) => {
+            try {
+                const json = serializeMessage(message);
+                if (this._stdout.write(json)) {
+                    resolve();
+                } else {
+                    this._stdout.once('drain', resolve);
+                }
+            } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                try { this.onerror?.(err); } catch { /* handler error should not mask transport error */ }
+                reject(err);
             }
         });
     }
