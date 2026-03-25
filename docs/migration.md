@@ -755,7 +755,7 @@ This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServer
 const result = await client.callTool({
     name: 'long-task',
     arguments: {},
-    _task: { ttl: null }
+    task: { ttl: null }
 });
 
 // Handler context had number | null | undefined
@@ -771,7 +771,7 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 const result = await client.callTool({
     name: 'long-task',
     arguments: {},
-    _task: {}
+    task: {}
 });
 
 // Handler context is now number | undefined

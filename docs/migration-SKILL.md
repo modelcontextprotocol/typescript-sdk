@@ -440,8 +440,8 @@ Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResu
 
 | v1 | v2 |
 |---|---|
-| `_task: { ttl: null }` | `_task: {}` (omit ttl) |
-| `_task: { ttl: 60000 }` | `_task: { ttl: 60000 }` (unchanged) |
+| `task: { ttl: null }` | `task: {}` (omit ttl) |
+| `task: { ttl: 60000 }` | `task: { ttl: 60000 }` (unchanged) |
 
 Type changes in handler context:
 
