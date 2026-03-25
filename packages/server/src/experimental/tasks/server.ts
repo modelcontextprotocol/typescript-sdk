@@ -22,7 +22,7 @@ import type {
     ResponseMessage,
     ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { GetTaskPayloadResultSchema, getResultSchema } from '@modelcontextprotocol/core';
+import { getResultSchema, GetTaskPayloadResultSchema } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 

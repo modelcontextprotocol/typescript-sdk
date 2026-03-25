@@ -20,7 +20,13 @@ import type {
     ResponseMessage,
     ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, GetTaskPayloadResultSchema, getResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
+import {
+    CallToolResultSchema,
+    getResultSchema,
+    GetTaskPayloadResultSchema,
+    ProtocolError,
+    ProtocolErrorCode
+} from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 

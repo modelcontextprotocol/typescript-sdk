@@ -38,7 +38,6 @@ import type {
 import {
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
-    extractTaskManagerOptions,
     CallToolResultSchema,
     CompleteResultSchema,
     CreateMessageRequestSchema,
@@ -48,6 +47,7 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
