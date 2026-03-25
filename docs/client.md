@@ -13,12 +13,14 @@ A client connects to a server, discovers what it offers — tools, resources, pr
 The examples below use these imports. Adjust based on which features and transport you need:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#imports"
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
+import type { AuthProvider, Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
     ClientCredentialsProvider,
     createMiddleware,
+    CrossAppAccessProvider,
+    discoverAndRequestJwtAuthGrant,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
@@ -111,7 +113,19 @@ console.log(systemPrompt);
 
 ## Authentication
 
-MCP servers can require OAuth 2.0 authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an `authProvider` to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport} to enable this — the SDK provides built-in providers for common machine-to-machine flows, or you can implement the full {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface for user-facing OAuth.
+MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an {@linkcode @modelcontextprotocol/client!client/auth.AuthProvider | AuthProvider} to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport}. The transport calls `token()` before every request and `onUnauthorized()` (if provided) on 401, then retries once.
+
+### Bearer tokens
+
+For servers that accept bearer tokens managed outside the SDK — API keys, tokens from a gateway or proxy, service-account credentials — implement only `token()`. With no `onUnauthorized()`, a 401 throws {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} immediately:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#auth_tokenProvider"
+const authProvider: AuthProvider = { token: async () => getStoredToken() };
+
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
+```
+
+See [`simpleTokenProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTokenProvider.ts) for a complete runnable example.
 
 ### Client credentials
 
@@ -151,6 +165,51 @@ For a runnable example supporting both auth methods via environment variables, s
 For user-facing applications, implement the {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface to handle the full authorization code flow (redirects, code verifiers, token storage, dynamic client registration). The {@linkcode @modelcontextprotocol/client!client/client.Client#connect | connect()} call will throw {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, call {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth(code)}, and reconnect.
 
 For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClient.ts) and [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClientProvider.ts).
+
+### Cross-App Access (Enterprise Managed Authorization)
+
+{@linkcode @modelcontextprotocol/client!client/authExtensions.CrossAppAccessProvider | CrossAppAccessProvider} implements Enterprise Managed Authorization (SEP-990) for scenarios where users authenticate with an enterprise identity provider (IdP) and clients need to access protected MCP servers on their behalf.
+
+This provider handles a two-step OAuth flow:
+1. Exchange the user's ID Token from the enterprise IdP for a JWT Authorization Grant (JAG) via RFC 8693 token exchange
+2. Exchange the JAG for an access token from the MCP server via RFC 7523 JWT bearer grant
+
+```ts source="../examples/client/src/clientGuide.examples.ts#auth_crossAppAccess"
+const authProvider = new CrossAppAccessProvider({
+    assertion: async ctx => {
+        // ctx provides: authorizationServerUrl, resourceUrl, scope, fetchFn
+        const result = await discoverAndRequestJwtAuthGrant({
+            idpUrl: 'https://idp.example.com',
+            audience: ctx.authorizationServerUrl,
+            resource: ctx.resourceUrl,
+            idToken: await getIdToken(),
+            clientId: 'my-idp-client',
+            clientSecret: 'my-idp-secret',
+            scope: ctx.scope,
+            fetchFn: ctx.fetchFn
+        });
+        return result.jwtAuthGrant;
+    },
+    clientId: 'my-mcp-client',
+    clientSecret: 'my-mcp-secret'
+});
+
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
+```
+
+The `assertion` callback receives a context object with:
+- `authorizationServerUrl` – The MCP server's authorization server (discovered automatically)
+- `resourceUrl` – The MCP resource URL (discovered automatically)
+- `scope` – Optional scope passed to `auth()` or from `clientMetadata`
+- `fetchFn` – Fetch implementation to use for HTTP requests
+
+For manual control over the token exchange steps, use the Layer 2 utilities from `@modelcontextprotocol/client`:
+- `requestJwtAuthorizationGrant()` – Exchange ID Token for JAG at IdP
+- `discoverAndRequestJwtAuthGrant()` – Discovery + JAG acquisition
+- `exchangeJwtAuthGrant()` – Exchange JAG for access token at MCP server
+
+> [!NOTE]
+> See [RFC 8693 (Token Exchange)](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7523 (JWT Bearer Grant)](https://datatracker.ietf.org/doc/html/rfc7523), and [RFC 9728 (Resource Discovery)](https://datatracker.ietf.org/doc/html/rfc9728) for the underlying OAuth standards.
 
 ## Tools
 
