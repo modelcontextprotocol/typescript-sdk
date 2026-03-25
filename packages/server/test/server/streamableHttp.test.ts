@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
 
+import { vi } from 'vitest';
+
 import { McpServer } from '../../src/server/mcp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp.js';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
@@ -704,6 +706,73 @@ describe('Zod v4', () => {
 
             // Should have id: field in the SSE event
             expect(text).toContain('id:');
+        });
+
+        it('should stop replay when the replay stream closes mid-flight', async () => {
+            const nativeReadableStream = ReadableStream;
+            let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+
+            class TrackingReadableStream extends nativeReadableStream<Uint8Array> {
+                constructor(source: {
+                    cancel?: (reason?: unknown) => PromiseLike<void> | void;
+                    start?: (controller: ReadableStreamDefaultController<Uint8Array>) => PromiseLike<void> | void;
+                }) {
+                    super({
+                        cancel: source.cancel,
+                        start: activeController => {
+                            controller = activeController;
+                            return source.start?.(activeController);
+                        }
+                    });
+                }
+            }
+
+            vi.stubGlobal('ReadableStream', TrackingReadableStream);
+
+            const replayErrors: Error[] = [];
+
+            const replayEventStore: EventStore = {
+                async storeEvent(): Promise<EventId> {
+                    throw new Error('storeEvent should not be called during replay');
+                },
+                async replayEventsAfter(
+                    _lastEventId: EventId,
+                    { send }: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
+                ): Promise<StreamId> {
+                    await send('evt-1', TEST_MESSAGES.toolsList);
+                    controller?.close();
+                    await send('evt-2', TEST_MESSAGES.initialize);
+                    return 'stream-1';
+                }
+            };
+
+            const replayTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                eventStore: replayEventStore
+            });
+            replayTransport.onerror = error => replayErrors.push(error);
+
+            try {
+                const response = await replayTransport.handleRequest(
+                    createRequest('GET', undefined, {
+                        extraHeaders: {
+                            'last-event-id': 'evt-0'
+                        }
+                    })
+                );
+
+                expect(response.status).toBe(200);
+                expect(response.headers.get('mcp-session-id')).toBeNull();
+
+                const text = await response.text();
+                expect(text).toContain('id: evt-1');
+                expect(text).not.toContain('id: evt-2');
+                expect((replayTransport as unknown as { _streamMapping: Map<string, unknown> })._streamMapping.size).toBe(0);
+                expect(replayErrors).toEqual([]);
+            } finally {
+                vi.unstubAllGlobals();
+                await replayTransport.close();
+            }
         });
     });
 
