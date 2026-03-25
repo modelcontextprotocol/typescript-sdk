@@ -36,17 +36,18 @@ jobs:
       uses: pnpm/action-setup@v4
       with:
         version: 10.26.1
+        run_install: false
 
     - name: Setup Node.js
       if: matrix.language == 'javascript-typescript'
       uses: actions/setup-node@v4
       with:
         node-version: 20
-        cache: 'pnpm'
+        # ⚠️ No cache: 'pnpm' here — pnpm/action-setup handles caching
 
     - name: Install dependencies
       if: matrix.language == 'javascript-typescript'
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
