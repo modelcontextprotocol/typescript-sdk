@@ -125,7 +125,9 @@ export class SSEClientTransport implements Transport {
                 ...this._eventSourceInit,
                 fetch: async (url, init) => {
                     const headers = await this._commonHeaders();
-                    headers.set('Accept', 'text/event-stream');
+                    if (!headers.has('Accept')) {
+                        headers.set('Accept', 'text/event-stream');
+                    }
                     const response = await fetchImpl(url, {
                         ...init,
                         headers
