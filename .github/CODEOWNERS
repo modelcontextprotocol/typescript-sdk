@@ -4,8 +4,11 @@
 * @modelcontextprotocol/typescript-sdk
 
 # Auth team owns all auth-related code
-/src/server/auth/ @modelcontextprotocol/typescript-sdk-auth
-/src/client/auth* @modelcontextprotocol/typescript-sdk-auth
-/src/shared/auth* @modelcontextprotocol/typescript-sdk-auth
-/src/examples/client/simpleOAuthClient.ts @modelcontextprotocol/typescript-sdk-auth
-/src/examples/server/demoInMemoryOAuthProvider.ts @modelcontextprotocol/typescript-sdk-auth
+/packages/client/src/client/auth* @modelcontextprotocol/typescript-sdk-auth
+/packages/client/src/client/authExtensions* @modelcontextprotocol/typescript-sdk-auth
+/packages/client/src/client/crossAppAccess* @modelcontextprotocol/typescript-sdk-auth
+/packages/core/src/shared/auth* @modelcontextprotocol/typescript-sdk-auth
+/packages/core/src/auth/ @modelcontextprotocol/typescript-sdk-auth
+/examples/shared/src/auth* @modelcontextprotocol/typescript-sdk-auth
+/examples/shared/src/authServer* @modelcontextprotocol/typescript-sdk-auth
+/examples/client/src/simpleOAuthClient* @modelcontextprotocol/typescript-sdk-auth
