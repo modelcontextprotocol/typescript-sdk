@@ -241,7 +241,7 @@ export class TaskManager {
         }
     }
 
-    private get _requireHost(): TaskManagerHost {
+    protected get _requireHost(): TaskManagerHost {
         if (!this._host) {
             throw new ProtocolError(ProtocolErrorCode.InternalError, 'TaskManager is not bound to a Protocol host — call bind() first');
         }
@@ -869,13 +869,17 @@ export class NullTaskManager extends TaskManager {
         super({});
     }
 
-    override processInboundRequest(_request: JSONRPCRequest, ctx: InboundContext): InboundResult {
+    override processInboundRequest(request: JSONRPCRequest, ctx: InboundContext): InboundResult {
+        const hasTaskCreationParams = isTaskAugmentedRequestParams(request.params);
         return {
             taskContext: undefined,
             sendNotification: (notification: Notification) => ctx.sendNotification(notification),
             sendRequest: ctx.sendRequest,
             routeResponse: async () => false,
-            hasTaskCreationParams: false
+            hasTaskCreationParams,
+            validateInbound: hasTaskCreationParams
+                ? () => this._requireHost.assertTaskHandlerCapability(request.method)
+                : undefined
         };
     }
 
