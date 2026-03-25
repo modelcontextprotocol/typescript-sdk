@@ -10,7 +10,7 @@
  */
 
 // Auth error classes
-export * from '../../auth/errors.js';
+export { OAuthError, OAuthErrorCode } from '../../auth/errors.js';
 
 // SDK error types (local errors that never cross the wire)
 export { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
