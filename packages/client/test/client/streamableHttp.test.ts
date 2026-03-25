@@ -1705,7 +1705,9 @@ describe('StreamableHTTPClientTransport', () => {
                 // Retry the original request - still 401 (broken server)
                 .mockResolvedValueOnce(unauthedResponse);
 
-            await expect(transport.send(message)).rejects.toThrow('Server returned 401 after successful authentication');
+            const error = await transport.send(message).catch(e => e);
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-access-token',
                 token_type: 'Bearer',

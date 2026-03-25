@@ -3,11 +3,11 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import { SSEClientTransport } from '../../src/client/sse.js';
 
@@ -1526,6 +1526,174 @@ describe('SSEClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('minimal AuthProvider (non-OAuth)', () => {
+        let postResponses: number[];
+        let postCount: number;
+
+        async function setupServer(): Promise<void> {
+            await resourceServer.close();
+
+            postCount = 0;
+            resourceServer = createServer((req, res) => {
+                lastServerRequest = req;
+
+                if (req.method === 'GET') {
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache, no-transform',
+                        Connection: 'keep-alive'
+                    });
+                    res.write('event: endpoint\n');
+                    res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+                    return;
+                }
+
+                if (req.method === 'POST') {
+                    const status = postResponses[postCount] ?? 200;
+                    postCount++;
+                    res.writeHead(status).end();
+                    return;
+                }
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+        }
+
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: '1' };
+
+        it('throws UnauthorizedError on POST 401 when onUnauthorized is not provided', async () => {
+            postResponses = [401];
+            await setupServer();
+
+            const authProvider: AuthProvider = { token: async () => 'api-key' };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        });
+
+        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkError', async () => {
+            postResponses = [401, 401];
+            await setupServer();
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'still-bad'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            const error = await transport.send(message).catch(e => e);
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect(postCount).toBe(2);
+        });
+
+        it('resets retry guard when onUnauthorized throws, allowing retry on next send', async () => {
+            postResponses = [401, 401, 200];
+            await setupServer();
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn().mockRejectedValueOnce(new Error('transient network error')).mockResolvedValueOnce(undefined)
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            // First send: 401 → onUnauthorized throws transient error
+            await expect(transport.send(message)).rejects.toThrow('transient network error');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+
+            // Second send: flag should be reset, so 401 → onUnauthorized (succeeds) → retry → 200
+            await transport.send(message);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(postCount).toBe(3);
+        });
+
+        it('throws when finishAuth is called with a non-OAuth AuthProvider', async () => {
+            postResponses = [];
+            await setupServer();
+
+            const authProvider: AuthProvider = { token: async () => 'api-key' };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            await expect(transport.finishAuth('auth-code')).rejects.toThrow('finishAuth requires an OAuthClientProvider');
+        });
+
+        it('SSE connect 401 retry does not poison future 401s — onUnauthorized called on each attempt', async () => {
+            // Regression: _startOrAuth(true) baked isAuthRetry=true into the retry EventSource's
+            // onerror closure, so a subsequent 401 (token expiry on reconnect) would throw
+            // instead of refreshing. Fix: retry always calls _startOrAuth() fresh.
+            await resourceServer.close();
+
+            let getAttempt = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method !== 'GET') {
+                    res.writeHead(404).end();
+                    return;
+                }
+                getAttempt++;
+                if (getAttempt < 3) {
+                    res.writeHead(401).end();
+                    return;
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache, no-transform',
+                    Connection: 'keep-alive'
+                });
+                res.write('event: endpoint\n');
+                res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+
+            await transport.start(); // should resolve on attempt 3
+
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(getAttempt).toBe(3);
+        });
+
+        it('retry failure during SSE connect fires onerror exactly once', async () => {
+            // Regression: when the retry EventSource rejected, its onerror fired inside, then
+            // the outer .then() rejection handler fired onerror AGAIN for the same error.
+            // Fix: inner retry chains to .then(resolve, reject) — no outer onerror call.
+            // onUnauthorized's own failure is handled separately and fires onerror once.
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(401).end(); // always 401
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const onUnauthorized: AuthProvider['onUnauthorized'] = vi
+                .fn()
+                .mockResolvedValueOnce(undefined) // first call succeeds → triggers retry
+                .mockRejectedValueOnce(new Error('refresh failed')); // second call (in retry) throws
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await expect(transport.start()).rejects.toThrow('refresh failed');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls[0]![0].message).toBe('refresh failed');
         });
     });
 });
