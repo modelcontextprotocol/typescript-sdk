@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/hono",
     "private": false,
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0",
     "description": "Hono adapters for the Model Context Protocol TypeScript server SDK - Hono middleware",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
