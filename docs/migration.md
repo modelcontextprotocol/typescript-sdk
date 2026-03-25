@@ -251,7 +251,7 @@ server.registerTool('greet', {
 }, async ({ name }) => { ... });
 
 // Raw JSON Schema via fromJsonSchema
-import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
 server.registerTool('greet', {
   inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
 }, handler);

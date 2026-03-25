@@ -135,6 +135,7 @@ export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/
 
 // Validator types and classes
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
+export { fromJsonSchema } from '../../validators/fromJsonSchema.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 export { CfWorkerJsonSchemaValidator } from '../../validators/cfWorkerProvider.js';
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';
