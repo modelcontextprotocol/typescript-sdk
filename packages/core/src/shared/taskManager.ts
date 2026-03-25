@@ -870,7 +870,7 @@ export class NullTaskManager extends TaskManager {
     }
 
     override processInboundRequest(request: JSONRPCRequest, ctx: InboundContext): InboundResult {
-        const hasTaskCreationParams = isTaskAugmentedRequestParams(request.params);
+        const hasTaskCreationParams = isTaskAugmentedRequestParams(request.params) && !!request.params.task;
         return {
             taskContext: undefined,
             sendNotification: (notification: Notification) => ctx.sendNotification(notification),
