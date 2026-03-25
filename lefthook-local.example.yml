@@ -7,7 +7,6 @@ pre-commit:
     jobs:
         - name: 'Typecheck'
           run: pnpm typecheck:all
-          stage_fixed: true
 
         - name: 'Lint Fix & Format'
           run: pnpm lint:fix:all
