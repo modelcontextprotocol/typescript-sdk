@@ -1,190 +1,17 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable no-constant-binary-expression */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/client';
 import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
 import {
-    CallToolRequestSchema,
     CallToolResultSchema,
-    CreateMessageRequestSchema,
-    CreateTaskResultSchema,
-    ElicitRequestSchema,
     ElicitResultSchema,
-    ErrorCode,
-    InitializeRequestSchema,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
-    ListPromptsRequestSchema,
-    ListResourcesRequestSchema,
-    ListRootsRequestSchema,
-    ListToolsRequestSchema,
-    ListToolsResultSchema,
-    McpError,
-    NotificationSchema,
-    RequestSchema,
-    ResultSchema,
+    ProtocolErrorCode,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
-import * as z3 from 'zod/v3';
-import * as z4 from 'zod/v4';
-
-describe('Zod v4', () => {
-    /***
-     * Test: Type Checking
-     * Test that custom request/notification/result schemas can be used with the Client class.
-     */
-    test('should typecheck', () => {
-        const GetWeatherRequestSchema = RequestSchema.extend({
-            method: z4.literal('weather/get'),
-            params: z4.object({
-                city: z4.string()
-            })
-        });
-
-        const GetForecastRequestSchema = RequestSchema.extend({
-            method: z4.literal('weather/forecast'),
-            params: z4.object({
-                city: z4.string(),
-                days: z4.number()
-            })
-        });
-
-        const WeatherForecastNotificationSchema = NotificationSchema.extend({
-            method: z4.literal('weather/alert'),
-            params: z4.object({
-                severity: z4.enum(['warning', 'watch']),
-                message: z4.string()
-            })
-        });
-
-        const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
-        const WeatherNotificationSchema = WeatherForecastNotificationSchema;
-        const WeatherResultSchema = ResultSchema.extend({
-            temperature: z4.number(),
-            conditions: z4.string()
-        });
-
-        type WeatherRequest = z4.infer<typeof WeatherRequestSchema>;
-        type WeatherNotification = z4.infer<typeof WeatherNotificationSchema>;
-        type WeatherResult = z4.infer<typeof WeatherResultSchema>;
-
-        // Create a typed Client for weather data
-        const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
-            {
-                name: 'WeatherClient',
-                version: '1.0.0'
-            },
-            {
-                capabilities: {
-                    sampling: {}
-                }
-            }
-        );
-
-        // Typecheck that only valid weather requests/notifications/results are allowed
-        false &&
-            weatherClient.request(
-                {
-                    method: 'weather/get',
-                    params: {
-                        city: 'Seattle'
-                    }
-                },
-                WeatherResultSchema
-            );
-
-        false &&
-            weatherClient.notification({
-                method: 'weather/alert',
-                params: {
-                    severity: 'warning',
-                    message: 'Storm approaching'
-                }
-            });
-    });
-});
-
-describe('Zod v3', () => {
-    /***
-     * Test: Type Checking
-     * Test that custom request/notification/result schemas can be used with the Client class.
-     */
-    test('should typecheck', () => {
-        const GetWeatherRequestSchema = z3.object({
-            ...RequestSchema.shape,
-            method: z3.literal('weather/get'),
-            params: z3.object({
-                city: z3.string()
-            })
-        });
-
-        const GetForecastRequestSchema = z3.object({
-            ...RequestSchema.shape,
-            method: z3.literal('weather/forecast'),
-            params: z3.object({
-                city: z3.string(),
-                days: z3.number()
-            })
-        });
-
-        const WeatherForecastNotificationSchema = z3.object({
-            ...NotificationSchema.shape,
-            method: z3.literal('weather/alert'),
-            params: z3.object({
-                severity: z3.enum(['warning', 'watch']),
-                message: z3.string()
-            })
-        });
-
-        const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
-        const WeatherNotificationSchema = WeatherForecastNotificationSchema;
-        const WeatherResultSchema = z3.object({
-            ...ResultSchema.shape,
-            _meta: z3.record(z3.string(), z3.unknown()).optional(),
-            temperature: z3.number(),
-            conditions: z3.string()
-        });
-
-        type WeatherRequest = z3.infer<typeof WeatherRequestSchema>;
-        type WeatherNotification = z3.infer<typeof WeatherNotificationSchema>;
-        type WeatherResult = z3.infer<typeof WeatherResultSchema>;
-
-        // Create a typed Client for weather data
-        const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
-            {
-                name: 'WeatherClient',
-                version: '1.0.0'
-            },
-            {
-                capabilities: {
-                    sampling: {}
-                }
-            }
-        );
-
-        // Typecheck that only valid weather requests/notifications/results are allowed
-        false &&
-            weatherClient.request(
-                {
-                    method: 'weather/get',
-                    params: {
-                        city: 'Seattle'
-                    }
-                },
-                WeatherResultSchema
-            );
-
-        false &&
-            weatherClient.notification({
-                method: 'weather/alert',
-                params: {
-                    severity: 'warning',
-                    message: 'Storm approaching'
-                }
-            });
-    });
-});
+import * as z from 'zod/v4';
 
 /***
  * Test: Initialize with Matching Protocol Version
@@ -296,6 +123,58 @@ test('should initialize with supported older protocol version', async () => {
 });
 
 /***
+ * Test: Reconnecting with the same Client restores protocol version on new transport
+ */
+test('should restore negotiated protocol version on transport when reconnecting with same client', async () => {
+    const setProtocolVersion = vi.fn();
+    const initialTransport: Transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        setProtocolVersion,
+        send: vi.fn().mockImplementation(message => {
+            if (message.method === 'initialize') {
+                initialTransport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: { name: 'test', version: '1.0' }
+                    }
+                });
+            }
+            return Promise.resolve();
+        })
+    };
+
+    const client = new Client({ name: 'test client', version: '1.0' });
+    await client.connect(initialTransport);
+
+    // Initial handshake should have set the protocol version on the transport
+    expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+    // Now simulate reconnection: new transport with a pre-existing sessionId.
+    // connect() will early-return without re-initializing, but MUST restore the protocol version
+    // so HTTP transports can keep sending the required mcp-protocol-version header.
+    const reconnectSetProtocolVersion = vi.fn();
+    const reconnectTransport: Transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        setProtocolVersion: reconnectSetProtocolVersion,
+        send: vi.fn().mockResolvedValue(undefined),
+        sessionId: 'existing-session-id'
+    };
+
+    await client.connect(reconnectTransport);
+
+    // No initialize request should have been sent (sessionId was set)
+    expect(reconnectTransport.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'initialize' }), expect.anything());
+    // But the protocol version MUST have been restored onto the new transport
+    expect(reconnectSetProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+});
+
+/***
  * Test: Reject Unsupported Protocol Version
  */
 test('should reject unsupported protocol version', async () => {
@@ -356,7 +235,7 @@ test('should connect new client to old, supported server version', async () => {
         }
     );
 
-    server.setRequestHandler(InitializeRequestSchema, _request => ({
+    server.setRequestHandler('initialize', _request => ({
         protocolVersion: OLD_VERSION,
         capabilities: {
             resources: {},
@@ -368,11 +247,11 @@ test('should connect new client to old, supported server version', async () => {
         }
     }));
 
-    server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    server.setRequestHandler('resources/list', () => ({
         resources: []
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, () => ({
+    server.setRequestHandler('tools/list', () => ({
         tools: []
     }));
 
@@ -403,7 +282,6 @@ test('should connect new client to old, supported server version', async () => {
  * Test: Version Negotiation with Old Client and Newer Server
  */
 test('should negotiate version when client is old, and newer server supports its version', async () => {
-    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
     const server = new Server(
         {
             name: 'new server',
@@ -417,7 +295,7 @@ test('should negotiate version when client is old, and newer server supports its
         }
     );
 
-    server.setRequestHandler(InitializeRequestSchema, _request => ({
+    server.setRequestHandler('initialize', _request => ({
         protocolVersion: LATEST_PROTOCOL_VERSION,
         capabilities: {
             resources: {},
@@ -429,11 +307,11 @@ test('should negotiate version when client is old, and newer server supports its
         }
     }));
 
-    server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    server.setRequestHandler('resources/list', () => ({
         resources: []
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, () => ({
+    server.setRequestHandler('tools/list', () => ({
         tools: []
     }));
 
@@ -464,7 +342,6 @@ test('should negotiate version when client is old, and newer server supports its
  * Test: Throw when Old Client and Server Version Mismatch
  */
 test("should throw when client is old, and server doesn't support its version", async () => {
-    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
     const FUTURE_VERSION = 'FUTURE_VERSION';
     const server = new Server(
         {
@@ -479,7 +356,7 @@ test("should throw when client is old, and server doesn't support its version", 
         }
     );
 
-    server.setRequestHandler(InitializeRequestSchema, _request => ({
+    server.setRequestHandler('initialize', _request => ({
         protocolVersion: FUTURE_VERSION,
         capabilities: {
             resources: {},
@@ -491,11 +368,11 @@ test("should throw when client is old, and server doesn't support its version", 
         }
     }));
 
-    server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    server.setRequestHandler('resources/list', () => ({
         resources: []
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, () => ({
+    server.setRequestHandler('tools/list', () => ({
         tools: []
     }));
 
@@ -537,7 +414,7 @@ test('should respect server capabilities', async () => {
         }
     );
 
-    server.setRequestHandler(InitializeRequestSchema, _request => ({
+    server.setRequestHandler('initialize', _request => ({
         protocolVersion: LATEST_PROTOCOL_VERSION,
         capabilities: {
             resources: {},
@@ -549,11 +426,11 @@ test('should respect server capabilities', async () => {
         }
     }));
 
-    server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    server.setRequestHandler('resources/list', () => ({
         resources: []
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, () => ({
+    server.setRequestHandler('tools/list', () => ({
         tools: []
     }));
 
@@ -615,7 +492,7 @@ test('should return empty lists for missing capabilities by default', async () =
         }
     );
 
-    server.setRequestHandler(InitializeRequestSchema, _request => ({
+    server.setRequestHandler('initialize', _request => ({
         protocolVersion: LATEST_PROTOCOL_VERSION,
         capabilities: {
             tools: {}
@@ -626,7 +503,7 @@ test('should return empty lists for missing capabilities by default', async () =
         }
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, () => ({
+    server.setRequestHandler('tools/list', () => ({
         tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }]
     }));
 
@@ -653,7 +530,7 @@ test('should return empty lists for missing capabilities by default', async () =
     // listTools should work and return actual tools
     const toolsResult = await client.listTools();
     expect(toolsResult.tools).toHaveLength(1);
-    expect(toolsResult.tools[0].name).toBe('test-tool');
+    expect(toolsResult.tools[0]!.name).toBe('test-tool');
 
     // listPrompts should return empty list without sending request
     const promptsResult = await client.listPrompts();
@@ -780,7 +657,7 @@ test('should only allow setRequestHandler for declared capabilities', () => {
 
     // This should work because sampling is a declared capability
     expect(() => {
-        client.setRequestHandler(CreateMessageRequestSchema, () => ({
+        client.setRequestHandler('sampling/createMessage', () => ({
             model: 'test-model',
             role: 'assistant',
             content: {
@@ -792,7 +669,7 @@ test('should only allow setRequestHandler for declared capabilities', () => {
 
     // This should throw because roots listing is not a declared capability
     expect(() => {
-        client.setRequestHandler(ListRootsRequestSchema, () => ({}));
+        client.setRequestHandler('roots/list', () => ({}));
     }).toThrow('Client does not support roots capability');
 });
 
@@ -811,7 +688,7 @@ test('should allow setRequestHandler for declared elicitation capability', () =>
 
     // This should work because elicitation is a declared capability
     expect(() => {
-        client.setRequestHandler(ElicitRequestSchema, () => ({
+        client.setRequestHandler('elicitation/create', () => ({
             action: 'accept',
             content: {
                 username: 'test-user',
@@ -822,7 +699,7 @@ test('should allow setRequestHandler for declared elicitation capability', () =>
 
     // This should throw because sampling is not a declared capability
     expect(() => {
-        client.setRequestHandler(CreateMessageRequestSchema, () => ({
+        client.setRequestHandler('sampling/createMessage', () => ({
             model: 'test-model',
             role: 'assistant',
             content: {
@@ -862,7 +739,7 @@ test('should accept form-mode elicitation request when client advertises empty e
     );
 
     // Set up client handler for form-mode elicitation
-    client.setRequestHandler(ElicitRequestSchema, request => {
+    client.setRequestHandler('elicitation/create', request => {
         expect(request.params.mode).toBe('form');
         return {
             action: 'accept',
@@ -927,7 +804,7 @@ test('should reject form-mode elicitation when client only supports URL mode', a
     const handler = vi.fn().mockResolvedValue({
         action: 'cancel'
     });
-    client.setRequestHandler(ElicitRequestSchema, handler);
+    client.setRequestHandler('elicitation/create', handler);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -989,7 +866,7 @@ test('should reject form-mode elicitation when client only supports URL mode', a
     const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
 
     expect(response.id).toBe(requestId);
-    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.code).toBe(ProtocolErrorCode.InvalidParams);
     expect(response.error.message).toContain('Client does not support form-mode elicitation requests');
     expect(handler).not.toHaveBeenCalled();
 
@@ -1024,29 +901,26 @@ test('should reject missing-mode elicitation when client only supports URL mode'
     const handler = vi.fn().mockResolvedValue({
         action: 'cancel'
     });
-    client.setRequestHandler(ElicitRequestSchema, handler);
+    client.setRequestHandler('elicitation/create', handler);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.request(
-            {
-                method: 'elicitation/create',
-                params: {
-                    message: 'Please provide data',
-                    requestedSchema: {
-                        type: 'object',
-                        properties: {
-                            username: {
-                                type: 'string'
-                            }
+        server.request({
+            method: 'elicitation/create',
+            params: {
+                message: 'Please provide data',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        username: {
+                            type: 'string'
                         }
                     }
                 }
-            },
-            ElicitResultSchema
-        )
+            }
+        })
     ).rejects.toThrow('Client does not support form-mode elicitation requests');
 
     expect(handler).not.toHaveBeenCalled();
@@ -1072,7 +946,7 @@ test('should reject URL-mode elicitation when client only supports form mode', a
     const handler = vi.fn().mockResolvedValue({
         action: 'cancel'
     });
-    client.setRequestHandler(ElicitRequestSchema, handler);
+    client.setRequestHandler('elicitation/create', handler);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1128,7 +1002,7 @@ test('should reject URL-mode elicitation when client only supports form mode', a
     const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
 
     expect(response.id).toBe(requestId);
-    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.code).toBe(ProtocolErrorCode.InvalidParams);
     expect(response.error.message).toContain('Client does not support URL-mode elicitation requests');
     expect(handler).not.toHaveBeenCalled();
 
@@ -1167,7 +1041,7 @@ test('should apply defaults for form-mode elicitation when applyDefaults is enab
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, request => {
+    client.setRequestHandler('elicitation/create', request => {
         expect(request.params.mode).toBe('form');
         return {
             action: 'accept',
@@ -1218,7 +1092,7 @@ test('should handle client cancelling a request', async () => {
     );
 
     // Set up server to delay responding to listResources
-    server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+    server.setRequestHandler('resources/list', async () => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return {
             resources: []
@@ -1248,8 +1122,8 @@ test('should handle client cancelling a request', async () => {
     });
     controller.abort('Cancelled by test');
 
-    // Request should be rejected with an McpError
-    await expect(listResourcesPromise).rejects.toThrow(McpError);
+    // Request should be rejected with an SdkError (local timeout/cancellation)
+    await expect(listResourcesPromise).rejects.toThrow(SdkError);
 });
 
 /***
@@ -1269,10 +1143,10 @@ test('should handle request timeout', async () => {
     );
 
     // Set up server with a delayed response
-    server.setRequestHandler(ListResourcesRequestSchema, async (_request, extra) => {
+    server.setRequestHandler('resources/list', async (_request, ctx) => {
         const timer = new Promise(resolve => {
             const timeout = setTimeout(resolve, 100);
-            extra.signal.addEventListener('abort', () => clearTimeout(timeout));
+            ctx.mcpReq.signal.addEventListener('abort', () => clearTimeout(timeout));
         });
 
         await timer;
@@ -1297,7 +1171,7 @@ test('should handle request timeout', async () => {
 
     // Request with 0 msec timeout should fail immediately
     await expect(client.listResources(undefined, { timeout: 0 })).rejects.toMatchObject({
-        code: ErrorCode.RequestTimeout
+        code: SdkErrorCode.RequestTimeout
     });
 });
 
@@ -1636,13 +1510,13 @@ test('should not activate listChanged handler when server does not advertise cap
     // Server with tools capability but WITHOUT listChanged
     const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
 
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
+    server.setRequestHandler('initialize', async request => ({
         protocolVersion: request.params.protocolVersion,
         capabilities: { tools: {} }, // No listChanged: true
         serverInfo: { name: 'test-server', version: '1.0.0' }
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }]
     }));
 
@@ -1685,13 +1559,13 @@ test('should activate listChanged handler when server advertises capability', as
     // Server with tools.listChanged: true capability
     const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
 
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
+    server.setRequestHandler('initialize', async request => ({
         protocolVersion: request.params.protocolVersion,
         capabilities: { tools: { listChanged: true } },
         serverInfo: { name: 'test-server', version: '1.0.0' }
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }]
     }));
 
@@ -1738,7 +1612,7 @@ test('should not activate any handlers when server has no listChanged capabiliti
     // Server with capabilities but NO listChanged for any
     const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {}, prompts: {}, resources: {} } });
 
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
+    server.setRequestHandler('initialize', async request => ({
         protocolVersion: request.params.protocolVersion,
         capabilities: { tools: {}, prompts: {}, resources: {} },
         serverInfo: { name: 'test-server', version: '1.0.0' }
@@ -1797,17 +1671,17 @@ test('should handle partial listChanged capability support', async () => {
     // Server with tools.listChanged: true but prompts without listChanged
     const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true }, prompts: {} } });
 
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
+    server.setRequestHandler('initialize', async request => ({
         protocolVersion: request.params.protocolVersion,
         capabilities: { tools: { listChanged: true }, prompts: {} },
         serverInfo: { name: 'test-server', version: '1.0.0' }
     }));
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [{ name: 'tool-1', inputSchema: { type: 'object' } }]
     }));
 
-    server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    server.setRequestHandler('prompts/list', async () => ({
         prompts: [{ name: 'prompt-1' }]
     }));
 
@@ -1864,7 +1738,7 @@ describe('outputSchema validation', () => {
         );
 
         // Set up server handlers
-        server.setRequestHandler(InitializeRequestSchema, async request => ({
+        server.setRequestHandler('initialize', async request => ({
             protocolVersion: request.params.protocolVersion,
             capabilities: {},
             serverInfo: {
@@ -1873,7 +1747,7 @@ describe('outputSchema validation', () => {
             }
         }));
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        server.setRequestHandler('tools/list', async () => ({
             tools: [
                 {
                     name: 'test-tool',
@@ -1895,7 +1769,7 @@ describe('outputSchema validation', () => {
             ]
         }));
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'test-tool') {
                 return {
                     structuredContent: { result: 'success', count: 42 }
@@ -1956,7 +1830,7 @@ describe('outputSchema validation', () => {
         );
 
         // Set up server handlers
-        server.setRequestHandler(InitializeRequestSchema, async request => ({
+        server.setRequestHandler('initialize', async request => ({
             protocolVersion: request.params.protocolVersion,
             capabilities: { tools: {} },
             serverInfo: {
@@ -1965,7 +1839,7 @@ describe('outputSchema validation', () => {
             }
         }));
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        server.setRequestHandler('tools/list', async () => ({
             tools: [
                 {
                     name: 'test-tool',
@@ -1987,7 +1861,7 @@ describe('outputSchema validation', () => {
             ]
         }));
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'test-tool') {
                 // Return invalid structured content (count is string instead of number)
                 return {
@@ -2048,7 +1922,7 @@ describe('outputSchema validation', () => {
         );
 
         // Set up server handlers
-        server.setRequestHandler(InitializeRequestSchema, async request => ({
+        server.setRequestHandler('initialize', async request => ({
             protocolVersion: request.params.protocolVersion,
             capabilities: { tools: {} },
             serverInfo: {
@@ -2057,7 +1931,7 @@ describe('outputSchema validation', () => {
             }
         }));
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        server.setRequestHandler('tools/list', async () => ({
             tools: [
                 {
                     name: 'test-tool',
@@ -2077,7 +1951,7 @@ describe('outputSchema validation', () => {
             ]
         }));
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'test-tool') {
                 // Return content instead of structuredContent
                 return {
@@ -2140,7 +2014,7 @@ describe('outputSchema validation', () => {
         );
 
         // Set up server handlers
-        server.setRequestHandler(InitializeRequestSchema, async request => ({
+        server.setRequestHandler('initialize', async request => ({
             protocolVersion: request.params.protocolVersion,
             capabilities: {},
             serverInfo: {
@@ -2149,7 +2023,7 @@ describe('outputSchema validation', () => {
             }
         }));
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        server.setRequestHandler('tools/list', async () => ({
             tools: [
                 {
                     name: 'test-tool',
@@ -2163,7 +2037,7 @@ describe('outputSchema validation', () => {
             ]
         }));
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'test-tool') {
                 // Return regular content
                 return {
@@ -2225,7 +2099,7 @@ describe('outputSchema validation', () => {
         );
 
         // Set up server handlers
-        server.setRequestHandler(InitializeRequestSchema, async request => ({
+        server.setRequestHandler('initialize', async request => ({
             protocolVersion: request.params.protocolVersion,
             capabilities: {},
             serverInfo: {
@@ -2234,7 +2108,7 @@ describe('outputSchema validation', () => {
             }
         }));
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        server.setRequestHandler('tools/list', async () => ({
             tools: [
                 {
                     name: 'complex-tool',
@@ -2269,7 +2143,7 @@ describe('outputSchema validation', () => {
             ]
         }));
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'complex-tool') {
                 return {
                     structuredContent: {
@@ -2341,7 +2215,7 @@ describe('outputSchema validation', () => {
         );
 
         // Set up server handlers
-        server.setRequestHandler(InitializeRequestSchema, async request => ({
+        server.setRequestHandler('initialize', async request => ({
             protocolVersion: request.params.protocolVersion,
             capabilities: { tools: {} },
             serverInfo: {
@@ -2350,7 +2224,7 @@ describe('outputSchema validation', () => {
             }
         }));
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        server.setRequestHandler('tools/list', async () => ({
             tools: [
                 {
                     name: 'strict-tool',
@@ -2371,7 +2245,7 @@ describe('outputSchema validation', () => {
             ]
         }));
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'strict-tool') {
                 // Return structured content with extra property
                 return {
@@ -2439,30 +2313,30 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.task!.store.createTask({
-                            ttl: extra.task?.requestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.task.store.createTask({
+                            ttl: ctx.task.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
                         };
-                        await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.task!.store.getTask(extra.task!.id);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.task!.id} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.task!.store.getTaskResult(extra.task!.id);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2478,11 +2352,14 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Client creates task on server via tool call
-            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: {
-                    ttl: 60_000
+            await client.callTool(
+                { name: 'test-tool', arguments: {} },
+                {
+                    task: {
+                        ttl: 60_000
+                    }
                 }
-            });
+            );
 
             // Verify task was created successfully by listing tasks
             const taskList = await client.experimental.tasks.listTasks();
@@ -2515,30 +2392,30 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.task!.store.createTask({
-                            ttl: extra.task?.requestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.task.store.createTask({
+                            ttl: ctx.task.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Success!' }]
                         };
-                        await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.task!.store.getTask(extra.task!.id);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.task!.id} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.task!.store.getTaskResult(extra.task!.id);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2554,9 +2431,12 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task
-            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: { ttl: 60_000 }
-            });
+            await client.callTool(
+                { name: 'test-tool', arguments: {} },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             // Query task status by listing tasks and getting the first one
             const taskList = await client.experimental.tasks.listTasks();
@@ -2592,30 +2472,30 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.task!.store.createTask({
-                            ttl: extra.task?.requestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.task.store.createTask({
+                            ttl: ctx.task.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Result data!' }]
                         };
-                        await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.task!.store.getTask(extra.task!.id);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.task!.id} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.task!.store.getTaskResult(extra.task!.id);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2632,9 +2512,12 @@ describe('Task-based execution', () => {
 
             // Create a task using callToolStream to capture the task ID
             let taskId: string | undefined;
-            const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: { ttl: 60_000 }
-            });
+            const stream = client.experimental.tasks.callToolStream(
+                { name: 'test-tool', arguments: {} },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             for await (const message of stream) {
                 if (message.type === 'taskCreated') {
@@ -2673,30 +2556,30 @@ describe('Task-based execution', () => {
                 'test-tool',
                 {
                     description: 'A test tool',
-                    inputSchema: {}
+                    inputSchema: z.object({})
                 },
                 {
-                    async createTask(_args, extra) {
-                        const task = await extra.task!.store.createTask({
-                            ttl: extra.task?.requestedTtl
+                    async createTask(_args, ctx) {
+                        const task = await ctx.task.store.createTask({
+                            ttl: ctx.task.requestedTtl
                         });
 
                         const result = {
                             content: [{ type: 'text', text: 'Success!' }]
                         };
-                        await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                        await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
-                        const task = await extra.task!.store.getTask(extra.task!.id);
+                    async getTask(_args, ctx) {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.task!.id} not found`);
+                            throw new Error(`Task ${ctx.task.id} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
-                        const result = await extra.task!.store.getTaskResult(extra.task!.id);
+                    async getTaskResult(_args, ctx) {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -2715,9 +2598,12 @@ describe('Task-based execution', () => {
             const createdTaskIds: string[] = [];
 
             for (let i = 0; i < 2; i++) {
-                await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                    task: { ttl: 60_000 }
-                });
+                await client.callTool(
+                    { name: 'test-tool', arguments: {} },
+                    {
+                        task: { ttl: 60_000 }
+                    }
+                );
 
                 // Get the task ID from the task list
                 const taskList = await client.experimental.tasks.listTasks();
@@ -2773,18 +2659,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.task!.store) {
-                    const task = await extra.task!.store.createTask({
-                        ttl: extra.task?.requestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2831,7 +2717,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -2866,18 +2751,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.task!.store) {
-                    const task = await extra.task!.store.createTask({
-                        ttl: extra.task?.requestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2921,7 +2806,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -2958,18 +2842,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'result-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.task!.store) {
-                    const task = await extra.task!.store.createTask({
-                        ttl: extra.task?.requestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -3013,7 +2897,6 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                CreateTaskResultSchema,
                 { task: { ttl: 60_000 } }
             );
 
@@ -3049,18 +2932,18 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            client.setRequestHandler('elicitation/create', async (request, ctx) => {
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.task!.store) {
-                    const task = await extra.task!.store.createTask({
-                        ttl: extra.task?.requestedTtl
+                if (request.params.task && ctx.task?.store) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
-                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -3106,7 +2989,6 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    CreateTaskResultSchema,
                     { task: { ttl: 60_000 } }
                 );
 
@@ -3156,32 +3038,32 @@ describe('Task-based execution', () => {
             'test-tool',
             {
                 description: 'A test tool',
-                inputSchema: {
-                    id: z4.string()
-                }
+                inputSchema: z.object({
+                    id: z.string()
+                })
             },
             {
-                async createTask({ id }, extra) {
-                    const task = await extra.task!.store.createTask({
-                        ttl: extra.task?.requestedTtl
+                async createTask({ id }, ctx) {
+                    const task = await ctx.task.store.createTask({
+                        ttl: ctx.task.requestedTtl
                     });
 
                     const result = {
                         content: [{ type: 'text', text: `Result for ${id || 'unknown'}` }]
                     };
-                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
 
                     return { task };
                 },
-                async getTask(_args, extra) {
-                    const task = await extra.task!.store.getTask(extra.task!.id);
+                async getTask(_args, ctx) {
+                    const task = await ctx.task.store.getTask(ctx.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.task!.id} not found`);
+                        throw new Error(`Task ${ctx.task.id} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
-                    const result = await extra.task!.store.getTaskResult(extra.task!.id);
+                async getTaskResult(_args, ctx) {
+                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -3213,9 +3095,12 @@ describe('Task-based execution', () => {
         const createdTaskIds: string[] = [];
 
         for (let i = 0; i < 3; i++) {
-            await client.callTool({ name: 'test-tool', arguments: { id: `task-${i + 1}` } }, CallToolResultSchema, {
-                task: { ttl: 60_000 }
-            });
+            await client.callTool(
+                { name: 'test-tool', arguments: { id: `task-${i + 1}` } },
+                {
+                    task: { ttl: 60_000 }
+                }
+            );
 
             // Get the task ID from the task list
             const taskList = await client.experimental.tasks.listTasks();
@@ -3368,7 +3253,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
+            client.setRequestHandler('elicitation/create', async () => ({
                 action: 'accept',
                 content: { username: 'test' }
             }));
@@ -3426,30 +3311,30 @@ test('should respect server task capabilities', async () => {
         'test-tool',
         {
             description: 'A test tool',
-            inputSchema: {}
+            inputSchema: z.object({})
         },
         {
-            async createTask(_args, extra) {
-                const task = await extra.task!.store.createTask({
-                    ttl: extra.task?.requestedTtl
+            async createTask(_args, ctx) {
+                const task = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
                 });
 
                 const result = {
                     content: [{ type: 'text', text: 'Success!' }]
                 };
-                await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
+                await ctx.task.store.storeTaskResult(task.taskId, 'completed', result);
 
                 return { task };
             },
-            async getTask(_args, extra) {
-                const task = await extra.task!.store.getTask(extra.task!.id);
+            async getTask(_args, ctx) {
+                const task = await ctx.task.store.getTask(ctx.task.id);
                 if (!task) {
-                    throw new Error(`Task ${extra.task!.id} not found`);
+                    throw new Error(`Task ${ctx.task.id} not found`);
                 }
                 return task;
             },
-            async getTaskResult(_args, extra) {
-                const result = await extra.task!.store.getTaskResult(extra.task!.id);
+            async getTaskResult(_args, ctx) {
+                const result = await ctx.task.store.getTaskResult(ctx.task.id);
                 return result as { content: Array<{ type: 'text'; text: string }> };
             }
         }
@@ -3484,21 +3369,21 @@ test('should respect server task capabilities', async () => {
 
     // These should work because server supports tasks
     await expect(
-        client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-            task: { ttl: 60_000 }
-        })
+        client.callTool(
+            { name: 'test-tool', arguments: {} },
+            {
+                task: { ttl: 60_000 }
+            }
+        )
     ).resolves.not.toThrow();
     await expect(client.experimental.tasks.listTasks()).resolves.not.toThrow();
 
     // tools/list doesn't support task creation, but it shouldn't throw - it should just ignore the task metadata
     await expect(
-        client.request(
-            {
-                method: 'tools/list',
-                params: {}
-            },
-            ListToolsResultSchema
-        )
+        client.request({
+            method: 'tools/list',
+            params: {}
+        })
     ).resolves.not.toThrow();
 
     serverTaskStore.cleanup();
@@ -3520,7 +3405,7 @@ test('should expose requestStream() method for streaming responses', async () =>
         }
     );
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         return {
             content: [{ type: 'text', text: 'Tool result' }]
         };
@@ -3545,13 +3430,10 @@ test('should expose requestStream() method for streaming responses', async () =>
     expect(regularResult.content).toEqual([{ type: 'text', text: 'Tool result' }]);
 
     // Test requestStream with non-task request (should yield only result)
-    const stream = client.experimental.tasks.requestStream(
-        {
-            method: 'tools/call',
-            params: { name: 'test-tool', arguments: {} }
-        },
-        CallToolResultSchema
-    );
+    const stream = client.experimental.tasks.requestStream({
+        method: 'tools/call',
+        params: { name: 'test-tool', arguments: {} }
+    });
 
     const messages = [];
     for await (const message of stream) {
@@ -3585,7 +3467,7 @@ test('should expose callToolStream() method for streaming tool calls', async () 
         }
     );
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         return {
             content: [{ type: 'text', text: 'Tool result' }]
         };
@@ -3640,7 +3522,7 @@ test('should validate structured output in callToolStream()', async () => {
         }
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
+    server.setRequestHandler('tools/list', async () => {
         return {
             tools: [
                 {
@@ -3662,7 +3544,7 @@ test('should validate structured output in callToolStream()', async () => {
         };
     });
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         return {
             content: [{ type: 'text', text: 'Result' }],
             structuredContent: { value: 42 }
@@ -3718,7 +3600,7 @@ test('callToolStream() should yield error when structuredContent does not match 
         }
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [
             {
                 name: 'test-tool',
@@ -3740,7 +3622,7 @@ test('callToolStream() should yield error when structuredContent does not match 
         ]
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         // Return invalid structured content (count is string instead of number)
         return {
             structuredContent: { result: 'success', count: 'not a number' }
@@ -3794,7 +3676,7 @@ test('callToolStream() should yield error when tool with outputSchema returns no
         }
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [
             {
                 name: 'test-tool',
@@ -3814,7 +3696,7 @@ test('callToolStream() should yield error when tool with outputSchema returns no
         ]
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         return {
             content: [{ type: 'text', text: 'This should be structured content' }]
         };
@@ -3866,7 +3748,7 @@ test('callToolStream() should handle tools without outputSchema normally', async
         }
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [
             {
                 name: 'test-tool',
@@ -3879,7 +3761,7 @@ test('callToolStream() should handle tools without outputSchema normally', async
         ]
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         return {
             content: [{ type: 'text', text: 'Normal response' }]
         };
@@ -3931,7 +3813,7 @@ test('callToolStream() should handle complex JSON schema validation', async () =
         }
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [
             {
                 name: 'complex-tool',
@@ -3966,7 +3848,7 @@ test('callToolStream() should handle complex JSON schema validation', async () =
         ]
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         return {
             structuredContent: {
                 name: 'John Doe',
@@ -4029,7 +3911,7 @@ test('callToolStream() should yield error with additional properties when not al
         }
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [
             {
                 name: 'strict-tool',
@@ -4050,7 +3932,7 @@ test('callToolStream() should yield error with additional properties when not al
         ]
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         return {
             structuredContent: {
                 name: 'John',
@@ -4105,7 +3987,7 @@ test('callToolStream() should not validate structuredContent when isError is tru
         }
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler('tools/list', async () => ({
         tools: [
             {
                 name: 'test-tool',
@@ -4125,7 +4007,7 @@ test('callToolStream() should not validate structuredContent when isError is tru
         ]
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async () => {
+    server.setRequestHandler('tools/call', async () => {
         // Return isError with content (no structuredContent) - should NOT trigger validation error
         return {
             isError: true,
@@ -4213,7 +4095,7 @@ describe('Client sampling validation with tools', () => {
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Handler returns array content with tool_use - should validate with CreateMessageResultWithToolsSchema
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             stopReason: 'toolUse',
@@ -4231,7 +4113,7 @@ describe('Client sampling validation with tools', () => {
 
         expect(result.stopReason).toBe('toolUse');
         expect(Array.isArray(result.content)).toBe(true);
-        expect((result.content as Array<{ type: string }>)[0].type).toBe('tool_use');
+        expect((result.content as Array<{ type: string }>)[0]!.type).toBe('tool_use');
     });
 
     test('should validate single content when request includes tools', async () => {
@@ -4240,7 +4122,7 @@ describe('Client sampling validation with tools', () => {
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Handler returns single content (text) - should still validate with CreateMessageResultWithToolsSchema
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'No tool needed' }
@@ -4264,7 +4146,7 @@ describe('Client sampling validation with tools', () => {
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
         // Handler returns single content - should validate with CreateMessageResultSchema
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: { type: 'text', text: 'Response' }
@@ -4287,7 +4169,7 @@ describe('Client sampling validation with tools', () => {
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
         // Handler returns array content - should fail validation with CreateMessageResultSchema
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             content: [{ type: 'text', text: 'Array response' }]
@@ -4310,7 +4192,7 @@ describe('Client sampling validation with tools', () => {
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Handler returns array content with tool_use
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
             role: 'assistant',
             stopReason: 'toolUse',

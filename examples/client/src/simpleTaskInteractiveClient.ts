@@ -9,16 +9,8 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    ErrorCode,
-    McpError,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import type { CallToolResult, CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
+import { Client, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -43,7 +35,7 @@ async function elicitationCallback(params: {
     mode?: string;
     message: string;
     requestedSchema?: object;
-}): Promise<{ action: string; content?: Record<string, unknown> }> {
+}): Promise<{ action: 'accept' | 'cancel' | 'decline'; content?: Record<string, string | number | boolean | string[]> }> {
     console.log(`\n[Elicitation] Server asks: ${params.message}`);
 
     // Simple terminal prompt for y/n
@@ -102,15 +94,15 @@ async function run(url: string): Promise<void> {
     );
 
     // Set up elicitation request handler
-    client.setRequestHandler(ElicitRequestSchema, async request => {
+    client.setRequestHandler('elicitation/create', async request => {
         if (request.params.mode && request.params.mode !== 'form') {
-            throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
         }
         return elicitationCallback(request.params);
     });
 
     // Set up sampling request handler
-    client.setRequestHandler(CreateMessageRequestSchema, async request => {
+    client.setRequestHandler('sampling/createMessage', async request => {
         return samplingCallback(request.params) as unknown as ReturnType<typeof samplingCallback>;
     });
 
@@ -129,7 +121,6 @@ async function run(url: string): Promise<void> {
 
     const confirmStream = client.experimental.tasks.callToolStream(
         { name: 'confirm_delete', arguments: { filename: 'important.txt' } },
-        CallToolResultSchema,
         { task: { ttl: 60_000 } }
     );
 
@@ -144,7 +135,8 @@ async function run(url: string): Promise<void> {
                 break;
             }
             case 'result': {
-                console.log(`Result: ${getTextContent(message.result)}`);
+                const toolResult = message.result as CallToolResult;
+                console.log(`Result: ${getTextContent(toolResult)}`);
                 break;
             }
             case 'error': {
@@ -160,10 +152,7 @@ async function run(url: string): Promise<void> {
 
     const haikuStream = client.experimental.tasks.callToolStream(
         { name: 'write_haiku', arguments: { topic: 'autumn leaves' } },
-        CallToolResultSchema,
-        {
-            task: { ttl: 60_000 }
-        }
+        { task: { ttl: 60_000 } }
     );
 
     for await (const message of haikuStream) {
@@ -177,7 +166,8 @@ async function run(url: string): Promise<void> {
                 break;
             }
             case 'result': {
-                console.log(`Result:\n${getTextContent(message.result)}`);
+                const toolResult = message.result as CallToolResult;
+                console.log(`Result:\n${getTextContent(toolResult)}`);
                 break;
             }
             case 'error': {

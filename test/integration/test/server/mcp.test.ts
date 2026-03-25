@@ -1,27 +1,16 @@
 import { Client } from '@modelcontextprotocol/client';
 import type { CallToolResult, Notification, TextContent } from '@modelcontextprotocol/core';
 import {
-    CallToolResultSchema,
-    CompleteResultSchema,
-    ElicitRequestSchema,
-    ErrorCode,
     getDisplayName,
-    GetPromptResultSchema,
     InMemoryTaskStore,
     InMemoryTransport,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
-    ReadResourceResultSchema,
+    ProtocolErrorCode,
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import * as z from 'zod/v4';
 
 function createLatch() {
     let latch = false;
@@ -39,9 +28,7 @@ function createLatch() {
     };
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Zod v4', () => {
     describe('McpServer', () => {
         /***
          * Test: Basic Server Instance
@@ -100,6 +87,159 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: ctx.mcpReq.log convenience method
+         */
+        test('should send logging messages via ctx.mcpReq.log() convenience method', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                { capabilities: { logging: {} } }
+            );
+
+            const notifications: Notification[] = [];
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            mcpServer.registerTool(
+                'log-test',
+                {
+                    description: 'A tool that logs via ctx.mcpReq.log()'
+                },
+                async ctx => {
+                    await ctx.mcpReq.log('info', 'Log from convenience method', 'test-logger');
+                    return {
+                        content: [{ type: 'text' as const, text: 'done' }]
+                    };
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await client.callTool({ name: 'log-test' });
+
+            expect(notifications).toMatchObject([
+                {
+                    method: 'notifications/message',
+                    params: {
+                        level: 'info',
+                        data: 'Log from convenience method',
+                        logger: 'test-logger'
+                    }
+                }
+            ]);
+        });
+
+        /***
+         * Test: ctx.mcpReq.elicitInput convenience method
+         */
+        test('should elicit input via ctx.mcpReq.elicitInput() convenience method', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            let elicitResult: unknown = null;
+
+            mcpServer.registerTool(
+                'elicit-test',
+                {
+                    description: 'A tool that elicits input via ctx.mcpReq.elicitInput()'
+                },
+                async ctx => {
+                    elicitResult = await ctx.mcpReq.elicitInput({
+                        message: 'Please confirm',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                confirmed: { type: 'boolean' }
+                            }
+                        }
+                    });
+                    return {
+                        content: [{ type: 'text' as const, text: 'done' }]
+                    };
+                }
+            );
+
+            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { elicitation: {} } });
+
+            client.setRequestHandler('elicitation/create', async () => ({
+                action: 'accept',
+                content: { confirmed: true }
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await client.callTool({ name: 'elicit-test' });
+
+            expect(elicitResult).toMatchObject({
+                action: 'accept',
+                content: { confirmed: true }
+            });
+        });
+
+        /***
+         * Test: ctx.mcpReq.requestSampling convenience method
+         */
+        test('should request sampling via ctx.mcpReq.requestSampling() convenience method', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            let samplingResult: unknown = null;
+
+            mcpServer.registerTool(
+                'sampling-test',
+                {
+                    description: 'A tool that requests sampling via ctx.mcpReq.requestSampling()'
+                },
+                async ctx => {
+                    samplingResult = await ctx.mcpReq.requestSampling({
+                        messages: [
+                            {
+                                role: 'user',
+                                content: { type: 'text', text: 'Hello' }
+                            }
+                        ],
+                        maxTokens: 100
+                    });
+                    return {
+                        content: [{ type: 'text' as const, text: 'done' }]
+                    };
+                }
+            );
+
+            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+            client.setRequestHandler('sampling/createMessage', async () => ({
+                model: 'test-model',
+                role: 'assistant' as const,
+                content: { type: 'text' as const, text: 'Hello back' }
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await client.callTool({ name: 'sampling-test' });
+
+            expect(samplingResult).toMatchObject({
+                model: 'test-model',
+                role: 'assistant',
+                content: { type: 'text', text: 'Hello back' }
+            });
+        });
+
+        /***
          * Test: Progress Notification with Message Field
          */
         test('should send progress notifications with message field', async () => {
@@ -113,17 +253,17 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'long-operation',
                 {
                     description: 'A long running operation with progress updates',
-                    inputSchema: {
+                    inputSchema: z.object({
                         steps: z.number().min(1).describe('Number of steps to perform')
-                    }
+                    })
                 },
-                async ({ steps }, { sendNotification, _meta }) => {
-                    const progressToken = _meta?.progressToken;
+                async ({ steps }, ctx) => {
+                    const progressToken = ctx.mcpReq._meta?.progressToken;
 
                     if (progressToken) {
                         // Send progress notification for each step
                         for (let i = 1; i <= steps; i++) {
-                            await sendNotification({
+                            await ctx.mcpReq.notify({
                                 method: 'notifications/progress',
                                 params: {
                                     progressToken,
@@ -173,7 +313,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         }
                     }
                 },
-                CallToolResultSchema,
                 {
                     onprogress: progress => {
                         progressUpdates.push(progress);
@@ -198,6 +337,60 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 total: 3,
                 message: 'Completed step 3 of 3'
             });
+        });
+
+        /***
+         * Test: Extensions capability registration
+         */
+        test('should register and advertise server extensions capability', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.server.registerCapabilities({
+                extensions: {
+                    'io.modelcontextprotocol/test-extension': { listChanged: true }
+                }
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.extensions).toBeDefined();
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ listChanged: true });
+        });
+
+        test('should advertise client extensions capability to server', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        extensions: {
+                            'io.modelcontextprotocol/test-extension': { streaming: true }
+                        }
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = mcpServer.server.getClientCapabilities();
+            expect(capabilities?.extensions).toBeDefined();
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ streaming: true });
         });
     });
 
@@ -285,12 +478,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -366,15 +556,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool and verify we get the updated response
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test'
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test'
+                }
+            });
 
             expect(result.content).toEqual([
                 {
@@ -408,9 +595,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const tool = mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         name: z.string()
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     content: [
@@ -424,10 +611,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Update the tool with a different schema
             tool.update({
-                paramsSchema: {
+                paramsSchema: z.object({
                     name: z.string(),
                     value: z.number()
-                },
+                }),
                 callback: async ({ name, value }) => ({
                     content: [
                         {
@@ -443,12 +630,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the schema was updated
-            const listResult = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'tools/list'
+            });
 
             expect(listResult.tools[0]!.inputSchema).toMatchObject({
                 properties: {
@@ -458,19 +642,16 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Call the tool with the new schema
-            const callResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
+            const callResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 42
-                        }
+                        value: 42
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(callResult.content).toEqual([
                 {
@@ -504,9 +685,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const tool = mcpServer.registerTool(
                 'test',
                 {
-                    outputSchema: {
+                    outputSchema: z.object({
                         result: z.number()
-                    }
+                    })
                 },
                 async () => ({
                     content: [{ type: 'text', text: '' }],
@@ -518,10 +699,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Update the tool with a different outputSchema
             tool.update({
-                outputSchema: {
+                outputSchema: z.object({
                     result: z.number(),
                     sum: z.number()
-                },
+                }),
                 callback: async () => ({
                     content: [{ type: 'text', text: '' }],
                     structuredContent: {
@@ -536,12 +717,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the outputSchema was updated
-            const listResult = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'tools/list'
+            });
 
             expect(listResult.tools[0]!.outputSchema).toMatchObject({
                 type: 'object',
@@ -552,16 +730,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Call the tool to verify it works with the updated outputSchema
-            const callResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {}
-                    }
-                },
-                CallToolResultSchema
-            );
+            const callResult = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {}
+                }
+            });
 
             expect(callResult.structuredContent).toEqual({
                 result: 42,
@@ -635,6 +810,96 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: listChanged capability should default to true when not specified
+         */
+        test('should default tools.listChanged to true when not explicitly set', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(true);
+        });
+
+        /***
+         * Test: listChanged capability should respect explicit false setting
+         */
+        test('should respect tools.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(false);
+        });
+
+        /***
+         * Test: resources.listChanged should respect explicit false setting
+         */
+        test('should respect resources.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { resources: { listChanged: false } } }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerResource('test://resource', 'Test Resource', async () => ({
+                contents: [{ uri: 'test://resource', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.resources?.listChanged).toBe(false);
+        });
+
+        /***
+         * Test: prompts.listChanged should respect explicit false setting
+         */
+        test('should respect prompts.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { prompts: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt('test-prompt', async () => ({
+                messages: [{ role: 'assistant', content: { type: 'text', text: 'Test' } }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.prompts?.listChanged).toBe(false);
+        });
+
+        /***
          * Test: Tool Registration with Parameters
          */
         test('should register tool with params', async () => {
@@ -650,7 +915,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: { name: z.string(), value: z.number() }
+                    inputSchema: z.object({ name: z.string(), value: z.number() })
                 },
                 async ({ name, value }) => ({
                     content: [{ type: 'text', text: `${name}: ${value}` }]
@@ -661,12 +926,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -721,12 +983,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(2);
             expect(result.tools[0]!.name).toBe('test');
@@ -767,12 +1026,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/list'
+            });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -798,7 +1054,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: { name: z.string() },
+                    inputSchema: z.object({ name: z.string() }),
                     annotations: { title: 'Test Tool', readOnlyHint: true }
                 },
                 async ({ name }) => ({
@@ -810,7 +1066,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -841,7 +1097,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test',
                 {
                     description: 'A tool with everything',
-                    inputSchema: { name: z.string() },
+                    inputSchema: z.object({ name: z.string() }),
                     annotations: {
                         title: 'Complete Test Tool',
                         readOnlyHint: true,
@@ -857,7 +1113,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -905,7 +1161,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -937,10 +1193,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerTool(
                 'test',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         name: z.string(),
                         value: z.number()
-                    }
+                    })
                 },
                 async ({ name, value }) => ({
                     content: [
@@ -956,19 +1212,16 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.isError).toBe(true);
             expect(result.content).toEqual(
@@ -1046,14 +1299,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test',
                 {
                     description: 'Test tool with structured output',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string(),
                         timestamp: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     structuredContent: {
@@ -1079,12 +1332,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Verify the tool registration includes outputSchema
-            const listResult = await client.request(
-                {
-                    method: 'tools/list'
-                },
-                ListToolsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'tools/list'
+            });
 
             expect(listResult.tools).toHaveLength(1);
             expect(listResult.tools[0]!.outputSchema).toMatchObject({
@@ -1098,18 +1348,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Call the tool and verify it returns valid structuredContent
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {
-                            input: 'hello'
-                        }
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.structuredContent).toBeDefined();
             const structuredContent = result.structuredContent as {
@@ -1148,13 +1395,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test',
                 {
                     description: 'Test tool with output schema but missing structured content',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     // Only return content without structuredContent
@@ -1209,13 +1456,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test',
                 {
                     description: 'Test tool with output schema but missing structured content',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     content: [
@@ -1269,14 +1516,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test',
                 {
                     description: 'Test tool with invalid structured output',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
-                    outputSchema: {
+                    }),
+                    outputSchema: z.object({
                         processedInput: z.string(),
                         resultType: z.string(),
                         timestamp: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     content: [
@@ -1325,7 +1572,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         /***
          * Test: Pass Session ID to Tool Callback
          */
-        test('should pass sessionId to tool callback via RequestHandlerExtra', async () => {
+        test('should pass sessionId to tool callback via ServerContext', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -1337,8 +1584,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedSessionId: string | undefined;
-            mcpServer.registerTool('test-tool', {}, async extra => {
-                receivedSessionId = extra.sessionId;
+            mcpServer.registerTool('test-tool', {}, async ctx => {
+                receivedSessionId = ctx.sessionId;
                 return {
                     content: [
                         {
@@ -1355,15 +1602,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test-tool'
-                    }
-                },
-                CallToolResultSchema
-            );
+            await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool'
+                }
+            });
 
             expect(receivedSessionId).toBe('test-session-123');
         });
@@ -1371,7 +1615,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         /***
          * Test: Pass Request ID to Tool Callback
          */
-        test('should pass requestId to tool callback via RequestHandlerExtra', async () => {
+        test('should pass requestId to tool callback via ServerContext', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -1383,13 +1627,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.registerTool('request-id-test', {}, async extra => {
-                receivedRequestId = extra.requestId;
+            mcpServer.registerTool('request-id-test', {}, async ctx => {
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Received request ID: ${extra.requestId}`
+                            text: `Received request ID: ${ctx.mcpReq.id}`
                         }
                     ]
                 };
@@ -1399,15 +1643,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'request-id-test'
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'request-id-test'
+                }
+            });
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
@@ -1441,12 +1682,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let receivedLogMessage: string | undefined;
             const loggingMessage = 'hello here is log message 1';
 
-            client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            client.setNotificationHandler('notifications/message', notification => {
                 receivedLogMessage = notification.params.data as string;
             });
 
-            mcpServer.registerTool('test-tool', {}, async extra => {
-                await extra.sendNotification({
+            mcpServer.registerTool('test-tool', {}, async ctx => {
+                await ctx.mcpReq.notify({
                     method: 'notifications/message',
                     params: { level: 'debug', data: loggingMessage }
                 });
@@ -1462,15 +1703,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
-            await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test-tool'
-                    }
-                },
-                CallToolResultSchema
-            );
+            await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool'
+                }
+            });
             expect(receivedLogMessage).toBe(loggingMessage);
         });
 
@@ -1492,9 +1730,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test',
                 {
                     description: 'Test tool',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    }
+                    })
                 },
                 async ({ input }) => ({
                     content: [
@@ -1510,18 +1748,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test',
-                        arguments: {
-                            input: 'hello'
-                        }
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                },
-                CallToolResultSchema
-            );
+                }
+            });
 
             expect(result.content).toEqual([
                 {
@@ -1553,15 +1788,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'error-test'
-                    }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'error-test'
+                }
+            });
 
             expect(result.isError).toBe(true);
             expect(result.content).toEqual([
@@ -1573,9 +1805,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
-         * Test: McpError for Invalid Tool Name
+         * Test: ProtocolError for Invalid Tool Name
          */
-        test('should throw McpError for invalid tool name', async () => {
+        test('should throw ProtocolError for invalid tool name', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -1599,25 +1831,59 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
+            await expect(
+                client.request({
                     method: 'tools/call',
                     params: {
                         name: 'nonexistent-tool'
                     }
-                },
-                CallToolResultSchema
-            );
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('nonexistent-tool')
+            });
+        });
 
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
+        /***
+         * Test: ProtocolError for Disabled Tool
+         */
+        test('should throw ProtocolError for disabled tool', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool('test-tool', {}, async () => ({
+                content: [
                     {
                         type: 'text',
-                        text: expect.stringContaining('Tool nonexistent-tool not found')
+                        text: 'Test response'
                     }
-                ])
-            );
+                ]
+            }));
+
+            tool.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-tool'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -1668,7 +1934,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 .catch(error => {
                     expect(error).toBeInstanceOf(UrlElicitationRequiredError);
                     if (error instanceof UrlElicitationRequiredError) {
-                        expect(error.code).toBe(ErrorCode.UrlElicitationRequired);
+                        expect(error.code).toBe(ProtocolErrorCode.UrlElicitationRequired);
                         expect(error.elicitations).toEqual([elicitationParams]);
                     }
                 });
@@ -1698,7 +1964,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test-with-meta',
                 {
                     description: 'A tool with _meta field',
-                    inputSchema: { name: z.string() },
+                    inputSchema: z.object({ name: z.string() }),
                     _meta: metaData
                 },
                 async ({ name }) => ({
@@ -1710,7 +1976,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-with-meta');
@@ -1735,7 +2001,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'test-without-meta',
                 {
                     description: 'A tool without _meta field',
-                    inputSchema: { name: z.string() }
+                    inputSchema: z.object({ name: z.string() })
                 },
                 async ({ name }) => ({
                     content: [{ type: 'text', text: `Hello, ${name}!` }]
@@ -1746,7 +2012,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-without-meta');
@@ -1786,23 +2052,23 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'task-tool',
                 {
                     description: 'A tool with task support',
-                    inputSchema: { input: z.string() },
+                    inputSchema: z.object({ input: z.string() }),
                     execution: {
                         taskSupport: 'required'
                     }
                 },
                 {
-                    createTask: async (_args, extra) => {
-                        const task = await extra.task.store.createTask({ ttl: 60_000 });
+                    createTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000 });
                         return { task };
                     },
-                    getTask: async (_args, extra) => {
-                        const task = await extra.task.store.getTask(extra.task.id);
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) throw new Error('Task not found');
                         return task;
                     },
-                    getTaskResult: async (_args, extra) => {
-                        return (await extra.task.store.getTaskResult(extra.task.id)) as CallToolResult;
+                    getTaskResult: async (_args, ctx) => {
+                        return (await ctx.task.store.getTaskResult(ctx.task.id)) as CallToolResult;
                     }
                 }
             );
@@ -1811,7 +2077,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('task-tool');
@@ -1855,23 +2121,23 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'optional-task-tool',
                 {
                     description: 'A tool with optional task support',
-                    inputSchema: { input: z.string() },
+                    inputSchema: z.object({ input: z.string() }),
                     execution: {
                         taskSupport: 'optional'
                     }
                 },
                 {
-                    createTask: async (_args, extra) => {
-                        const task = await extra.task.store.createTask({ ttl: 60_000 });
+                    createTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000 });
                         return { task };
                     },
-                    getTask: async (_args, extra) => {
-                        const task = await extra.task.store.getTask(extra.task.id);
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) throw new Error('Task not found');
                         return task;
                     },
-                    getTaskResult: async (_args, extra) => {
-                        return (await extra.task.store.getTaskResult(extra.task.id)) as CallToolResult;
+                    getTaskResult: async (_args, ctx) => {
+                        return (await ctx.task.store.getTaskResult(ctx.task.id)) as CallToolResult;
                     }
                 }
             );
@@ -1880,7 +2146,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('optional-task-tool');
@@ -1969,12 +2235,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.name).toBe('test');
@@ -2025,15 +2288,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Read the resource and verify we get the updated content
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource'
+                }
+            });
 
             expect(result.contents).toHaveLength(1);
             expect(result.contents).toEqual(
@@ -2098,15 +2358,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Read the resource and verify we get the updated content
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource/123'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource/123'
+                }
+            });
 
             expect(result.contents).toHaveLength(1);
             expect(result.contents).toEqual(
@@ -2204,7 +2461,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both resources are registered
-            let result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+            let result = await client.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(2);
 
@@ -2220,7 +2477,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the resource was removed
-            result = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+            result = await client.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.uri).toBe('test://resource2');
@@ -2263,7 +2520,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify template is registered
-            const result = await client.request({ method: 'resources/templates/list' }, ListResourceTemplatesResultSchema);
+            const result = await client.request({ method: 'resources/templates/list' });
 
             expect(result.resourceTemplates).toHaveLength(1);
             expect(notifications).toHaveLength(0);
@@ -2278,7 +2535,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the template was removed
-            const result2 = await client.request({ method: 'resources/templates/list' }, ListResourceTemplatesResultSchema);
+            const result2 = await client.request({ method: 'resources/templates/list' });
 
             expect(result2.resourceTemplates).toHaveLength(0);
         });
@@ -2323,12 +2580,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.description).toBe('Test resource');
@@ -2366,12 +2620,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/templates/list'
-                },
-                ListResourceTemplatesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/templates/list'
+            });
 
             expect(result.resourceTemplates).toHaveLength(1);
             expect(result.resourceTemplates[0]!.name).toBe('test');
@@ -2422,12 +2673,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(2);
             expect(result.resources[0]!.name).toBe('Resource 1');
@@ -2469,15 +2717,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource/books/123'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource/books/123'
+                }
+            });
 
             expect(result.contents).toEqual(
                 expect.arrayContaining([
@@ -2601,22 +2846,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
-                    {
-                        method: 'resources/read',
-                        params: {
-                            uri: 'test://error'
-                        }
-                    },
-                    ReadResourceResultSchema
-                )
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://error'
+                    }
+                })
             ).rejects.toThrow(/Resource read failed/);
         });
 
         /***
-         * Test: McpError for Invalid Resource URI
+         * Test: ProtocolError for Invalid Resource URI
          */
-        test('should throw McpError for invalid resource URI', async () => {
+        test('should throw ProtocolError for invalid resource URI', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -2640,16 +2882,57 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://nonexistent'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.ResourceNotFound,
+                message: expect.stringContaining('not found')
+            });
+        });
+
+        /***
+         * Test: ProtocolError for Disabled Resource
+         */
+        test('should throw ProtocolError for disabled resource', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resource = mcpServer.registerResource('test', 'test://resource', {}, async () => ({
+                contents: [
                     {
-                        method: 'resources/read',
-                        params: {
-                            uri: 'test://nonexistent'
-                        }
-                    },
-                    ReadResourceResultSchema
-                )
-            ).rejects.toThrow(/Resource test:\/\/nonexistent not found/);
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            resource.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://resource'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -2764,22 +3047,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'test://resource/{category}'
-                        },
-                        argument: {
-                            name: 'category',
-                            value: ''
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'test://resource/{category}'
+                    },
+                    argument: {
+                        name: 'category',
+                        value: ''
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['books', 'movies', 'music']);
             expect(result.completion.total).toBe(3);
@@ -2822,22 +3102,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'test://resource/{category}'
-                        },
-                        argument: {
-                            name: 'category',
-                            value: 'm'
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'test://resource/{category}'
+                    },
+                    argument: {
+                        name: 'category',
+                        value: 'm'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['movies', 'music']);
             expect(result.completion.total).toBe(2);
@@ -2846,7 +3123,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         /***
          * Test: Pass Request ID to Resource Callback
          */
-        test('should pass requestId to resource callback via RequestHandlerExtra', async () => {
+        test('should pass requestId to resource callback via ServerContext', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -2858,13 +3135,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.registerResource('request-id-test', 'test://resource', {}, async (_uri, extra) => {
-                receivedRequestId = extra.requestId;
+            mcpServer.registerResource('request-id-test', 'test://resource', {}, async (_uri, ctx) => {
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     contents: [
                         {
                             uri: 'test://resource',
-                            text: `Received request ID: ${extra.requestId}`
+                            text: `Received request ID: ${ctx.mcpReq.id}`
                         }
                     ]
                 };
@@ -2874,15 +3151,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource'
+                }
+            });
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
@@ -2927,12 +3201,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
@@ -2988,15 +3259,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the prompt and verify we get the updated response
-            const result = await client.request(
-                {
-                    method: 'prompts/get',
-                    params: {
-                        name: 'test'
-                    }
-                },
-                GetPromptResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'test'
+                }
+            });
 
             expect(result.messages).toHaveLength(1);
             expect(result.messages).toEqual(
@@ -3036,9 +3304,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const prompt = mcpServer.registerPrompt(
                 'test',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string()
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3055,10 +3323,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Update the prompt with a different schema
             prompt.update({
-                argsSchema: {
+                argsSchema: z.object({
                     name: z.string(),
                     value: z.string()
-                },
+                }),
                 callback: async ({ name, value }) => ({
                     messages: [
                         {
@@ -3077,30 +3345,24 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the schema was updated
-            const listResult = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const listResult = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(listResult.prompts[0]!.arguments).toHaveLength(2);
             expect(listResult.prompts[0]!.arguments!.map(a => a.name).toSorted()).toEqual(['name', 'value']);
 
             // Call the prompt with the new schema
-            const getResult = await client.request(
-                {
-                    method: 'prompts/get',
-                    params: {
+            const getResult = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 'value'
-                        }
+                        value: 'value'
                     }
-                },
-                GetPromptResultSchema
-            );
+                }
+            });
 
             expect(getResult.messages).toHaveLength(1);
             expect(getResult.messages).toEqual(
@@ -3223,7 +3485,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both prompts are registered
-            let result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
+            let result = await client.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(2);
             expect(result.prompts.map(p => p.name).toSorted()).toEqual(['prompt1', 'prompt2']);
@@ -3240,7 +3502,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(notifications).toMatchObject([{ method: 'notifications/prompts/list_changed' }]);
 
             // Verify the prompt was removed
-            result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
+            result = await client.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('prompt2');
@@ -3262,10 +3524,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerPrompt(
                 'test',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string(),
                         value: z.string()
-                    }
+                    })
                 },
                 async ({ name, value }) => ({
                     messages: [
@@ -3284,12 +3546,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
@@ -3328,12 +3587,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
@@ -3357,10 +3613,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerPrompt(
                 'test',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string(),
                         value: z.string().min(3)
-                    }
+                    })
                 },
                 async ({ name, value }) => ({
                     messages: [
@@ -3380,19 +3636,16 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
-                    {
-                        method: 'prompts/get',
-                        params: {
+                client.request({
+                    method: 'prompts/get',
+                    params: {
+                        name: 'test',
+                        arguments: {
                             name: 'test',
-                            arguments: {
-                                name: 'test',
-                                value: 'ab' // Too short
-                            }
+                            value: 'ab' // Too short
                         }
-                    },
-                    GetPromptResultSchema
-                )
+                    }
+                })
             ).rejects.toThrow(/Invalid arguments/);
         });
 
@@ -3478,7 +3731,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // This should succeed
-            mcpServer.registerPrompt('echo', { argsSchema: { message: z.string() } }, ({ message }) => ({
+            mcpServer.registerPrompt('echo', { argsSchema: z.object({ message: z.string() }) }, ({ message }) => ({
                 messages: [
                     {
                         role: 'user',
@@ -3523,7 +3776,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Register a prompt with completion
             mcpServer.registerPrompt(
                 'echo',
-                { argsSchema: { message: completable(z.string(), () => ['hello', 'world']) } },
+                { argsSchema: z.object({ message: completable(z.string(), () => ['hello', 'world']) }) },
                 ({ message }) => ({
                     messages: [
                         {
@@ -3539,9 +3792,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
-         * Test: McpError for Invalid Prompt Name
+         * Test: ProtocolError for Invalid Prompt Name
          */
-        test('should throw McpError for invalid prompt name', async () => {
+        test('should throw ProtocolError for invalid prompt name', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -3569,16 +3822,16 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request(
-                    {
-                        method: 'prompts/get',
-                        params: {
-                            name: 'nonexistent-prompt'
-                        }
-                    },
-                    GetPromptResultSchema
-                )
-            ).rejects.toThrow(/Prompt nonexistent-prompt not found/);
+                client.request({
+                    method: 'prompts/get',
+                    params: {
+                        name: 'nonexistent-prompt'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('not found')
+            });
         });
 
         /***
@@ -3597,9 +3850,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string()
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3639,9 +3892,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3680,9 +3933,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3701,22 +3954,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: ''
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: ''
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['Alice', 'Bob', 'Charlie']);
             expect(result.completion.total).toBe(3);
@@ -3739,9 +3989,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: completable(z.string(), test => ['Alice', 'Bob', 'Charlie'].filter(value => value.startsWith(test)))
-                    }
+                    })
                 },
                 async ({ name }) => ({
                     messages: [
@@ -3760,22 +4010,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'A'
-                        }
+            const result = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'A'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result.completion.values).toEqual(['Alice']);
             expect(result.completion.total).toBe(1);
@@ -3784,7 +4031,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         /***
          * Test: Pass Request ID to Prompt Callback
          */
-        test('should pass requestId to prompt callback via RequestHandlerExtra', async () => {
+        test('should pass requestId to prompt callback via ServerContext', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -3796,15 +4043,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             let receivedRequestId: string | number | undefined;
-            mcpServer.registerPrompt('request-id-test', {}, async extra => {
-                receivedRequestId = extra.requestId;
+            mcpServer.registerPrompt('request-id-test', {}, async ctx => {
+                receivedRequestId = ctx.mcpReq.id;
                 return {
                     messages: [
                         {
                             role: 'assistant',
                             content: {
                                 type: 'text',
-                                text: `Received request ID: ${extra.requestId}`
+                                text: `Received request ID: ${ctx.mcpReq.id}`
                             }
                         }
                     ]
@@ -3815,15 +4062,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/get',
-                    params: {
-                        name: 'request-id-test'
-                    }
-                },
-                GetPromptResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'request-id-test'
+                }
+            });
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
@@ -3890,12 +4134,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(2);
 
@@ -3957,12 +4198,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
 
@@ -3986,9 +4224,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerPrompt(
                 'test-prompt',
                 {
-                    argsSchema: {
+                    argsSchema: z.object({
                         name: z.string().optional()
-                    }
+                    })
                 },
                 () => ({
                     messages: []
@@ -3999,12 +4237,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'prompts/list'
-                },
-                ListPromptsResultSchema
-            );
+            const result = await client.request({
+                method: 'prompts/list'
+            });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test-prompt');
@@ -4078,7 +4313,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 
@@ -4200,74 +4435,65 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with microsoft owner
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'p'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org1'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'p'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org1'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['project1', 'project2', 'project3']);
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'r'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org2'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'r'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org2'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['repo1', 'repo2', 'repo3']);
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 't'
-                        }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 't'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual([]);
             expect(result3.completion.total).toBe(0);
@@ -4289,7 +4515,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     title: 'Team Greeting',
                     description: 'Generate a greeting for team members',
-                    argsSchema: {
+                    argsSchema: z.object({
                         department: completable(z.string(), value => {
                             return ['engineering', 'sales', 'marketing', 'support'].filter(d => d.startsWith(value));
                         }),
@@ -4309,7 +4535,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                             }
                             return ['Guest'].filter(n => n.startsWith(value));
                         })
-                    }
+                    })
                 },
                 async ({ department, name }) => ({
                     messages: [
@@ -4329,97 +4555,85 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with engineering department
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'A'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'engineering'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'A'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'engineering'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['Alice']);
 
             // Test with sales department
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'D'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'sales'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'D'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'sales'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['David']);
 
             // Test with marketing department
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'marketing'
-                            }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'marketing'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual(['Grace']);
 
             // Test with no resolved context
-            const result4 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        }
+            const result4 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result4.completion.values).toEqual(['Guest']);
         });
@@ -4446,11 +4660,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerTool(
                 'book-restaurant',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         restaurant: z.string(),
                         date: z.string(),
                         partySize: z.number()
-                    }
+                    })
                 },
                 async ({ restaurant, date, partySize }) => {
                     // Check availability
@@ -4539,7 +4753,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             findAlternatives.mockResolvedValue(['2024-12-26', '2024-12-27', '2024-12-28']);
 
             // Set up client to accept alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 expect(request.params.message).toContain('No tables available at ABC Restaurant on 2024-12-25');
                 return {
                     action: 'accept',
@@ -4579,7 +4793,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to reject alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'accept',
                     content: {
@@ -4617,7 +4831,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to cancel the elicitation
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'cancel'
                 };
@@ -5082,12 +5296,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.name).toBe('test');
@@ -5140,15 +5351,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/read',
-                    params: {
-                        uri: 'test://resource'
-                    }
-                },
-                ReadResourceResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/read',
+                params: {
+                    uri: 'test://resource'
+                }
+            });
 
             expect(result.contents).toEqual([
                 {
@@ -5225,12 +5433,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(2);
 
@@ -5292,12 +5497,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'resources/list'
-                },
-                ListResourcesResultSchema
-            );
+            const result = await client.request({
+                method: 'resources/list'
+            });
 
             expect(result.resources).toHaveLength(1);
 
@@ -5368,7 +5570,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const result = await client.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 
@@ -5490,74 +5692,65 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with microsoft owner
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'p'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org1'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'p'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org1'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['project1', 'project2', 'project3']);
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 'r'
-                        },
-                        context: {
-                            arguments: {
-                                owner: 'org2'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 'r'
+                    },
+                    context: {
+                        arguments: {
+                            owner: 'org2'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['repo1', 'repo2', 'repo3']);
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/resource',
-                            uri: 'github://repos/{owner}/{repo}'
-                        },
-                        argument: {
-                            name: 'repo',
-                            value: 't'
-                        }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/resource',
+                        uri: 'github://repos/{owner}/{repo}'
+                    },
+                    argument: {
+                        name: 'repo',
+                        value: 't'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual([]);
             expect(result3.completion.total).toBe(0);
@@ -5579,7 +5772,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     title: 'Team Greeting',
                     description: 'Generate a greeting for team members',
-                    argsSchema: {
+                    argsSchema: z.object({
                         department: completable(z.string(), value => {
                             return ['engineering', 'sales', 'marketing', 'support'].filter(d => d.startsWith(value));
                         }),
@@ -5599,7 +5792,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                             }
                             return ['Guest'].filter(n => n.startsWith(value));
                         })
-                    }
+                    })
                 },
                 async ({ department, name }) => ({
                     messages: [
@@ -5619,97 +5812,85 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with engineering department
-            const result1 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'A'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'engineering'
-                            }
+            const result1 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'A'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'engineering'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result1.completion.values).toEqual(['Alice']);
 
             // Test with sales department
-            const result2 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'D'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'sales'
-                            }
+            const result2 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'D'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'sales'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result2.completion.values).toEqual(['David']);
 
             // Test with marketing department
-            const result3 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        },
-                        context: {
-                            arguments: {
-                                department: 'marketing'
-                            }
+            const result3 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
+                    },
+                    context: {
+                        arguments: {
+                            department: 'marketing'
                         }
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result3.completion.values).toEqual(['Grace']);
 
             // Test with no resolved context
-            const result4 = await client.request(
-                {
-                    method: 'completion/complete',
-                    params: {
-                        ref: {
-                            type: 'ref/prompt',
-                            name: 'test-prompt'
-                        },
-                        argument: {
-                            name: 'name',
-                            value: 'G'
-                        }
+            const result4 = await client.request({
+                method: 'completion/complete',
+                params: {
+                    ref: {
+                        type: 'ref/prompt',
+                        name: 'test-prompt'
+                    },
+                    argument: {
+                        name: 'name',
+                        value: 'G'
                     }
-                },
-                CompleteResultSchema
-            );
+                }
+            });
 
             expect(result4.completion.values).toEqual(['Guest']);
         });
@@ -5736,11 +5917,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer.registerTool(
                 'book-restaurant',
                 {
-                    inputSchema: {
+                    inputSchema: z.object({
                         restaurant: z.string(),
                         date: z.string(),
                         partySize: z.number()
-                    }
+                    })
                 },
                 async ({ restaurant, date, partySize }) => {
                     // Check availability
@@ -5830,7 +6011,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             findAlternatives.mockResolvedValue(['2024-12-26', '2024-12-27', '2024-12-28']);
 
             // Set up client to accept alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async request => {
+            client.setRequestHandler('elicitation/create', async request => {
                 expect(request.params.message).toContain('No tables available at ABC Restaurant on 2024-12-25');
                 return {
                     action: 'accept',
@@ -5870,7 +6051,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to reject alternative date checking
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'accept',
                     content: {
@@ -5908,7 +6089,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             checkAvailability.mockResolvedValue(false);
 
             // Set up client to cancel the elicitation
-            client.setRequestHandler(ElicitRequestSchema, async () => {
+            client.setRequestHandler('elicitation/create', async () => {
                 return {
                     action: 'cancel'
                 };
@@ -6216,19 +6397,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'long-running-task',
                 {
                     description: 'A long running task',
-                    inputSchema: {
+                    inputSchema: z.object({
                         input: z.string()
-                    },
+                    }),
                     execution: {
                         taskSupport: 'required'
                     }
                 },
                 {
-                    createTask: async ({ input }, extra) => {
-                        const task = await extra.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                    createTask: async ({ input }, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = extra.task.store;
+                        const store = ctx.task.store;
 
                         // Simulate async work
                         setTimeout(async () => {
@@ -6239,15 +6420,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                         return { task };
                     },
-                    getTask: async (_args, extra) => {
-                        const task = await extra.task.store.getTask(extra.task.id);
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
                             throw new Error('Task not found');
                         }
                         return task;
                     },
-                    getTaskResult: async (_input, extra) => {
-                        const result = await extra.task.store.getTaskResult(extra.task.id);
+                    getTaskResult: async (_input, ctx) => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as CallToolResult;
                     }
                 }
@@ -6258,13 +6439,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation - should return error
-            const result = await client.callTool(
-                {
-                    name: 'long-running-task',
-                    arguments: { input: 'test data' }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'long-running-task',
+                arguments: { input: 'test data' }
+            });
 
             // Should receive error result
             expect(result.isError).toBe(true);
@@ -6321,19 +6499,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'optional-task',
                 {
                     description: 'An optional task',
-                    inputSchema: {
+                    inputSchema: z.object({
                         value: z.number()
-                    },
+                    }),
                     execution: {
                         taskSupport: 'optional'
                     }
                 },
                 {
-                    createTask: async ({ value }, extra) => {
-                        const task = await extra.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                    createTask: async ({ value }, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = extra.task.store;
+                        const store = ctx.task.store;
 
                         // Simulate async work
                         setTimeout(async () => {
@@ -6345,15 +6523,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                         return { task };
                     },
-                    getTask: async (_args, extra) => {
-                        const task = await extra.task.store.getTask(extra.task.id);
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
                             throw new Error('Task not found');
                         }
                         return task;
                     },
-                    getTaskResult: async (_value, extra) => {
-                        const result = await extra.task.store.getTaskResult(extra.task.id);
+                    getTaskResult: async (_value, ctx) => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as CallToolResult;
                     }
                 }
@@ -6364,13 +6542,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation
-            const result = await client.callTool(
-                {
-                    name: 'optional-task',
-                    arguments: { value: 21 }
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'optional-task',
+                arguments: { value: 21 }
+            });
 
             // Should receive CallToolResult directly, not CreateTaskResult
             expect(result).toHaveProperty('content');
@@ -6429,19 +6604,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'task-tool',
                 {
                     description: 'A task tool',
-                    inputSchema: {
+                    inputSchema: z.object({
                         data: z.string()
-                    },
+                    }),
                     execution: {
                         taskSupport: 'required'
                     }
                 },
                 {
-                    createTask: async ({ data }, extra) => {
-                        const task = await extra.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                    createTask: async ({ data }, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = extra.task.store;
+                        const store = ctx.task.store;
 
                         // Simulate async work
                         setTimeout(async () => {
@@ -6453,15 +6628,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                         return { task };
                     },
-                    getTask: async (_args, extra) => {
-                        const task = await extra.task.store.getTask(extra.task.id);
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
                             throw new Error('Task not found');
                         }
                         return task;
                     },
-                    getTaskResult: async (_data, extra) => {
-                        const result = await extra.task.store.getTaskResult(extra.task.id);
+                    getTaskResult: async (_data, ctx) => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as CallToolResult;
                     }
                 }
@@ -6554,11 +6729,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 {
-                    createTask: async extra => {
-                        const task = await extra.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                    createTask: async ctx => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = extra.task.store;
+                        const store = ctx.task.store;
 
                         // Simulate async failure
                         setTimeout(async () => {
@@ -6571,15 +6746,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                         return { task };
                     },
-                    getTask: async extra => {
-                        const task = await extra.task.store.getTask(extra.task.id);
+                    getTask: async ctx => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
                             throw new Error('Task not found');
                         }
                         return task;
                     },
-                    getTaskResult: async extra => {
-                        const result = await extra.task.store.getTaskResult(extra.task.id);
+                    getTaskResult: async ctx => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as CallToolResult;
                     }
                 }
@@ -6590,13 +6765,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation
-            const result = await client.callTool(
-                {
-                    name: 'failing-task',
-                    arguments: {}
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'failing-task',
+                arguments: {}
+            });
 
             // Should receive the error result
             expect(result).toHaveProperty('content');
@@ -6660,11 +6832,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 {
-                    createTask: async extra => {
-                        const task = await extra.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                    createTask: async ctx => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
-                        const store = extra.task.store;
+                        const store = ctx.task.store;
 
                         // Simulate async cancellation
                         setTimeout(async () => {
@@ -6674,15 +6846,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                         return { task };
                     },
-                    getTask: async extra => {
-                        const task = await extra.task.store.getTask(extra.task.id);
+                    getTask: async ctx => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
                         if (!task) {
                             throw new Error('Task not found');
                         }
                         return task;
                     },
-                    getTaskResult: async extra => {
-                        const result = await extra.task.store.getTaskResult(extra.task.id);
+                    getTaskResult: async ctx => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
                         return result as CallToolResult;
                     }
                 }
@@ -6693,13 +6865,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool WITHOUT task augmentation
-            const result = await client.callTool(
-                {
-                    name: 'cancelled-task',
-                    arguments: {}
-                },
-                CallToolResultSchema
-            );
+            const result = await client.callTool({
+                name: 'cancelled-task',
+                arguments: {}
+            });
 
             // Should receive an error since cancelled tasks don't have results
             expect(result).toHaveProperty('content');
@@ -6739,27 +6908,27 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'invalid-task',
                     {
                         description: 'A task with forbidden support',
-                        inputSchema: {
+                        inputSchema: z.object({
                             input: z.string()
-                        },
+                        }),
                         execution: {
                             taskSupport: 'forbidden' as unknown as 'required'
                         }
                     },
                     {
-                        createTask: async (_args, extra) => {
-                            const task = await extra.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        createTask: async (_args, ctx) => {
+                            const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
                             return { task };
                         },
-                        getTask: async (_args, extra) => {
-                            const task = await extra.task.store.getTask(extra.task.id);
+                        getTask: async (_args, ctx) => {
+                            const task = await ctx.task.store.getTask(ctx.task.id);
                             if (!task) {
                                 throw new Error('Task not found');
                             }
                             return task;
                         },
-                        getTaskResult: async (_args, extra) => {
-                            const result = await extra.task.store.getTaskResult(extra.task.id);
+                        getTaskResult: async (_args, ctx) => {
+                            const result = await ctx.task.store.getTaskResult(ctx.task.id);
                             return result as CallToolResult;
                         }
                     }
