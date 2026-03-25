@@ -42,7 +42,7 @@ export type TaskRequestHandler<SendResultT extends Result> = (ctx: TaskServerCon
  * Interface for task-based tool handlers.
  *
  * Task-based tools create a task on `tools/call` and by default let the SDK's
- * {@linkcode TaskStore} handle subsequent `tasks/get` and `tasks/result` requests.
+ * `TaskStore` handle subsequent `tasks/get` and `tasks/result` requests.
  *
  * Provide `getTask` and `getTaskResult` to override the default lookups — useful
  * when proxying an external job system (e.g., AWS Step Functions, CI/CD pipelines)
@@ -65,12 +65,12 @@ export interface ToolTaskHandler<Args extends StandardSchemaWithJSON | undefined
     createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
     /**
      * Optional handler for `tasks/get` requests. When omitted, the configured
-     * {@linkcode TaskStore} is consulted directly.
+     * `TaskStore` is consulted directly.
      */
     getTask?: TaskRequestHandler<GetTaskResult>;
     /**
      * Optional handler for `tasks/result` requests. When omitted, the configured
-     * {@linkcode TaskStore} is consulted directly.
+     * `TaskStore` is consulted directly.
      */
     getTaskResult?: TaskRequestHandler<CallToolResult>;
 }

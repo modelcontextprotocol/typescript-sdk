@@ -108,7 +108,7 @@ export class ExperimentalMcpServerTasks {
      * Task-based tools support long-running operations that can be polled for status
      * and results. The handler implements {@linkcode ToolTaskHandler.createTask | createTask}
      * to start the task; subsequent `tasks/get` and `tasks/result` requests are served
-     * from the configured {@linkcode TaskStore}.
+     * from the configured `TaskStore`.
      *
      * @example
      * ```typescript
