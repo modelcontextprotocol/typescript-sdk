@@ -46,12 +46,12 @@ export type {
     ProgressCallback,
     ProtocolOptions,
     RequestOptions,
-    RequestTaskStore,
-    ServerContext,
-    TaskContext,
-    TaskRequestOptions
+    ServerContext
 } from '../../shared/protocol.js';
 export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
+
+// Task manager types (NOT TaskManager class itself — internal)
+export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
 
 // Response message types
 export type {
@@ -65,7 +65,7 @@ export type {
 export { takeResult, toArrayAsync } from '../../shared/responseMessage.js';
 
 // stdio message framing utilities (for custom transport authors)
-export { ReadBuffer, deserializeMessage, serializeMessage } from '../../shared/stdio.js';
+export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/stdio.js';
 
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
@@ -136,7 +136,7 @@ export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/
 // Validator types and classes
 export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
-export { fromJsonSchema } from '../../validators/fromJsonSchema.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 export { CfWorkerJsonSchemaValidator } from '../../validators/cfWorkerProvider.js';
+export { fromJsonSchema } from '../../validators/fromJsonSchema.js';
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';
