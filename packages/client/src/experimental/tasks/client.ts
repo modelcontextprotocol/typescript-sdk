@@ -11,16 +11,16 @@ import type {
     CallToolResult,
     CancelTaskResult,
     CreateTaskResult,
+    GetTaskPayloadResult,
     GetTaskResult,
     ListTasksResult,
     Request,
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    ResultTypeMap,
-    SchemaOutput
+    ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, getResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, GetTaskPayloadResultSchema, getResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -184,14 +184,14 @@ export class ExperimentalClientTasks {
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options
-     * @returns The task result
+     * @returns The task result. The payload structure matches the result type of the
+     *   original request (e.g., a `tools/call` task returns a `CallToolResult`).
      *
      * @experimental
      */
-    async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        return this._module.getTaskResult({ taskId }, resultSchema!, options);
+    async getTaskResult(taskId: string, options?: RequestOptions): Promise<GetTaskPayloadResult> {
+        return this._module.getTaskResult({ taskId }, GetTaskPayloadResultSchema, options);
     }
 
     /**

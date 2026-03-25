@@ -809,7 +809,7 @@ test('should wrap unexpected validator errors during elicitInput', async () => {
                 required: []
             }
         })
-    ).rejects.toThrow('MCP error -32603: Error validating elicitation response: boom - validator exploded');
+    ).rejects.toThrow('Error validating elicitation response: boom - validator exploded');
 });
 
 test('should forward notification options when using elicitation completion notifier', async () => {
