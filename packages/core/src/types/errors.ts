@@ -11,7 +11,7 @@ export class ProtocolError extends Error {
         message: string,
         public readonly data?: unknown
     ) {
-        super(`MCP error ${code}: ${message}`);
+        super(message);
         this.name = 'ProtocolError';
     }
 

@@ -8,6 +8,7 @@
 
 export type {
     AddClientAuthentication,
+    AuthProvider,
     AuthResult,
     ClientAuthMethod,
     OAuthClientProvider,
