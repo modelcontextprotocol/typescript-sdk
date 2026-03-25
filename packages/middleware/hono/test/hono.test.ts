@@ -64,6 +64,26 @@ describe('@modelcontextprotocol/hono', () => {
         expect(res.status).toBe(200);
     });
 
+    test('createMcpHonoApp does not warn for 0.0.0.0 when quiet is true', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        createMcpHonoApp({ host: '0.0.0.0', quiet: true });
+
+        expect(warn).not.toHaveBeenCalled();
+
+        warn.mockRestore();
+    });
+
+    test('createMcpHonoApp does not warn for :: when quiet is true', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        createMcpHonoApp({ host: '::', quiet: true });
+
+        expect(warn).not.toHaveBeenCalled();
+
+        warn.mockRestore();
+    });
+
     test('createMcpHonoApp parses JSON bodies into parsedBody (express.json()-like)', async () => {
         const app = createMcpHonoApp();
         app.post('/echo', (c: Context) => c.json(c.get('parsedBody')));

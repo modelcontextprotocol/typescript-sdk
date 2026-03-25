@@ -167,6 +167,26 @@ describe('@modelcontextprotocol/express', () => {
             warn.mockRestore();
         });
 
+        test('should not warn for 0.0.0.0 when quiet is true', () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            createMcpExpressApp({ host: '0.0.0.0', quiet: true });
+
+            expect(warn).not.toHaveBeenCalled();
+
+            warn.mockRestore();
+        });
+
+        test('should not warn for :: when quiet is true', () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            createMcpExpressApp({ host: '::', quiet: true });
+
+            expect(warn).not.toHaveBeenCalled();
+
+            warn.mockRestore();
+        });
+
         test('should not apply host validation for non-localhost hosts without allowedHosts', () => {
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

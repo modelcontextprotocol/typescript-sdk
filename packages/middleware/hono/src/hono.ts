@@ -22,6 +22,13 @@ export interface CreateMcpHonoAppOptions {
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
+
+    /**
+     * When `true`, suppresses the warning logged when binding to `'0.0.0.0'` or `'::'`
+     * without `allowedHosts`. Useful when the server is behind a reverse proxy or
+     * in a containerised environment where DNS rebinding is not a concern.
+     */
+    quiet?: boolean;
 }
 
 /**
@@ -39,7 +46,7 @@ export interface CreateMcpHonoAppOptions {
  * @returns A configured Hono application
  */
 export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
-    const { host = '127.0.0.1', allowedHosts } = options;
+    const { host = '127.0.0.1', allowedHosts, quiet } = options;
 
     const app = new Hono();
 
@@ -75,7 +82,7 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
         const localhostHosts = ['127.0.0.1', 'localhost', '::1'];
         if (localhostHosts.includes(host)) {
             app.use('*', localhostHostValidation());
-        } else if (host === '0.0.0.0' || host === '::') {
+        } else if ((host === '0.0.0.0' || host === '::') && !quiet) {
             // Warn when binding to all interfaces without DNS rebinding protection.
             // eslint-disable-next-line no-console
             console.warn(
