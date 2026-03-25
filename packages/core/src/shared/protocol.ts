@@ -88,9 +88,8 @@ export type ProtocolOptions = {
      * Runtime configuration for task management.
      * If provided, creates a TaskManager with the given options; otherwise a NullTaskManager is used.
      *
-     * Capability assertions are wired automatically from the abstract
-     * {@linkcode Protocol.assertTaskCapability | assertTaskCapability()} and
-     * {@linkcode Protocol.assertTaskHandlerCapability | assertTaskHandlerCapability()} methods,
+     * Capability assertions are wired automatically from the protocol's
+     * `assertTaskCapability()` and `assertTaskHandlerCapability()` methods,
      * so they should NOT be included here.
      */
     tasks?: TaskManagerOptions;
