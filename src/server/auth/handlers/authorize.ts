@@ -34,6 +34,37 @@ const RequestAuthorizationParamsSchema = z.object({
     resource: z.string().url().optional()
 });
 
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+
+/**
+ * RFC 8252 Section 7.3: Loopback redirect URIs use ephemeral ports,
+ * so the authorization server MUST allow any port and match only
+ * scheme, host, and path.
+ */
+function isLoopbackRedirectAllowed(redirectUri: string, registeredUris: string[]): boolean {
+    let req: URL;
+    try {
+        req = new URL(redirectUri);
+    } catch {
+        return false;
+    }
+
+    if (!LOOPBACK_HOSTS.includes(req.hostname)) {
+        return false;
+    }
+
+    return registeredUris.some(registered => {
+        try {
+            const reg = new URL(registered);
+            return reg.hostname === req.hostname
+                && reg.protocol === req.protocol
+                && reg.pathname === req.pathname;
+        } catch {
+            return false;
+        }
+    });
+}
+
 export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
     // Create a router to apply middleware
     const router = express.Router();
@@ -78,7 +109,8 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
             }
 
             if (redirect_uri !== undefined) {
-                if (!client.redirect_uris.includes(redirect_uri)) {
+                if (!client.redirect_uris.includes(redirect_uri)
+                    && !isLoopbackRedirectAllowed(redirect_uri, client.redirect_uris)) {
                     throw new InvalidRequestError('Unregistered redirect_uri');
                 }
             } else if (client.redirect_uris.length === 1) {
