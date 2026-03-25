@@ -5723,3 +5723,169 @@ describe('Error handling for missing resolvers', () => {
         });
     });
 });
+
+describe('getRequestHandler', () => {
+    let protocol: Protocol<BaseContext>;
+    let transport: MockTransport;
+    let sendSpy: MockInstance;
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        sendSpy = vi.spyOn(transport, 'send');
+        protocol = new (class extends Protocol<BaseContext> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected buildContext(ctx: BaseContext): BaseContext {
+                return ctx;
+            }
+            protected assertTaskHandlerCapability(): void {}
+        })();
+    });
+
+    it('should return undefined for unregistered methods', () => {
+        const handler = protocol.getRequestHandler('tools/list');
+        expect(handler).toBeUndefined();
+    });
+
+    it('should return a callable handler after setRequestHandler', async () => {
+        await protocol.connect(transport);
+
+        protocol.setRequestHandler('ping', async () => {
+            return {};
+        });
+
+        const handler = protocol.getRequestHandler('ping');
+        expect(handler).toBeDefined();
+        expect(typeof handler).toBe('function');
+    });
+
+    it('should return undefined after removeRequestHandler', () => {
+        protocol.setRequestHandler('ping', async () => {
+            return {};
+        });
+
+        protocol.removeRequestHandler('ping');
+        expect(protocol.getRequestHandler('ping')).toBeUndefined();
+    });
+
+    it('should reflect the latest handler after replacement', () => {
+        protocol.setRequestHandler('ping', async () => {
+            return {};
+        });
+
+        const handlerA = protocol.getRequestHandler('ping');
+
+        protocol.setRequestHandler('ping', async () => {
+            return {};
+        });
+
+        const handlerB = protocol.getRequestHandler('ping');
+
+        expect(handlerA).toBeDefined();
+        expect(handlerB).toBeDefined();
+        expect(handlerA).not.toBe(handlerB);
+    });
+
+    it('should return a snapshot that still works after the handler is replaced', async () => {
+        await protocol.connect(transport);
+
+        protocol.setRequestHandler('ping', async () => {
+            return {};
+        });
+
+        const snapshot = protocol.getRequestHandler('ping')!;
+
+        // Replace with a different handler
+        protocol.setRequestHandler('ping', async () => {
+            return {};
+        });
+
+        // Simulate incoming request — the snapshot is used inside the new wrapper
+        const calls: string[] = [];
+        protocol.setRequestHandler('ping', async (request, ctx) => {
+            calls.push('new');
+            await snapshot(request, ctx);
+            calls.push('snapshot-called');
+            return {};
+        });
+
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'ping',
+            params: {}
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 50));
+        expect(calls).toEqual(['new', 'snapshot-called']);
+    });
+
+    it('should enable wrapping an existing handler and transforming results', async () => {
+        await protocol.connect(transport);
+
+        const calls: string[] = [];
+
+        protocol.setRequestHandler('ping', async () => {
+            calls.push('original');
+            return {};
+        });
+
+        const original = protocol.getRequestHandler('ping')!;
+
+        protocol.setRequestHandler('ping', async (request, ctx) => {
+            calls.push('wrapper-before');
+            const result = await original(request, ctx);
+            calls.push('wrapper-after');
+            return result;
+        });
+
+        // Simulate incoming ping request
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'ping',
+            params: {}
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(calls).toEqual(['wrapper-before', 'original', 'wrapper-after']);
+        expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 1, jsonrpc: '2.0', result: {} }));
+    });
+
+    it('should propagate errors from the original handler', async () => {
+        await protocol.connect(transport);
+
+        protocol.setRequestHandler('ping', async () => {
+            throw new ProtocolError(ProtocolErrorCode.InternalError, 'original failed');
+        });
+
+        const original = protocol.getRequestHandler('ping')!;
+
+        protocol.setRequestHandler('ping', async (request, ctx) => {
+            return original(request, ctx);
+        });
+
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'ping',
+            params: {}
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(sendSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 1,
+                jsonrpc: '2.0',
+                error: expect.objectContaining({
+                    code: ProtocolErrorCode.InternalError,
+                    message: 'original failed'
+                })
+            })
+        );
+    });
+});

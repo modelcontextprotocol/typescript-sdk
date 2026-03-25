@@ -1509,6 +1509,36 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Returns the current request handler for the given method, or undefined if none is registered.
+     *
+     * The returned function is a snapshot — it captures the handler registered at call time.
+     * If the handler is later replaced or removed, the previously returned function still
+     * delegates to the original handler.
+     *
+     * Note: the returned handler includes the SDK's internal schema validation layer, so
+     * requests passed to it will be re-validated. This is harmless but redundant when
+     * wrapping an existing handler in the standard pattern below.
+     *
+     * ```ts source="./protocol.examples.ts#getRequestHandler_wrapping"
+     * const original = protocol.getRequestHandler('tools/list');
+     * if (original) {
+     *     protocol.setRequestHandler('tools/list', async (request, ctx) => {
+     *         const result = await original(request, ctx);
+     *         // Transform the result before returning
+     *         return result;
+     *     });
+     * }
+     * ```
+     */
+    getRequestHandler<M extends RequestMethod>(
+        method: M
+    ): ((request: RequestTypeMap[M], ctx: ContextT) => Promise<ResultTypeMap[M]>) | undefined {
+        const raw = this._requestHandlers.get(method);
+        if (!raw) return undefined;
+        return (request, ctx) => raw(request as unknown as JSONRPCRequest, ctx) as Promise<ResultTypeMap[M]>;
+    }
+
+    /**
      * Removes the request handler for the given method.
      */
     removeRequestHandler(method: RequestMethod): void {
