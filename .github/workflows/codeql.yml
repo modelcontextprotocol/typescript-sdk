@@ -52,8 +52,12 @@ jobs:
         run: |
           if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
             npm ci
+          elif [ -f pnpm-lock.yaml ]; then
+            echo "pnpm lockfile found; installing dependencies with pnpm"
+            corepack enable
+            pnpm install --frozen-lockfile
           else
-            echo "No npm lockfile found; skipping npm install"
+            echo "No recognized lockfile found; skipping dependency installation"
           fi
 
       - name: Initialize CodeQL
