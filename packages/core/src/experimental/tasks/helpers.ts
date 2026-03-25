@@ -17,7 +17,7 @@ interface TaskRequestsCapability {
 
 /**
  * Asserts that task creation is supported for `tools/call`.
- * Used by {@linkcode @modelcontextprotocol/client!client/client.Client.assertTaskCapability | Client.assertTaskCapability} and {@linkcode @modelcontextprotocol/server!server/server.Server.assertTaskHandlerCapability | Server.assertTaskHandlerCapability}.
+ * Used to implement the `assertTaskCapability` or `assertTaskHandlerCapability` abstract methods on Protocol.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
@@ -52,7 +52,7 @@ export function assertToolsCallTaskCapability(
 
 /**
  * Asserts that task creation is supported for `sampling/createMessage` or `elicitation/create`.
- * Used by {@linkcode @modelcontextprotocol/server!server/server.Server.assertTaskCapability | Server.assertTaskCapability} and {@linkcode @modelcontextprotocol/client!client/client.Client.assertTaskHandlerCapability | Client.assertTaskHandlerCapability}.
+ * Used to implement the `assertTaskCapability` or `assertTaskHandlerCapability` abstract methods on Protocol.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked

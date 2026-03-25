@@ -30,6 +30,7 @@ import type {
     ResultTypeMap,
     ServerCapabilities,
     SubscribeRequest,
+    TaskManagerOptions,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -46,6 +47,7 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -140,11 +142,19 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     return { supportsFormMode, supportsUrlMode };
 }
 
+/**
+ * Extended tasks capability that includes runtime configuration (store, messageQueue).
+ * The runtime-only fields are stripped before advertising capabilities to servers.
+ */
+export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> & TaskManagerOptions;
+
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
      */
-    capabilities?: ClientCapabilities;
+    capabilities?: Omit<ClientCapabilities, 'tasks'> & {
+        tasks?: ClientTasksCapabilityWithRuntime;
+    };
 
     /**
      * JSON Schema validator for tool output validation.
@@ -213,10 +223,21 @@ export class Client extends Protocol<ClientContext> {
         private _clientInfo: Implementation,
         options?: ClientOptions
     ) {
-        super(options);
-        this._capabilities = options?.capabilities ?? {};
+        super({
+            ...options,
+            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
+        });
+        this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+
+        // Strip runtime-only fields from advertised capabilities
+        if (options?.capabilities?.tasks) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
+                options.capabilities.tasks;
+            this._capabilities.tasks = wireCapabilities;
+        }
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -650,12 +671,6 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertRequestHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
         switch (method) {
             case 'sampling/createMessage': {
                 if (!this._capabilities.sampling) {
@@ -687,19 +702,6 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
-            case 'tasks/get':
-            case 'tasks/list':
-            case 'tasks/result':
-            case 'tasks/cancel': {
-                if (!this._capabilities.tasks) {
-                    throw new SdkError(
-                        SdkErrorCode.CapabilityNotSupported,
-                        `Client does not support tasks capability (required for ${method})`
-                    );
-                }
-                break;
-            }
-
             case 'ping': {
                 // No specific capability required for ping
                 break;
@@ -712,16 +714,9 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertTaskHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
-        assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
+        assertClientRequestTaskCapability(this._capabilities?.tasks?.requests, method, 'Client');
     }
 
-    /** Sends a ping to the server to check connectivity. */
     async ping(options?: RequestOptions) {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
