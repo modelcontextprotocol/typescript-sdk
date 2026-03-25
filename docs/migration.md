@@ -116,7 +116,7 @@ Server-side OAuth/auth has been removed entirely from the SDK. This includes `mc
 
 Use a dedicated auth library (e.g., `better-auth`) or a full Authorization Server instead. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
 
-Note: `AuthInfo` has moved from `server/auth/types.ts` to `@modelcontextprotocol/core` (it's now a core type).
+Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
 ### `Headers` object instead of plain objects
 
@@ -462,7 +462,7 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
 | `ResourceReference`                      | `ResourceTemplateReference`                      |
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
 All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
 
