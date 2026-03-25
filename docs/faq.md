@@ -1,3 +1,7 @@
+---
+title: FAQ
+---
+
 ## FAQ
 
 <details>
@@ -6,6 +10,7 @@
 - [General](#general)
 - [Clients](#clients)
 - [Servers](#servers)
+- [v1 (legacy)](#v1-legacy)
 
 </details>
 
@@ -13,7 +18,8 @@
 
 ### Why do I see `TS2589: Type instantiation is excessively deep and possibly infinite` after upgrading the SDK?
 
-This TypeScript error can appear when upgrading to newer SDK versions that support Zod v4 (for example, from `@modelcontextprotocol/sdk` `1.22.0` to `1.23.0`) **and** your project ends up with multiple `zod` versions in the dependency tree.
+This TypeScript error can appear when upgrading to newer SDK versions that support Zod v4 (for example, from older `@modelcontextprotocol/sdk` releases to newer `@modelcontextprotocol/client` / `@modelcontextprotocol/server` releases) **and** your project ends up with multiple
+`zod` versions in the dependency tree.
 
 When there are multiple copies or versions of `zod`, TypeScript may try to instantiate very complex, cross-version types and hit its recursion limits, resulting in `TS2589`. This scenario is discussed in GitHub issue
 [#1180](https://github.com/modelcontextprotocol/typescript-sdk/issues/1180#event-21236550401).
@@ -34,12 +40,12 @@ Once your project is using a single, compatible `zod` version, the `TS2589` erro
 
 ### How do I enable Web Crypto (`globalThis.crypto`) for client authentication in older Node.js versions?
 
-The SDK’s OAuth client authentication helpers (for example, those in `src/client/auth-extensions.ts` that use `jose`) rely on the Web Crypto API exposed as `globalThis.crypto`. This is especially important for **client credentials** and **JWT-based** authentication flows used by
-MCP clients.
+The SDK’s OAuth client authentication helpers (for example, those in `packages/client/src/client/auth-extensions.ts` that use `jose`) rely on the Web Crypto API exposed as `globalThis.crypto`. This is especially important for **client credentials** and **JWT-based**
+authentication flows used by MCP clients.
 
 - **Node.js v19.0.0 and later**: `globalThis.crypto` is available by default.
-- **Node.js v18.x**: `globalThis.crypto` may not be defined by default. In this repository we polyfill it for tests (see `vitest.setup.ts`), and you should do the same in your app if it is missing – or alternatively, run Node with `--experimental-global-webcrypto` as per your
-  Node version documentation. (See https://nodejs.org/dist/latest-v18.x/docs/api/globals.html#crypto )
+- **Node.js v18.x**: `globalThis.crypto` may not be defined by default. In this repository we polyfill it for tests (see `packages/client/vitest.setup.js`), and you should do the same in your app if it is missing – or alternatively, run Node with `--experimental-global-webcrypto`
+  as per your Node version documentation. (See https://nodejs.org/dist/latest-v18.x/docs/api/globals.html#crypto )
 
 If you run clients on Node.js versions where `globalThis.crypto` is missing, you can polyfill it using the built-in `node:crypto` module, similar to the SDK's own `vitest.setup.ts`:
 
@@ -61,5 +67,19 @@ For production use, you can either:
 
 ### Where can I find runnable server examples?
 
-The SDK ships several runnable server examples under `src/examples/server`. The root `README.md` contains a curated **Server examples** table that links to each scenario (stateful/stateless Streamable HTTP, JSON-only mode, SSE/backwards compatibility, elicitation, sampling,
-tasks, and OAuth demos), and `src/examples/README.md` includes commands and deployment diagrams for running them.
+The SDK ships several runnable server examples under `examples/server/src`. Start from the server examples index in [`examples/server/README.md`](../examples/server/README.md) and the entry-point quick start in the root [`README.md`](../README.md).
+
+### Why did we remove `server` auth exports?
+
+Server authentication & authorization is outside of the scope of the SDK, and the recommendation is to use packages that focus on this area specifically (or a full-fledged Authorization Server for those who use such). Example packages provide an example with `better-auth`.
+
+### Why did we remove `server` SSE transport?
+
+The SSE transport has been deprecated for a long time, and `v2` will not support it on the server side any more. Client side will keep supporting it in order to be able to connect to legacy SSE servers via the `v2` SDK, but serving SSE from `v2` will not be possible. Servers
+wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
+
+## v1 (legacy)
+
+### Where do v1 documentation and v1-specific fixes live?
+
+The v1 API documentation is available at [`https://ts.sdk.modelcontextprotocol.io/`](https://ts.sdk.modelcontextprotocol.io/). The v1 source code and any v1-specific fixes live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). V2 API docs are at [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).

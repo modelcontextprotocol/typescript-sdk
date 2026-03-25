@@ -1,0 +1,21 @@
+{
+    "name": "@modelcontextprotocol/tsconfig",
+    "private": true,
+    "main": "tsconfig.json",
+    "type": "module",
+    "dependencies": {
+        "typescript": "catalog:devTools"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/modelcontextprotocol/typescript-sdk.git"
+    },
+    "bugs": {
+        "url": "https://github.com/modelcontextprotocol/typescript-sdk/issues"
+    },
+    "homepage": "https://github.com/modelcontextprotocol/typescript-sdk/tree/develop/common/ts-config",
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com/"
+    },
+    "version": "2.0.0"
+}

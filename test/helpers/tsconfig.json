@@ -1,0 +1,12 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "paths": {
+            "*": ["./*"],
+            "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
+            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
+        }
+    }
+}
