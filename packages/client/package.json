@@ -30,8 +30,8 @@
                 "import": "./dist/shimsWorkerd.mjs"
             },
             "browser": {
-                "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
+                "types": "./dist/shimsBrowser.d.mts",
+                "import": "./dist/shimsBrowser.mjs"
             },
             "node": {
                 "types": "./dist/shimsNode.d.mts",

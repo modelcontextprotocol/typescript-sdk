@@ -1,3 +1,4 @@
+import { CORS_IS_POSSIBLE } from '@modelcontextprotocol/client/_shims';
 import type {
     AuthorizationServerMetadata,
     FetchLike,
@@ -610,7 +611,12 @@ async function authInternal(
                     { resourceMetadataUrl: effectiveResourceMetadataUrl },
                     fetchFn
                 );
-            } catch {
+            } catch (error) {
+                // Network failures (DNS, connection refused) surface as TypeError — propagate
+                // those rather than masking a transient reachability problem.
+                if (error instanceof TypeError) {
+                    throw error;
+                }
                 // RFC 9728 not available — selectResourceURL will handle undefined
             }
         }
@@ -924,18 +930,45 @@ export async function discoverOAuthProtectedResourceMetadata(
 }
 
 /**
- * Helper function to handle fetch with CORS retry logic
+ * Fetch with a retry heuristic for CORS errors caused by custom headers.
+ *
+ * In browsers, adding a custom header (e.g. `MCP-Protocol-Version`) triggers a CORS preflight.
+ * If the server doesn't allow that header, the browser throws a `TypeError` before any response
+ * is received. Retrying without custom headers often succeeds because the request becomes
+ * "simple" (no preflight). If the server sends no CORS headers at all, the retry also fails
+ * with `TypeError` and we return `undefined` so callers can fall through to an alternate URL.
+ *
+ * However, `fetch()` also throws `TypeError` for non-CORS failures (DNS resolution, connection
+ * refused, invalid URL). Swallowing those and returning `undefined` masks real errors and can
+ * cause callers to silently fall through to a different discovery URL. CORS is a browser-only
+ * concept, so in non-browser runtimes (Node.js, Workers) a `TypeError` from `fetch` is never a
+ * CORS error — there we propagate the error instead of swallowing it.
+ *
+ * In browsers, we cannot reliably distinguish CORS `TypeError` from network `TypeError` from the
+ * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
     try {
         return await fetchFn(url, { headers });
     } catch (error) {
-        if (error instanceof TypeError) {
-            // CORS errors come back as TypeError, retry without headers
-            // We're getting CORS errors on retry too, return undefined
-            return headers ? fetchWithCorsRetry(url, undefined, fetchFn) : undefined;
+        if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
+            throw error;
         }
-        throw error;
+        if (headers) {
+            // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
+            // request: if that succeeds, we've sidestepped the preflight.
+            try {
+                return await fetchFn(url, {});
+            } catch (retryError) {
+                if (!(retryError instanceof TypeError)) {
+                    throw retryError;
+                }
+                // Retry also got CORS-blocked (server sends no CORS headers at all).
+                // Return undefined so the caller tries the next discovery URL.
+                return undefined;
+            }
+        }
+        return undefined;
     }
 }
 
@@ -1244,7 +1277,13 @@ export async function discoverOAuthServerInfo(
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
         }
-    } catch {
+    } catch (error) {
+        // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
+        // transient reachability problems, not "server doesn't support PRM" — propagate so the
+        // caller sees the real error instead of silently falling back to a different auth server.
+        if (error instanceof TypeError) {
+            throw error;
+        }
         // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
     }
 
