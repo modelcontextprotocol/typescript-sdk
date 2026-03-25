@@ -142,6 +142,77 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
     return schema['~standard'].jsonSchema[io]({ target: 'draft-2020-12' });
 }
 
+// Type coercion for tool arguments
+// Models frequently send string values for non-string parameters (e.g. "42" instead of 42).
+// This applies safe, conservative coercions following the AJV coercion table before schema validation.
+
+type JsonSchemaProperty = {
+    type?: string;
+    properties?: Record<string, JsonSchemaProperty>;
+};
+
+function coerceValue(value: unknown, targetType: string): unknown {
+    if (value === null || value === undefined) return value;
+
+    const sourceType = typeof value;
+    if (sourceType === targetType) return value;
+
+    switch (targetType) {
+        case 'number':
+        case 'integer': {
+            if (sourceType === 'string') {
+                const n = Number(value);
+                if (Number.isFinite(n) && (value as string).trim() !== '') {
+                    if (targetType === 'integer') return Math.trunc(n);
+                    return n;
+                }
+            }
+            return value;
+        }
+        case 'boolean': {
+            if (value === 'true') return true;
+            if (value === 'false') return false;
+            return value;
+        }
+        case 'string': {
+            if (sourceType === 'number' || sourceType === 'boolean') {
+                return String(value);
+            }
+            return value;
+        }
+        default: {
+            return value;
+        }
+    }
+}
+
+function coerceObject(args: Record<string, unknown>, properties: Record<string, JsonSchemaProperty>): Record<string, unknown> {
+    const result: Record<string, unknown> = { ...args };
+    for (const [key, schema] of Object.entries(properties)) {
+        if (!(key in result)) continue;
+        const value = result[key];
+        if (schema.type && schema.type !== 'object' && schema.type !== 'array') {
+            result[key] = coerceValue(value, schema.type);
+        } else if (schema.type === 'object' && schema.properties && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            result[key] = coerceObject(value as Record<string, unknown>, schema.properties);
+        }
+    }
+    return result;
+}
+
+/**
+ * Coerces tool argument types based on the JSON Schema derived from the tool's input schema.
+ * Applies safe, conservative coercions before schema validation runs.
+ *
+ * @see https://github.com/modelcontextprotocol/typescript-sdk/issues/1361
+ */
+export function coerceToolArgs(schema: StandardJSONSchemaV1, args: Record<string, unknown>): Record<string, unknown> {
+    const jsonSchema = standardSchemaToJsonSchema(schema, 'input');
+    const properties = jsonSchema.properties as Record<string, JsonSchemaProperty> | undefined;
+    if (!properties) return args;
+    return coerceObject(args, properties);
+}
+
 // Validation
 
 export type StandardSchemaValidationResult<T> = { success: true; data: T } | { success: false; error: string };

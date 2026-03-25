@@ -30,6 +30,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    coerceToolArgs,
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
@@ -249,7 +250,8 @@ export class McpServer {
             return undefined as Args;
         }
 
-        const parseResult = await validateStandardSchema(tool.inputSchema, args ?? {});
+        const coercedArgs = coerceToolArgs(tool.inputSchema, (args ?? {}) as Record<string, unknown>);
+        const parseResult = await validateStandardSchema(tool.inputSchema, coercedArgs);
         if (!parseResult.success) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
