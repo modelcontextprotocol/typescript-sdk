@@ -2406,17 +2406,6 @@ describe('Task-based execution', () => {
                     })();
 
                     return { task };
-                },
-                async getTask(_args, ctx) {
-                    const task = await ctx.task.store.getTask(ctx.task.id);
-                    if (!task) {
-                        throw new Error(`Task ${ctx.task.id} not found`);
-                    }
-                    return task;
-                },
-                async getTaskResult(_args, ctx) {
-                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                    return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
         );
@@ -2652,17 +2641,6 @@ describe('Task-based execution', () => {
                     })();
 
                     return { task };
-                },
-                async getTask(_args, ctx) {
-                    const task = await ctx.task.store.getTask(ctx.task.id);
-                    if (!task) {
-                        throw new Error(`Task ${ctx.task.id} not found`);
-                    }
-                    return task;
-                },
-                async getTaskResult(_args, ctx) {
-                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                    return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
         );
@@ -3147,17 +3125,6 @@ describe('Task-based execution', () => {
                     })();
 
                     return { task };
-                },
-                async getTask(_args, ctx) {
-                    const task = await ctx.task.store.getTask(ctx.task.id);
-                    if (!task) {
-                        throw new Error(`Task ${ctx.task.id} not found`);
-                    }
-                    return task;
-                },
-                async getTaskResult(_args, ctx) {
-                    const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                    return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
         );

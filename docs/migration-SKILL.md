@@ -96,6 +96,8 @@ Notes:
 | `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
 | `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                          |
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
+| `ToolTaskHandler.getTask(args, ctx)`     | `ToolTaskHandler.getTask?(ctx)` — now optional, no args  |
+| `ToolTaskHandler.getTaskResult(args, ctx)` | `ToolTaskHandler.getTaskResult?(ctx)` — now optional, no args |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 

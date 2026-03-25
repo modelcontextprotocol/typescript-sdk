@@ -480,13 +480,6 @@ const getServer = () => {
                 return {
                     task
                 };
-            },
-            async getTask(_args, ctx) {
-                return await ctx.task.store.getTask(ctx.task.id);
-            },
-            async getTaskResult(_args, ctx) {
-                const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                return result as CallToolResult;
             }
         }
     );
@@ -588,13 +581,6 @@ const getServer = () => {
                 })();
 
                 return { task };
-            },
-            async getTask(_args, ctx) {
-                return await ctx.task.store.getTask(ctx.task.id);
-            },
-            async getTaskResult(_args, ctx) {
-                const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                return result as CallToolResult;
             }
         }
     );
