@@ -32,7 +32,7 @@ import type {
     ResultTypeMap,
     ServerCapabilities,
     TaskCreationParams
-} from '../types/types.js';
+} from '../types/index.js';
 import {
     getNotificationSchema,
     getRequestSchema,
@@ -44,7 +44,7 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '../types/types.js';
+} from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
@@ -88,9 +88,8 @@ export type ProtocolOptions = {
      * Runtime configuration for task management.
      * If provided, creates a TaskManager with the given options; otherwise a NullTaskManager is used.
      *
-     * Capability assertions are wired automatically from the abstract
-     * {@linkcode Protocol.assertTaskCapability | assertTaskCapability()} and
-     * {@linkcode Protocol.assertTaskHandlerCapability | assertTaskHandlerCapability()} methods,
+     * Capability assertions are wired automatically from the protocol's
+     * `assertTaskCapability()` and `assertTaskHandlerCapability()` methods,
      * so they should NOT be included here.
      */
     tasks?: TaskManagerOptions;
@@ -452,7 +451,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
-     * The {@linkcode Protocol} object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
+     * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;

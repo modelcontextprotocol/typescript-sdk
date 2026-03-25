@@ -61,18 +61,17 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 | v1 import path                                    | v2 package                   |
 | ------------------------------------------------- | ---------------------------- |
-| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/core` |
+| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
 
 Notes:
 
-- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
+- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so import from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
 - When multiple v1 imports map to the same v2 package, consolidate them into a single import statement.
-- If code imports from `sdk/client/...`, install `@modelcontextprotocol/client`. If from `sdk/server/...`, install `@modelcontextprotocol/server`. If from `sdk/types.js` or `sdk/shared/...` only, install `@modelcontextprotocol/core`.
 
 ## 4. Renamed Symbols
 
@@ -91,7 +90,7 @@ Notes:
 | `ResourceReference`                      | `ResourceTemplateReference`                              |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                        |
 | `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                     |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`)         |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 | `McpError`                               | `ProtocolError`                                          |
 | `ErrorCode`                              | `ProtocolErrorCode`                                      |
 | `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
@@ -144,7 +143,7 @@ Update error handling:
 if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) { ... }
 
 // v2
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) { ... }
 ```
 
@@ -158,7 +157,7 @@ if (error instanceof StreamableHTTPError) {
 }
 
 // v2
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpFailedToOpenStream) {
     const status = (error.data as { status?: number })?.status;
 }
@@ -195,11 +194,11 @@ Update OAuth error handling:
 
 ```typescript
 // v1
-import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/client';
 if (error instanceof InvalidClientError) { ... }
 
 // v2
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
 
@@ -210,7 +209,7 @@ Zod schemas, all callback return types. Note: `callTool()` and `request()` signa
 
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
-**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema, validator)` from `@modelcontextprotocol/core`. Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema, validator)` from `@modelcontextprotocol/server`. Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
 
 ### Tools
 

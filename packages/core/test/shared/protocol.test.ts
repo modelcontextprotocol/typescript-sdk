@@ -33,8 +33,8 @@ import type {
     ServerCapabilities,
     Task,
     TaskCreationParams
-} from '../../src/types/types.js';
-import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+} from '../../src/types/index.js';
+import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/index.js';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 
 // Test Protocol subclass for testing

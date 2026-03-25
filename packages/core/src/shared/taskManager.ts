@@ -16,7 +16,7 @@ import type {
     Task,
     TaskCreationParams,
     TaskStatusNotification
-} from '../types/types.js';
+} from '../types/index.js';
 import {
     CancelTaskResultSchema,
     CreateTaskResultSchema,
@@ -30,7 +30,7 @@ import {
     ProtocolErrorCode,
     RELATED_TASK_META_KEY,
     TaskStatusNotificationSchema
-} from '../types/types.js';
+} from '../types/index.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
 import type { BaseContext, NotificationOptions, RequestOptions } from './protocol.js';
 import type { ResponseMessage } from './responseMessage.js';
