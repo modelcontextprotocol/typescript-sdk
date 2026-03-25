@@ -134,6 +134,7 @@ export { isTerminal } from '../../experimental/tasks/interfaces.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
+export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export { fromJsonSchema } from '../../validators/fromJsonSchema.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
