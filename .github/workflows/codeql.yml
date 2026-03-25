@@ -16,13 +16,12 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
 
     permissions:
       security-events: write
       actions: read
       contents: read
-      packages: read
 
     strategy:
       fail-fast: false
@@ -39,39 +38,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        if: matrix.language == 'javascript-typescript'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        if: matrix.language == 'javascript-typescript'
-        shell: bash
-        run: |
-          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci
-          else
-            echo "No npm lockfile found; skipping npm install"
-          fi
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-
-      - name: Autobuild
-        if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@v4
-
-      - name: Run manual build steps
-        if: matrix.build-mode == 'manual'
-        shell: bash
-        run: |
-          echo "Add your manual build commands here"
-          exit 1
+          queries: +security-extended,security-and-quality
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
