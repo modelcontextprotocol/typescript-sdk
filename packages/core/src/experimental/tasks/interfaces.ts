@@ -15,7 +15,7 @@ import type {
     Result,
     Task,
     ToolExecution
-} from '../../types/types.js';
+} from '../../types/index.js';
 
 // ============================================================================
 // Task Handler Types (for registerToolTask)
