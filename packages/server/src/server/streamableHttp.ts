@@ -534,7 +534,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
                     if (!success) {
-                        this.onerror?.(new Error('Failed replay events'));
                         try {
                             streamController!.close();
                         } catch {
@@ -592,7 +591,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Handles unsupported requests (`PUT`, `PATCH`, etc.)
      */
     private handleUnsupportedRequest(): Response {
-        this.onerror?.(new Error('Method not allowed'));
+        this.onerror?.(new Error('Method not allowed.'));
         return Response.json(
             {
                 jsonrpc: '2.0',
@@ -893,12 +892,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const protocolVersion = req.headers.get('mcp-protocol-version');
 
         if (protocolVersion !== null && !this._supportedProtocolVersions.includes(protocolVersion)) {
-            this.onerror?.(new Error(`Bad Request: Unsupported protocol version: ${protocolVersion}`));
-            return this.createJsonErrorResponse(
-                400,
-                -32_000,
-                `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${this._supportedProtocolVersions.join(', ')})`
-            );
+            const error = `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${this._supportedProtocolVersions.join(', ')})`;
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(400, -32_000, error);
         }
         return undefined;
     }
