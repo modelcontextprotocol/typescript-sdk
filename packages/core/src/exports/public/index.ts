@@ -64,6 +64,9 @@ export type {
 } from '../../shared/responseMessage.js';
 export { takeResult, toArrayAsync } from '../../shared/responseMessage.js';
 
+// stdio message framing utilities (for custom transport authors)
+export { ReadBuffer, deserializeMessage, serializeMessage } from '../../shared/stdio.js';
+
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
 export { createFetchWithInit } from '../../shared/transport.js';
