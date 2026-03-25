@@ -135,6 +135,17 @@ describe('InMemoryTransport', () => {
         expect(serverCloseCount).toBe(1);
     });
 
+    test('should fire onclose even if peer onclose throws', async () => {
+        let clientCloseCount = 0;
+        clientTransport.onclose = () => clientCloseCount++;
+        serverTransport.onclose = () => {
+            throw new Error('boom');
+        };
+
+        await expect(clientTransport.close()).rejects.toThrow('boom');
+        expect(clientCloseCount).toBe(1);
+    });
+
     test('should queue messages sent before start', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',

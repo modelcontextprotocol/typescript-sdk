@@ -45,8 +45,11 @@ export class InMemoryTransport implements Transport {
 
         const other = this._otherTransport;
         this._otherTransport = undefined;
-        await other?.close();
-        this.onclose?.();
+        try {
+            await other?.close();
+        } finally {
+            this.onclose?.();
+        }
     }
 
     /**
