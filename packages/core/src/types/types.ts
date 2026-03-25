@@ -751,7 +751,7 @@ export const TaskSchema = z.object({
     taskId: z.string(),
     status: TaskStatusSchema,
     /**
-     * Time in milliseconds to keep task results available after completion.
+     * Duration in milliseconds to retain task from creation.
      * If `null`, the task has unlimited lifetime until manually cleaned up.
      */
     ttl: z.union([z.number(), z.null()]),

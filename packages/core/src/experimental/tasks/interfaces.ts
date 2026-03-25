@@ -136,7 +136,7 @@ export interface TaskMessageQueue {
  */
 export interface CreateTaskOptions {
     /**
-     * Time in milliseconds to keep task results available after completion.
+     * Duration in milliseconds to retain task from creation.
      * If `null`, the task has unlimited lifetime until manually cleaned up.
      */
     ttl?: number | null;
