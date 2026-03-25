@@ -474,9 +474,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
             });
 
             this.setRequestHandler('tasks/result', async (request, ctx) => {
-                const handleTaskResult = async (): Promise<Result> => {
-                    const taskId = request.params.taskId;
+                const taskId = request.params.taskId;
 
+                // Iterative poll loop: drain the queue and wait for the task to reach a terminal
+                // state. Using an explicit loop (rather than recursion) avoids building up a
+                // deep promise chain for long-running tasks.
+                while (true) {
                     // Deliver queued messages
                     if (this._taskMessageQueue) {
                         let queuedMessage: QueuedMessage | undefined;
@@ -528,15 +531,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Task not found: ${taskId}`);
                     }
 
-                    // Block if task is not terminal (we've already delivered all queued messages above)
-                    if (!isTerminal(task.status)) {
-                        // Wait for status change or new messages
-                        await this._waitForTaskUpdate(taskId, ctx.mcpReq.signal);
-
-                        // After waking up, recursively call to deliver any new messages or result
-                        return await handleTaskResult();
-                    }
-
                     // If task is terminal, return the result
                     if (isTerminal(task.status)) {
                         const result = await this._taskStore!.getTaskResult(taskId, ctx.sessionId);
@@ -554,10 +548,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         } as Result;
                     }
 
-                    return await handleTaskResult();
-                };
-
-                return await handleTaskResult();
+                    // Task is not yet terminal — wait for the next poll interval, then loop again
+                    await this._waitForTaskUpdate(taskId, ctx.mcpReq.signal);
+                }
             });
 
             this.setRequestHandler('tasks/list', async (request, ctx) => {

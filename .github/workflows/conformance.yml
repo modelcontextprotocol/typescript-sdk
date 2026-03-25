@@ -16,7 +16,7 @@ permissions:
 jobs:
     client-conformance:
         runs-on: ubuntu-latest
-        continue-on-error: true
+        continue-on-error: false
         steps:
             - uses: actions/checkout@v4
             - name: Install pnpm
@@ -34,7 +34,7 @@ jobs:
 
     server-conformance:
         runs-on: ubuntu-latest
-        continue-on-error: true
+        continue-on-error: false
         steps:
             - uses: actions/checkout@v4
             - name: Install pnpm
