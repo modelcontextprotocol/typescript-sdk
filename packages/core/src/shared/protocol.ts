@@ -493,7 +493,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._progressHandlers.clear();
         this._taskManager.onClose();
         this._pendingDebouncedNotifications.clear();
-        this._requestResolvers.clear();
 
         for (const info of this._timeoutInfo.values()) {
             clearTimeout(info.timeoutId);

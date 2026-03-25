@@ -801,6 +801,7 @@ export class TaskManager {
 
     onClose(): void {
         this._taskProgressTokens.clear();
+        this._requestResolvers.clear();
     }
 
     // -- Private helpers --
