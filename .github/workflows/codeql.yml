@@ -2,27 +2,21 @@ name: "CodeQL Advanced"
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    branches: ["main"]
+    branches: [ "main" ]
   schedule:
-    - cron: "35 19 * * 5"
-  workflow_dispatch:
-
-concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    - cron: '35 19 * * 5'
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
-
     permissions:
       security-events: write
+      packages: read
       actions: read
       contents: read
-      packages: read
 
     strategy:
       fail-fast: false
@@ -34,50 +28,50 @@ jobs:
             build-mode: none
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        if: matrix.language == 'javascript-typescript'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
+    - name: Install pnpm
+      if: matrix.language == 'javascript-typescript'
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.26.1
+        run_install: false
 
-      - name: Install dependencies
-        if: matrix.language == 'javascript-typescript'
-        shell: bash
-        run: |
-          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci
-          elif [ -f pnpm-lock.yaml ]; then
-            echo "pnpm lockfile found; installing dependencies with pnpm"
-            corepack enable
-            pnpm install --frozen-lockfile
-          else
-            echo "No recognized lockfile found; skipping dependency installation"
-          fi
+    - name: Setup Node.js
+      if: matrix.language == 'javascript-typescript'
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+    - name: Install dependencies
+      if: matrix.language == 'javascript-typescript'
+      shell: bash
+      run: |
+        if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+          npm ci
+        elif [ -f pnpm-lock.yaml ]; then
+          echo "pnpm lockfile found; installing dependencies with pnpm"
+          corepack enable
+          pnpm install --frozen-lockfile
+        else
+          echo "No recognized lockfile found; skipping dependency installation"
+        fi
 
-      - name: Autobuild
-        if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@v4
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
 
-      - name: Run manual build steps
-        if: matrix.build-mode == 'manual'
-        shell: bash
-        run: |
-          echo "Add your manual build commands here"
-          exit 1
+    - name: Run manual build steps
+      if: matrix.build-mode == 'manual'
+      shell: bash
+      run: |
+        echo 'Replace this with your manual build commands'
+        exit 1
 
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
-        with:
-          category: "/language:${{ matrix.language }}"
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: "/language:${{matrix.language}}"
