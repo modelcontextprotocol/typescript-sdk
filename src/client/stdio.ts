@@ -125,9 +125,7 @@ export class StdioClientTransport implements Transport {
                 },
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
-                // Always hide the console window on Windows, not just in Electron.
-                // The option is a no-op on other platforms.
-                windowsHide: true,
+                windowsHide: process.platform === 'win32',
                 cwd: this._serverParams.cwd
             });
 
