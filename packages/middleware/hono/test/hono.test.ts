@@ -1,6 +1,5 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
-import { vi } from 'vitest';
 
 import { createMcpHonoApp } from '../src/hono.js';
 import { hostHeaderValidation } from '../src/middleware/hostHeaderValidation.js';
@@ -40,9 +39,7 @@ describe('@modelcontextprotocol/hono', () => {
     });
 
     test('createMcpHonoApp uses allowedHosts when provided (even when binding to 0.0.0.0)', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const app = createMcpHonoApp({ host: '0.0.0.0', allowedHosts: ['myapp.local'] });
-        warn.mockRestore();
 
         app.get('/health', c => c.text('ok'));
 
@@ -54,13 +51,30 @@ describe('@modelcontextprotocol/hono', () => {
     });
 
     test('createMcpHonoApp does not apply host validation for 0.0.0.0 without allowedHosts', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const app = createMcpHonoApp({ host: '0.0.0.0' });
-        warn.mockRestore();
 
         app.get('/health', c => c.text('ok'));
 
         const res = await app.request('http://localhost/health', { headers: { Host: 'evil.com:3000' } });
+        expect(res.status).toBe(200);
+    });
+
+    test('createMcpHonoApp skips all host validation when skipHostHeaderValidation is true', async () => {
+        const app = createMcpHonoApp({ host: '127.0.0.1', skipHostHeaderValidation: true });
+
+        app.get('/health', c => c.text('ok'));
+
+        // Would normally be blocked by localhost validation, but skipHostHeaderValidation disables it
+        const res = await app.request('http://localhost/health', { headers: { Host: 'evil.com:3000' } });
+        expect(res.status).toBe(200);
+    });
+
+    test('createMcpHonoApp skips validation for 0.0.0.0 when skipHostHeaderValidation is true', async () => {
+        const app = createMcpHonoApp({ host: '0.0.0.0', skipHostHeaderValidation: true });
+
+        app.get('/health', c => c.text('ok'));
+
+        const res = await app.request('http://localhost/health', { headers: { Host: 'anything.com:3000' } });
         expect(res.status).toBe(200);
     });
 
