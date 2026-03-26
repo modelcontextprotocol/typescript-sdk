@@ -13,8 +13,8 @@ import {
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
-import type { AuthResult, OAuthClientProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth.js';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -85,18 +85,21 @@ export type StreamableHTTPClientTransportOptions = {
     /**
      * An OAuth client provider to use for authentication.
      *
-     * When an `authProvider` is specified and the connection is started:
-     * 1. The connection is attempted with any existing access token from the `authProvider`.
-     * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, {@linkcode OAuthClientProvider.redirectToAuthorization} is called, and an {@linkcode UnauthorizedError} will be thrown from {@linkcode index.Protocol.connect | connect}/{@linkcode StreamableHTTPClientTransport.start | start}.
+     * {@linkcode AuthProvider.token | token()} is called before every request to obtain the
+     * bearer token. When the server responds with 401, {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
+     * is called (if provided) to refresh credentials, then the request is retried once. If
+     * the retry also gets 401, or `onUnauthorized` is not provided, {@linkcode UnauthorizedError}
+     * is thrown.
      *
-     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call {@linkcode StreamableHTTPClientTransport.finishAuth} with the authorization code before retrying the connection.
+     * For simple bearer tokens: `{ token: async () => myApiKey }`.
      *
-     * If an `authProvider` is not provided, and auth is required, an {@linkcode UnauthorizedError} will be thrown.
-     *
-     * {@linkcode UnauthorizedError} might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
+     * For OAuth flows, pass an {@linkcode index.OAuthClientProvider | OAuthClientProvider} implementation
+     * directly — the transport adapts it to `AuthProvider` internally. Interactive flows: after
+     * {@linkcode UnauthorizedError}, redirect the user, then call
+     * {@linkcode StreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
+     * reconnecting.
      */
-    authProvider?: OAuthClientProvider;
+    authProvider?: AuthProvider | OAuthClientProvider;
 
     /**
      * Customizes HTTP requests to the server.
@@ -138,13 +141,13 @@ export class StreamableHTTPClientTransport implements Transport {
     private _resourceMetadataUrl?: URL;
     private _scope?: string;
     private _requestInit?: RequestInit;
-    private _authProvider?: OAuthClientProvider;
+    private _authProvider?: AuthProvider;
+    private _oauthProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
-    private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
@@ -158,7 +161,12 @@ export class StreamableHTTPClientTransport implements Transport {
         this._resourceMetadataUrl = undefined;
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
-        this._authProvider = opts?.authProvider;
+        if (isOAuthClientProvider(opts?.authProvider)) {
+            this._oauthProvider = opts.authProvider;
+            this._authProvider = adaptOAuthProvider(opts.authProvider);
+        } else {
+            this._authProvider = opts?.authProvider;
+        }
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
@@ -166,38 +174,11 @@ export class StreamableHTTPClientTransport implements Transport {
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
     }
 
-    private async _authThenStart(): Promise<void> {
-        if (!this._authProvider) {
-            throw new UnauthorizedError('No auth provider');
-        }
-
-        let result: AuthResult;
-        try {
-            result = await auth(this._authProvider, {
-                serverUrl: this._url,
-                resourceMetadataUrl: this._resourceMetadataUrl,
-                scope: this._scope,
-                fetchFn: this._fetchWithInit
-            });
-        } catch (error) {
-            this.onerror?.(error as Error);
-            throw error;
-        }
-
-        if (result !== 'AUTHORIZED') {
-            throw new UnauthorizedError();
-        }
-
-        return await this._startOrAuthSse({ resumptionToken: undefined });
-    }
-
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
-        if (this._authProvider) {
-            const tokens = await this._authProvider.tokens();
-            if (tokens) {
-                headers['Authorization'] = `Bearer ${tokens.access_token}`;
-            }
+        const token = await this._authProvider?.token();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
         }
 
         if (this._sessionId) {
@@ -215,7 +196,7 @@ export class StreamableHTTPClientTransport implements Transport {
         });
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
+    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
         const { resumptionToken } = options;
 
         try {
@@ -237,12 +218,33 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
-                await response.text?.().catch(() => {});
-
                 if (response.status === 401 && this._authProvider) {
-                    // Need to authenticate
-                    return await this._authThenStart();
+                    if (response.headers.has('www-authenticate')) {
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
+                    }
+
+                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                        await this._authProvider.onUnauthorized({
+                            response,
+                            serverUrl: this._url,
+                            fetchFn: this._fetchWithInit
+                        });
+                        await response.text?.().catch(() => {});
+                        // Purposely _not_ awaited, so we don't call onerror twice
+                        return this._startOrAuthSse(options, true);
+                    }
+                    await response.text?.().catch(() => {});
+                    if (isAuthRetry) {
+                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401
+                        });
+                    }
+                    throw new UnauthorizedError();
                 }
+
+                await response.text?.().catch(() => {});
 
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
                 // This is an expected case that should not trigger an error
@@ -439,11 +441,11 @@ export class StreamableHTTPClientTransport implements Transport {
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
      */
     async finishAuth(authorizationCode: string): Promise<void> {
-        if (!this._authProvider) {
-            throw new UnauthorizedError('No auth provider');
+        if (!this._oauthProvider) {
+            throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
-        const result = await auth(this._authProvider, {
+        const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
@@ -467,6 +469,14 @@ export class StreamableHTTPClientTransport implements Transport {
     async send(
         message: JSONRPCMessage | JSONRPCMessage[],
         options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
+    ): Promise<void> {
+        return this._send(message, options, false);
+    }
+
+    private async _send(
+        message: JSONRPCMessage | JSONRPCMessage[],
+        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void } | undefined,
+        isAuthRetry: boolean
     ): Promise<void> {
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
@@ -500,38 +510,36 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                const text = await response.text?.().catch(() => null);
-
                 if (response.status === 401 && this._authProvider) {
-                    // Prevent infinite recursion when server returns 401 after successful auth
-                    if (this._hasCompletedAuthFlow) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after successful authentication', {
-                            status: 401,
-                            text
+                    // Store WWW-Authenticate params for interactive finishAuth() path
+                    if (response.headers.has('www-authenticate')) {
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
+                    }
+
+                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                        await this._authProvider.onUnauthorized({
+                            response,
+                            serverUrl: this._url,
+                            fetchFn: this._fetchWithInit
+                        });
+                        await response.text?.().catch(() => {});
+                        // Purposely _not_ awaited, so we don't call onerror twice
+                        return this._send(message, options, true);
+                    }
+                    await response.text?.().catch(() => {});
+                    if (isAuthRetry) {
+                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401
                         });
                     }
-
-                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                    this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
-
-                    const result = await auth(this._authProvider, {
-                        serverUrl: this._url,
-                        resourceMetadataUrl: this._resourceMetadataUrl,
-                        scope: this._scope,
-                        fetchFn: this._fetchWithInit
-                    });
-                    if (result !== 'AUTHORIZED') {
-                        throw new UnauthorizedError();
-                    }
-
-                    // Mark that we completed auth flow
-                    this._hasCompletedAuthFlow = true;
-                    // Purposely _not_ awaited, so we don't call onerror twice
-                    return this.send(message);
+                    throw new UnauthorizedError();
                 }
 
-                if (response.status === 403 && this._authProvider) {
+                const text = await response.text?.().catch(() => null);
+
+                if (response.status === 403 && this._oauthProvider) {
                     const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
 
                     if (error === 'insufficient_scope') {
@@ -555,18 +563,18 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Mark that upscoping was tried.
                         this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
-                        const result = await auth(this._authProvider, {
+                        const result = await auth(this._oauthProvider, {
                             serverUrl: this._url,
                             resourceMetadataUrl: this._resourceMetadataUrl,
                             scope: this._scope,
-                            fetchFn: this._fetch
+                            fetchFn: this._fetchWithInit
                         });
 
                         if (result !== 'AUTHORIZED') {
                             throw new UnauthorizedError();
                         }
 
-                        return this.send(message);
+                        return this._send(message, options, isAuthRetry);
                     }
                 }
 
@@ -576,8 +584,6 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
-            // Reset auth loop flag on successful response
-            this._hasCompletedAuthFlow = false;
             this._lastUpscopingHeader = undefined;
 
             // If the response is 202 Accepted, there's no body to process

@@ -36,11 +36,109 @@ export type AddClientAuthentication = (
 ) => void | Promise<void>;
 
 /**
+ * Context passed to {@linkcode AuthProvider.onUnauthorized} when the server
+ * responds with 401. Provides everything needed to refresh credentials.
+ */
+export interface UnauthorizedContext {
+    /** The 401 response — inspect `WWW-Authenticate` for resource metadata, scope, etc. */
+    response: Response;
+    /** The MCP server URL, for passing to {@linkcode auth} or discovery helpers. */
+    serverUrl: URL;
+    /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
+    fetchFn: FetchLike;
+}
+
+/**
+ * Minimal interface for authenticating MCP client transports with bearer tokens.
+ *
+ * Transports call {@linkcode AuthProvider.token | token()} before every request
+ * to obtain the current token, and {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
+ * (if provided) when the server responds with 401, giving the provider a chance
+ * to refresh credentials before the transport retries once.
+ *
+ * For simple cases (API keys, gateway-managed tokens), implement only `token()`:
+ * ```typescript
+ * const authProvider: AuthProvider = { token: async () => process.env.API_KEY };
+ * ```
+ *
+ * For OAuth flows, pass an {@linkcode OAuthClientProvider} directly — transports
+ * accept either shape and adapt OAuth providers automatically via {@linkcode adaptOAuthProvider}.
+ */
+export interface AuthProvider {
+    /**
+     * Returns the current bearer token, or `undefined` if no token is available.
+     * Called before every request.
+     */
+    token(): Promise<string | undefined>;
+
+    /**
+     * Called when the server responds with 401. If provided, the transport will
+     * await this, then retry the request once. If the retry also gets 401, or if
+     * this method is not provided, the transport throws {@linkcode UnauthorizedError}.
+     *
+     * Implementations should refresh tokens, re-authenticate, etc. — whatever is
+     * needed so the next `token()` call returns a valid token.
+     */
+    onUnauthorized?(ctx: UnauthorizedContext): Promise<void>;
+}
+
+/**
+ * Type guard distinguishing `OAuthClientProvider` from a minimal `AuthProvider`.
+ * Transports use this at construction time to classify the `authProvider` option.
+ *
+ * Checks for `tokens()` + `clientInformation()` — two required `OAuthClientProvider`
+ * methods that a minimal `AuthProvider` `{ token: ... }` would never have.
+ */
+export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvider | undefined): provider is OAuthClientProvider {
+    if (provider == null) return false;
+    const p = provider as OAuthClientProvider;
+    return typeof p.tokens === 'function' && typeof p.clientInformation === 'function';
+}
+
+/**
+ * Standard `onUnauthorized` behavior for OAuth providers: extracts
+ * `WWW-Authenticate` parameters from the 401 response and runs {@linkcode auth}.
+ * Used by {@linkcode adaptOAuthProvider} to bridge `OAuthClientProvider` to `AuthProvider`.
+ */
+export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx: UnauthorizedContext): Promise<void> {
+    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+    const result = await auth(provider, {
+        serverUrl: ctx.serverUrl,
+        resourceMetadataUrl,
+        scope,
+        fetchFn: ctx.fetchFn
+    });
+    if (result !== 'AUTHORIZED') {
+        throw new UnauthorizedError();
+    }
+}
+
+/**
+ * Adapts an `OAuthClientProvider` to the minimal `AuthProvider` interface that
+ * transports consume. Called once at transport construction — the transport stores
+ * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
+ * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
+ */
+export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider {
+    return {
+        token: async () => {
+            const tokens = await provider.tokens();
+            return tokens?.access_token;
+        },
+        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
+    };
+}
+
+/**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
+ *
+ * Transports accept `OAuthClientProvider` directly via the `authProvider` option —
+ * they adapt it to {@linkcode AuthProvider} internally via {@linkcode adaptOAuthProvider}.
+ * No changes are needed to existing implementations.
  */
 export interface OAuthClientProvider {
     /**
@@ -382,7 +480,7 @@ export function applyClientAuthentication(
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
-function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
+export function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
     if (!clientSecret) {
         throw new Error('client_secret_basic authentication requires a client_secret');
     }
@@ -394,7 +492,7 @@ function applyBasicAuth(clientId: string, clientSecret: string | undefined, head
 /**
  * Applies POST body authentication (RFC 6749 Section 2.3.1)
  */
-function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
+export function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
     params.set('client_id', clientId);
     if (clientSecret) {
         params.set('client_secret', clientSecret);
@@ -404,7 +502,7 @@ function applyPostAuth(clientId: string, clientSecret: string | undefined, param
 /**
  * Applies public client authentication (RFC 6749 Section 2.1)
  */
-function applyPublicAuth(clientId: string, params: URLSearchParams): void {
+export function applyPublicAuth(clientId: string, params: URLSearchParams): void {
     params.set('client_id', clientId);
 }
 
@@ -1304,7 +1402,7 @@ export function prepareAuthorizationCodeRequest(
  * Internal helper to execute a token request with the given parameters.
  * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
-async function executeTokenRequest(
+export async function executeTokenRequest(
     authorizationServerUrl: string | URL,
     {
         metadata,
