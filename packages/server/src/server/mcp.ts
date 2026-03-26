@@ -206,8 +206,8 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                if (error instanceof ProtocolError) {
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
@@ -251,10 +251,9 @@ export class McpServer {
 
         const parseResult = await validateStandardSchema(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
-                `Input validation error: Invalid arguments for tool ${toolName}: ${parseResult.error}`
-            );
+            // Per spec, input validation failures are tool-execution errors (isError: true),
+            // not protocol errors — throw plain Error so the catch wraps it as a tool result.
+            throw new Error(`Input validation error: Invalid arguments for tool ${toolName}: ${parseResult.error}`);
         }
 
         return parseResult.data as unknown as Args;
@@ -279,7 +278,7 @@ export class McpServer {
 
         if (!result.structuredContent) {
             throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
+                ProtocolErrorCode.InternalError,
                 `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
             );
         }
@@ -288,7 +287,7 @@ export class McpServer {
         const parseResult = await validateStandardSchema(tool.outputSchema, result.structuredContent);
         if (!parseResult.success) {
             throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
+                ProtocolErrorCode.InternalError,
                 `Output validation error: Invalid structured content for tool ${toolName}: ${parseResult.error}`
             );
         }

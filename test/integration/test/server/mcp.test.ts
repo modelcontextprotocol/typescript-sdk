@@ -1418,25 +1418,15 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            // Call the tool and expect it to throw an error
-            const result = await client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
-                }
-            });
-
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining(
-                            'Output validation error: Tool test has an output schema but no structured content was provided'
-                        )
+            // Output validation failure is a server-side bug → JSON-RPC InternalError
+            await expect(
+                client.callTool({
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                ])
-            );
+                })
+            ).rejects.toThrow('Output validation error: Tool test has an output schema but no structured content was provided');
         });
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
@@ -1550,23 +1540,15 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            // Call the tool and expect it to throw a server-side validation error
-            const result = await client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
-                }
-            });
-
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining('Output validation error: Invalid structured content for tool test')
+            // Output validation failure is a server-side bug → JSON-RPC InternalError
+            await expect(
+                client.callTool({
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                ])
-            );
+                })
+            ).rejects.toThrow(/Output validation error: Invalid structured content for tool test/);
         });
 
         /***
@@ -6441,16 +6423,13 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            // Call the tool WITHOUT task augmentation - should return error
-            const result = await client.callTool({
-                name: 'long-running-task',
-                arguments: { input: 'test data' }
-            });
-
-            // Should receive error result
-            expect(result.isError).toBe(true);
-            const content = result.content as TextContent[];
-            expect(content[0]!.text).toContain('requires task augmentation');
+            // Call the tool WITHOUT task augmentation - should throw JSON-RPC error
+            await expect(
+                client.callTool({
+                    name: 'long-running-task',
+                    arguments: { input: 'test data' }
+                })
+            ).rejects.toThrow(/requires task augmentation/);
 
             taskStore.cleanup();
         });
