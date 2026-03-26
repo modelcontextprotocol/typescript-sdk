@@ -457,8 +457,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
-            _onclose?.();
-            this._onclose();
+            try {
+                _onclose?.();
+            } finally {
+                this._onclose();
+            }
         };
 
         const _onerror = this.transport?.onerror;
@@ -657,7 +660,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             )
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
             .finally(() => {
-                this._requestHandlerAbortControllers.delete(request.id);
+                if (this._requestHandlerAbortControllers.get(request.id) === abortController) {
+                    this._requestHandlerAbortControllers.delete(request.id);
+                }
             });
     }
 
