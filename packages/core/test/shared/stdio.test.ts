@@ -35,6 +35,14 @@ test('should be reusable after clearing', () => {
 });
 
 describe('non-JSON line filtering', () => {
+    test('should skip empty lines', () => {
+        const readBuffer = new ReadBuffer();
+        readBuffer.append(Buffer.from('\n\n' + JSON.stringify(testMessage) + '\n\n'));
+
+        expect(readBuffer.readMessage()).toEqual(testMessage);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+
     test('should skip non-JSON lines before a valid message', () => {
         const readBuffer = new ReadBuffer();
         readBuffer.append(Buffer.from('Debug: Starting server\n' + 'Warning: Something happened\n' + JSON.stringify(testMessage) + '\n'));
