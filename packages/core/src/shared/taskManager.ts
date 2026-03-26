@@ -151,7 +151,7 @@ export interface RequestTaskStore {
 export type TaskContext = {
     id?: string;
     store: RequestTaskStore;
-    requestedTtl?: number | null;
+    requestedTtl?: number;
 };
 
 export type TaskManagerOptions = {
