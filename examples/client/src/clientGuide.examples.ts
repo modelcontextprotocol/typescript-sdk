@@ -8,12 +8,14 @@
  */
 
 //#region imports
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
+import type { AuthProvider, Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
     ClientCredentialsProvider,
     createMiddleware,
+    CrossAppAccessProvider,
+    discoverAndRequestJwtAuthGrant,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
@@ -105,6 +107,16 @@ async function serverInstructions_basic(client: Client) {
 // Authentication
 // ---------------------------------------------------------------------------
 
+/** Example: Minimal AuthProvider for bearer auth with externally-managed tokens. */
+async function auth_tokenProvider(getStoredToken: () => Promise<string>) {
+    //#region auth_tokenProvider
+    const authProvider: AuthProvider = { token: async () => getStoredToken() };
+
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
+    //#endregion auth_tokenProvider
+    return transport;
+}
+
 /** Example: Client credentials auth for service-to-service communication. */
 async function auth_clientCredentials() {
     //#region auth_clientCredentials
@@ -132,6 +144,33 @@ async function auth_privateKeyJwt(pemEncodedKey: string) {
 
     const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
     //#endregion auth_privateKeyJwt
+    return transport;
+}
+
+/** Example: Cross-App Access (SEP-990 Enterprise Managed Authorization). */
+async function auth_crossAppAccess(getIdToken: () => Promise<string>) {
+    //#region auth_crossAppAccess
+    const authProvider = new CrossAppAccessProvider({
+        assertion: async ctx => {
+            // ctx provides: authorizationServerUrl, resourceUrl, scope, fetchFn
+            const result = await discoverAndRequestJwtAuthGrant({
+                idpUrl: 'https://idp.example.com',
+                audience: ctx.authorizationServerUrl,
+                resource: ctx.resourceUrl,
+                idToken: await getIdToken(),
+                clientId: 'my-idp-client',
+                clientSecret: 'my-idp-secret',
+                scope: ctx.scope,
+                fetchFn: ctx.fetchFn
+            });
+            return result.jwtAuthGrant;
+        },
+        clientId: 'my-mcp-client',
+        clientSecret: 'my-mcp-secret'
+    });
+
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
+    //#endregion auth_crossAppAccess
     return transport;
 }
 
@@ -511,8 +550,10 @@ void connect_stdio;
 void connect_sseFallback;
 void disconnect_streamableHttp;
 void serverInstructions_basic;
+void auth_tokenProvider;
 void auth_clientCredentials;
 void auth_privateKeyJwt;
+void auth_crossAppAccess;
 void callTool_basic;
 void callTool_structuredOutput;
 void callTool_progress;

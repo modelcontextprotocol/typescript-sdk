@@ -123,6 +123,58 @@ test('should initialize with supported older protocol version', async () => {
 });
 
 /***
+ * Test: Reconnecting with the same Client restores protocol version on new transport
+ */
+test('should restore negotiated protocol version on transport when reconnecting with same client', async () => {
+    const setProtocolVersion = vi.fn();
+    const initialTransport: Transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        setProtocolVersion,
+        send: vi.fn().mockImplementation(message => {
+            if (message.method === 'initialize') {
+                initialTransport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: { name: 'test', version: '1.0' }
+                    }
+                });
+            }
+            return Promise.resolve();
+        })
+    };
+
+    const client = new Client({ name: 'test client', version: '1.0' });
+    await client.connect(initialTransport);
+
+    // Initial handshake should have set the protocol version on the transport
+    expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+    // Now simulate reconnection: new transport with a pre-existing sessionId.
+    // connect() will early-return without re-initializing, but MUST restore the protocol version
+    // so HTTP transports can keep sending the required mcp-protocol-version header.
+    const reconnectSetProtocolVersion = vi.fn();
+    const reconnectTransport: Transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        setProtocolVersion: reconnectSetProtocolVersion,
+        send: vi.fn().mockResolvedValue(undefined),
+        sessionId: 'existing-session-id'
+    };
+
+    await client.connect(reconnectTransport);
+
+    // No initialize request should have been sent (sessionId was set)
+    expect(reconnectTransport.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'initialize' }), expect.anything());
+    // But the protocol version MUST have been restored onto the new transport
+    expect(reconnectSetProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+});
+
+/***
  * Test: Reject Unsupported Protocol Version
  */
 test('should reject unsupported protocol version', async () => {
@@ -2206,10 +2258,13 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client({
-            name: 'test-client',
-            version: '1.0.0'
-        });
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+        );
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2250,10 +2305,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2290,10 +2346,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2329,10 +2388,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2369,10 +2429,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2409,10 +2472,11 @@ describe('Task-based execution', () => {
                                     call: {},
                                     list: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2449,10 +2513,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2493,10 +2560,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -2533,10 +2601,13 @@ describe('Task-based execution', () => {
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2600,10 +2671,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2692,10 +2764,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2783,10 +2856,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2873,10 +2947,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -2975,10 +3050,11 @@ describe('Task-based execution', () => {
                             tools: {
                                 call: {}
                             }
-                        }
+                        },
+
+                        taskStore: serverTaskStore
                     }
-                },
-                taskStore: serverTaskStore
+                }
             }
         );
 
@@ -3100,10 +3176,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -3147,10 +3224,11 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore: serverTaskStore
                         }
-                    },
-                    taskStore: serverTaskStore
+                    }
                 }
             );
 
@@ -3194,10 +3272,11 @@ describe('Task-based execution', () => {
                                 elicitation: {
                                     create: {}
                                 }
-                            }
+                            },
+
+                            taskStore: clientTaskStore
                         }
-                    },
-                    taskStore: clientTaskStore
+                    }
                 }
             );
 
@@ -3248,10 +3327,11 @@ test('should respect server task capabilities', async () => {
                         tools: {
                             call: {}
                         }
-                    }
+                    },
+
+                    taskStore: serverTaskStore
                 }
-            },
-            taskStore: serverTaskStore
+            }
         }
     );
 
@@ -3294,7 +3374,16 @@ test('should respect server task capabilities', async () => {
             version: '1.0.0'
         },
         {
-            enforceStrictCapabilities: true
+            enforceStrictCapabilities: true,
+            capabilities: {
+                tasks: {
+                    requests: {
+                        tools: {
+                            call: {}
+                        }
+                    }
+                }
+            }
         }
     );
 
@@ -3367,7 +3456,7 @@ test('should expose requestStream() method for streaming responses', async () =>
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3429,7 +3518,7 @@ test('should expose callToolStream() method for streaming tool calls', async () 
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3507,7 +3596,7 @@ test('should validate structured output in callToolStream()', async () => {
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3585,7 +3674,7 @@ test('callToolStream() should yield error when structuredContent does not match 
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3658,7 +3747,7 @@ test('callToolStream() should yield error when tool with outputSchema returns no
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3723,7 +3812,7 @@ test('callToolStream() should handle tools without outputSchema normally', async
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3818,7 +3907,7 @@ test('callToolStream() should handle complex JSON schema validation', async () =
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3897,7 +3986,7 @@ test('callToolStream() should yield error with additional properties when not al
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
@@ -3971,7 +4060,7 @@ test('callToolStream() should not validate structuredContent when isError is tru
             version: '1.0.0'
         },
         {
-            capabilities: {}
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
         }
     );
 
