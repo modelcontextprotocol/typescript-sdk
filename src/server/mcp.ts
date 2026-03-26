@@ -98,10 +98,16 @@ export class McpServer {
             getTaskResult: async (taskId: string, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
                 const taskStore = extra.taskStore!;
                 const handler = this._getTaskHandler(taskId);
-                if (handler) {
-                    return await handler.getTaskResult({ ...extra, taskId, taskStore });
+                try {
+                    if (handler) {
+                        return await handler.getTaskResult({ ...extra, taskId, taskStore });
+                    }
+                    return await taskStore.getTaskResult(taskId);
+                } finally {
+                    // Once the result has been retrieved the task is complete;
+                    // drop the taskId → toolName mapping to avoid unbounded growth.
+                    this._taskToolMap.delete(taskId);
                 }
-                return await taskStore.getTaskResult(taskId);
             }
         };
         this.server = new Server(serverInfo, { ...options, taskHandlerHooks });
