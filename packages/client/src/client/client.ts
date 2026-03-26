@@ -456,7 +456,7 @@ export class Client extends Protocol<ClientContext> {
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
         if (!this._serverCapabilities?.[capability]) {
-            throw new Error(`Server does not support ${capability} (required for ${method})`);
+            throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support ${capability} (required for ${method})`);
         }
     }
 
