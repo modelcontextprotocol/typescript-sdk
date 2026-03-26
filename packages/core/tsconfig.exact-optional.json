@@ -1,0 +1,7 @@
+{
+    "extends": "./tsconfig.json",
+    "include": ["src/shared/transport.ts", "src/types/index.ts", "test/shared/transport.types.test.ts"],
+    "compilerOptions": {
+        "exactOptionalPropertyTypes": true
+    }
+}

@@ -35,7 +35,7 @@
         }
     },
     "scripts": {
-        "typecheck": "tsgo -p tsconfig.json --noEmit",
+        "typecheck": "tsgo -p tsconfig.json --noEmit && tsgo -p tsconfig.exact-optional.json --noEmit",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
