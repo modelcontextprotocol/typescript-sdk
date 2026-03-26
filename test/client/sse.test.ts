@@ -8,6 +8,21 @@ import { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 import { listenOnRandomPort } from '../helpers/http.js';
 import { AddressInfo } from 'node:net';
 
+/**
+ * Parses HTTP Basic auth from a request's Authorization header.
+ * Returns the decoded client_id and client_secret, or undefined if the header is absent or malformed.
+ * client_secret_basic is the default client auth method when server metadata omits
+ * token_endpoint_auth_methods_supported (RFC 8414 §2).
+ */
+function parseBasicAuth(req: IncomingMessage): { clientId: string; clientSecret: string } | undefined {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Basic ')) return undefined;
+    const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
+    const sep = decoded.indexOf(':');
+    if (sep === -1) return undefined;
+    return { clientId: decoded.slice(0, sep), clientSecret: decoded.slice(sep + 1) };
+}
+
 describe('SSEClientTransport', () => {
     let resourceServer: Server;
     let authServer: Server;
@@ -668,11 +683,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'refresh_token' &&
                             params.get('refresh_token') === 'refresh-token' &&
-                            params.get('client_id') === 'test-client-id' &&
-                            params.get('client_secret') === 'test-client-secret'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -796,11 +812,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'refresh_token' &&
                             params.get('refresh_token') === 'refresh-token' &&
-                            params.get('client_id') === 'test-client-id' &&
-                            params.get('client_secret') === 'test-client-secret'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -1230,10 +1247,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'authorization_code' &&
                             params.get('code') === 'test-auth-code' &&
-                            params.get('client_id') === 'test-client-id'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(

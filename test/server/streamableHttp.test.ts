@@ -2,6 +2,7 @@ import { createServer, type Server, IncomingMessage, ServerResponse } from 'node
 import { AddressInfo, createServer as netCreateServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from '../../src/server/streamableHttp.js';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/webStandardStreamableHttp.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { CallToolResult, JSONRPCMessage } from '../../src/types.js';
 import { AuthInfo } from '../../src/server/auth/types.js';
@@ -3112,3 +3113,162 @@ async function createTestServerWithDnsProtection(config: {
         baseUrl: serverUrl
     };
 }
+
+describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
+    let transport: WebStandardStreamableHTTPServerTransport;
+    let mcpServer: McpServer;
+    let onerrorSpy: ReturnType<typeof vi.fn<(error: Error) => void>>;
+
+    /** Shorthand to build a Web Standard Request for direct transport testing. */
+    function req(method: string, opts?: { body?: unknown; headers?: Record<string, string> }): Request {
+        const headers: Record<string, string> = { ...opts?.headers };
+        if (method === 'POST') {
+            headers['Accept'] ??= 'application/json, text/event-stream';
+            headers['Content-Type'] ??= 'application/json';
+        } else if (method === 'GET') {
+            headers['Accept'] ??= 'text/event-stream';
+        }
+        return new Request('http://localhost/mcp', {
+            method,
+            headers,
+            body: opts?.body !== undefined ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : undefined
+        });
+    }
+
+    function withSession(sessionId: string, extra?: Record<string, string>): Record<string, string> {
+        return { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25', ...extra };
+    }
+
+    beforeEach(async () => {
+        onerrorSpy = vi.fn<(error: Error) => void>();
+        mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+        transport.onerror = onerrorSpy;
+        await mcpServer.connect(transport);
+    });
+
+    afterEach(async () => {
+        await transport.close();
+    });
+
+    async function initializeServer(): Promise<string> {
+        onerrorSpy.mockClear();
+        const response = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        expect(response.status).toBe(200);
+        return response.headers.get('mcp-session-id') as string;
+    }
+
+    it('should call onerror for invalid JSON in POST', async () => {
+        await initializeServer();
+        await transport.handleRequest(req('POST', { body: 'not valid json' }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Invalid JSON/);
+    });
+
+    it('should call onerror for invalid JSON-RPC message', async () => {
+        const sid = await initializeServer();
+        await transport.handleRequest(req('POST', { body: { not: 'valid' }, headers: withSession(sid) }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Invalid JSON-RPC message/);
+    });
+
+    it('should call onerror for missing Accept header on POST', async () => {
+        await transport.handleRequest(
+            req('POST', { body: TEST_MESSAGES.initialize, headers: { Accept: 'application/json', 'Content-Type': 'application/json' } })
+        );
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Not Acceptable/);
+    });
+
+    it('should call onerror for unsupported Content-Type', async () => {
+        await transport.handleRequest(
+            req('POST', {
+                body: TEST_MESSAGES.initialize,
+                headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'text/plain' }
+            })
+        );
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Unsupported Media Type/);
+    });
+
+    it('should call onerror when server is not initialized', async () => {
+        await transport.handleRequest(req('POST', { body: TEST_MESSAGES.toolsList }));
+        expect(onerrorSpy).toHaveBeenCalledTimes(1);
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Server not initialized/);
+    });
+
+    it('should call onerror for invalid session ID', async () => {
+        await initializeServer();
+        await transport.handleRequest(req('POST', { body: TEST_MESSAGES.toolsList, headers: withSession('invalid-session-id') }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Session not found/);
+    });
+
+    it('should call onerror for re-initialization attempt', async () => {
+        await initializeServer();
+        await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Server already initialized/);
+    });
+
+    it('should call onerror for missing Accept header on GET', async () => {
+        const sid = await initializeServer();
+        await transport.handleRequest(req('GET', { headers: { Accept: 'application/json', ...withSession(sid) } }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Not Acceptable/);
+    });
+
+    it('should call onerror for concurrent SSE streams', async () => {
+        const sid = await initializeServer();
+        const response1 = await transport.handleRequest(req('GET', { headers: withSession(sid) }));
+        expect(response1.status).toBe(200);
+        await transport.handleRequest(req('GET', { headers: withSession(sid) }));
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Only one SSE stream/);
+    });
+
+    it('should call onerror for unsupported protocol version', async () => {
+        const sid = await initializeServer();
+        await transport.handleRequest(
+            req('POST', { body: TEST_MESSAGES.toolsList, headers: withSession(sid, { 'mcp-protocol-version': 'unsupported-version' }) })
+        );
+        expect(onerrorSpy).toHaveBeenCalled();
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Unsupported protocol version/);
+    });
+
+    it('should call onerror for unsupported HTTP methods', async () => {
+        await transport.handleRequest(req('PUT'));
+        expect(onerrorSpy).toHaveBeenCalledTimes(1);
+        expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Method not allowed/);
+    });
+
+    it('should call onerror for invalid event ID in replay', async () => {
+        const eventStore: EventStore = {
+            async storeEvent(): Promise<EventId> {
+                return 'evt-1';
+            },
+            async getStreamIdForEventId(): Promise<StreamId | undefined> {
+                return undefined;
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                return 'stream-1';
+            }
+        };
+        const storeTransport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const storeSpy = vi.fn<(error: Error) => void>();
+        storeTransport.onerror = storeSpy;
+        await new McpServer({ name: 'test', version: '1.0.0' }).connect(storeTransport);
+
+        const initResp = await storeTransport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sid = initResp.headers.get('mcp-session-id') as string;
+        storeSpy.mockClear();
+
+        const response = await storeTransport.handleRequest(
+            req('GET', { headers: { ...withSession(sid), 'Last-Event-ID': 'unknown-event-id' } })
+        );
+        expect(response.status).toBe(400);
+        expect(storeSpy).toHaveBeenCalledTimes(1);
+        expect(storeSpy.mock.calls[0]![0]!.message).toMatch(/Invalid event ID format/);
+        await storeTransport.close();
+    });
+});
