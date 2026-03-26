@@ -1439,6 +1439,10 @@ export async function executeTokenRequest(
         applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
     }
 
+    // Ensure Content-Type is always form-urlencoded for the token endpoint (OAuth 2.1 §3.2).
+    // Some addClientAuthentication implementations may have inadvertently set a different value.
+    headers.set('Content-Type', 'application/x-www-form-urlencoded');
+
     const response = await (fetchFn ?? fetch)(tokenUrl, {
         method: 'POST',
         headers,
