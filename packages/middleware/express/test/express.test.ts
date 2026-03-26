@@ -141,15 +141,13 @@ describe('@modelcontextprotocol/express', () => {
         });
 
         test('should skip host header validation when skipHostHeaderValidation is true', () => {
+            // HTTP-level verification is in integration tests (test/integration/test/server.test.ts)
             const app = createMcpExpressApp({ host: '127.0.0.1', skipHostHeaderValidation: true });
-
             expect(app).toBeDefined();
-            // Localhost validation would normally be applied, but skipHostHeaderValidation disables it
         });
 
         test('should skip host header validation for 0.0.0.0 when skipHostHeaderValidation is true', () => {
             const app = createMcpExpressApp({ host: '0.0.0.0', skipHostHeaderValidation: true });
-
             expect(app).toBeDefined();
         });
 
