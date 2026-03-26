@@ -894,8 +894,4 @@ export class NullTaskManager extends TaskManager {
     ): Promise<{ queued: boolean; jsonrpcNotification?: JSONRPCNotification }> {
         return { queued: false, jsonrpcNotification: { ...notification, jsonrpc: '2.0' } };
     }
-
-    override onClose(): void {
-        // No-op
-    }
 }
