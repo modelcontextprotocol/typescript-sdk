@@ -302,9 +302,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
-    private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
-    private _progressHandlers: Map<number, ProgressCallback> = new Map();
-    private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
+    private _responseHandlers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
+    private _progressHandlers: Map<RequestId, ProgressCallback> = new Map();
+    private _timeoutInfo: Map<RequestId, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
     private _taskManager: TaskManager;
@@ -406,7 +406,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _setupTimeout(
-        messageId: number,
+        messageId: RequestId,
         timeout: number,
         maxTotalTimeout: number | undefined,
         onTimeout: () => void,
@@ -422,7 +422,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         });
     }
 
-    private _resetTimeout(messageId: number): boolean {
+    private _resetTimeout(messageId: RequestId): boolean {
         const info = this._timeoutInfo.get(messageId);
         if (!info) return false;
 
@@ -440,7 +440,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         return true;
     }
 
-    private _cleanupTimeout(messageId: number) {
+    private _cleanupTimeout(messageId: RequestId) {
         const info = this._timeoutInfo.get(messageId);
         if (info) {
             clearTimeout(info.timeoutId);
@@ -648,7 +648,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     private _onprogress(notification: ProgressNotification): void {
         const { progressToken, ...params } = notification.params;
-        const messageId = Number(progressToken);
+        const messageId = progressToken as RequestId;
 
         const handler = this._progressHandlers.get(messageId);
         if (!handler) {
@@ -676,7 +676,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
-        const messageId = Number(response.id);
+        // Handle responses without an ID (shouldn't happen for valid protocol messages)
+        if (response.id === undefined) {
+            this._onerror(new Error(`Received a response without an ID: ${JSON.stringify(response)}`));
+            return;
+        }
+        const messageId = response.id;
 
         // Delegate to TaskManager for task-related response handling
         const taskResult = this._taskManager.processInboundResponse(response, messageId);

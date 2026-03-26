@@ -42,7 +42,7 @@ export interface TaskManagerHost {
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
     notification(notification: Notification, options?: NotificationOptions): Promise<void>;
     reportError(error: Error): void;
-    removeProgressHandler(token: number): void;
+    removeProgressHandler(token: RequestId): void;
     registerHandler(method: string, handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>): void;
     sendOnResponseStream(message: JSONRPCNotification | JSONRPCRequest, relatedRequestId: RequestId): Promise<void>;
     enforceStrictCapabilities: boolean;
@@ -195,7 +195,7 @@ export function extractTaskManagerOptions(tasksCapability: TaskManagerOptions | 
 export class TaskManager {
     private _taskStore?: TaskStore;
     private _taskMessageQueue?: TaskMessageQueue;
-    private _taskProgressTokens: Map<string, number> = new Map();
+    private _taskProgressTokens: Map<string, RequestId> = new Map();
     private _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _options: TaskManagerOptions;
     private _host?: TaskManagerHost;
@@ -584,7 +584,11 @@ export class TaskManager {
     }
 
     private handleResponse(response: JSONRPCResponse | JSONRPCErrorResponse): boolean {
-        const messageId = Number(response.id);
+        // Skip responses without an ID
+        if (response.id === undefined) {
+            return false;
+        }
+        const messageId = response.id;
         const resolver = this._requestResolvers.get(messageId);
         if (resolver) {
             this._requestResolvers.delete(messageId);
@@ -598,7 +602,7 @@ export class TaskManager {
         return false;
     }
 
-    private shouldPreserveProgressHandler(response: JSONRPCResponse | JSONRPCErrorResponse, messageId: number): boolean {
+    private shouldPreserveProgressHandler(response: JSONRPCResponse | JSONRPCErrorResponse, messageId: RequestId): boolean {
         if (isJSONRPCResultResponse(response) && response.result && typeof response.result === 'object') {
             const result = response.result as Record<string, unknown>;
             if (result.task && typeof result.task === 'object') {
@@ -764,7 +768,7 @@ export class TaskManager {
 
     processInboundResponse(
         response: JSONRPCResponse | JSONRPCErrorResponse,
-        messageId: number
+        messageId: RequestId
     ): { consumed: boolean; preserveProgress: boolean } {
         const consumed = this.handleResponse(response);
         if (consumed) {
