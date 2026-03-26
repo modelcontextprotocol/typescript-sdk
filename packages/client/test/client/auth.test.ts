@@ -1,4 +1,4 @@
-import type { AuthorizationServerMetadata, OAuthTokens } from '@modelcontextprotocol/core';
+import type { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
 import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
@@ -33,9 +33,33 @@ vi.mock('pkce-challenge', () => ({
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
+/**
+ * fetchWithCorsRetry gates its CORS-swallowing heuristic on the `CORS_IS_POSSIBLE` shim constant.
+ * Tests run under the Node shim (`false`), so a fetch TypeError is treated as a real network error
+ * and thrown instead of swallowed. Tests that specifically exercise the browser CORS retry path
+ * call `withBrowserLikeEnvironment()` to flip the mocked constant to `true`. The `afterEach` hook
+ * resets it so a failed assertion can't leak the override into later tests.
+ */
+let mockedCorsIsPossible = false;
+vi.mock('@modelcontextprotocol/client/_shims', async importOriginal => {
+    const actual = await importOriginal<typeof import('@modelcontextprotocol/client/_shims')>();
+    return {
+        ...actual,
+        get CORS_IS_POSSIBLE() {
+            return mockedCorsIsPossible;
+        }
+    };
+});
+function withBrowserLikeEnvironment(): void {
+    mockedCorsIsPossible = true;
+}
+
 describe('OAuth Authorization', () => {
     beforeEach(() => {
         mockFetch.mockReset();
+    });
+    afterEach(() => {
+        mockedCorsIsPossible = false;
     });
 
     describe('extractWWWAuthenticateParams', () => {
@@ -131,7 +155,8 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
         });
 
-        it('returns metadata when first fetch fails but second without MCP header succeeds', async () => {
+        it('returns metadata when first fetch fails but second without MCP header succeeds (browser CORS retry)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -159,7 +184,8 @@ describe('OAuth Authorization', () => {
             expect(mockFetch.mock.calls[0]![1]?.headers).toHaveProperty('MCP-Protocol-Version');
         });
 
-        it('throws an error when all fetch attempts fail', async () => {
+        it('throws an error when all fetch attempts fail (browser, retry throws non-TypeError)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -175,6 +201,18 @@ describe('OAuth Authorization', () => {
 
             // Verify both calls were made
             expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('throws TypeError immediately in non-browser environments without retrying', async () => {
+            // In Node.js/Workers, CORS doesn't exist — a TypeError from fetch is a real
+            // network/config error (DNS failure, connection refused, invalid URL) and
+            // should propagate rather than being silently swallowed.
+            mockFetch.mockImplementation(() => Promise.reject(new TypeError('getaddrinfo ENOTFOUND resource.example.com')));
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(TypeError);
+
+            // Only one call — no CORS retry attempted
+            expect(mockFetch).toHaveBeenCalledTimes(1);
         });
 
         it('throws on 404 errors', async () => {
@@ -348,7 +386,8 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
         });
 
-        it('falls back when path-aware discovery encounters CORS error', async () => {
+        it('falls back when path-aware discovery encounters CORS error (browser)', async () => {
+            withBrowserLikeEnvironment();
             // First call (path-aware) fails with TypeError (CORS)
             mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('CORS error')));
 
@@ -560,7 +599,8 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
         });
 
-        it('falls back when path-aware discovery encounters CORS error', async () => {
+        it('falls back when path-aware discovery encounters CORS error (browser)', async () => {
+            withBrowserLikeEnvironment();
             // First call (path-aware) fails with TypeError (CORS)
             mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('CORS error')));
 
@@ -591,7 +631,8 @@ describe('OAuth Authorization', () => {
             });
         });
 
-        it('returns metadata when first fetch fails but second without MCP header succeeds', async () => {
+        it('returns metadata when first fetch fails but second without MCP header succeeds (browser CORS retry)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -619,7 +660,8 @@ describe('OAuth Authorization', () => {
             expect(mockFetch.mock.calls[0]![1]?.headers).toHaveProperty('MCP-Protocol-Version');
         });
 
-        it('throws an error when all fetch attempts fail', async () => {
+        it('throws an error when all fetch attempts fail (browser, retry throws non-TypeError)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -637,7 +679,8 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
-        it('returns undefined when both CORS requests fail in fetchWithCorsRetry', async () => {
+        it('returns undefined when both CORS requests fail in fetchWithCorsRetry (browser)', async () => {
+            withBrowserLikeEnvironment();
             // fetchWithCorsRetry tries with headers (fails with CORS), then retries without headers (also fails with CORS)
             // simulating a 404 w/o headers set. We want this to return undefined, not throw TypeError
             mockFetch.mockImplementation(() => {
@@ -827,7 +870,8 @@ describe('OAuth Authorization', () => {
             await expect(discoverAuthorizationServerMetadata('https://mcp.example.com')).rejects.toThrow('HTTP 500');
         });
 
-        it('handles CORS errors with retry', async () => {
+        it('handles CORS errors with retry (browser)', async () => {
+            withBrowserLikeEnvironment();
             // First call fails with CORS
             mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('CORS error')));
 
@@ -883,7 +927,8 @@ describe('OAuth Authorization', () => {
             });
         });
 
-        it('returns undefined when all URLs fail with CORS errors', async () => {
+        it('returns undefined when all URLs fail with CORS errors (browser)', async () => {
+            withBrowserLikeEnvironment();
             // All fetch attempts fail with CORS errors (TypeError)
             mockFetch.mockImplementation(() => Promise.reject(new TypeError('CORS error')));
 
@@ -893,6 +938,18 @@ describe('OAuth Authorization', () => {
 
             // Verify that all discovery URLs were attempted
             expect(mockFetch).toHaveBeenCalledTimes(6); // 3 URLs × 2 attempts each (with and without headers)
+        });
+
+        it('throws TypeError in non-browser environments instead of silently falling through (network failure)', async () => {
+            // In Node.js, a TypeError from fetch is a real error (DNS/connection), not CORS.
+            // Swallowing it and returning undefined would cause the caller to silently fall
+            // through to the next discovery URL, masking the actual network failure.
+            mockFetch.mockImplementation(() => Promise.reject(new TypeError('getaddrinfo ENOTFOUND auth.example.com')));
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com/tenant1')).rejects.toThrow(TypeError);
+
+            // Only one call — no CORS retry attempted in non-browser environments
+            expect(mockFetch).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -1005,6 +1062,15 @@ describe('OAuth Authorization', () => {
             expect(result.resourceMetadata).toEqual(validResourceMetadata);
             // Verify the override URL was used instead of the default well-known path
             expect(mockFetch.mock.calls[0]![0].toString()).toBe(overrideUrl.toString());
+        });
+
+        it('propagates network failures instead of silently falling back (non-browser)', async () => {
+            // PRM discovery hits a DNS/connection failure. That's a transient reachability problem,
+            // not "server doesn't support RFC 9728" — the caller should see the real error rather
+            // than silently falling back to treating the MCP server URL as the auth server.
+            mockFetch.mockImplementation(() => Promise.reject(new TypeError('getaddrinfo ENOTFOUND resource.example.com')));
+
+            await expect(discoverOAuthServerInfo('https://resource.example.com')).rejects.toThrow(TypeError);
         });
     });
 
@@ -1276,6 +1342,27 @@ describe('OAuth Authorization', () => {
             const authMethod = selectClientAuthMethod(clientInfo, supportedMethods);
             expect(authMethod).toBe('none');
         });
+        it('defaults to client_secret_basic when server omits token_endpoint_auth_methods_supported (RFC 8414 §2)', () => {
+            // RFC 8414 §2: if omitted, the default is client_secret_basic.
+            // RFC 6749 §2.3.1: servers MUST support HTTP Basic for clients with a secret.
+            const clientInfo = { client_id: 'test-client-id', client_secret: 'test-client-secret' };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('client_secret_basic');
+        });
+        it('defaults to none for public clients when server omits token_endpoint_auth_methods_supported', () => {
+            const clientInfo = { client_id: 'test-client-id' };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('none');
+        });
+        it('honors DCR-returned token_endpoint_auth_method even when server metadata omits supported methods', () => {
+            const clientInfo = {
+                client_id: 'test-client-id',
+                client_secret: 'test-client-secret',
+                token_endpoint_auth_method: 'client_secret_post'
+            };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('client_secret_post');
+        });
     });
 
     describe('startAuthorization', () => {
@@ -1492,8 +1579,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1531,8 +1620,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1656,8 +1747,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect((options.headers as Headers).get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1716,8 +1809,10 @@ describe('OAuth Authorization', () => {
             const body = mockFetch.mock.calls[0]![1].body as URLSearchParams;
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
@@ -1852,6 +1947,43 @@ describe('OAuth Authorization', () => {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(validClientMetadata)
+                })
+            );
+        });
+
+        it('includes scope in registration body when provided, overriding clientMetadata.scope', async () => {
+            const clientMetadataWithScope: OAuthClientMetadata = {
+                ...validClientMetadata,
+                scope: 'should-be-overridden'
+            };
+
+            const expectedClientInfo = {
+                ...validClientInfo,
+                scope: 'openid profile'
+            };
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => expectedClientInfo
+            });
+
+            const clientInfo = await registerClient('https://auth.example.com', {
+                clientMetadata: clientMetadataWithScope,
+                scope: 'openid profile'
+            });
+
+            expect(clientInfo).toEqual(expectedClientInfo);
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/register'
+                }),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ...validClientMetadata, scope: 'openid profile' })
                 })
             );
         });
@@ -2732,6 +2864,12 @@ describe('OAuth Authorization', () => {
             const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0]!;
             const authUrl: URL = redirectCall[0];
             expect(authUrl?.searchParams.get('scope')).toBe('mcp:read mcp:write mcp:admin');
+
+            // Verify the same scope was also used in the DCR request body
+            const registerCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/register'));
+            expect(registerCall).toBeDefined();
+            const registerBody = JSON.parse(registerCall![1].body as string);
+            expect(registerBody.scope).toBe('mcp:read mcp:write mcp:admin');
         });
 
         it('prefers explicit scope parameter over scopes_supported from PRM', async () => {
@@ -3076,7 +3214,7 @@ describe('OAuth Authorization', () => {
             expect(body.get('client_secret')).toBeNull();
         });
 
-        it('defaults to client_secret_post when no auth methods specified', async () => {
+        it('defaults to client_secret_basic when no auth methods specified (RFC 8414 §2)', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -3093,13 +3231,15 @@ describe('OAuth Authorization', () => {
             expect(tokens).toEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
-            // Check headers
-            expect(request.headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
-            expect(request.headers.get('Authorization')).toBeNull();
+            // RFC 8414 §2: when token_endpoint_auth_methods_supported is omitted,
+            // the default is client_secret_basic (HTTP Basic auth, not body params)
+            const authHeader = request.headers.get('Authorization');
+            const expected = 'Basic ' + btoa('client123:secret123');
+            expect(authHeader).toBe(expected);
 
             const body = request.body as URLSearchParams;
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
         });
     });
 

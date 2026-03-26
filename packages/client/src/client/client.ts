@@ -7,7 +7,6 @@ import type {
     ClientNotification,
     ClientRequest,
     ClientResult,
-    CompatibilityCallToolResultSchema,
     CompleteRequest,
     GetPromptRequest,
     Implementation,
@@ -31,6 +30,7 @@ import type {
     ResultTypeMap,
     ServerCapabilities,
     SubscribeRequest,
+    TaskManagerOptions,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -47,6 +47,7 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -141,11 +142,19 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     return { supportsFormMode, supportsUrlMode };
 }
 
+/**
+ * Extended tasks capability that includes runtime configuration (store, messageQueue).
+ * The runtime-only fields are stripped before advertising capabilities to servers.
+ */
+export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> & TaskManagerOptions;
+
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
      */
-    capabilities?: ClientCapabilities;
+    capabilities?: Omit<ClientCapabilities, 'tasks'> & {
+        tasks?: ClientTasksCapabilityWithRuntime;
+    };
 
     /**
      * JSON Schema validator for tool output validation.
@@ -195,6 +204,7 @@ export type ClientOptions = ProtocolOptions & {
 export class Client extends Protocol<ClientContext> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
+    private _negotiatedProtocolVersion?: string;
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -213,10 +223,21 @@ export class Client extends Protocol<ClientContext> {
         private _clientInfo: Implementation,
         options?: ClientOptions
     ) {
-        super(options);
-        this._capabilities = options?.capabilities ?? {};
+        super({
+            ...options,
+            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
+        });
+        this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+
+        // Strip runtime-only fields from advertised capabilities
+        if (options?.capabilities?.tasks) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
+                options.capabilities.tasks;
+            this._capabilities.tasks = wireCapabilities;
+        }
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -471,12 +492,16 @@ export class Client extends Protocol<ClientContext> {
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
-        // In this case we don't need to initialize again.
+        // Restore the protocol version negotiated during the original initialize handshake
+        // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
         if (transport.sessionId !== undefined) {
+            if (this._negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
+                transport.setProtocolVersion(this._negotiatedProtocolVersion);
+            }
             return;
         }
         try {
-            const result = await this.request(
+            const result = await this._requestWithSchema(
                 {
                     method: 'initialize',
                     params: {
@@ -499,6 +524,7 @@ export class Client extends Protocol<ClientContext> {
 
             this._serverCapabilities = result.capabilities;
             this._serverVersion = result.serverInfo;
+            this._negotiatedProtocolVersion = result.protocolVersion;
             // HTTP transports must set the protocol version in each header after initialization.
             if (transport.setProtocolVersion) {
                 transport.setProtocolVersion(result.protocolVersion);
@@ -534,6 +560,15 @@ export class Client extends Protocol<ClientContext> {
      */
     getServerVersion(): Implementation | undefined {
         return this._serverVersion;
+    }
+
+    /**
+     * After initialization has completed, this will be populated with the protocol version negotiated
+     * during the initialize handshake. When manually reconstructing a transport for reconnection, pass this
+     * value to the new transport so it continues sending the required `mcp-protocol-version` header.
+     */
+    getNegotiatedProtocolVersion(): string | undefined {
+        return this._negotiatedProtocolVersion;
     }
 
     /**
@@ -636,12 +671,6 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertRequestHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
         switch (method) {
             case 'sampling/createMessage': {
                 if (!this._capabilities.sampling) {
@@ -673,19 +702,6 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
-            case 'tasks/get':
-            case 'tasks/list':
-            case 'tasks/result':
-            case 'tasks/cancel': {
-                if (!this._capabilities.tasks) {
-                    throw new SdkError(
-                        SdkErrorCode.CapabilityNotSupported,
-                        `Client does not support tasks capability (required for ${method})`
-                    );
-                }
-                break;
-            }
-
             case 'ping': {
                 // No specific capability required for ping
                 break;
@@ -698,33 +714,26 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertTaskHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
-        assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
+        assertClientRequestTaskCapability(this._capabilities?.tasks?.requests, method, 'Client');
     }
 
-    /** Sends a ping to the server to check connectivity. */
     async ping(options?: RequestOptions) {
-        return this.request({ method: 'ping' }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
     async complete(params: CompleteRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'completion/complete', params }, CompleteResultSchema, options);
+        return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
     /** Sets the minimum severity level for log messages sent by the server. */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
-        return this.request({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
     /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
     }
 
     /**
@@ -754,7 +763,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this.request({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
+        return this._requestWithSchema({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
     }
 
     /**
@@ -784,7 +793,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/list', params }, ListResourcesResultSchema, options);
     }
 
     /**
@@ -801,22 +810,22 @@ export class Client extends Protocol<ClientContext> {
             );
             return { resourceTemplates: [] };
         }
-        return this.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
     }
 
     /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
     /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
-        return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
+        return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
     /**
@@ -858,11 +867,7 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    async callTool(
-        params: CallToolRequest['params'],
-        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
-        options?: RequestOptions
-    ) {
+    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
         // Guard: required-task tools need experimental API
         if (this.isToolTaskRequired(params.name)) {
             throw new ProtocolError(
@@ -871,7 +876,7 @@ export class Client extends Protocol<ClientContext> {
             );
         }
 
-        const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
+        const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
@@ -988,7 +993,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
+        const result = await this._requestWithSchema({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
         this.cacheToolMetadata(result.tools);

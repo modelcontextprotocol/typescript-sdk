@@ -6,22 +6,23 @@
  */
 
 import type {
-    AnySchema,
+    AnyObjectSchema,
     CancelTaskResult,
     CreateMessageRequestParams,
     CreateMessageResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    GetTaskPayloadResult,
     GetTaskResult,
     ListTasksResult,
     Request,
+    RequestMethod,
     RequestOptions,
     ResponseMessage,
-    Result,
-    SchemaOutput
+    ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { CreateMessageResultSchema, ElicitResultSchema } from '@modelcontextprotocol/core';
+import { getResultSchema, GetTaskPayloadResultSchema } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 
@@ -30,7 +31,7 @@ import type { Server } from '../../server/server.js';
  *
  * Access via `server.experimental.tasks`:
  * ```typescript
- * const stream = server.experimental.tasks.requestStream(request, schema, options);
+ * const stream = server.experimental.tasks.requestStream(request, options);
  * ```
  *
  * For high-level server usage with task-based tools, use {@linkcode index.McpServer | McpServer}.experimental.tasks instead.
@@ -40,6 +41,10 @@ import type { Server } from '../../server/server.js';
 export class ExperimentalServerTasks {
     constructor(private readonly _server: Server) {}
 
+    private get _module() {
+        return this._server.taskManager;
+    }
+
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
      * The generator is guaranteed to end with either a `'result'` or `'error'` message.
@@ -47,27 +52,22 @@ export class ExperimentalServerTasks {
      * This method provides streaming access to request processing, allowing you to
      * observe intermediate task status updates for task-augmented requests.
      *
-     * @param request - The request to send
-     * @param resultSchema - Zod schema for validating the result
+     * @param request - The request to send (method name determines the result schema)
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
      * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
-    requestStream<T extends AnySchema>(
-        request: Request,
-        resultSchema: T,
+    requestStream<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T> & Result>, void, void> {
-        // Delegate to the server's underlying Protocol method
-        type ServerWithRequestStream = {
-            requestStream<U extends AnySchema>(
-                request: Request,
-                resultSchema: U,
-                options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U> & Result>, void, void>;
-        };
-        return (this._server as unknown as ServerWithRequestStream).requestStream(request, resultSchema, options);
+    ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
+        const resultSchema = getResultSchema(request.method) as unknown as AnyObjectSchema;
+        return this._module.requestStream(request as Request, resultSchema, options) as AsyncGenerator<
+            ResponseMessage<ResultTypeMap[M]>,
+            void,
+            void
+        >;
     }
 
     /**
@@ -163,9 +163,8 @@ export class ExperimentalServerTasks {
                 method: 'sampling/createMessage',
                 params
             },
-            CreateMessageResultSchema,
             options
-        );
+        ) as AsyncGenerator<ResponseMessage<CreateMessageResult>, void, void>;
     }
 
     /**
@@ -241,9 +240,8 @@ export class ExperimentalServerTasks {
                 method: 'elicitation/create',
                 params: normalizedParams
             },
-            ElicitResultSchema,
             options
-        );
+        ) as AsyncGenerator<ResponseMessage<ElicitResult>, void, void>;
     }
 
     /**
@@ -256,30 +254,21 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async getTask(taskId: string, options?: RequestOptions): Promise<GetTaskResult> {
-        type ServerWithGetTask = { getTask(params: { taskId: string }, options?: RequestOptions): Promise<GetTaskResult> };
-        return (this._server as unknown as ServerWithGetTask).getTask({ taskId }, options);
+        return this._module.getTask({ taskId }, options);
     }
 
     /**
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options
-     * @returns The task result
+     * @returns The task result. The payload structure matches the result type of the
+     *   original request (e.g., a `tools/call` task returns a `CallToolResult`).
      *
      * @experimental
      */
-    async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        return (
-            this._server as unknown as {
-                getTaskResult: <U extends AnySchema>(
-                    params: { taskId: string },
-                    resultSchema?: U,
-                    options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
-            }
-        ).getTaskResult({ taskId }, resultSchema, options);
+    async getTaskResult(taskId: string, options?: RequestOptions): Promise<GetTaskPayloadResult> {
+        return this._module.getTaskResult({ taskId }, GetTaskPayloadResultSchema, options);
     }
 
     /**
@@ -292,11 +281,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async listTasks(cursor?: string, options?: RequestOptions): Promise<ListTasksResult> {
-        return (
-            this._server as unknown as {
-                listTasks: (params?: { cursor?: string }, options?: RequestOptions) => Promise<ListTasksResult>;
-            }
-        ).listTasks(cursor ? { cursor } : undefined, options);
+        return this._module.listTasks(cursor ? { cursor } : undefined, options);
     }
 
     /**
@@ -308,10 +293,6 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async cancelTask(taskId: string, options?: RequestOptions): Promise<CancelTaskResult> {
-        return (
-            this._server as unknown as {
-                cancelTask: (params: { taskId: string }, options?: RequestOptions) => Promise<CancelTaskResult>;
-            }
-        ).cancelTask({ taskId }, options);
+        return this._module.cancelTask({ taskId }, options);
     }
 }

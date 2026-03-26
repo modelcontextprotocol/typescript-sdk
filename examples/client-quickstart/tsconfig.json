@@ -15,6 +15,9 @@
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
             "@modelcontextprotocol/core": [
                 "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core/src/index.ts"
+            ],
+            "@modelcontextprotocol/core/public": [
+                "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"
             ]
         }
     },

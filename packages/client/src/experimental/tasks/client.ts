@@ -8,15 +8,25 @@
 import type {
     AnyObjectSchema,
     CallToolRequest,
+    CallToolResult,
     CancelTaskResult,
+    CreateTaskResult,
+    GetTaskPayloadResult,
     GetTaskResult,
     ListTasksResult,
     Request,
+    RequestMethod,
     RequestOptions,
     ResponseMessage,
-    SchemaOutput
+    ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { CallToolResultSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
+import {
+    CallToolResultSchema,
+    getResultSchema,
+    GetTaskPayloadResultSchema,
+    ProtocolError,
+    ProtocolErrorCode
+} from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 
@@ -25,11 +35,6 @@ import type { Client } from '../../client/client.js';
  * @internal
  */
 interface ClientInternal {
-    requestStream<T extends AnyObjectSchema>(
-        request: Request,
-        resultSchema: T,
-        options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void>;
     isToolTask(toolName: string): boolean;
     getToolOutputValidator(toolName: string): ((data: unknown) => { valid: boolean; errorMessage?: string }) | undefined;
 }
@@ -47,6 +52,10 @@ interface ClientInternal {
  */
 export class ExperimentalClientTasks {
     constructor(private readonly _client: Client) {}
+
+    private get _module() {
+        return this._client.taskManager;
+    }
 
     /**
      * Calls a tool and returns an AsyncGenerator that yields response messages.
@@ -90,7 +99,7 @@ export class ExperimentalClientTasks {
     async *callToolStream(
         params: CallToolRequest['params'],
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<typeof CallToolResultSchema>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<CallToolResult | CreateTaskResult>, void, void> {
         // Access Client's internal methods
         const clientInternal = this._client as unknown as ClientInternal;
 
@@ -102,7 +111,7 @@ export class ExperimentalClientTasks {
             task: options?.task ?? (clientInternal.isToolTask(params.name) ? {} : undefined)
         };
 
-        const stream = clientInternal.requestStream({ method: 'tools/call', params }, CallToolResultSchema, optionsWithTask);
+        const stream = this._module.requestStream({ method: 'tools/call', params }, CallToolResultSchema, optionsWithTask);
 
         // Get the validator for this tool (if it has an output schema)
         const validator = clientInternal.getToolOutputValidator(params.name);
@@ -110,8 +119,9 @@ export class ExperimentalClientTasks {
         // Iterate through the stream and validate the final result if needed
         for await (const message of stream) {
             // If this is a result message and the tool has an output schema, validate it
-            if (message.type === 'result' && validator) {
-                const result = message.result;
+            // Only validate CallToolResult (has 'content'), not CreateTaskResult (has 'task')
+            if (message.type === 'result' && validator && 'content' in message.result) {
+                const result = message.result as CallToolResult;
 
                 // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
                 if (!result.structuredContent && !result.isError) {
@@ -173,32 +183,21 @@ export class ExperimentalClientTasks {
      * @experimental
      */
     async getTask(taskId: string, options?: RequestOptions): Promise<GetTaskResult> {
-        // Delegate to the client's underlying Protocol method
-        type ClientWithGetTask = { getTask(params: { taskId: string }, options?: RequestOptions): Promise<GetTaskResult> };
-        return (this._client as unknown as ClientWithGetTask).getTask({ taskId }, options);
+        return this._module.getTask({ taskId }, options);
     }
 
     /**
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options
-     * @returns The task result
+     * @returns The task result. The payload structure matches the result type of the
+     *   original request (e.g., a `tools/call` task returns a `CallToolResult`).
      *
      * @experimental
      */
-    async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        // Delegate to the client's underlying Protocol method
-        return (
-            this._client as unknown as {
-                getTaskResult: <U extends AnyObjectSchema>(
-                    params: { taskId: string },
-                    resultSchema?: U,
-                    options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
-            }
-        ).getTaskResult({ taskId }, resultSchema, options);
+    async getTaskResult(taskId: string, options?: RequestOptions): Promise<GetTaskPayloadResult> {
+        return this._module.getTaskResult({ taskId }, GetTaskPayloadResultSchema, options);
     }
 
     /**
@@ -211,12 +210,7 @@ export class ExperimentalClientTasks {
      * @experimental
      */
     async listTasks(cursor?: string, options?: RequestOptions): Promise<ListTasksResult> {
-        // Delegate to the client's underlying Protocol method
-        return (
-            this._client as unknown as {
-                listTasks: (params?: { cursor?: string }, options?: RequestOptions) => Promise<ListTasksResult>;
-            }
-        ).listTasks(cursor ? { cursor } : undefined, options);
+        return this._module.listTasks(cursor ? { cursor } : undefined, options);
     }
 
     /**
@@ -228,12 +222,7 @@ export class ExperimentalClientTasks {
      * @experimental
      */
     async cancelTask(taskId: string, options?: RequestOptions): Promise<CancelTaskResult> {
-        // Delegate to the client's underlying Protocol method
-        return (
-            this._client as unknown as {
-                cancelTask: (params: { taskId: string }, options?: RequestOptions) => Promise<CancelTaskResult>;
-            }
-        ).cancelTask({ taskId }, options);
+        return this._module.cancelTask({ taskId }, options);
     }
 
     /**
@@ -245,7 +234,7 @@ export class ExperimentalClientTasks {
      *
      * @example
      * ```ts source="./client.examples.ts#ExperimentalClientTasks_requestStream"
-     * const stream = client.experimental.tasks.requestStream(request, CallToolResultSchema, options);
+     * const stream = client.experimental.tasks.requestStream({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } }, options);
      * for await (const message of stream) {
      *     switch (message.type) {
      *         case 'taskCreated': {
@@ -269,25 +258,20 @@ export class ExperimentalClientTasks {
      * ```
      *
      * @param request - The request to send
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options (timeout, signal, task creation params, etc.)
      * @returns AsyncGenerator that yields {@linkcode ResponseMessage} objects
      *
      * @experimental
      */
-    requestStream<T extends AnyObjectSchema>(
-        request: Request,
-        resultSchema: T,
+    requestStream<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
-        // Delegate to the client's underlying Protocol method
-        type ClientWithRequestStream = {
-            requestStream<U extends AnyObjectSchema>(
-                request: Request,
-                resultSchema: U,
-                options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<SchemaOutput<U>>, void, void>;
-        };
-        return (this._client as unknown as ClientWithRequestStream).requestStream(request, resultSchema, options);
+    ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
+        const resultSchema = getResultSchema(request.method) as unknown as AnyObjectSchema;
+        return this._module.requestStream(request as Request, resultSchema, options) as AsyncGenerator<
+            ResponseMessage<ResultTypeMap[M]>,
+            void,
+            void
+        >;
     }
 }

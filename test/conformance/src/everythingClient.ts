@@ -12,9 +12,17 @@
  * consolidating all the individual test clients into one.
  */
 
-import { Client, ClientCredentialsProvider, PrivateKeyJwtProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import {
+    Client,
+    ClientCredentialsProvider,
+    CrossAppAccessProvider,
+    PrivateKeyJwtProvider,
+    requestJwtAuthorizationGrant,
+    StreamableHTTPClientTransport
+} from '@modelcontextprotocol/client';
 import * as z from 'zod/v4';
 
+import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider.js';
 import { logger } from './helpers/logger.js';
 import { handle401, withOAuthRetry } from './helpers/withOAuthRetry.js';
 
@@ -42,6 +50,20 @@ const ClientConformanceContextSchema = z.discriminatedUnion('name', [
         name: z.literal('auth/client-credentials-basic'),
         client_id: z.string(),
         client_secret: z.string()
+    }),
+    z.object({
+        name: z.literal('auth/pre-registration'),
+        client_id: z.string(),
+        client_secret: z.string()
+    }),
+    z.object({
+        name: z.literal('auth/cross-app-access-complete-flow'),
+        client_id: z.string(),
+        client_secret: z.string(),
+        idp_client_id: z.string(),
+        idp_id_token: z.string(),
+        idp_issuer: z.string(),
+        idp_token_endpoint: z.string()
     })
 ]);
 
@@ -239,6 +261,91 @@ async function runClientCredentialsBasic(serverUrl: string): Promise<void> {
 }
 
 registerScenario('auth/client-credentials-basic', runClientCredentialsBasic);
+
+/**
+ * Cross-App Access (SEP-990 Enterprise Managed Authorization).
+ *
+ * Exchanges an IdP-issued ID token for an ID-JAG (RFC 8693 token exchange at the IdP),
+ * then exchanges the ID-JAG for an access token at the AS (RFC 7523 JWT bearer grant
+ * with client_secret_basic). The provider drives discovery + the JWT bearer step; the
+ * assertion callback handles the IdP exchange using the context-supplied ID token.
+ */
+async function runCrossAppAccessCompleteFlow(serverUrl: string): Promise<void> {
+    const ctx = parseContext();
+    if (ctx.name !== 'auth/cross-app-access-complete-flow') {
+        throw new Error(`Expected cross-app-access context, got ${ctx.name}`);
+    }
+
+    const provider = new CrossAppAccessProvider({
+        clientId: ctx.client_id,
+        clientSecret: ctx.client_secret,
+        assertion: async authCtx => {
+            const result = await requestJwtAuthorizationGrant({
+                tokenEndpoint: ctx.idp_token_endpoint,
+                audience: authCtx.authorizationServerUrl,
+                resource: authCtx.resourceUrl,
+                idToken: ctx.idp_id_token,
+                clientId: ctx.idp_client_id,
+                fetchFn: authCtx.fetchFn
+            });
+            return result.jwtAuthGrant;
+        }
+    });
+
+    const client = new Client({ name: 'conformance-cross-app-access', version: '1.0.0' }, { capabilities: {} });
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        authProvider: provider
+    });
+
+    await client.connect(transport);
+    logger.debug('Successfully connected with cross-app-access auth');
+
+    await client.listTools();
+    logger.debug('Successfully listed tools');
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('auth/cross-app-access-complete-flow', runCrossAppAccessCompleteFlow);
+
+// ============================================================================
+// Pre-registration scenario (no dynamic client registration)
+// ============================================================================
+
+async function runPreRegistrationClient(serverUrl: string): Promise<void> {
+    const ctx = parseContext();
+    if (ctx.name !== 'auth/pre-registration') {
+        throw new Error(`Expected pre-registration context, got ${ctx.name}`);
+    }
+
+    // Create a provider pre-populated with registered credentials,
+    // so the SDK skips dynamic client registration.
+    const provider = new ConformanceOAuthProvider('http://localhost:3000/callback', {
+        client_name: 'conformance-pre-registration',
+        redirect_uris: ['http://localhost:3000/callback']
+    });
+    provider.saveClientInformation({
+        client_id: ctx.client_id,
+        client_secret: ctx.client_secret,
+        redirect_uris: ['http://localhost:3000/callback']
+    });
+
+    const oauthFetch = withOAuthRetry('conformance-pre-registration', new URL(serverUrl), handle401, undefined, provider)(fetch);
+
+    const client = new Client({ name: 'conformance-pre-registration', version: '1.0.0' }, { capabilities: {} });
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        fetch: oauthFetch
+    });
+
+    await client.connect(transport);
+    await client.listTools();
+    await client.callTool({ name: 'test-tool', arguments: {} });
+    await transport.close();
+}
+
+registerScenario('auth/pre-registration', runPreRegistrationClient);
 
 // ============================================================================
 // Elicitation defaults scenario
