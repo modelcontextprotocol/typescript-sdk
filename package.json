@@ -20,14 +20,17 @@
     ],
     "exports": {
         ".": {
+            "types": "./dist/esm/index.d.ts",
             "import": "./dist/esm/index.js",
             "require": "./dist/cjs/index.js"
         },
         "./client": {
+            "types": "./dist/esm/client/index.d.ts",
             "import": "./dist/esm/client/index.js",
             "require": "./dist/cjs/client/index.js"
         },
         "./server": {
+            "types": "./dist/esm/server/index.d.ts",
             "import": "./dist/esm/server/index.js",
             "require": "./dist/cjs/server/index.js"
         },
@@ -52,6 +55,7 @@
             "require": "./dist/cjs/experimental/tasks/index.js"
         },
         "./*": {
+            "types": "./dist/esm/*.d.ts",
             "import": "./dist/esm/*",
             "require": "./dist/cjs/*"
         }
