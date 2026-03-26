@@ -52,13 +52,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 ```typescript
 import { Client, StreamableHTTPClientTransport, StdioClientTransport } from '@modelcontextprotocol/client';
 import { McpServer, StdioServerTransport, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { CallToolResultSchema } from '@modelcontextprotocol/core';
 
 // Node.js HTTP server transport is in the @modelcontextprotocol/node package
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 ```
 
-Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
+Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
 
 ### Dropped Node.js 18 and CommonJS
 
@@ -117,7 +116,7 @@ Server-side OAuth/auth has been removed entirely from the SDK. This includes `mc
 
 Use a dedicated auth library (e.g., `better-auth`) or a full Authorization Server instead. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
 
-Note: `AuthInfo` has moved from `server/auth/types.ts` to `@modelcontextprotocol/core` (it's now a core type).
+Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
 ### `Headers` object instead of plain objects
 
@@ -252,7 +251,7 @@ server.registerTool('greet', {
 }, async ({ name }) => { ... });
 
 // Raw JSON Schema via fromJsonSchema
-import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
 server.registerTool('greet', {
   inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
 }, handler);
@@ -434,6 +433,22 @@ const client = new Client(
 );
 ```
 
+### `InMemoryTransport` removed from public API
+
+`InMemoryTransport` has been removed from the public API surface. It was previously used for in-process client-server connections and testing.
+
+For **testing**, import it directly from the internal core package:
+
+```typescript
+// v1
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
+// v2 (testing only — @modelcontextprotocol/core is internal, not for production use)
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+```
+
+For **production in-process connections**, use `StreamableHTTPClientTransport` with a local server URL, or connect client and server via paired streams.
+
 ### Removed type aliases and deprecated exports
 
 The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
@@ -447,9 +462,9 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
 | `ResourceReference`                      | `ResourceTemplateReference`                      |
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
-All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names in `@modelcontextprotocol/core`.
+All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
 
 **Before (v1):**
 
@@ -460,7 +475,7 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 **After (v2):**
 
 ```typescript
-import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
+import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/server';
 ```
 
 ### Request handler context types
@@ -576,7 +591,7 @@ try {
 **After (v2):**
 
 ```typescript
-import { ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await client.callTool({ name: 'test', arguments: {} });
@@ -633,7 +648,7 @@ try {
 **After (v2):**
 
 ```typescript
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await transport.send(message);
@@ -703,7 +718,7 @@ The `OAUTH_ERRORS` constant has also been removed.
 **Before (v1):**
 
 ```typescript
-import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/client';
 
 try {
     await refreshToken();
@@ -721,7 +736,7 @@ try {
 **After (v2):**
 
 ```typescript
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await refreshToken();
