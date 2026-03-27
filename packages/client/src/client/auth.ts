@@ -120,12 +120,25 @@ export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx
  * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
  */
 export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider {
+    let inflightRefresh: Promise<void> | undefined;
     return {
         token: async () => {
             const tokens = await provider.tokens();
             return tokens?.access_token;
         },
-        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
+        onUnauthorized: async ctx => {
+            // Deduplicate concurrent 401 handlers to prevent multiple
+            // refresh token exchanges. OAuth providers with rotating
+            // refresh tokens (RFC 6819 5.2.2.3) revoke the entire
+            // token family when a refresh token is used more than once.
+            if (inflightRefresh) {
+                return inflightRefresh;
+            }
+            inflightRefresh = handleOAuthUnauthorized(provider, ctx).finally(() => {
+                inflightRefresh = undefined;
+            });
+            return inflightRefresh;
+        }
     };
 }
 
