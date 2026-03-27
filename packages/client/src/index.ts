@@ -64,7 +64,6 @@ export type { StdioServerParameters } from './client/stdio.js';
 export { DEFAULT_INHERITED_ENV_VARS, getDefaultEnvironment, StdioClientTransport } from './client/stdio.js';
 export type { StartSSEOptions, StreamableHTTPClientTransportOptions, StreamableHTTPReconnectionOptions } from './client/streamableHttp.js';
 export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
-export { WebSocketClientTransport } from './client/websocket.js';
 
 // experimental exports
 export { ExperimentalClientTasks } from './experimental/tasks/client.js';

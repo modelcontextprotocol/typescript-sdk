@@ -110,6 +110,26 @@ const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: ()
 
 The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
 
+### `WebSocketClientTransport` removed
+
+`WebSocketClientTransport` has been removed. WebSocket is not a spec-defined MCP transport, and keeping it in the SDK encouraged transport proliferation without a conformance baseline.
+
+Use `StdioClientTransport` for local servers or `StreamableHTTPClientTransport` for remote servers. If you need WebSocket for a custom deployment, implement the `Transport` interface directly — it remains exported from `@modelcontextprotocol/client`.
+
+**Before (v1):**
+
+```typescript
+import { WebSocketClientTransport } from '@modelcontextprotocol/sdk/client/websocket.js';
+const transport = new WebSocketClientTransport(new URL('ws://localhost:3000'));
+```
+
+**After (v2):**
+
+```typescript
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
+```
+
 ### Server auth removed
 
 Server-side OAuth/auth has been removed entirely from the SDK. This includes `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and all associated types.

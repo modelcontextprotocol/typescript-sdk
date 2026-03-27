@@ -43,7 +43,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/client/streamableHttp.js` | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/sse.js`            | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/websocket.js`      | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/websocket.js`      | REMOVED (use Streamable HTTP or stdio; implement `Transport` for custom needs) |
 
 ### Server imports
 
@@ -96,6 +96,7 @@ Notes:
 | `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
 | `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                          |
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
+| `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`) |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
