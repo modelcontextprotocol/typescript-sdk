@@ -801,6 +801,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
         let onAbort: (() => void) | undefined;
+        let cleanupMessageId: number | undefined;
 
         // Send the request
         return new Promise<SchemaOutput<T>>((resolve, reject) => {
@@ -825,6 +826,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             options?.signal?.throwIfAborted();
 
             const messageId = this._requestMessageId++;
+            cleanupMessageId = messageId;
             const jsonrpcRequest: JSONRPCRequest = {
                 ...request,
                 jsonrpc: '2.0',
@@ -843,9 +845,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             }
 
             const cancel = (reason: unknown) => {
-                this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
 
                 this._transport
                     ?.send(
@@ -908,16 +908,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             let outboundQueued = false;
             try {
                 const taskResult = this._taskManager.processOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, error => {
-                    this._cleanupTimeout(messageId);
+                    this._progressHandlers.delete(messageId);
                     reject(error);
                 });
                 if (taskResult.queued) {
                     outboundQueued = true;
                 }
             } catch (error) {
-                this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
                 reject(error);
                 return;
             }
@@ -925,15 +923,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
             if (!outboundQueued) {
                 // No related task or no module - send through transport normally
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                    this._cleanupTimeout(messageId);
+                    this._progressHandlers.delete(messageId);
                     reject(error);
                 });
             }
         }).finally(() => {
-            // Detach the abort listener once the request settles so it doesn't
-            // accumulate on a caller-supplied signal reused across requests.
+            // Per-request cleanup that must run on every exit path. Consolidated
+            // here so new exit paths added to the promise body can't forget it.
+            // _progressHandlers is NOT cleaned up here: _onresponse deletes it
+            // conditionally (preserveProgress for task flows), and error paths
+            // above delete it inline since no task exists in those cases.
             if (onAbort) {
                 options?.signal?.removeEventListener('abort', onAbort);
+            }
+            if (cleanupMessageId !== undefined) {
+                this._responseHandlers.delete(cleanupMessageId);
+                this._cleanupTimeout(cleanupMessageId);
             }
         });
     }

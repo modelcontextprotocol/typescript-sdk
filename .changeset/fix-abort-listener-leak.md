@@ -2,4 +2,4 @@
 '@modelcontextprotocol/core': patch
 ---
 
-Fix abort signal listener leak in outbound requests. When a caller reuses a single `AbortSignal` across multiple requests (common for session-scoped cancellation), the SDK previously attached a new listener per request without ever removing it. The listener is now detached when the request settles.
+Consolidate per-request cleanup in `_requestWithSchema` into a single `.finally()` block. This fixes an abort signal listener leak (listeners accumulated when a caller reused one `AbortSignal` across requests) and two cases where `_responseHandlers` entries leaked on send-failure paths.
