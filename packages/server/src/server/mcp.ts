@@ -333,7 +333,9 @@ export class McpServer {
 
         // Return the final result
         const result = (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
-        await this.validateToolOutput(tool, result, request.params.name);
+        if (task.status === 'completed') {
+            await this.validateToolOutput(tool, result, request.params.name);
+        }
         return result;
     }
 
