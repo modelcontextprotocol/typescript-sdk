@@ -86,6 +86,43 @@ describe('Zod v4', () => {
             ]);
         });
 
+        test('should forward notification options for list changed helpers', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        resources: {},
+                        prompts: {}
+                    }
+                }
+            );
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const sendToolListChangedSpy = vi.spyOn(mcpServer.server, 'sendToolListChanged');
+            const sendResourceListChangedSpy = vi.spyOn(mcpServer.server, 'sendResourceListChanged');
+            const sendPromptListChangedSpy = vi.spyOn(mcpServer.server, 'sendPromptListChanged');
+
+            await expect(mcpServer.sendToolListChanged({ relatedRequestId: 21 })).resolves.toBeUndefined();
+            await expect(mcpServer.sendResourceListChanged({ relatedRequestId: 22 })).resolves.toBeUndefined();
+            await expect(mcpServer.sendPromptListChanged({ relatedRequestId: 23 })).resolves.toBeUndefined();
+
+            expect(sendToolListChangedSpy).toHaveBeenCalledWith(expect.objectContaining({ relatedRequestId: 21 }));
+            expect(sendResourceListChangedSpy).toHaveBeenCalledWith(expect.objectContaining({ relatedRequestId: 22 }));
+            expect(sendPromptListChangedSpy).toHaveBeenCalledWith(expect.objectContaining({ relatedRequestId: 23 }));
+        });
+
         /***
          * Test: ctx.mcpReq.log convenience method
          */

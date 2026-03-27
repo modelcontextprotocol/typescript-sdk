@@ -859,6 +859,59 @@ test('should forward notification options when using elicitation completion noti
     );
 });
 
+test('should forward notification options for list changed notifications', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                tools: {},
+                resources: {},
+                prompts: {}
+            }
+        }
+    );
+
+    const client = new Client({
+        name: 'test client',
+        version: '1.0'
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const notificationSpy = vi.spyOn(server, 'notification');
+
+    await server.sendToolListChanged({ relatedRequestId: 11 });
+    await server.sendResourceListChanged({ relatedRequestId: 12 });
+    await server.sendPromptListChanged({ relatedRequestId: 13 });
+
+    expect(notificationSpy).toHaveBeenNthCalledWith(
+        1,
+        {
+            method: 'notifications/tools/list_changed'
+        },
+        expect.objectContaining({ relatedRequestId: 11 })
+    );
+    expect(notificationSpy).toHaveBeenNthCalledWith(
+        2,
+        {
+            method: 'notifications/resources/list_changed'
+        },
+        expect.objectContaining({ relatedRequestId: 12 })
+    );
+    expect(notificationSpy).toHaveBeenNthCalledWith(
+        3,
+        {
+            method: 'notifications/prompts/list_changed'
+        },
+        expect.objectContaining({ relatedRequestId: 13 })
+    );
+});
+
 test('should create notifier that emits elicitation completion notification', async () => {
     const server = new Server(
         {

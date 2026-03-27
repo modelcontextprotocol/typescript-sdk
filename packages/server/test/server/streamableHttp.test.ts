@@ -107,6 +107,13 @@ function parseSSEData(text: string): unknown {
     return JSON.parse(dataLine.slice(5).trim());
 }
 
+function parseSSEEvents(text: string): unknown[] {
+    return text
+        .split('\n\n')
+        .filter(event => event.includes('data:'))
+        .map(event => parseSSEData(event));
+}
+
 function expectErrorResponse(data: unknown, expectedCode: number, expectedMessagePattern: RegExp): void {
     expect(data).toMatchObject({
         jsonrpc: '2.0',
@@ -471,6 +478,45 @@ describe('Zod v4', () => {
             const response = await transport.handleRequest(request);
 
             expect(response.status).toBe(200);
+        });
+
+        it('should send list changed notifications inline on the POST SSE stream when relatedRequestId is provided', async () => {
+            mcpServer.registerTool('refresh-tools', { description: 'Refresh tool list' }, async ctx => {
+                await mcpServer.sendToolListChanged({ relatedRequestId: ctx.mcpReq.id });
+                return { content: [{ type: 'text', text: 'refreshed' }] };
+            });
+
+            const initRequest = createRequest('POST', TEST_MESSAGES.initialize);
+            await transport.handleRequest(initRequest);
+
+            const toolCallMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: {
+                    name: 'refresh-tools'
+                },
+                id: 'call-1'
+            };
+
+            const request = createRequest('POST', toolCallMessage);
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+
+            const events = parseSSEEvents(await response.text());
+
+            expect(events).toMatchObject([
+                {
+                    method: 'notifications/tools/list_changed'
+                },
+                {
+                    jsonrpc: '2.0',
+                    id: 'call-1',
+                    result: {
+                        content: [{ type: 'text', text: 'refreshed' }]
+                    }
+                }
+            ]);
         });
     });
 

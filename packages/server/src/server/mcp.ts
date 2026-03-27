@@ -13,6 +13,7 @@ import type {
     ListResourcesResult,
     ListToolsResult,
     LoggingMessageNotification,
+    NotificationOptions,
     Prompt,
     PromptReference,
     ReadResourceResult,
@@ -599,7 +600,7 @@ export class McpServer {
             );
 
             this.setResourceRequestHandlers();
-            this.sendResourceListChanged();
+            void this.sendResourceListChanged();
             return registeredResource;
         } else {
             if (this._registeredResourceTemplates[name]) {
@@ -615,7 +616,7 @@ export class McpServer {
             );
 
             this.setResourceRequestHandlers();
-            this.sendResourceListChanged();
+            void this.sendResourceListChanged();
             return registeredResourceTemplate;
         }
     }
@@ -646,7 +647,7 @@ export class McpServer {
                 if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
                 if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
-                this.sendResourceListChanged();
+                void this.sendResourceListChanged();
             }
         };
         this._registeredResources[uri] = registeredResource;
@@ -679,7 +680,7 @@ export class McpServer {
                 if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
                 if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
-                this.sendResourceListChanged();
+                void this.sendResourceListChanged();
             }
         };
         this._registeredResourceTemplates[name] = registeredResourceTemplate;
@@ -738,7 +739,7 @@ export class McpServer {
                 }
 
                 if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
-                this.sendPromptListChanged();
+                void this.sendPromptListChanged();
             }
         };
         this._registeredPrompts[name] = registeredPrompt;
@@ -821,13 +822,13 @@ export class McpServer {
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
-                this.sendToolListChanged();
+                void this.sendToolListChanged();
             }
         };
         this._registeredTools[name] = registeredTool;
 
         this.setToolRequestHandlers();
-        this.sendToolListChanged();
+        void this.sendToolListChanged();
 
         return registeredTool;
     }
@@ -939,7 +940,7 @@ export class McpServer {
         );
 
         this.setPromptRequestHandlers();
-        this.sendPromptListChanged();
+        void this.sendPromptListChanged();
 
         return registeredPrompt;
     }
@@ -973,28 +974,31 @@ export class McpServer {
     /**
      * Sends a resource list changed event to the client, if connected.
      */
-    sendResourceListChanged() {
-        if (this.isConnected()) {
-            this.server.sendResourceListChanged();
+    sendResourceListChanged(options?: NotificationOptions) {
+        if (!this.isConnected()) {
+            return;
         }
+        return this.server.sendResourceListChanged(options);
     }
 
     /**
      * Sends a tool list changed event to the client, if connected.
      */
-    sendToolListChanged() {
-        if (this.isConnected()) {
-            this.server.sendToolListChanged();
+    sendToolListChanged(options?: NotificationOptions) {
+        if (!this.isConnected()) {
+            return;
         }
+        return this.server.sendToolListChanged(options);
     }
 
     /**
      * Sends a prompt list changed event to the client, if connected.
      */
-    sendPromptListChanged() {
-        if (this.isConnected()) {
-            this.server.sendPromptListChanged();
+    sendPromptListChanged(options?: NotificationOptions) {
+        if (!this.isConnected()) {
+            return;
         }
+        return this.server.sendPromptListChanged(options);
     }
 }
 
