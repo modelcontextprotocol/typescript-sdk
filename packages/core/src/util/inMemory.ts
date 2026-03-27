@@ -1,5 +1,6 @@
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { Transport } from '../shared/transport.js';
-import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/types.js';
+import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/index.js';
 
 interface QueuedMessage {
     message: JSONRPCMessage;
@@ -12,6 +13,7 @@ interface QueuedMessage {
 export class InMemoryTransport implements Transport {
     private _otherTransport?: InMemoryTransport;
     private _messageQueue: QueuedMessage[] = [];
+    private _closed = false;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -19,7 +21,7 @@ export class InMemoryTransport implements Transport {
     sessionId?: string;
 
     /**
-     * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a Client and one to a Server.
+     * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a {@linkcode @modelcontextprotocol/client!client/client.Client | Client} and one to a {@linkcode @modelcontextprotocol/server!server/server.Server | Server}.
      */
     static createLinkedPair(): [InMemoryTransport, InMemoryTransport] {
         const clientTransport = new InMemoryTransport();
@@ -38,10 +40,16 @@ export class InMemoryTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) return;
+        this._closed = true;
+
         const other = this._otherTransport;
         this._otherTransport = undefined;
-        await other?.close();
-        this.onclose?.();
+        try {
+            await other?.close();
+        } finally {
+            this.onclose?.();
+        }
     }
 
     /**
@@ -50,7 +58,7 @@ export class InMemoryTransport implements Transport {
      */
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId; authInfo?: AuthInfo }): Promise<void> {
         if (!this._otherTransport) {
-            throw new Error('Not connected');
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
         if (this._otherTransport.onmessage) {

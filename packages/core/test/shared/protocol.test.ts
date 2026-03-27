@@ -1,7 +1,7 @@
 import type { MockInstance } from 'vitest';
 import { vi } from 'vitest';
-import type { ZodType } from 'zod';
-import { z } from 'zod';
+import * as z from 'zod/v4';
+import type { ZodType } from 'zod/v4';
 
 import type {
     QueuedMessage,
@@ -11,15 +11,20 @@ import type {
     TaskStore
 } from '../../src/experimental/tasks/interfaces.js';
 import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/inMemory.js';
+import type { BaseContext } from '../../src/shared/protocol.js';
 import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
 import type { ErrorMessage, ResponseMessage } from '../../src/shared/responseMessage.js';
 import { toArrayAsync } from '../../src/shared/responseMessage.js';
+import type { TaskManagerOptions } from '../../src/shared/taskManager.js';
+import { NullTaskManager, TaskManager } from '../../src/shared/taskManager.js';
 import type { Transport, TransportSendOptions } from '../../src/shared/transport.js';
 import type {
     ClientCapabilities,
     JSONRPCErrorResponse,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     JSONRPCResultResponse,
     Notification,
     Request,
@@ -28,21 +33,38 @@ import type {
     ServerCapabilities,
     Task,
     TaskCreationParams
-} from '../../src/types/types.js';
-import { CallToolRequestSchema, ErrorCode, McpError, RELATED_TASK_META_KEY } from '../../src/types/types.js';
+} from '../../src/types/index.js';
+import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/index.js';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
+
+// Test Protocol subclass for testing
+class TestProtocolImpl extends Protocol<BaseContext> {
+    protected assertCapabilityForMethod(): void {}
+    protected assertNotificationCapability(): void {}
+    protected assertRequestHandlerCapability(): void {}
+    protected assertTaskCapability(): void {}
+    protected assertTaskHandlerCapability(): void {}
+    protected buildContext(ctx: BaseContext): BaseContext {
+        return ctx;
+    }
+}
+
+function createTestProtocol(taskOptions?: TaskManagerOptions): TestProtocolImpl {
+    return new TestProtocolImpl(taskOptions ? { tasks: taskOptions } : undefined);
+}
 
 // Type helper for accessing private/protected Protocol properties in tests
-interface TestProtocol {
-    _taskMessageQueue?: TaskMessageQueue;
-    _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
+interface TestProtocolInternals {
     _responseHandlers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
-    _taskProgressTokens: Map<string, number>;
-    _clearTaskQueue: (taskId: string, sessionId?: string) => Promise<void>;
-    requestTaskStore: (request: Request, authInfo: unknown) => TaskStore;
-    // Protected task methods (exposed for testing)
-    listTasks: (params?: { cursor?: string }) => Promise<{ tasks: Task[]; nextCursor?: string }>;
-    cancelTask: (params: { taskId: string }) => Promise<Result>;
-    requestStream: <T extends Result>(request: Request, schema: ZodType<T>, options?: unknown) => AsyncGenerator<ResponseMessage<T>>;
+    _taskManager: {
+        _taskMessageQueue?: TaskMessageQueue;
+        _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
+        _taskProgressTokens: Map<string, number>;
+        _clearTaskQueue: (taskId: string, sessionId?: string) => Promise<void>;
+        listTasks: (params?: { cursor?: string }) => Promise<{ tasks: Task[]; nextCursor?: string }>;
+        cancelTask: (params: { taskId: string }) => Promise<Result>;
+        requestStream: <T extends Result>(request: Request, schema: ZodType<T>, options?: unknown) => AsyncGenerator<ResponseMessage<T>>;
+    };
 }
 
 // Mock Transport class
@@ -147,21 +169,26 @@ function assertQueuedRequest(o?: QueuedMessage): asserts o is QueuedRequest {
     expect(o?.type).toBe('request');
 }
 
+/**
+ * Helper to call the protected _requestWithSchema method from tests that
+ * use custom method names not present in RequestMethod.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function testRequest(proto: Protocol<BaseContext>, request: Request, resultSchema: ZodType, options?: any) {
+    return (
+        proto as unknown as { _requestWithSchema: (request: Request, resultSchema: ZodType, options?: unknown) => Promise<unknown> }
+    )._requestWithSchema(request, resultSchema, options);
+}
+
 describe('protocol tests', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transport: MockTransport;
     let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();
         sendSpy = vi.spyOn(transport, 'send');
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
+        protocol = createTestProtocol();
     });
 
     test('should throw a timeout error if the request exceeds the timeout', async () => {
@@ -171,13 +198,13 @@ describe('protocol tests', () => {
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
-            await protocol.request(request, mockSchema, {
+            await testRequest(protocol, request, mockSchema, {
                 timeout: 0
             });
         } catch (error) {
-            expect(error).toBeInstanceOf(McpError);
-            if (error instanceof McpError) {
-                expect(error.code).toBe(ErrorCode.RequestTimeout);
+            expect(error).toBeInstanceOf(SdkError);
+            if (error instanceof SdkError) {
+                expect(error.code).toBe(SdkErrorCode.RequestTimeout);
             }
         }
     });
@@ -188,6 +215,36 @@ describe('protocol tests', () => {
         await protocol.connect(transport);
         await transport.close();
         expect(oncloseMock).toHaveBeenCalled();
+    });
+
+    test('should abort in-flight request handlers when the connection is closed', async () => {
+        await protocol.connect(transport);
+
+        let abortReason: unknown;
+        let handlerStarted = false;
+        const handlerDone = new Promise<void>(resolve => {
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                handlerStarted = true;
+                await new Promise<void>(resolveInner => {
+                    ctx.mcpReq.signal.addEventListener('abort', () => {
+                        abortReason = ctx.mcpReq.signal.reason;
+                        resolveInner();
+                    });
+                });
+                resolve();
+                return {};
+            });
+        });
+
+        transport.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
+
+        await vi.waitFor(() => expect(handlerStarted).toBe(true));
+
+        await transport.close();
+        await handlerDone;
+
+        expect(abortReason).toBeInstanceOf(SdkError);
+        expect((abortReason as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
     });
 
     test('should not overwrite existing hooks when connecting transports', async () => {
@@ -225,13 +282,11 @@ describe('protocol tests', () => {
             const onProgressMock = vi.fn();
 
             // Start request but don't await - we're testing the sent message
-            void protocol
-                .request(request, mockSchema, {
-                    onprogress: onProgressMock
-                })
-                .catch(() => {
-                    // May not complete, ignore error
-                });
+            void testRequest(protocol, request, mockSchema, {
+                onprogress: onProgressMock
+            }).catch(() => {
+                // May not complete, ignore error
+            });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -265,13 +320,11 @@ describe('protocol tests', () => {
             const onProgressMock = vi.fn();
 
             // Start request but don't await - we're testing the sent message
-            void protocol
-                .request(request, mockSchema, {
-                    onprogress: onProgressMock
-                })
-                .catch(() => {
-                    // May not complete, ignore error
-                });
+            void testRequest(protocol, request, mockSchema, {
+                onprogress: onProgressMock
+            }).catch(() => {
+                // May not complete, ignore error
+            });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -305,7 +358,7 @@ describe('protocol tests', () => {
             });
 
             // Start request but don't await - we're testing the sent message
-            void protocol.request(request, mockSchema).catch(() => {
+            void testRequest(protocol, request, mockSchema).catch(() => {
                 // May not complete, ignore error
             });
 
@@ -336,13 +389,11 @@ describe('protocol tests', () => {
             const onProgressMock = vi.fn();
 
             // Start request but don't await - we're testing the sent message
-            void protocol
-                .request(request, mockSchema, {
-                    onprogress: onProgressMock
-                })
-                .catch(() => {
-                    // May not complete, ignore error
-                });
+            void testRequest(protocol, request, mockSchema, {
+                onprogress: onProgressMock
+            }).catch(() => {
+                // May not complete, ignore error
+            });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -375,7 +426,7 @@ describe('protocol tests', () => {
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = testRequest(protocol, request, mockSchema, {
                 timeout: 1000,
                 resetTimeoutOnProgress: false,
                 onprogress: onProgressMock
@@ -413,7 +464,7 @@ describe('protocol tests', () => {
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = testRequest(protocol, request, mockSchema, {
                 timeout: 1000,
                 resetTimeoutOnProgress: true,
                 onprogress: onProgressMock
@@ -454,7 +505,7 @@ describe('protocol tests', () => {
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = testRequest(protocol, request, mockSchema, {
                 timeout: 1000,
                 maxTotalTimeout: 150,
                 resetTimeoutOnProgress: true,
@@ -501,7 +552,7 @@ describe('protocol tests', () => {
             const mockSchema: ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = testRequest(protocol, request, mockSchema, {
                 timeout: 100,
                 resetTimeoutOnProgress: true
             });
@@ -516,7 +567,7 @@ describe('protocol tests', () => {
                 result: z.string()
             });
             const onProgressMock = vi.fn();
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = testRequest(protocol, request, mockSchema, {
                 timeout: 1000,
                 resetTimeoutOnProgress: true,
                 onprogress: onProgressMock
@@ -561,7 +612,7 @@ describe('protocol tests', () => {
             });
             const onProgressMock = vi.fn();
 
-            const requestPromise = protocol.request(request, mockSchema, {
+            const requestPromise = testRequest(protocol, request, mockSchema, {
                 timeout: 1000,
                 onprogress: onProgressMock
             });
@@ -629,13 +680,7 @@ describe('protocol tests', () => {
 
         it('should NOT debounce a notification that has parameters', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ debouncedNotificationMethods: ['test/debounced_with_params'] });
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_params'] });
             await protocol.connect(transport);
 
             // ACT
@@ -652,13 +697,7 @@ describe('protocol tests', () => {
 
         it('should NOT debounce a notification that has a relatedRequestId', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
             await protocol.connect(transport);
 
             // ACT
@@ -673,13 +712,7 @@ describe('protocol tests', () => {
 
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ debouncedNotificationMethods: ['test/debounced'] });
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
             // ACT
@@ -699,13 +732,7 @@ describe('protocol tests', () => {
 
         it('should debounce multiple synchronous calls when params property is omitted', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ debouncedNotificationMethods: ['test/debounced'] });
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
             // ACT
@@ -728,13 +755,7 @@ describe('protocol tests', () => {
 
         it('should debounce calls when params is explicitly undefined', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ debouncedNotificationMethods: ['test/debounced'] });
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
             // ACT
@@ -755,13 +776,7 @@ describe('protocol tests', () => {
 
         it('should send non-debounced notifications immediately and multiple times', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ debouncedNotificationMethods: ['test/debounced'] }); // Configure for a different method
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] }); // Configure for a different method
             await protocol.connect(transport);
 
             // ACT
@@ -790,13 +805,7 @@ describe('protocol tests', () => {
 
         it('should handle sequential batches of debounced notifications correctly', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ debouncedNotificationMethods: ['test/debounced'] });
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
             // ACT (Batch 1)
@@ -1002,20 +1011,14 @@ describe('mergeCapabilities', () => {
 });
 
 describe('Task-based execution', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transport: MockTransport;
     let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();
         sendSpy = vi.spyOn(transport, 'send');
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore: createMockTaskStore(), taskMessageQueue: new InMemoryTaskMessageQueue() });
+        protocol = createTestProtocol({ taskStore: createMockTaskStore(), taskMessageQueue: new InMemoryTaskMessageQueue() });
     });
 
     describe('request with task metadata', () => {
@@ -1031,16 +1034,14 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            void protocol
-                .request(request, resultSchema, {
-                    task: {
-                        ttl: 30000,
-                        pollInterval: 1000
-                    }
-                })
-                .catch(() => {
-                    // May not complete, ignore error
-                });
+            void testRequest(protocol, request, resultSchema, {
+                task: {
+                    ttl: 30000,
+                    pollInterval: 1000
+                }
+            }).catch(() => {
+                // May not complete, ignore error
+            });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1074,15 +1075,13 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            void protocol
-                .request(request, resultSchema, {
-                    task: {
-                        ttl: 60000
-                    }
-                })
-                .catch(() => {
-                    // May not complete, ignore error
-                });
+            void testRequest(protocol, request, resultSchema, {
+                task: {
+                    ttl: 60000
+                }
+            }).catch(() => {
+                // May not complete, ignore error
+            });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1112,7 +1111,7 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            const resultPromise = protocol.request(request, resultSchema, {
+            const resultPromise = testRequest(protocol, request, resultSchema, {
                 task: {
                     ttl: 30000
                 }
@@ -1135,15 +1134,13 @@ describe('Task-based execution', () => {
             const resultSchema = z.object({});
 
             // Start the request (don't await completion, just let it send)
-            void protocol
-                .request(request, resultSchema, {
-                    relatedTask: {
-                        taskId: 'parent-task-123'
-                    }
-                })
-                .catch(() => {
-                    // May not complete, ignore error
-                });
+            void testRequest(protocol, request, resultSchema, {
+                relatedTask: {
+                    taskId: 'parent-task-123'
+                }
+            }).catch(() => {
+                // May not complete, ignore error
+            });
 
             // Wait a bit for the request to be queued
             await new Promise(resolve => setTimeout(resolve, 10));
@@ -1153,7 +1150,7 @@ describe('Task-based execution', () => {
             expect(sendSpy).not.toHaveBeenCalled();
 
             // Verify the message was queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
         });
 
@@ -1177,7 +1174,7 @@ describe('Task-based execution', () => {
             expect(sendSpy).not.toHaveBeenCalled();
 
             // Verify the message was queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('parent-task-456');
@@ -1201,20 +1198,18 @@ describe('Task-based execution', () => {
             });
 
             // Start the request (don't await completion, just let it send)
-            void protocol
-                .request(request, resultSchema, {
-                    task: {
-                        ttl: 60000,
-                        pollInterval: 1000
-                    },
-                    relatedTask: {
-                        taskId: 'parent-task'
-                    },
-                    onprogress: vi.fn()
-                })
-                .catch(() => {
-                    // May not complete, ignore error
-                });
+            void testRequest(protocol, request, resultSchema, {
+                task: {
+                    ttl: 60000,
+                    pollInterval: 1000
+                },
+                relatedTask: {
+                    taskId: 'parent-task'
+                },
+                onprogress: vi.fn()
+            }).catch(() => {
+                // May not complete, ignore error
+            });
 
             // Wait a bit for the request to be queued
             await new Promise(resolve => setTimeout(resolve, 10));
@@ -1224,7 +1219,7 @@ describe('Task-based execution', () => {
             expect(sendSpy).not.toHaveBeenCalled();
 
             // Verify the message was queued with all metadata combined
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('parent-task');
@@ -1246,9 +1241,32 @@ describe('Task-based execution', () => {
     });
 
     describe('task status transitions', () => {
-        it('should be handled by tool implementors, not protocol layer', () => {
-            // Task status management is now the responsibility of tool implementors
-            expect(true).toBe(true);
+        it('should not auto-update task status when a task-augmented request completes', async () => {
+            const mockTaskStore = createMockTaskStore();
+            const localProtocol = createTestProtocol({ taskStore: mockTaskStore });
+            const localTransport = new MockTransport();
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'done' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 42,
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool',
+                    arguments: {},
+                    task: { ttl: 60000, pollInterval: 1000 }
+                }
+            });
+
+            // Allow the request to be processed
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            // The protocol layer must not call updateTaskStatus — that is solely the tool implementor's responsibility
+            expect(mockTaskStore.updateTaskStatus).not.toHaveBeenCalled();
         });
 
         it('should handle requests with task creation parameters in top-level task field', async () => {
@@ -1256,23 +1274,17 @@ describe('Task-based execution', () => {
             // rather than in _meta, and that task management is handled by tool implementors
             const mockTaskStore = createMockTaskStore();
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            protocol = createTestProtocol({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
 
-            protocol.setRequestHandler(CallToolRequestSchema, async request => {
+            protocol.setRequestHandler('tools/call', async request => {
                 // Tool implementor can access task creation parameters from request.params.task
                 expect(request.params.task).toEqual({
                     ttl: 60000,
                     pollInterval: 1000
                 });
-                return { result: 'success' };
+                return { content: [{ type: 'text', text: 'success' }] };
             });
 
             transport.onmessage?.({
@@ -1291,6 +1303,206 @@ describe('Task-based execution', () => {
 
             // Wait for the request to be processed
             await new Promise(resolve => setTimeout(resolve, 10));
+        });
+    });
+
+    describe('assertTaskHandlerCapability', () => {
+        it('should invoke assertTaskHandlerCapability when an inbound task-augmented request arrives', async () => {
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            const spy = vi.spyOn(localProtocol, 'assertTaskHandlerCapability' as never);
+            const localTransport = new MockTransport();
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'my-tool',
+                    arguments: {},
+                    task: { ttl: 30000, pollInterval: 500 }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            expect(spy).toHaveBeenCalledOnce();
+            expect(spy).toHaveBeenCalledWith('tools/call');
+        });
+
+        it('should not invoke assertTaskHandlerCapability for non-task-augmented requests', async () => {
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            const spy = vi.spyOn(localProtocol, 'assertTaskHandlerCapability' as never);
+            const localTransport = new MockTransport();
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tools/call',
+                params: { name: 'my-tool', arguments: {} }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            expect(spy).not.toHaveBeenCalled();
+        });
+
+        it('should succeed with default no-op assertTaskHandlerCapability', async () => {
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            const localTransport = new MockTransport();
+            const localSendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tools/call',
+                params: {
+                    name: 'my-tool',
+                    arguments: {},
+                    task: { ttl: 30000, pollInterval: 500 }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            // The response should be a success, not an error
+            expect(localSendSpy).toHaveBeenCalledOnce();
+            const response = localSendSpy.mock.calls[0]![0] as { error?: unknown };
+            expect(response.error).toBeUndefined();
+        });
+
+        it('should send a JSON-RPC error response when assertTaskHandlerCapability throws', async () => {
+            const localProtocol = createTestProtocol({ taskStore: createMockTaskStore() });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            vi.spyOn(localProtocol as any, 'assertTaskHandlerCapability').mockImplementation(() => {
+                throw new Error('Task handler capability not declared');
+            });
+            const localTransport = new MockTransport();
+            const sendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            localProtocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 4,
+                method: 'tools/call',
+                params: {
+                    name: 'my-tool',
+                    arguments: {},
+                    task: { ttl: 30000, pollInterval: 500 }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            // Verify the error was sent back as a JSON-RPC error response (matching main's behavior)
+            expect(sendSpy).toHaveBeenCalledOnce();
+            const response = sendSpy.mock.calls[0]![0] as { error?: { message?: string } };
+            expect(response.error).toBeDefined();
+            expect(response.error!.message).toBe('Task handler capability not declared');
+        });
+    });
+
+    describe('pollInterval fallback in _waitForTaskUpdate', () => {
+        it('should fall back to defaultTaskPollInterval when task has no pollInterval', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            const task = await mockTaskStore.createTask({ pollInterval: undefined as unknown as number }, 1, {
+                method: 'test/method',
+                params: {}
+            });
+            // Override pollInterval to be undefined on the stored task
+            const storedTask = await mockTaskStore.getTask(task.taskId);
+            if (storedTask) {
+                storedTask.pollInterval = undefined as unknown as number;
+            }
+
+            const localProtocol = createTestProtocol({
+                taskStore: mockTaskStore,
+                defaultTaskPollInterval: 100
+            });
+            const localTransport = new MockTransport();
+            const sendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            // Send tasks/result request — task is non-terminal so it will poll
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tasks/result',
+                params: { taskId: task.taskId }
+            });
+
+            // Use a macrotask to complete the task AFTER the handler has entered polling
+            setTimeout(() => {
+                mockTaskStore.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'done' }] });
+            }, 10);
+
+            // At 50ms the 100ms poll hasn't fired yet
+            await new Promise(resolve => setTimeout(resolve, 50));
+            expect(sendSpy).not.toHaveBeenCalled();
+
+            // At 200ms the poll should have fired and found the completed task
+            await new Promise(resolve => setTimeout(resolve, 150));
+            expect(sendSpy).toHaveBeenCalled();
+        });
+
+        it('should fall back to 1000ms when both pollInterval and defaultTaskPollInterval are absent', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            const task = await mockTaskStore.createTask({ pollInterval: undefined as unknown as number }, 1, {
+                method: 'test/method',
+                params: {}
+            });
+            const storedTask = await mockTaskStore.getTask(task.taskId);
+            if (storedTask) {
+                storedTask.pollInterval = undefined as unknown as number;
+            }
+
+            // No defaultTaskPollInterval — should fall back to 1000ms
+            const localProtocol = createTestProtocol({
+                taskStore: mockTaskStore
+            });
+            const localTransport = new MockTransport();
+            const sendSpy = vi.spyOn(localTransport, 'send');
+            await localProtocol.connect(localTransport);
+
+            localTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tasks/result',
+                params: { taskId: task.taskId }
+            });
+
+            // Complete the task via macrotask so the handler enters polling first
+            setTimeout(() => {
+                mockTaskStore.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'done' }] });
+            }, 10);
+
+            // At 500ms the 1000ms poll hasn't fired yet
+            await new Promise(resolve => setTimeout(resolve, 500));
+            expect(sendSpy).not.toHaveBeenCalled();
+
+            // At 1100ms the poll should have fired
+            await new Promise(resolve => setTimeout(resolve, 600));
+            expect(sendSpy).toHaveBeenCalled();
         });
     });
 
@@ -1325,13 +1537,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            protocol = createTestProtocol({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
 
@@ -1386,13 +1592,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            protocol = createTestProtocol({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
 
@@ -1432,13 +1632,7 @@ describe('Task-based execution', () => {
                 onList: () => listedTasks.releaseLatch()
             });
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            protocol = createTestProtocol({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
 
@@ -1465,13 +1659,7 @@ describe('Task-based execution', () => {
             const mockTaskStore = createMockTaskStore();
             mockTaskStore.listTasks.mockRejectedValue(new Error('Invalid cursor: bad-cursor'));
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            protocol = createTestProtocol({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
 
@@ -1500,7 +1688,7 @@ describe('Task-based execution', () => {
         it('should call listTasks method from client side', async () => {
             await protocol.connect(transport);
 
-            const listTasksPromise = (protocol as unknown as TestProtocol).listTasks();
+            const listTasksPromise = (protocol as unknown as TestProtocolInternals)._taskManager.listTasks();
 
             // Simulate server response
             setTimeout(() => {
@@ -1540,7 +1728,7 @@ describe('Task-based execution', () => {
         it('should call listTasks with cursor from client side', async () => {
             await protocol.connect(transport);
 
-            const listTasksPromise = (protocol as unknown as TestProtocol).listTasks({ cursor: 'task-10' });
+            const listTasksPromise = (protocol as unknown as TestProtocolInternals)._taskManager.listTasks({ cursor: 'task-10' });
 
             // Simulate server response
             setTimeout(() => {
@@ -1599,13 +1787,7 @@ describe('Task-based execution', () => {
                 throw new Error('Task not found');
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
 
@@ -1641,13 +1823,7 @@ describe('Task-based execution', () => {
 
             mockTaskStore.getTask.mockResolvedValue(null);
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
 
@@ -1689,13 +1865,7 @@ describe('Task-based execution', () => {
             mockTaskStore.updateTaskStatus.mockClear();
             mockTaskStore.getTask.mockResolvedValue(completedTask);
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
 
@@ -1726,7 +1896,7 @@ describe('Task-based execution', () => {
         it('should call cancelTask method from client side', async () => {
             await protocol.connect(transport);
 
-            const deleteTaskPromise = (protocol as unknown as TestProtocol).cancelTask({ taskId: 'task-to-delete' });
+            const deleteTaskPromise = (protocol as unknown as TestProtocolInternals)._taskManager.cancelTask({ taskId: 'task-to-delete' });
 
             // Simulate server response - per MCP spec, CancelTaskResult is Result & Task
             setTimeout(() => {
@@ -1771,13 +1941,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
 
             await serverProtocol.connect(serverTransport);
@@ -1821,13 +1985,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
 
@@ -1870,13 +2028,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
 
@@ -1907,13 +2059,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
 
@@ -1952,13 +2098,7 @@ describe('Task-based execution', () => {
 
             await mockTaskStore.storeTaskResult(task.taskId, 'completed', testResult);
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
 
@@ -1995,13 +2135,7 @@ describe('Task-based execution', () => {
         it('should propagate related-task metadata to handler sendRequest and sendNotification', async () => {
             const mockTaskStore = createMockTaskStore();
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+            const serverProtocol = createTestProtocol({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
             const serverTransport = new MockTransport();
             const sendSpy = vi.spyOn(serverTransport, 'send');
@@ -2009,9 +2143,9 @@ describe('Task-based execution', () => {
             await serverProtocol.connect(serverTransport);
 
             // Set up a handler that uses sendRequest and sendNotification
-            serverProtocol.setRequestHandler(CallToolRequestSchema, async (_request, extra) => {
-                // Send a notification using the extra.sendNotification
-                await extra.sendNotification({
+            serverProtocol.setRequestHandler('tools/call', async (_request, ctx) => {
+                // Send a notification using the ctx.mcpReq.notify
+                await ctx.mcpReq.notify({
                     method: 'notifications/message',
                     params: { level: 'info', data: 'test' }
                 });
@@ -2053,7 +2187,7 @@ describe('Task-based execution', () => {
             // Verify the notification was QUEUED (not sent via transport)
             // Messages with relatedTask metadata should be queued for delivery via tasks/result
             // to prevent duplicate delivery for bidirectional transports
-            const queue = (serverProtocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (serverProtocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('parent-task-123');
@@ -2071,20 +2205,14 @@ describe('Task-based execution', () => {
 });
 
 describe('Request Cancellation vs Task Cancellation', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transport: MockTransport;
     let taskStore: TaskStore;
 
     beforeEach(() => {
         transport = new MockTransport();
         taskStore = createMockTaskStore();
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore });
+        protocol = createTestProtocol({ taskStore });
     });
 
     describe('notifications/cancelled behavior', () => {
@@ -2093,15 +2221,11 @@ describe('Request Cancellation vs Task Cancellation', () => {
 
             // Set up a request handler that checks if it was aborted
             let wasAborted = false;
-            const TestRequestSchema = z.object({
-                method: z.literal('test/longRunning'),
-                params: z.optional(z.record(z.string(), z.unknown()))
-            });
-            protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
                 // Simulate a long-running operation
                 await new Promise(resolve => setTimeout(resolve, 100));
-                wasAborted = extra.signal.aborted;
-                return { _meta: {} } as Result;
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
             });
 
             // Simulate an incoming request
@@ -2110,7 +2234,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
                 transport.onmessage({
                     jsonrpc: '2.0',
                     id: requestId,
-                    method: 'test/longRunning',
+                    method: 'ping',
                     params: {}
                 });
             }
@@ -2234,7 +2358,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: expect.objectContaining({
-                        code: ErrorCode.InvalidParams,
+                        code: ProtocolErrorCode.InvalidParams,
                         message: expect.stringContaining('Cannot cancel task in terminal status')
                     })
                 })
@@ -2266,7 +2390,7 @@ describe('Request Cancellation vs Task Cancellation', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: expect.objectContaining({
-                        code: ErrorCode.InvalidParams,
+                        code: ProtocolErrorCode.InvalidParams,
                         message: expect.stringContaining('Task not found')
                     })
                 })
@@ -2308,28 +2432,24 @@ describe('Request Cancellation vs Task Cancellation', () => {
 
             // Set up a request handler
             let requestCompleted = false;
-            const TestMethodSchema = z.object({
-                method: z.literal('test/method'),
-                params: z.optional(z.record(z.string(), z.unknown()))
-            });
-            protocol.setRequestHandler(TestMethodSchema, async () => {
+            protocol.setRequestHandler('ping', async () => {
                 await new Promise(resolve => setTimeout(resolve, 50));
                 requestCompleted = true;
-                return { _meta: {} } as Result;
+                return {};
             });
 
-            // Create a task
+            // Create a task (simulating a long-running tools/call)
             const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
-                method: 'test/method',
-                params: {}
+                method: 'tools/call',
+                params: { name: 'long-running-tool', arguments: {} }
             });
 
-            // Start a request
+            // Start an unrelated ping request
             if (transport.onmessage) {
                 transport.onmessage({
                     jsonrpc: '2.0',
                     id: 123,
-                    method: 'test/method',
+                    method: 'ping',
                     params: {}
                 });
             }
@@ -2364,31 +2484,19 @@ describe('Request Cancellation vs Task Cancellation', () => {
 });
 
 describe('Progress notification support for tasks', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transport: MockTransport;
     let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();
         sendSpy = vi.spyOn(transport, 'send');
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
+        protocol = createTestProtocol({ taskStore: createMockTaskStore() });
     });
 
     it('should maintain progress token association after CreateTaskResult is returned', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore });
+        const protocol = createTestProtocol({ taskStore });
 
         const transport = new MockTransport();
         const sendSpy = vi.spyOn(transport, 'send');
@@ -2410,14 +2518,12 @@ describe('Progress notification support for tasks', () => {
         });
 
         // Start a task-augmented request with progress callback
-        void protocol
-            .request(request, resultSchema, {
-                task: { ttl: 60000 },
-                onprogress: progressCallback
-            })
-            .catch(() => {
-                // May not complete, ignore error
-            });
+        void testRequest(protocol, request, resultSchema, {
+            task: { ttl: 60000 },
+            onprogress: progressCallback
+        }).catch(() => {
+            // May not complete, ignore error
+        });
 
         // Wait a bit for the request to be sent
         await new Promise(resolve => setTimeout(resolve, 10));
@@ -2475,26 +2581,21 @@ describe('Progress notification support for tasks', () => {
 
     it('should stop progress notifications when task reaches terminal status (completed)', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore });
+        const protocol = createTestProtocol({ taskStore });
 
         const transport = new MockTransport();
         const sendSpy = vi.spyOn(transport, 'send');
         await protocol.connect(transport);
 
         // Set up a request handler that will complete the task
-        protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            if (extra.taskStore) {
-                const task = await extra.taskStore.createTask({ ttl: 60000 });
+        protocol.setRequestHandler('tools/call', async (_request, ctx) => {
+            if (ctx.task?.store) {
+                const task = await ctx.task.store.createTask({ ttl: 60000 });
 
                 // Simulate async work then complete the task
+                const taskStore = ctx.task.store;
                 setTimeout(async () => {
-                    await extra.taskStore!.storeTaskResult(task.taskId, 'completed', {
+                    await taskStore.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: 'Done' }]
                     });
                 }, 50);
@@ -2520,14 +2621,12 @@ describe('Progress notification support for tasks', () => {
         });
 
         // Start a task-augmented request with progress callback
-        void protocol
-            .request(request, resultSchema, {
-                task: { ttl: 60000 },
-                onprogress: progressCallback
-            })
-            .catch(() => {
-                // May not complete, ignore error
-            });
+        void testRequest(protocol, request, resultSchema, {
+            task: { ttl: 60000 },
+            onprogress: progressCallback
+        }).catch(() => {
+            // May not complete, ignore error
+        });
 
         // Wait a bit for the request to be sent
         await new Promise(resolve => setTimeout(resolve, 10));
@@ -2572,15 +2671,22 @@ describe('Progress notification support for tasks', () => {
         expect(progressCallback).toHaveBeenCalledTimes(1);
 
         // Verify the task-progress association was created
-        const taskProgressTokens = (protocol as unknown as TestProtocol)._taskProgressTokens as Map<string, number>;
+        const taskProgressTokens = (protocol as unknown as TestProtocolInternals)._taskManager._taskProgressTokens as Map<string, number>;
         expect(taskProgressTokens.has(taskId)).toBe(true);
         expect(taskProgressTokens.get(taskId)).toBe(progressToken);
 
-        // Simulate task completion by calling through the protocol's task store
-        // This will trigger the cleanup logic
-        const mockRequest = { jsonrpc: '2.0' as const, id: 999, method: 'test', params: {} };
-        const requestTaskStore = (protocol as unknown as TestProtocol).requestTaskStore(mockRequest, undefined);
-        await requestTaskStore.storeTaskResult(taskId, 'completed', { content: [] });
+        // Simulate task completion by triggering an inbound request whose handler
+        // calls storeTaskResult through the task context (the public RequestTaskStore API).
+        // This is equivalent to how a real server handler would complete a task.
+        protocol.setRequestHandler('ping', async (_request, ctx) => {
+            if (ctx.task?.store) {
+                await ctx.task.store.storeTaskResult(taskId, 'completed', { content: [] });
+            }
+            return {};
+        });
+        if (transport.onmessage) {
+            transport.onmessage({ jsonrpc: '2.0', id: 999, method: 'ping', params: {} });
+        }
 
         // Wait for all async operations including notification sending to complete
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -2610,13 +2716,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should stop progress notifications when task reaches terminal status (failed)', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore });
+        const protocol = createTestProtocol({ taskStore });
 
         const transport = new MockTransport();
         const sendSpy = vi.spyOn(transport, 'send');
@@ -2637,7 +2737,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        void protocol.request(request, resultSchema, {
+        void testRequest(protocol, request, resultSchema, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2708,13 +2808,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should stop progress notifications when task is cancelled', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore });
+        const protocol = createTestProtocol({ taskStore });
 
         const transport = new MockTransport();
         const sendSpy = vi.spyOn(transport, 'send');
@@ -2735,7 +2829,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        void protocol.request(request, resultSchema, {
+        void testRequest(protocol, request, resultSchema, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2803,13 +2897,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should use the same progressToken throughout task lifetime', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore });
+        const protocol = createTestProtocol({ taskStore });
 
         const transport = new MockTransport();
         const sendSpy = vi.spyOn(transport, 'send');
@@ -2830,7 +2918,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        void protocol.request(request, resultSchema, {
+        void testRequest(protocol, request, resultSchema, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2901,7 +2989,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        void protocol.request(request, resultSchema, {
+        void testRequest(protocol, request, resultSchema, {
             task: {
                 ttl: 60000
             },
@@ -2926,7 +3014,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        void protocol.request(request, resultSchema, {
+        void testRequest(protocol, request, resultSchema, {
             task: {
                 ttl: 30000
             },
@@ -2976,7 +3064,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        void protocol.request(request, resultSchema, {
+        void testRequest(protocol, request, resultSchema, {
             task: {
                 ttl: 30000
             },
@@ -3072,13 +3160,7 @@ describe('Message interception for task-related notifications', () => {
     it('should queue notifications with io.modelcontextprotocol/related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         await server.connect(transport);
 
@@ -3097,7 +3179,7 @@ describe('Message interception for task-related notifications', () => {
         );
 
         // Access the private queue to verify the message was queued
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
+        const queue = (server as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
         expect(queue).toBeDefined();
 
         const queuedMessage = await queue!.dequeue(task.taskId);
@@ -3109,13 +3191,7 @@ describe('Message interception for task-related notifications', () => {
     it('should not queue notifications without related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         await server.connect(transport);
 
@@ -3136,13 +3212,7 @@ describe('Message interception for task-related notifications', () => {
     it('should propagate queue overflow errors without failing the task', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue(), maxTaskQueueSize: 100 });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue(), maxTaskQueueSize: 100 });
 
         await server.connect(transport);
 
@@ -3183,13 +3253,7 @@ describe('Message interception for task-related notifications', () => {
     it('should extract task ID correctly from metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         await server.connect(transport);
 
@@ -3207,7 +3271,7 @@ describe('Message interception for task-related notifications', () => {
         );
 
         // Verify the message was queued under the correct task ID
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
+        const queue = (server as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
         expect(queue).toBeDefined();
         const queuedMessage = await queue!.dequeue(taskId);
         expect(queuedMessage).toBeDefined();
@@ -3216,13 +3280,7 @@ describe('Message interception for task-related notifications', () => {
     it('should preserve message order when queuing multiple notifications', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         await server.connect(transport);
 
@@ -3243,7 +3301,7 @@ describe('Message interception for task-related notifications', () => {
         }
 
         // Verify messages are in FIFO order
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
+        const queue = (server as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
         expect(queue).toBeDefined();
 
         for (let i = 0; i < 5; i++) {
@@ -3258,13 +3316,7 @@ describe('Message interception for task-related requests', () => {
     it('should queue requests with io.modelcontextprotocol/related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         await server.connect(transport);
 
@@ -3272,7 +3324,8 @@ describe('Message interception for task-related requests', () => {
         const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata (don't await - we're testing queuing)
-        const requestPromise = server.request(
+        const requestPromise = testRequest(
+            server,
             {
                 method: 'ping',
                 params: {}
@@ -3284,7 +3337,7 @@ describe('Message interception for task-related requests', () => {
         );
 
         // Access the private queue to verify the message was queued
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
+        const queue = (server as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
         expect(queue).toBeDefined();
 
         const queuedMessage = await queue!.dequeue(task.taskId);
@@ -3294,7 +3347,7 @@ describe('Message interception for task-related requests', () => {
 
         // Verify resolver is stored in _requestResolvers map (not in the message)
         const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
-        const resolvers = (server as unknown as TestProtocol)._requestResolvers;
+        const resolvers = (server as unknown as TestProtocolInternals)._taskManager._requestResolvers;
         expect(resolvers.has(requestId)).toBe(true);
 
         // Clean up - send a response to prevent hanging promise
@@ -3310,18 +3363,13 @@ describe('Message interception for task-related requests', () => {
     it('should not queue requests without related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         await server.connect(transport);
 
         // Send a request without related task metadata
-        const requestPromise = server.request(
+        const requestPromise = testRequest(
+            server,
             {
                 method: 'ping',
                 params: {}
@@ -3330,7 +3378,7 @@ describe('Message interception for task-related requests', () => {
         );
 
         // Verify queue exists (but we don't track size in the new API)
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
+        const queue = (server as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
         expect(queue).toBeDefined();
 
         // Clean up - send a response
@@ -3349,13 +3397,7 @@ describe('Message interception for task-related requests', () => {
     it('should store request resolver for response routing', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         await server.connect(transport);
 
@@ -3363,7 +3405,8 @@ describe('Message interception for task-related requests', () => {
         const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata
-        const requestPromise = server.request(
+        const requestPromise = testRequest(
+            server,
             {
                 method: 'ping',
                 params: {}
@@ -3375,11 +3418,11 @@ describe('Message interception for task-related requests', () => {
         );
 
         // Verify the resolver was stored
-        const resolvers = (server as unknown as TestProtocol)._requestResolvers;
+        const resolvers = (server as unknown as TestProtocolInternals)._taskManager._requestResolvers;
         expect(resolvers.size).toBe(1);
 
         // Get the request ID from the queue
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
+        const queue = (server as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
         const queuedMessage = await queue!.dequeue(task.taskId);
         const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
 
@@ -3402,13 +3445,7 @@ describe('Message interception for task-related requests', () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
         const queue = new InMemoryTaskMessageQueue();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: queue });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: queue });
 
         await server.connect(transport);
 
@@ -3416,7 +3453,8 @@ describe('Message interception for task-related requests', () => {
         const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata
-        const requestPromise = server.request(
+        const requestPromise = testRequest(
+            server,
             {
                 method: 'ping',
                 params: {}
@@ -3467,13 +3505,7 @@ describe('Message interception for task-related requests', () => {
     it('should log error when resolver is missing for side-channeled request', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
 
         const errors: Error[] = [];
         server.onerror = (error: Error) => {
@@ -3486,7 +3518,8 @@ describe('Message interception for task-related requests', () => {
         const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
 
         // Send a request with related task metadata
-        void server.request(
+        void testRequest(
+            server,
             {
                 method: 'ping',
                 params: {}
@@ -3498,12 +3531,12 @@ describe('Message interception for task-related requests', () => {
         );
 
         // Get the request ID from the queue
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
+        const queue = (server as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
         const queuedMessage = await queue!.dequeue(task.taskId);
         const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
 
         // Manually delete the resolver to simulate missing resolver
-        (server as unknown as TestProtocol)._requestResolvers.delete(requestId);
+        (server as unknown as TestProtocolInternals)._taskManager._requestResolvers.delete(requestId);
 
         // Enqueue a response message - this should trigger the error logging when processed
         await queue!.enqueue(task.taskId, {
@@ -3543,13 +3576,7 @@ describe('Message interception for task-related requests', () => {
     it('should propagate queue overflow errors for requests without failing the task', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue(), maxTaskQueueSize: 100 });
+        const server = createTestProtocol({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue(), maxTaskQueueSize: 100 });
 
         await server.connect(transport);
 
@@ -3559,26 +3586,26 @@ describe('Message interception for task-related requests', () => {
         // Fill the queue to max capacity (100 messages)
         const promises: Promise<unknown>[] = [];
         for (let i = 0; i < 100; i++) {
-            const promise = server
-                .request(
-                    {
-                        method: 'ping',
-                        params: {}
-                    },
-                    z.object({}),
-                    {
-                        relatedTask: { taskId: task.taskId }
-                    }
-                )
-                .catch(() => {
-                    // Requests will remain pending until task completes or fails
-                });
+            const promise = testRequest(
+                server,
+                {
+                    method: 'ping',
+                    params: {}
+                },
+                z.object({}),
+                {
+                    relatedTask: { taskId: task.taskId }
+                }
+            ).catch(() => {
+                // Requests will remain pending until task completes or fails
+            });
             promises.push(promise);
         }
 
         // Try to add one more request - should throw an error
         await expect(
-            server.request(
+            testRequest(
+                server,
                 {
                     method: 'ping',
                     params: {}
@@ -3597,20 +3624,14 @@ describe('Message interception for task-related requests', () => {
 });
 
 describe('Message Interception', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transport: MockTransport;
     let mockTaskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
 
     beforeEach(() => {
         transport = new MockTransport();
         mockTaskStore = createMockTaskStore();
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        protocol = createTestProtocol({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
     });
 
     describe('messages with relatedTask metadata are queued', () => {
@@ -3631,7 +3652,7 @@ describe('Message Interception', () => {
             );
 
             // Access the private _taskMessageQueue to verify the message was queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('task-123');
@@ -3645,7 +3666,8 @@ describe('Message Interception', () => {
             const mockSchema = z.object({ result: z.string() });
 
             // Send a request with relatedTask metadata
-            const requestPromise = protocol.request(
+            const requestPromise = testRequest(
+                protocol,
                 {
                     method: 'test/request',
                     params: { data: 'test' }
@@ -3659,7 +3681,7 @@ describe('Message Interception', () => {
             );
 
             // Access the private _taskMessageQueue to verify the message was queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('task-456');
@@ -3668,7 +3690,7 @@ describe('Message Interception', () => {
 
             // Verify resolver is stored in _requestResolvers map (not in the message)
             const requestId = queuedMessage.message.id as RequestId;
-            const resolvers = (protocol as unknown as TestProtocol)._requestResolvers;
+            const resolvers = (protocol as unknown as TestProtocolInternals)._taskManager._requestResolvers;
             expect(resolvers.has(requestId)).toBe(true);
 
             // Clean up the pending request
@@ -3686,17 +3708,8 @@ describe('Message Interception', () => {
             await protocol.connect(transport);
 
             // Set up a request handler that returns a result
-            const TestRequestSchema = z.object({
-                method: z.literal('test/taskRequest'),
-                params: z
-                    .object({
-                        _meta: z.optional(z.record(z.string(), z.unknown()))
-                    })
-                    .passthrough()
-            });
-
-            protocol.setRequestHandler(TestRequestSchema, async () => {
-                return { content: 'test result' } as Result;
+            protocol.setRequestHandler('ping', async () => {
+                return {};
             });
 
             // Simulate an incoming request with relatedTask metadata
@@ -3705,7 +3718,7 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                method: 'test/taskRequest',
+                method: 'ping',
                 params: {
                     _meta: {
                         'io.modelcontextprotocol/related-task': { taskId }
@@ -3717,7 +3730,7 @@ describe('Message Interception', () => {
             await new Promise(resolve => setTimeout(resolve, 50));
 
             // Verify the response was queued instead of sent directly
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue(taskId);
@@ -3725,7 +3738,7 @@ describe('Message Interception', () => {
             expect(queuedMessage!.type).toBe('response');
             if (queuedMessage!.type === 'response') {
                 expect(queuedMessage!.message.id).toBe(requestId);
-                expect(queuedMessage!.message.result).toEqual({ content: 'test result' });
+                expect(queuedMessage!.message.result).toEqual({});
             }
         });
 
@@ -3733,17 +3746,8 @@ describe('Message Interception', () => {
             await protocol.connect(transport);
 
             // Set up a request handler that throws an error
-            const TestRequestSchema = z.object({
-                method: z.literal('test/taskRequestError'),
-                params: z
-                    .object({
-                        _meta: z.optional(z.record(z.string(), z.unknown()))
-                    })
-                    .passthrough()
-            });
-
-            protocol.setRequestHandler(TestRequestSchema, async () => {
-                throw new McpError(ErrorCode.InternalError, 'Test error message');
+            protocol.setRequestHandler('ping', async () => {
+                throw new ProtocolError(ProtocolErrorCode.InternalError, 'Test error message');
             });
 
             // Simulate an incoming request with relatedTask metadata
@@ -3752,7 +3756,7 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                method: 'test/taskRequestError',
+                method: 'ping',
                 params: {
                     _meta: {
                         'io.modelcontextprotocol/related-task': { taskId }
@@ -3764,7 +3768,7 @@ describe('Message Interception', () => {
             await new Promise(resolve => setTimeout(resolve, 50));
 
             // Verify the error was queued instead of sent directly
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue(taskId);
@@ -3772,7 +3776,7 @@ describe('Message Interception', () => {
             expect(queuedMessage!.type).toBe('error');
             if (queuedMessage!.type === 'error') {
                 expect(queuedMessage!.message.id).toBe(requestId);
-                expect(queuedMessage!.message.error.code).toBe(ErrorCode.InternalError);
+                expect(queuedMessage!.message.error.code).toBe(ProtocolErrorCode.InternalError);
                 expect(queuedMessage!.message.error.message).toContain('Test error message');
             }
         });
@@ -3798,7 +3802,7 @@ describe('Message Interception', () => {
             await new Promise(resolve => setTimeout(resolve, 50));
 
             // Verify the error was queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue(taskId);
@@ -3806,7 +3810,7 @@ describe('Message Interception', () => {
             expect(queuedMessage!.type).toBe('error');
             if (queuedMessage!.type === 'error') {
                 expect(queuedMessage!.message.id).toBe(requestId);
-                expect(queuedMessage!.message.error.code).toBe(ErrorCode.MethodNotFound);
+                expect(queuedMessage!.message.error.code).toBe(ProtocolErrorCode.MethodNotFound);
             }
         });
 
@@ -3815,13 +3819,8 @@ describe('Message Interception', () => {
             const sendSpy = vi.spyOn(transport, 'send');
 
             // Set up a request handler
-            const TestRequestSchema = z.object({
-                method: z.literal('test/normalRequest'),
-                params: z.optional(z.record(z.string(), z.unknown()))
-            });
-
-            protocol.setRequestHandler(TestRequestSchema, async () => {
-                return { content: 'normal result' } as Result;
+            protocol.setRequestHandler('tools/call', async () => {
+                return { content: [{ type: 'text', text: 'done' }] };
             });
 
             // Simulate an incoming request WITHOUT relatedTask metadata
@@ -3829,8 +3828,8 @@ describe('Message Interception', () => {
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
-                method: 'test/normalRequest',
-                params: {}
+                method: 'tools/call',
+                params: { name: 'test-tool' }
             });
 
             // Wait for the handler to complete
@@ -3841,7 +3840,7 @@ describe('Message Interception', () => {
                 expect.objectContaining({
                     jsonrpc: '2.0',
                     id: requestId,
-                    result: { content: 'normal result' }
+                    result: { content: [{ type: 'text', text: 'done' }] }
                 })
             );
         });
@@ -3860,7 +3859,7 @@ describe('Message Interception', () => {
             // Access the private _taskMessageQueue to verify no messages were queued
             // Since we can't check if queues exist without messages, we verify that
             // attempting to dequeue returns undefined (no messages queued)
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
         });
 
@@ -3871,7 +3870,8 @@ describe('Message Interception', () => {
             const sendSpy = vi.spyOn(transport, 'send');
 
             // Send a request without relatedTask metadata
-            const requestPromise = protocol.request(
+            const requestPromise = testRequest(
+                protocol,
                 {
                     method: 'test/request',
                     params: { data: 'test' }
@@ -3882,7 +3882,7 @@ describe('Message Interception', () => {
             // Access the private _taskMessageQueue to verify no messages were queued
             // Since we can't check if queues exist without messages, we verify that
             // attempting to dequeue returns undefined (no messages queued)
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Clean up the pending request
@@ -3916,7 +3916,7 @@ describe('Message Interception', () => {
             );
 
             // Verify the message was queued under the correct task ID
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Verify a message was queued for this task
@@ -3932,7 +3932,8 @@ describe('Message Interception', () => {
             const mockSchema = z.object({ result: z.string() });
 
             // Send a request with relatedTask metadata
-            const requestPromise = protocol.request(
+            const requestPromise = testRequest(
+                protocol,
                 {
                     method: 'test/request',
                     params: { data: 'test' }
@@ -3946,7 +3947,7 @@ describe('Message Interception', () => {
             );
 
             // Verify the message was queued under the correct task ID
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Clean up the pending request
@@ -3970,7 +3971,7 @@ describe('Message Interception', () => {
             await protocol.notification({ method: 'test3', params: {} }, { relatedTask: { taskId: 'task-A' } });
 
             // Verify messages are queued under correct task IDs
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Verify two messages for task-A
@@ -3993,7 +3994,7 @@ describe('Message Interception', () => {
         it('should queue messages for a task', async () => {
             await protocol.connect(transport);
 
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Send first message for a task
@@ -4008,7 +4009,7 @@ describe('Message Interception', () => {
         it('should queue multiple messages for the same task', async () => {
             await protocol.connect(transport);
 
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Send first message
@@ -4029,7 +4030,7 @@ describe('Message Interception', () => {
         it('should queue messages for different tasks separately', async () => {
             await protocol.connect(transport);
 
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Send messages for different tasks
@@ -4060,7 +4061,7 @@ describe('Message Interception', () => {
                 { relatedTask }
             );
 
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             const queuedMessage = await queue!.dequeue('task-meta-123');
 
             // Verify the metadata is preserved in the queued message
@@ -4076,7 +4077,8 @@ describe('Message Interception', () => {
             const relatedTask = { taskId: 'task-meta-456' };
             const mockSchema = z.object({ result: z.string() });
 
-            const requestPromise = protocol.request(
+            const requestPromise = testRequest(
+                protocol,
                 {
                     method: 'test/request',
                     params: { data: 'test' }
@@ -4085,7 +4087,7 @@ describe('Message Interception', () => {
                 { relatedTask }
             );
 
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             const queuedMessage = await queue!.dequeue('task-meta-456');
 
             // Verify the metadata is preserved in the queued message
@@ -4122,7 +4124,7 @@ describe('Message Interception', () => {
                 }
             );
 
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             const queuedMessage = await queue!.dequeue('task-preserve-meta');
 
             // Verify both existing and new metadata are preserved
@@ -4138,20 +4140,14 @@ describe('Message Interception', () => {
 });
 
 describe('Queue lifecycle management', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transport: MockTransport;
     let mockTaskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
 
     beforeEach(() => {
         transport = new MockTransport();
         mockTaskStore = createMockTaskStore();
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        protocol = createTestProtocol({ taskStore: mockTaskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
     });
 
     describe('queue cleanup on task completion', () => {
@@ -4167,7 +4163,7 @@ describe('Queue lifecycle management', () => {
             await protocol.notification({ method: 'test/notification', params: { data: 'test2' } }, { relatedTask: { taskId } });
 
             // Verify messages are queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Verify messages can be dequeued
@@ -4177,7 +4173,7 @@ describe('Queue lifecycle management', () => {
             expect(msg2).toBeDefined();
 
             // Directly call the cleanup method (simulating what happens when task reaches terminal status)
-            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+            (protocol as unknown as TestProtocolInternals)._taskManager._clearTaskQueue(taskId);
 
             // After cleanup, no more messages should be available
             const msg3 = await queue!.dequeue(taskId);
@@ -4213,7 +4209,7 @@ describe('Queue lifecycle management', () => {
             await resultPromise;
 
             // Verify queue is cleared after delivery (no messages available)
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             const msg = await queue!.dequeue(taskId);
             expect(msg).toBeUndefined();
         });
@@ -4231,7 +4227,7 @@ describe('Queue lifecycle management', () => {
             await protocol.notification({ method: 'test/notification', params: { data: 'test1' } }, { relatedTask: { taskId } });
 
             // Verify message is queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             const msg1 = await queue!.dequeue(taskId);
             expect(msg1).toBeDefined();
 
@@ -4265,14 +4261,17 @@ describe('Queue lifecycle management', () => {
             const taskId = task.taskId;
 
             // Queue a request (catch rejection to avoid unhandled promise rejection)
-            const requestPromise = protocol
-                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+            const requestPromise = testRequest(
+                protocol,
+                { method: 'test/request', params: { data: 'test' } },
+                z.object({ result: z.string() }),
+                {
                     relatedTask: { taskId }
-                })
-                .catch(err => err);
+                }
+            ).catch(err => err);
 
             // Verify request is queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Mock task as non-terminal
@@ -4290,8 +4289,8 @@ describe('Queue lifecycle management', () => {
             await new Promise(resolve => setTimeout(resolve, 50));
 
             // Verify the request promise is rejected
-            const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            const result = (await requestPromise) as Error;
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4313,7 +4312,7 @@ describe('Queue lifecycle management', () => {
             await protocol.notification({ method: 'test/notification', params: { data: 'test2' } }, { relatedTask: { taskId } });
 
             // Verify messages are queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Verify messages can be dequeued
@@ -4323,7 +4322,7 @@ describe('Queue lifecycle management', () => {
             expect(msg2).toBeDefined();
 
             // Directly call the cleanup method (simulating what happens when task reaches terminal status)
-            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+            (protocol as unknown as TestProtocolInternals)._taskManager._clearTaskQueue(taskId);
 
             // After cleanup, no more messages should be available
             const msg3 = await queue!.dequeue(taskId);
@@ -4338,22 +4337,25 @@ describe('Queue lifecycle management', () => {
             const taskId = task.taskId;
 
             // Queue a request (catch the rejection to avoid unhandled promise rejection)
-            const requestPromise = protocol
-                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+            const requestPromise = testRequest(
+                protocol,
+                { method: 'test/request', params: { data: 'test' } },
+                z.object({ result: z.string() }),
+                {
                     relatedTask: { taskId }
-                })
-                .catch(err => err);
+                }
+            ).catch(err => err);
 
             // Verify request is queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Directly call the cleanup method (simulating what happens when task reaches terminal status)
-            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+            (protocol as unknown as TestProtocolInternals)._taskManager._clearTaskQueue(taskId);
 
             // Verify the request promise is rejected
-            const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            const result = (await requestPromise) as Error;
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4371,41 +4373,50 @@ describe('Queue lifecycle management', () => {
             const taskId = task.taskId;
 
             // Queue multiple requests (catch rejections to avoid unhandled promise rejections)
-            const request1Promise = protocol
-                .request({ method: 'test/request1', params: { data: 'test1' } }, z.object({ result: z.string() }), {
+            const request1Promise = testRequest(
+                protocol,
+                { method: 'test/request1', params: { data: 'test1' } },
+                z.object({ result: z.string() }),
+                {
                     relatedTask: { taskId }
-                })
-                .catch(err => err);
+                }
+            ).catch(err => err);
 
-            const request2Promise = protocol
-                .request({ method: 'test/request2', params: { data: 'test2' } }, z.object({ result: z.string() }), {
+            const request2Promise = testRequest(
+                protocol,
+                { method: 'test/request2', params: { data: 'test2' } },
+                z.object({ result: z.string() }),
+                {
                     relatedTask: { taskId }
-                })
-                .catch(err => err);
+                }
+            ).catch(err => err);
 
-            const request3Promise = protocol
-                .request({ method: 'test/request3', params: { data: 'test3' } }, z.object({ result: z.string() }), {
+            const request3Promise = testRequest(
+                protocol,
+                { method: 'test/request3', params: { data: 'test3' } },
+                z.object({ result: z.string() }),
+                {
                     relatedTask: { taskId }
-                })
-                .catch(err => err);
+                }
+            ).catch(err => err);
 
             // Verify requests are queued
-            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            const queue = (protocol as unknown as TestProtocolInternals)._taskManager._taskMessageQueue;
             expect(queue).toBeDefined();
 
             // Directly call the cleanup method (simulating what happens when task reaches terminal status)
-            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+            (protocol as unknown as TestProtocolInternals)._taskManager._clearTaskQueue(taskId);
 
             // Verify all request promises are rejected
-            const result1 = await request1Promise;
-            const result2 = await request2Promise;
-            const result3 = await request3Promise;
+            const result1 = (await request1Promise) as Error;
+            const result2 = (await request2Promise) as Error;
+            const result3 = (await request3Promise) as Error;
 
-            expect(result1).toBeInstanceOf(McpError);
+            expect(result1).toBeInstanceOf(ProtocolError);
             expect(result1.message).toContain('Task cancelled or completed');
-            expect(result2).toBeInstanceOf(McpError);
+            expect(result2).toBeInstanceOf(ProtocolError);
             expect(result2.message).toContain('Task cancelled or completed');
-            expect(result3).toBeInstanceOf(McpError);
+            expect(result3).toBeInstanceOf(ProtocolError);
             expect(result3.message).toContain('Task cancelled or completed');
 
             // Verify queue is cleared (no messages available)
@@ -4421,14 +4432,17 @@ describe('Queue lifecycle management', () => {
             const taskId = task.taskId;
 
             // Queue a request (catch rejection to avoid unhandled promise rejection)
-            const requestPromise = protocol
-                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+            const requestPromise = testRequest(
+                protocol,
+                { method: 'test/request', params: { data: 'test' } },
+                z.object({ result: z.string() }),
+                {
                     relatedTask: { taskId }
-                })
-                .catch(err => err);
+                }
+            ).catch(err => err);
 
             // Get the request ID that was sent
-            const requestResolvers = (protocol as unknown as TestProtocol)._requestResolvers;
+            const requestResolvers = (protocol as unknown as TestProtocolInternals)._taskManager._requestResolvers;
             const initialResolverCount = requestResolvers.size;
             expect(initialResolverCount).toBeGreaterThan(0);
 
@@ -4437,11 +4451,11 @@ describe('Queue lifecycle management', () => {
             mockTaskStore.getTask.mockResolvedValue(completedTask);
 
             // Directly call the cleanup method (simulating what happens when task reaches terminal status)
-            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+            (protocol as unknown as TestProtocolInternals)._taskManager._clearTaskQueue(taskId);
 
             // Verify request promise is rejected
-            const result = await requestPromise;
-            expect(result).toBeInstanceOf(McpError);
+            const result = (await requestPromise) as Error;
+            expect(result).toBeInstanceOf(ProtocolError);
             expect(result.message).toContain('Task cancelled or completed');
 
             // Verify resolver mapping is cleaned up
@@ -4459,19 +4473,13 @@ describe('requestStream() method', () => {
 
     test('should yield result immediately for non-task requests', async () => {
         const transport = new MockTransport();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
+        const protocol = createTestProtocol({});
         await protocol.connect(transport);
 
         // Start the request stream
         const streamPromise = (async () => {
             const messages = [];
-            const stream = (protocol as unknown as TestProtocol).requestStream(
+            const stream = (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                 { method: 'tools/call', params: { name: 'test', arguments: {} } },
                 CallToolResultSchema
             );
@@ -4502,19 +4510,13 @@ describe('requestStream() method', () => {
 
     test('should yield error message on request failure', async () => {
         const transport = new MockTransport();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
+        const protocol = createTestProtocol({});
         await protocol.connect(transport);
 
         // Start the request stream
         const streamPromise = (async () => {
             const messages = [];
-            const stream = (protocol as unknown as TestProtocol).requestStream(
+            const stream = (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                 { method: 'tools/call', params: { name: 'test', arguments: {} } },
                 CallToolResultSchema
             );
@@ -4530,7 +4532,7 @@ describe('requestStream() method', () => {
             jsonrpc: '2.0',
             id: 0,
             error: {
-                code: ErrorCode.InternalError,
+                code: ProtocolErrorCode.InternalError,
                 message: 'Test error'
             }
         });
@@ -4548,13 +4550,7 @@ describe('requestStream() method', () => {
 
     test('should handle cancellation via AbortSignal', async () => {
         const transport = new MockTransport();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-        })();
+        const protocol = createTestProtocol({});
         await protocol.connect(transport);
 
         const abortController = new AbortController();
@@ -4564,7 +4560,7 @@ describe('requestStream() method', () => {
 
         // Start the request stream with already-aborted signal
         const messages = [];
-        const stream = (protocol as unknown as TestProtocol).requestStream(
+        const stream = (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
             { method: 'tools/call', params: { name: 'test', arguments: {} } },
             CallToolResultSchema,
             {
@@ -4586,17 +4582,11 @@ describe('requestStream() method', () => {
     describe('Error responses', () => {
         test('should yield error as terminal message for server error response', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })();
+            const protocol = createTestProtocol({});
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                (protocol as unknown as TestProtocol).requestStream(
+                (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                     { method: 'tools/call', params: { name: 'test', arguments: {} } },
                     CallToolResultSchema
                 )
@@ -4608,7 +4598,7 @@ describe('requestStream() method', () => {
                 jsonrpc: '2.0',
                 id: 0,
                 error: {
-                    code: ErrorCode.InternalError,
+                    code: ProtocolErrorCode.InternalError,
                     message: 'Server error'
                 }
             });
@@ -4628,17 +4618,11 @@ describe('requestStream() method', () => {
             vi.useFakeTimers();
             try {
                 const transport = new MockTransport();
-                const protocol = new (class extends Protocol<Request, Notification, Result> {
-                    protected assertCapabilityForMethod(): void {}
-                    protected assertNotificationCapability(): void {}
-                    protected assertRequestHandlerCapability(): void {}
-                    protected assertTaskCapability(): void {}
-                    protected assertTaskHandlerCapability(): void {}
-                })();
+                const protocol = createTestProtocol({});
                 await protocol.connect(transport);
 
                 const messagesPromise = toArrayAsync(
-                    (protocol as unknown as TestProtocol).requestStream(
+                    (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                         { method: 'tools/call', params: { name: 'test', arguments: {} } },
                         CallToolResultSchema,
                         {
@@ -4658,7 +4642,8 @@ describe('requestStream() method', () => {
                 const lastMessage = messages[messages.length - 1];
                 assertErrorResponse(lastMessage!);
                 expect(lastMessage.error).toBeDefined();
-                expect(lastMessage.error.code).toBe(ErrorCode.RequestTimeout);
+                expect(lastMessage.error).toBeInstanceOf(SdkError);
+                expect((lastMessage.error as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
             } finally {
                 vi.useRealTimers();
             }
@@ -4666,13 +4651,7 @@ describe('requestStream() method', () => {
 
         test('should yield error as terminal message for cancellation', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })();
+            const protocol = createTestProtocol({});
             await protocol.connect(transport);
 
             const abortController = new AbortController();
@@ -4680,7 +4659,7 @@ describe('requestStream() method', () => {
 
             // Collect messages
             const messages = await toArrayAsync(
-                (protocol as unknown as TestProtocol).requestStream(
+                (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                     { method: 'tools/call', params: { name: 'test', arguments: {} } },
                     CallToolResultSchema,
                     {
@@ -4699,17 +4678,11 @@ describe('requestStream() method', () => {
 
         test('should not yield any messages after error message', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })();
+            const protocol = createTestProtocol({});
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                (protocol as unknown as TestProtocol).requestStream(
+                (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                     { method: 'tools/call', params: { name: 'test', arguments: {} } },
                     CallToolResultSchema
                 )
@@ -4721,7 +4694,7 @@ describe('requestStream() method', () => {
                 jsonrpc: '2.0',
                 id: 0,
                 error: {
-                    code: ErrorCode.InternalError,
+                    code: ProtocolErrorCode.InternalError,
                     message: 'Test error'
                 }
             });
@@ -4751,17 +4724,11 @@ describe('requestStream() method', () => {
         test('should yield error as terminal message for task failure', async () => {
             const transport = new MockTransport();
             const mockTaskStore = createMockTaskStore();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
+            const protocol = createTestProtocol({ taskStore: mockTaskStore });
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                (protocol as unknown as TestProtocol).requestStream(
+                (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                     { method: 'tools/call', params: { name: 'test', arguments: {} } },
                     CallToolResultSchema
                 )
@@ -4811,20 +4778,14 @@ describe('requestStream() method', () => {
 
         test('should yield error as terminal message for network error', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })();
+            const protocol = createTestProtocol({});
             await protocol.connect(transport);
 
             // Override send to simulate network error
             transport.send = vi.fn().mockRejectedValue(new Error('Network error'));
 
             const messages = await toArrayAsync(
-                (protocol as unknown as TestProtocol).requestStream(
+                (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                     { method: 'tools/call', params: { name: 'test', arguments: {} } },
                     CallToolResultSchema
                 )
@@ -4839,17 +4800,11 @@ describe('requestStream() method', () => {
 
         test('should ensure error is always the final message', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })();
+            const protocol = createTestProtocol({});
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                (protocol as unknown as TestProtocol).requestStream(
+                (protocol as unknown as TestProtocolInternals)._taskManager.requestStream(
                     { method: 'tools/call', params: { name: 'test', arguments: {} } },
                     CallToolResultSchema
                 )
@@ -4861,7 +4816,7 @@ describe('requestStream() method', () => {
                 jsonrpc: '2.0',
                 id: 0,
                 error: {
-                    code: ErrorCode.InternalError,
+                    code: ProtocolErrorCode.InternalError,
                     message: 'Test error'
                 }
             });
@@ -4884,7 +4839,7 @@ describe('requestStream() method', () => {
 });
 
 describe('Error handling for missing resolvers', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<BaseContext>;
     let transport: MockTransport;
     let taskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
     let taskMessageQueue: TaskMessageQueue;
@@ -4895,17 +4850,7 @@ describe('Error handling for missing resolvers', () => {
         taskMessageQueue = new InMemoryTaskMessageQueue();
         errorHandler = vi.fn();
 
-        protocol = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({
-            taskStore,
-            taskMessageQueue,
-            defaultTaskPollInterval: 100
-        });
+        protocol = createTestProtocol({ taskStore, taskMessageQueue, defaultTaskPollInterval: 100 });
 
         // @ts-expect-error deliberately overriding error handler with mock
         protocol.onerror = errorHandler;
@@ -4931,7 +4876,7 @@ describe('Error handling for missing resolvers', () => {
             });
 
             // Set up the GetTaskPayloadRequest handler to process the message
-            const testProtocol = protocol as unknown as TestProtocol;
+            const testProtocol = protocol as unknown as TestProtocolInternals;
 
             // Simulate dequeuing and processing the response
             const queuedMessage = await taskMessageQueue.dequeue(task.taskId);
@@ -4942,7 +4887,7 @@ describe('Error handling for missing resolvers', () => {
             if (queuedMessage && queuedMessage.type === 'response') {
                 const responseMessage = queuedMessage.message as JSONRPCResultResponse;
                 const requestId = responseMessage.id as RequestId;
-                const resolver = testProtocol._requestResolvers.get(requestId);
+                const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
 
                 if (!resolver) {
                     // This simulates what happens in the actual handler
@@ -5018,8 +4963,8 @@ describe('Error handling for missing resolvers', () => {
             });
 
             // Clear the task queue (simulating cancellation)
-            const testProtocol = protocol as unknown as TestProtocol;
-            await testProtocol._clearTaskQueue(task.taskId);
+            const testProtocol = protocol as unknown as TestProtocolInternals;
+            await testProtocol._taskManager._clearTaskQueue(task.taskId);
 
             // Verify error was logged for missing resolver
             expect(errorHandler).toHaveBeenCalledWith(
@@ -5039,8 +4984,8 @@ describe('Error handling for missing resolvers', () => {
             const resolverMock = vi.fn();
 
             // Store a resolver
-            const testProtocol = protocol as unknown as TestProtocol;
-            testProtocol._requestResolvers.set(requestId, resolverMock);
+            const testProtocol = protocol as unknown as TestProtocolInternals;
+            testProtocol._taskManager._requestResolvers.set(requestId, resolverMock);
 
             // Enqueue a request
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5055,18 +5000,18 @@ describe('Error handling for missing resolvers', () => {
             });
 
             // Clear the task queue
-            await testProtocol._clearTaskQueue(task.taskId);
+            await testProtocol._taskManager._clearTaskQueue(task.taskId);
 
             // Verify resolver was called with cancellation error
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
 
             // Verify the error has the correct properties
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InternalError);
+            expect(calledError.code).toBe(ProtocolErrorCode.InternalError);
             expect(calledError.message).toContain('Task cancelled or completed');
 
             // Verify resolver was removed
-            expect(testProtocol._requestResolvers.has(requestId)).toBe(false);
+            expect(testProtocol._taskManager._requestResolvers.has(requestId)).toBe(false);
         });
 
         it('should handle mixed messages during cleanup', async () => {
@@ -5075,12 +5020,12 @@ describe('Error handling for missing resolvers', () => {
             // Create a task
             const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
 
-            const testProtocol = protocol as unknown as TestProtocol;
+            const testProtocol = protocol as unknown as TestProtocolInternals;
 
             // Enqueue multiple messages: request with resolver, request without, notification
             const requestId1 = 42;
             const resolverMock = vi.fn();
-            testProtocol._requestResolvers.set(requestId1, resolverMock);
+            testProtocol._taskManager._requestResolvers.set(requestId1, resolverMock);
 
             await taskMessageQueue.enqueue(task.taskId, {
                 type: 'request',
@@ -5115,14 +5060,14 @@ describe('Error handling for missing resolvers', () => {
             });
 
             // Clear the task queue
-            await testProtocol._clearTaskQueue(task.taskId);
+            await testProtocol._taskManager._clearTaskQueue(task.taskId);
 
             // Verify resolver was called for first request
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
 
             // Verify the error has the correct properties
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InternalError);
+            expect(calledError.code).toBe(ProtocolErrorCode.InternalError);
             expect(calledError.message).toContain('Task cancelled or completed');
 
             // Verify error was logged for second request
@@ -5142,7 +5087,7 @@ describe('Error handling for missing resolvers', () => {
         it('should log error when response handler is missing for side-channeled request', async () => {
             await protocol.connect(transport);
 
-            const testProtocol = protocol as unknown as TestProtocol;
+            const testProtocol = protocol as unknown as TestProtocolInternals;
             const messageId = 123;
 
             // Create a response resolver without a corresponding response handler
@@ -5193,10 +5138,10 @@ describe('Error handling for missing resolvers', () => {
             const processMessage = async () => {
                 const msg = await taskMessageQueue.dequeue(task.taskId);
                 if (msg && msg.type === 'response') {
-                    const testProtocol = protocol as unknown as TestProtocol;
+                    const testProtocol = protocol as unknown as TestProtocolInternals;
                     const responseMessage = msg.message as JSONRPCResultResponse;
                     const requestId = responseMessage.id as RequestId;
-                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
                     if (!resolver) {
                         protocol.onerror?.(new Error(`Response handler missing for request ${requestId}`));
                     }
@@ -5222,10 +5167,10 @@ describe('Error handling for missing resolvers', () => {
                 timestamp: Date.now()
             });
 
-            const testProtocol = protocol as unknown as TestProtocol;
+            const testProtocol = protocol as unknown as TestProtocolInternals;
 
             // This should not throw
-            await expect(testProtocol._clearTaskQueue(task.taskId)).resolves.not.toThrow();
+            await expect(testProtocol._taskManager._clearTaskQueue(task.taskId)).resolves.not.toThrow();
         });
     });
 
@@ -5238,8 +5183,8 @@ describe('Error handling for missing resolvers', () => {
             const resolverMock = vi.fn();
 
             // Store a resolver
-            const testProtocol = protocol as unknown as TestProtocol;
-            testProtocol._requestResolvers.set(requestId, resolverMock);
+            const testProtocol = protocol as unknown as TestProtocolInternals;
+            testProtocol._taskManager._requestResolvers.set(requestId, resolverMock);
 
             // Enqueue an error message
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5248,7 +5193,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: requestId,
                     error: {
-                        code: ErrorCode.InvalidRequest,
+                        code: ProtocolErrorCode.InvalidRequest,
                         message: 'Invalid request parameters'
                     }
                 },
@@ -5264,23 +5209,23 @@ describe('Error handling for missing resolvers', () => {
             if (queuedMessage && queuedMessage.type === 'error') {
                 const errorMessage = queuedMessage.message as JSONRPCErrorResponse;
                 const reqId = errorMessage.id as RequestId;
-                const resolver = testProtocol._requestResolvers.get(reqId);
+                const resolver = testProtocol._taskManager._requestResolvers.get(reqId);
 
                 if (resolver) {
-                    testProtocol._requestResolvers.delete(reqId);
-                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    testProtocol._taskManager._requestResolvers.delete(reqId);
+                    const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error);
                 }
             }
 
-            // Verify resolver was called with McpError
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            // Verify resolver was called with ProtocolError
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InvalidRequest);
+            expect(calledError.code).toBe(ProtocolErrorCode.InvalidRequest);
             expect(calledError.message).toContain('Invalid request parameters');
 
             // Verify resolver was removed from map
-            expect(testProtocol._requestResolvers.has(requestId)).toBe(false);
+            expect(testProtocol._taskManager._requestResolvers.has(requestId)).toBe(false);
         });
 
         it('should log error for unknown request ID in error messages', async () => {
@@ -5295,7 +5240,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: {
-                        code: ErrorCode.InternalError,
+                        code: ProtocolErrorCode.InternalError,
                         message: 'Something went wrong'
                     }
                 },
@@ -5309,10 +5254,10 @@ describe('Error handling for missing resolvers', () => {
 
             // Manually trigger the error handling logic
             if (queuedMessage && queuedMessage.type === 'error') {
-                const testProtocol = protocol as unknown as TestProtocol;
+                const testProtocol = protocol as unknown as TestProtocolInternals;
                 const errorMessage = queuedMessage.message as JSONRPCErrorResponse;
                 const requestId = errorMessage.id as RequestId;
-                const resolver = testProtocol._requestResolvers.get(requestId);
+                const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
 
                 if (!resolver) {
                     protocol.onerror?.(new Error(`Error handler missing for request ${requestId}`));
@@ -5335,8 +5280,8 @@ describe('Error handling for missing resolvers', () => {
             const resolverMock = vi.fn();
 
             // Store a resolver
-            const testProtocol = protocol as unknown as TestProtocol;
-            testProtocol._requestResolvers.set(requestId, resolverMock);
+            const testProtocol = protocol as unknown as TestProtocolInternals;
+            testProtocol._taskManager._requestResolvers.set(requestId, resolverMock);
 
             // Enqueue an error message with data field
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5345,7 +5290,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: requestId,
                     error: {
-                        code: ErrorCode.InvalidParams,
+                        code: ProtocolErrorCode.InvalidParams,
                         message: 'Validation failed',
                         data: { field: 'userName', reason: 'required' }
                     }
@@ -5359,19 +5304,19 @@ describe('Error handling for missing resolvers', () => {
             if (queuedMessage && queuedMessage.type === 'error') {
                 const errorMessage = queuedMessage.message as JSONRPCErrorResponse;
                 const reqId = errorMessage.id as RequestId;
-                const resolver = testProtocol._requestResolvers.get(reqId);
+                const resolver = testProtocol._taskManager._requestResolvers.get(reqId);
 
                 if (resolver) {
-                    testProtocol._requestResolvers.delete(reqId);
-                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    testProtocol._taskManager._requestResolvers.delete(reqId);
+                    const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error);
                 }
             }
 
-            // Verify resolver was called with McpError including data
-            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            // Verify resolver was called with ProtocolError including data
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(ProtocolError));
             const calledError = resolverMock.mock.calls[0]![0];
-            expect(calledError.code).toBe(ErrorCode.InvalidParams);
+            expect(calledError.code).toBe(ProtocolErrorCode.InvalidParams);
             expect(calledError.message).toContain('Validation failed');
             expect(calledError.data).toEqual({ field: 'userName', reason: 'required' });
         });
@@ -5387,7 +5332,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: 999,
                     error: {
-                        code: ErrorCode.InternalError,
+                        code: ProtocolErrorCode.InternalError,
                         message: 'Error occurred'
                     }
                 },
@@ -5398,10 +5343,10 @@ describe('Error handling for missing resolvers', () => {
             const processMessage = async () => {
                 const msg = await taskMessageQueue.dequeue(task.taskId);
                 if (msg && msg.type === 'error') {
-                    const testProtocol = protocol as unknown as TestProtocol;
+                    const testProtocol = protocol as unknown as TestProtocolInternals;
                     const errorMessage = msg.message as JSONRPCErrorResponse;
                     const requestId = errorMessage.id as RequestId;
-                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
                     if (!resolver) {
                         protocol.onerror?.(new Error(`Error handler missing for request ${requestId}`));
                     }
@@ -5417,16 +5362,16 @@ describe('Error handling for missing resolvers', () => {
             await protocol.connect(transport);
 
             const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
-            const testProtocol = protocol as unknown as TestProtocol;
+            const testProtocol = protocol as unknown as TestProtocolInternals;
 
             // Set up resolvers for multiple requests
             const resolver1 = vi.fn();
             const resolver2 = vi.fn();
             const resolver3 = vi.fn();
 
-            testProtocol._requestResolvers.set(1, resolver1);
-            testProtocol._requestResolvers.set(2, resolver2);
-            testProtocol._requestResolvers.set(3, resolver3);
+            testProtocol._taskManager._requestResolvers.set(1, resolver1);
+            testProtocol._taskManager._requestResolvers.set(2, resolver2);
+            testProtocol._taskManager._requestResolvers.set(3, resolver3);
 
             // Enqueue mixed messages: response, error, response
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5445,7 +5390,7 @@ describe('Error handling for missing resolvers', () => {
                     jsonrpc: '2.0',
                     id: 2,
                     error: {
-                        code: ErrorCode.InvalidRequest,
+                        code: ProtocolErrorCode.InvalidRequest,
                         message: 'Request failed'
                     }
                 },
@@ -5468,18 +5413,18 @@ describe('Error handling for missing resolvers', () => {
                 if (msg.type === 'response') {
                     const responseMessage = msg.message as JSONRPCResultResponse;
                     const requestId = responseMessage.id as RequestId;
-                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
                     if (resolver) {
-                        testProtocol._requestResolvers.delete(requestId);
+                        testProtocol._taskManager._requestResolvers.delete(requestId);
                         resolver(responseMessage);
                     }
                 } else if (msg.type === 'error') {
                     const errorMessage = msg.message as JSONRPCErrorResponse;
                     const requestId = errorMessage.id as RequestId;
-                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
                     if (resolver) {
-                        testProtocol._requestResolvers.delete(requestId);
-                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        testProtocol._taskManager._requestResolvers.delete(requestId);
+                        const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                         resolver(error);
                     }
                 }
@@ -5487,32 +5432,32 @@ describe('Error handling for missing resolvers', () => {
 
             // Verify all resolvers were called correctly
             expect(resolver1).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
-            expect(resolver2).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolver2).toHaveBeenCalledWith(expect.any(ProtocolError));
             expect(resolver3).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
 
             // Verify error has correct properties
             const error = resolver2.mock.calls[0]![0];
-            expect(error.code).toBe(ErrorCode.InvalidRequest);
+            expect(error.code).toBe(ProtocolErrorCode.InvalidRequest);
             expect(error.message).toContain('Request failed');
 
             // Verify all resolvers were removed
-            expect(testProtocol._requestResolvers.size).toBe(0);
+            expect(testProtocol._taskManager._requestResolvers.size).toBe(0);
         });
 
         it('should maintain FIFO order when processing responses and errors', async () => {
             await protocol.connect(transport);
 
             const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
-            const testProtocol = protocol as unknown as TestProtocol;
+            const testProtocol = protocol as unknown as TestProtocolInternals;
 
             const callOrder: number[] = [];
             const resolver1 = vi.fn(() => callOrder.push(1));
             const resolver2 = vi.fn(() => callOrder.push(2));
             const resolver3 = vi.fn(() => callOrder.push(3));
 
-            testProtocol._requestResolvers.set(1, resolver1);
-            testProtocol._requestResolvers.set(2, resolver2);
-            testProtocol._requestResolvers.set(3, resolver3);
+            testProtocol._taskManager._requestResolvers.set(1, resolver1);
+            testProtocol._taskManager._requestResolvers.set(2, resolver2);
+            testProtocol._taskManager._requestResolvers.set(3, resolver3);
 
             // Enqueue in specific order
             await taskMessageQueue.enqueue(task.taskId, {
@@ -5543,18 +5488,18 @@ describe('Error handling for missing resolvers', () => {
                 if (msg.type === 'response') {
                     const responseMessage = msg.message as JSONRPCResultResponse;
                     const requestId = responseMessage.id as RequestId;
-                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
                     if (resolver) {
-                        testProtocol._requestResolvers.delete(requestId);
+                        testProtocol._taskManager._requestResolvers.delete(requestId);
                         resolver(responseMessage);
                     }
                 } else if (msg.type === 'error') {
                     const errorMessage = msg.message as JSONRPCErrorResponse;
                     const requestId = errorMessage.id as RequestId;
-                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    const resolver = testProtocol._taskManager._requestResolvers.get(requestId);
                     if (resolver) {
-                        testProtocol._requestResolvers.delete(requestId);
-                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        testProtocol._taskManager._requestResolvers.delete(requestId);
+                        const error = new ProtocolError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                         resolver(error);
                     }
                 }
@@ -5563,5 +5508,115 @@ describe('Error handling for missing resolvers', () => {
             // Verify FIFO order was maintained
             expect(callOrder).toEqual([1, 2, 3]);
         });
+    });
+});
+
+describe('Protocol without task configuration', () => {
+    let protocol: TestProtocolImpl;
+    let transport: MockTransport;
+    let sendSpy: MockInstance;
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        sendSpy = vi.spyOn(transport, 'send');
+        protocol = createTestProtocol(); // empty TaskManager options
+    });
+
+    test('request/response flow works normally without task config', async () => {
+        await protocol.connect(transport);
+        const mockSchema = z.object({ result: z.string() });
+
+        const requestPromise = testRequest(protocol, { method: 'example', params: {} }, mockSchema, { timeout: 5000 });
+
+        // Simulate response
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: 0,
+            result: { result: 'hello' }
+        });
+
+        const result = await requestPromise;
+        expect(result).toEqual({ result: 'hello' });
+    });
+
+    test('notifications are sent with proper JSONRPC wrapping without task config', async () => {
+        await protocol.connect(transport);
+
+        await protocol.notification({ method: 'notifications/cancelled', params: { requestId: '1', reason: 'test' } });
+
+        expect(sendSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                jsonrpc: '2.0',
+                method: 'notifications/cancelled',
+                params: { requestId: '1', reason: 'test' }
+            }),
+            undefined
+        );
+    });
+
+    test('onClose does not error without task config', async () => {
+        await protocol.connect(transport);
+        await expect(protocol.close()).resolves.not.toThrow();
+    });
+
+    test('inbound requests dispatch to handlers without task config', async () => {
+        const handler = vi.fn().mockResolvedValue({ content: 'ok' });
+        protocol.setRequestHandler('ping', handler);
+
+        await protocol.connect(transport);
+        transport.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 1 });
+
+        // Wait for async handler
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(handler).toHaveBeenCalled();
+        expect(sendSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                jsonrpc: '2.0',
+                id: 1,
+                result: { content: 'ok' }
+            })
+        );
+    });
+});
+
+describe('TaskManager lifecycle via Protocol', () => {
+    let protocol: TestProtocolImpl;
+    let transport: MockTransport;
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        protocol = new TestProtocolImpl();
+    });
+
+    test('bind() is called during Protocol construction', () => {
+        const bindSpy = vi.spyOn(TaskManager.prototype, 'bind');
+        const p = new TestProtocolImpl({ tasks: {} });
+        expect(bindSpy).toHaveBeenCalled();
+        expect(p.taskManager).toBeInstanceOf(TaskManager);
+        bindSpy.mockRestore();
+    });
+
+    test('NullTaskManager is created when no tasks config is provided', () => {
+        const p = new TestProtocolImpl();
+        expect(p.taskManager).toBeInstanceOf(NullTaskManager);
+    });
+
+    test('onClose() is called when transport closes', async () => {
+        const p = createTestProtocol({});
+        const onCloseSpy = vi.spyOn(p.taskManager, 'onClose');
+
+        await p.connect(transport);
+        await p.close();
+
+        expect(onCloseSpy).toHaveBeenCalled();
+    });
+});
+
+describe('TaskManager always present (NullTaskManager pattern)', () => {
+    test('taskManager accessor always returns a TaskManager', () => {
+        const mockTaskModule = { getTask: vi.fn() };
+        const mockClient = { taskManager: mockTaskModule } as any;
+        expect(mockClient.taskManager).toBe(mockTaskModule);
     });
 });

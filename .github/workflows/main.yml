@@ -19,7 +19,7 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
               id: pnpm-install
               with:
                   run_install: false
@@ -44,7 +44,7 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
               id: pnpm-install
               with:
                   run_install: false
@@ -58,25 +58,61 @@ jobs:
 
             - run: pnpm test:all
 
+    test-runtimes:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runtime: bun
+                      version: "1.x"
+                    - runtime: deno
+                      version: v2.x
+        steps:
+            - uses: actions/checkout@v6
+            - name: Install pnpm
+              uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+              with:
+                  run_install: false
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+            - name: Set up Bun
+              if: matrix.runtime == 'bun'
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+              with:
+                  bun-version: ${{ matrix.version }}
+            - name: Set up Deno
+              if: matrix.runtime == 'deno'
+              uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2
+              with:
+                  deno-version: ${{ matrix.version }}
+            - run: pnpm install
+            - run: pnpm build:all
+            - name: Run ${{ matrix.runtime }} integration tests
+              run: pnpm --filter @modelcontextprotocol/test-integration test:integration:${{ matrix.runtime }}
+
     publish:
         runs-on: ubuntu-latest
         if: github.event_name == 'release'
         environment: release
-        needs: [build, test]
+        needs: [build, test, test-runtimes]
 
         permissions:
             contents: read
             id-token: write
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
               id: pnpm-install
               with:
                   run_install: false
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@v6
               with:
                   node-version: 24
                   cache: pnpm
@@ -91,8 +127,8 @@ jobs:
                   # Check if this is a beta release
                   if [[ "$VERSION" == *"-beta"* ]]; then
                     echo "tag=--tag beta" >> $GITHUB_OUTPUT
-                  # Check if this release is from a non-main branch (patch/maintenance release)
-                  elif [[ "${{ github.event.release.target_commitish }}" != "main" ]]; then
+                  # Check if this release is from a non-primary branch (patch/maintenance release)
+                  elif [[ "${{ github.event.release.target_commitish }}" != "main" && "${{ github.event.release.target_commitish }}" != "v1.x" ]]; then
                     # Use "release-X.Y" as tag for old branch releases (e.g., "release-1.23" for 1.23.x)
                     # npm tags are mutable pointers to versions (like "latest" pointing to 1.24.3).
                     # Using "release-1.23" means users can `npm install @modelcontextprotocol/sdk@release-1.23`
@@ -108,42 +144,3 @@ jobs:
             - run: pnpm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-    # Generates API documentation for GitHub Pages on any release
-    # Supports both simple tags (v1.2.3) and package-scoped tags (@scope/package@1.2.3)
-    publish-gh-pages:
-        runs-on: ubuntu-latest
-        if: github.event_name == 'release'
-        needs: [publish]
-
-        permissions:
-            contents: write
-
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0 # Fetch all history for all branches and tags
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
-              with:
-                  run_install: false
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
-
-            - name: Install dependencies
-              run: pnpm install
-
-            - name: Configure Git
-              run: |
-                  git config --global user.name "github-actions[bot]"
-                  git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-            - name: Generate documentation
-              run: ./scripts/generate-gh-pages.sh "${{ github.ref_name }}"
-
-            - name: Push to gh-pages
-              run: git push origin gh-pages

@@ -10,18 +10,13 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
+    ElicitResult,
     GetPromptResult,
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
 } from '@modelcontextprotocol/server';
-import {
-    ElicitResultSchema,
-    InMemoryTaskMessageQueue,
-    InMemoryTaskStore,
-    isInitializeRequest,
-    McpServer
-} from '@modelcontextprotocol/server';
+import { InMemoryTaskMessageQueue, InMemoryTaskStore, isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -46,9 +41,14 @@ const getServer = () => {
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
         {
-            capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
-            taskStore, // Enable task support
-            taskMessageQueue: new InMemoryTaskMessageQueue()
+            capabilities: {
+                logging: {},
+                tasks: {
+                    requests: { tools: { call: {} } },
+                    taskStore,
+                    taskMessageQueue: new InMemoryTaskMessageQueue()
+                }
+            }
         }
     );
 
@@ -58,9 +58,9 @@ const getServer = () => {
         {
             title: 'Greeting Tool', // Display name for UI
             description: 'A simple greeting tool',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            }
+            })
         },
         async ({ name }): Promise<CallToolResult> => {
             return {
@@ -79,45 +79,27 @@ const getServer = () => {
         'multi-greet',
         {
             description: 'A tool that sends different greetings with delays between them',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            },
+            }),
             annotations: {
                 title: 'Multiple Greeting Tool',
                 readOnlyHint: true,
                 openWorldHint: false
             }
         },
-        async ({ name }, extra): Promise<CallToolResult> => {
+        async ({ name }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'debug',
-                    data: `Starting multi-greet for ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('debug', `Starting multi-greet for ${name}`);
 
             await sleep(1000); // Wait 1 second before first greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending first greeting to ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending first greeting to ${name}`);
 
             await sleep(1000); // Wait another second before second greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending second greeting to ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending second greeting to ${name}`);
 
             return {
                 content: [
@@ -135,11 +117,11 @@ const getServer = () => {
         'collect-user-info',
         {
             description: 'A tool that collects user information through form elicitation',
-            inputSchema: {
+            inputSchema: z.object({
                 infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
-            }
+            })
         },
-        async ({ infoType }, extra): Promise<CallToolResult> => {
+        async ({ infoType }, ctx): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -238,18 +220,15 @@ const getServer = () => {
             }
 
             try {
-                // Use sendRequest through the extra parameter to elicit input
-                const result = await extra.sendRequest(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            mode: 'form',
-                            message,
-                            requestedSchema
-                        }
-                    },
-                    ElicitResultSchema
-                );
+                // Use sendRequest through the ctx parameter to elicit input
+                const result = await ctx.mcpReq.send({
+                    method: 'elicitation/create',
+                    params: {
+                        mode: 'form',
+                        message,
+                        requestedSchema
+                    }
+                });
 
                 if (result.action === 'accept') {
                     return {
@@ -298,9 +277,9 @@ const getServer = () => {
         {
             title: 'Greeting Template', // Display name for UI
             description: 'A simple greeting prompt template',
-            argsSchema: {
+            argsSchema: z.object({
                 name: z.string().describe('Name to include in greeting')
-            }
+            })
         },
         async ({ name }): Promise<GetPromptResult> => {
             return {
@@ -322,25 +301,19 @@ const getServer = () => {
         'start-notification-stream',
         {
             description: 'Starts sending periodic notifications for testing resumability',
-            inputSchema: {
+            inputSchema: z.object({
                 interval: z.number().describe('Interval in milliseconds between notifications').default(100),
                 count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
-            }
+            })
         },
-        async ({ interval, count }, extra): Promise<CallToolResult> => {
+        async ({ interval, count }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
             let counter = 0;
 
             while (count === 0 || counter < count) {
                 counter++;
                 try {
-                    await server.sendLoggingMessage(
-                        {
-                            level: 'info',
-                            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-                        },
-                        extra.sessionId
-                    );
+                    await ctx.mcpReq.log('info', `Periodic notification #${counter} at ${new Date().toISOString()}`);
                 } catch (error) {
                     console.error('Error sending notification:', error);
                 }
@@ -427,9 +400,9 @@ const getServer = () => {
         {
             title: 'List Files with ResourceLinks',
             description: 'Returns a list of files as ResourceLinks without embedding their content',
-            inputSchema: {
+            inputSchema: z.object({
                 includeDescriptions: z.boolean().optional().describe('Whether to include descriptions in the resource links')
-            }
+            })
         },
         async ({ includeDescriptions = true }): Promise<CallToolResult> => {
             const resourceLinks: ResourceLink[] = [
@@ -479,21 +452,21 @@ const getServer = () => {
         {
             title: 'Delay',
             description: 'A simple tool that delays for a specified duration, useful for testing task execution',
-            inputSchema: {
+            inputSchema: z.object({
                 duration: z.number().describe('Duration in milliseconds').default(5000)
-            }
+            })
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+            async createTask({ duration }, ctx) {
                 // Create the task
-                const task = await taskStore.createTask({
-                    ttl: taskRequestedTtl
+                const task = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
                 });
 
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    await taskStore.storeTaskResult(task.taskId, 'completed', {
+                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
                         content: [
                             {
                                 type: 'text',
@@ -508,11 +481,119 @@ const getServer = () => {
                     task
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
-                return await taskStore.getTask(taskId);
+            async getTask(_args, ctx) {
+                return await ctx.task.store.getTask(ctx.task.id);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
-                const result = await taskStore.getTaskResult(taskId);
+            async getTaskResult(_args, ctx) {
+                const result = await ctx.task.store.getTaskResult(ctx.task.id);
+                return result as CallToolResult;
+            }
+        }
+    );
+
+    // Register a tool that demonstrates bidirectional task support:
+    // Server creates a task, then elicits input from client using elicitInputStream
+    // Using the experimental tasks API - WARNING: may change without notice
+    server.experimental.tasks.registerToolTask(
+        'collect-user-info-task',
+        {
+            title: 'Collect Info with Task',
+            description: 'Collects user info via elicitation with task support using elicitInputStream',
+            inputSchema: z.object({
+                infoType: z.enum(['contact', 'preferences']).describe('Type of information to collect').default('contact')
+            })
+        },
+        {
+            async createTask({ infoType }, ctx) {
+                // Create the server-side task
+                const task = await ctx.task.store.createTask({
+                    ttl: ctx.task.requestedTtl
+                });
+
+                // Perform async work that makes a nested elicitation request using elicitInputStream
+                (async () => {
+                    try {
+                        const message = infoType === 'contact' ? 'Please provide your contact information' : 'Please set your preferences';
+
+                        // Define schemas with proper typing for PrimitiveSchemaDefinition
+                        const contactSchema: {
+                            type: 'object';
+                            properties: Record<string, PrimitiveSchemaDefinition>;
+                            required: string[];
+                        } = {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', title: 'Full Name', description: 'Your full name' },
+                                email: { type: 'string', title: 'Email', description: 'Your email address' }
+                            },
+                            required: ['name', 'email']
+                        };
+
+                        const preferencesSchema: {
+                            type: 'object';
+                            properties: Record<string, PrimitiveSchemaDefinition>;
+                            required: string[];
+                        } = {
+                            type: 'object',
+                            properties: {
+                                theme: { type: 'string', title: 'Theme', enum: ['light', 'dark', 'auto'] },
+                                notifications: { type: 'boolean', title: 'Enable Notifications', default: true }
+                            },
+                            required: ['theme']
+                        };
+
+                        const requestedSchema = infoType === 'contact' ? contactSchema : preferencesSchema;
+
+                        // Use elicitInputStream to elicit input from client
+                        // This demonstrates the streaming elicitation API
+                        // Access via server.server to get the underlying Server instance
+                        const stream = server.server.experimental.tasks.elicitInputStream({
+                            mode: 'form',
+                            message,
+                            requestedSchema
+                        });
+
+                        let elicitResult: ElicitResult | undefined;
+                        for await (const msg of stream) {
+                            if (msg.type === 'result') {
+                                elicitResult = msg.result as ElicitResult;
+                            } else if (msg.type === 'error') {
+                                throw msg.error;
+                            }
+                        }
+
+                        if (!elicitResult) {
+                            throw new Error('No result received from elicitation');
+                        }
+
+                        let resultText: string;
+                        if (elicitResult.action === 'accept') {
+                            resultText = `Collected ${infoType} info: ${JSON.stringify(elicitResult.content, null, 2)}`;
+                        } else if (elicitResult.action === 'decline') {
+                            resultText = `User declined to provide ${infoType} information`;
+                        } else {
+                            resultText = 'User cancelled the request';
+                        }
+
+                        await taskStore.storeTaskResult(task.taskId, 'completed', {
+                            content: [{ type: 'text', text: resultText }]
+                        });
+                    } catch (error) {
+                        console.error('Error in collect-user-info-task:', error);
+                        await taskStore.storeTaskResult(task.taskId, 'failed', {
+                            content: [{ type: 'text', text: `Error: ${error}` }],
+                            isError: true
+                        });
+                    }
+                })();
+
+                return { task };
+            },
+            async getTask(_args, ctx) {
+                return await ctx.task.store.getTask(ctx.task.id);
+            },
+            async getTaskResult(_args, ctx) {
+                const result = await ctx.task.store.getTaskResult(ctx.task.id);
                 return result as CallToolResult;
             }
         }

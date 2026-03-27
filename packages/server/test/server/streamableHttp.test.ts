@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@modelcontextprotocol/core';
-import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp.js';
@@ -118,9 +117,7 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
     });
 }
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
-
+describe('Zod v4', () => {
     describe('HTTPServerTransport', () => {
         let transport: WebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
@@ -133,7 +130,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'greet',
                 {
                     description: 'A simple greeting tool',
-                    inputSchema: { name: z.string().describe('Name to greet') }
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
                 },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
@@ -439,7 +436,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             mcpServer.registerTool(
                 'echo',
-                { description: 'Echo tool', inputSchema: { message: z.string() } },
+                { description: 'Echo tool', inputSchema: z.object({ message: z.string() }) },
                 async ({ message }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: message }] };
                 }
@@ -487,7 +484,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             mcpServer.registerTool(
                 'greet',
-                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
                 }
@@ -659,7 +656,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             mcpServer.registerTool(
                 'greet',
-                { description: 'Greeting tool', inputSchema: { name: z.string() } },
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
                 async ({ name }): Promise<CallToolResult> => {
                     return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
                 }
@@ -766,6 +763,197 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await transport.start();
 
             await expect(transport.start()).rejects.toThrow('Transport already started');
+        });
+    });
+
+    describe('HTTPServerTransport - onerror callback', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+        let errors: Error[];
+
+        beforeEach(async () => {
+            errors = [];
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+
+            transport.onerror = err => errors.push(err);
+
+            await mcpServer.connect(transport);
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        async function initializeServer(): Promise<string> {
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+            const response = await transport.handleRequest(request);
+            return response.headers.get('mcp-session-id') as string;
+        }
+
+        it('should call onerror for invalid JSON', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body: 'not valid json'
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error).toBeInstanceOf(SyntaxError);
+        });
+
+        it('should call onerror for invalid JSON-RPC message', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ not: 'valid jsonrpc' })
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.name).toBe('ZodError');
+        });
+
+        it('should call onerror for missing Accept header on POST', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.initialize, { accept: 'application/json' });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(406);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Not Acceptable');
+        });
+
+        it('should call onerror for unsupported Content-Type', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'text/plain'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(415);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Unsupported Media Type');
+        });
+
+        it('should call onerror for server not initialized', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.toolsList);
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Server not initialized');
+        });
+
+        it('should call onerror for invalid session ID', async () => {
+            await initializeServer();
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, { sessionId: 'invalid-session-id' });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(404);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Session not found');
+        });
+
+        it('should call onerror for re-initialization attempt', async () => {
+            await initializeServer();
+
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Server already initialized');
+        });
+
+        it('should call onerror for GET without Accept header', async () => {
+            const sessionId = await initializeServer();
+
+            const request = createRequest('GET', undefined, { sessionId, accept: 'application/json' });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(406);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Not Acceptable');
+        });
+
+        it('should call onerror for concurrent SSE streams', async () => {
+            const sessionId = await initializeServer();
+
+            const request1 = createRequest('GET', undefined, { sessionId });
+            await transport.handleRequest(request1);
+
+            const request2 = createRequest('GET', undefined, { sessionId });
+            const response2 = await transport.handleRequest(request2);
+
+            expect(response2.status).toBe(409);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Conflict');
+        });
+
+        it('should call onerror for unsupported protocol version', async () => {
+            const sessionId = await initializeServer();
+
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': 'unsupported-version'
+                },
+                body: JSON.stringify(TEST_MESSAGES.toolsList)
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            expect(errors.length).toBeGreaterThan(0);
+            const error = errors[0];
+            expect(error).toBeDefined();
+            expect(error?.message).toContain('Unsupported protocol version');
         });
     });
 });
