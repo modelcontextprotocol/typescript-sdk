@@ -89,7 +89,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      *
      * **Note:** This restores transport-layer session validation only. To restore
      * protocol-layer state (negotiated client capabilities), call
-     * {@link Server.restoreInitializeState} with persisted `InitializeRequest` params.
+     * `Server.restoreInitializeState()` with persisted `InitializeRequest` params.
      */
     sessionId?: string;
 

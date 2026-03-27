@@ -456,7 +456,7 @@ export class Server extends Protocol<ServerContext> {
      * so that capability-gated server-initiated features (sampling, elicitation, roots)
      * work correctly on the hydrated instance.
      *
-     * Pair with the `sessionId` option on {@link WebStandardStreamableHTTPServerTransport}
+     * Pair with the `sessionId` option on `WebStandardStreamableHTTPServerTransport`
      * to restore transport-layer session validation alongside protocol-layer state.
      */
     restoreInitializeState(params: InitializeRequest['params']): void {
