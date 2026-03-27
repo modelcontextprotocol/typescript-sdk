@@ -840,11 +840,7 @@ describe('StreamableHTTPClientTransport', () => {
             await transport.send(testMessage);
 
             expect(authSpy).toHaveBeenCalledTimes(2);
-            expect(authSpy).toHaveBeenNthCalledWith(
-                1,
-                expect.anything(),
-                expect.objectContaining({ scope: 'read:op1' })
-            );
+            expect(authSpy).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({ scope: 'read:op1' }));
             expect(authSpy).toHaveBeenNthCalledWith(
                 2,
                 expect.anything(),
@@ -969,12 +965,14 @@ describe('StreamableHTTPClientTransport', () => {
         const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
-        await expect(transport.send({
-            jsonrpc: '2.0',
-            method: 'test',
-            params: {},
-            id: 'test-id'
-        })).rejects.toThrow('Server returned 403 after trying upscoping');
+        await expect(
+            transport.send({
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-id'
+            })
+        ).rejects.toThrow('Server returned 403 after trying upscoping');
 
         expect(authSpy).toHaveBeenCalledTimes(1);
         authSpy.mockRestore();
