@@ -77,6 +77,11 @@ export class ExperimentalMcpServerTasks {
         }
     }
 
+    /** @internal */
+    onClose(): void {
+        this._taskToTool.clear();
+    }
+
     private async _dispatch<M extends 'getTask' | 'getTaskResult'>(
         taskId: string,
         ctx: BaseContext,
@@ -99,7 +104,11 @@ export class ExperimentalMcpServerTasks {
             task: { ...serverCtx.task, id: taskId, store: serverCtx.task.store }
         };
 
-        return handler(taskCtx) as M extends 'getTask' ? GetTaskResult : CallToolResult;
+        const result = (await handler(taskCtx)) as M extends 'getTask' ? GetTaskResult : CallToolResult;
+        if (method === 'getTaskResult') {
+            this._taskToTool.delete(taskId);
+        }
+        return result;
     }
 
     /**

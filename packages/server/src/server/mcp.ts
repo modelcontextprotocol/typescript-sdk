@@ -110,6 +110,7 @@ export class McpServer {
      * Closes the connection.
      */
     async close(): Promise<void> {
+        this._experimental.tasks.onClose();
         await this.server.close();
     }
 
