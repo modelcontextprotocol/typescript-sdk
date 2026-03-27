@@ -214,9 +214,9 @@ export class StreamableHTTPClientTransport implements Transport {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
-            if (!headers.has('accept')) {
-                headers.set('accept', 'text/event-stream');
-            }
+            const requiredAccept = 'text/event-stream';
+            const userAccept = headers.get('accept');
+            headers.set('accept', userAccept ? `${userAccept}, ${requiredAccept}` : requiredAccept);
 
             // Include Last-Event-ID header for resumable streams if provided
             if (resumptionToken) {
@@ -475,9 +475,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
-            if (!headers.has('accept')) {
-                headers.set('accept', 'application/json, text/event-stream');
-            }
+            const requiredAccept = 'application/json, text/event-stream';
+            const userAccept = headers.get('accept');
+            headers.set('accept', userAccept ? `${userAccept}, ${requiredAccept}` : requiredAccept);
 
             const init = {
                 ...this._requestInit,

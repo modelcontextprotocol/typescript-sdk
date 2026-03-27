@@ -601,7 +601,7 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
-    it('should preserve custom Accept header on POST requests', async () => {
+    it('should append custom Accept header to required types on POST requests', async () => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: {
                 headers: {
@@ -623,14 +623,14 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
-        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/vnd.example.v1+json');
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/vnd.example.v1+json, application/json, text/event-stream');
     });
 
-    it('should preserve custom Accept header on GET SSE requests', async () => {
+    it('should append custom Accept header to required types on GET SSE requests', async () => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: {
                 headers: {
-                    Accept: 'text/event-stream, application/json'
+                    Accept: 'application/json'
                 }
             }
         });
@@ -645,7 +645,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport['_startOrAuthSse']({});
-        expect((actualReqInit.headers as Headers).get('accept')).toBe('text/event-stream, application/json');
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
     });
 
     it('should set default Accept header when none provided', async () => {
