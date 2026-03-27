@@ -13,6 +13,7 @@ interface QueuedMessage {
 export class InMemoryTransport implements Transport {
     private _otherTransport?: InMemoryTransport;
     private _messageQueue: QueuedMessage[] = [];
+    private _closed = false;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -39,10 +40,16 @@ export class InMemoryTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) return;
+        this._closed = true;
+
         const other = this._otherTransport;
         this._otherTransport = undefined;
-        await other?.close();
-        this.onclose?.();
+        try {
+            await other?.close();
+        } finally {
+            this.onclose?.();
+        }
     }
 
     /**
