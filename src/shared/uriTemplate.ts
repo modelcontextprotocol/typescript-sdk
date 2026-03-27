@@ -105,7 +105,7 @@ export class UriTemplate {
         return expr
             .slice(operator.length)
             .split(',')
-            .map(name => name.replace('*', '').trim())
+            .map(name => name.replace(/\*/g, '').trim())
             .filter(name => name.length > 0);
     }
 
@@ -256,10 +256,11 @@ export class UriTemplate {
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
 
-        // Split URI into path and query parts
-        const queryIndex = uri.indexOf('?');
-        const pathPart = queryIndex === -1 ? uri : uri.slice(0, queryIndex);
-        const queryPart = queryIndex === -1 ? '' : uri.slice(queryIndex + 1);
+        // Check whether any literal string segment in the template contains a
+        // '?'. If so, the template author has written a manual query-string
+        // prefix (e.g. `/path?fixed=1{&var}`) and we cannot simply split the
+        // URI at its first '?' — the path regex itself needs to consume past it.
+        const hasLiteralQuery = this.parts.some(part => typeof part === 'string' && part.includes('?'));
 
         // Build regex pattern for path (non-query) parts
         let pattern = '^';
@@ -282,18 +283,36 @@ export class UriTemplate {
             }
         }
 
-        pattern += '$';
-        UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
-        const regex = new RegExp(pattern);
-        const match = pathPart.match(regex);
+        let match: RegExpMatchArray | null;
+        let queryPart: string;
 
-        if (!match) return null;
+        if (hasLiteralQuery) {
+            // Match the path regex against the full URI without a trailing
+            // anchor, then treat everything after the match as the remaining
+            // query string to parse for {?...}/{&...} expressions.
+            UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
+            const regex = new RegExp(pattern);
+            match = uri.match(regex);
+            if (!match) return null;
+            queryPart = uri.slice(match[0].length).replace(/^&/, '');
+        } else {
+            // Split URI into path and query parts at the first '?'
+            const queryIndex = uri.indexOf('?');
+            const pathPart = queryIndex === -1 ? uri : uri.slice(0, queryIndex);
+            queryPart = queryIndex === -1 ? '' : uri.slice(queryIndex + 1);
+
+            pattern += '$';
+            UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
+            const regex = new RegExp(pattern);
+            match = pathPart.match(regex);
+            if (!match) return null;
+        }
 
         const result: Variables = {};
 
         for (const [i, { name, exploded }] of names.entries()) {
             const value = match[i + 1]!;
-            const cleanName = name.replace('*', '');
+            const cleanName = name.replace(/\*/g, '');
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
         }
 
@@ -311,7 +330,7 @@ export class UriTemplate {
             }
 
             for (const { name, exploded } of queryParts) {
-                const cleanName = name.replace('*', '');
+                const cleanName = name.replace(/\*/g, '');
                 const value = queryParams.get(cleanName);
 
                 if (value === undefined) continue;

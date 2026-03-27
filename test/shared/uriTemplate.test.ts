@@ -249,6 +249,37 @@ describe('UriTemplate', () => {
             expect(match).toEqual({ q: 'hello world' });
             expect(template.variableNames).toEqual(['q']);
         });
+
+        it('should not throw on malformed percent-encoding in query parameters', () => {
+            const template = new UriTemplate('/search{?q}');
+            expect(template.match('/search?q=100%')).toEqual({ q: '100%' });
+            expect(template.match('/search?q=%ZZ')).toEqual({ q: '%ZZ' });
+        });
+
+        it('should match templates with a literal ? followed by {&...} continuation', () => {
+            const template = new UriTemplate('/path?static=1{&dynamic}');
+            const match = template.match('/path?static=1&dynamic=hello');
+            expect(match).toEqual({ dynamic: 'hello' });
+            expect(template.variableNames).toEqual(['dynamic']);
+        });
+
+        it('should match templates with literal ? when continuation param is absent', () => {
+            const template = new UriTemplate('/path?static=1{&dynamic}');
+            const match = template.match('/path?static=1');
+            expect(match).toEqual({});
+        });
+
+        it('should match templates with literal ? and multiple continuation params', () => {
+            const template = new UriTemplate('/api?v=2{&key,page}');
+            const match = template.match('/api?v=2&page=3&key=abc');
+            expect(match).toEqual({ key: 'abc', page: '3' });
+        });
+
+        it('should match path variables combined with literal ? and {&...}', () => {
+            const template = new UriTemplate('/api/{version}?format=json{&key}');
+            const match = template.match('/api/v1?format=json&key=secret');
+            expect(match).toEqual({ version: 'v1', key: 'secret' });
+        });
     });
 
     describe('security and edge cases', () => {
