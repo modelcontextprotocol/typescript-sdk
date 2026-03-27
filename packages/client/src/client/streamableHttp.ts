@@ -94,7 +94,7 @@ export interface StreamableHTTPReconnectionOptions {
  * pending reconnection.
  *
  * @example
- * ```ts
+ * ```ts source="./streamableHttp.examples.ts#ReconnectionScheduler_basicUsage"
  * const scheduler: ReconnectionScheduler = (reconnect, delay) => {
  *     const id = platformBackgroundTask.schedule(reconnect, delay);
  *     return () => platformBackgroundTask.cancel(id);
