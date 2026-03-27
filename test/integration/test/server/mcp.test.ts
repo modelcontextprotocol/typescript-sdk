@@ -338,6 +338,60 @@ describe('Zod v4', () => {
                 message: 'Completed step 3 of 3'
             });
         });
+
+        /***
+         * Test: Extensions capability registration
+         */
+        test('should register and advertise server extensions capability', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.server.registerCapabilities({
+                extensions: {
+                    'io.modelcontextprotocol/test-extension': { listChanged: true }
+                }
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.extensions).toBeDefined();
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ listChanged: true });
+        });
+
+        test('should advertise client extensions capability to server', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        extensions: {
+                            'io.modelcontextprotocol/test-extension': { streaming: true }
+                        }
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = mcpServer.server.getClientCapabilities();
+            expect(capabilities?.extensions).toBeDefined();
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ streaming: true });
+        });
     });
 
     describe('ResourceTemplate', () => {
@@ -1777,22 +1831,59 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
-                method: 'tools/call',
-                params: {
-                    name: 'nonexistent-tool'
-                }
+            await expect(
+                client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'nonexistent-tool'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('nonexistent-tool')
+            });
+        });
+
+        /***
+         * Test: ProtocolError for Disabled Tool
+         */
+        test('should throw ProtocolError for disabled tool', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
             });
 
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool('test-tool', {}, async () => ({
+                content: [
                     {
                         type: 'text',
-                        text: expect.stringContaining('Tool nonexistent-tool not found')
+                        text: 'Test response'
                     }
-                ])
-            );
+                ]
+            }));
+
+            tool.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-tool'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -1944,10 +2035,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -2013,10 +2105,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -2797,7 +2890,51 @@ describe('Zod v4', () => {
                         uri: 'test://nonexistent'
                     }
                 })
-            ).rejects.toThrow(/Resource test:\/\/nonexistent not found/);
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.ResourceNotFound,
+                message: expect.stringContaining('not found')
+            });
+        });
+
+        /***
+         * Test: ProtocolError for Disabled Resource
+         */
+        test('should throw ProtocolError for disabled resource', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resource = mcpServer.registerResource('test', 'test://resource', {}, async () => ({
+                contents: [
+                    {
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            resource.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://resource'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -3693,7 +3830,10 @@ describe('Zod v4', () => {
                         name: 'nonexistent-prompt'
                     }
                 })
-            ).rejects.toThrow(/Prompt nonexistent-prompt not found/);
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('not found')
+            });
         });
 
         /***
@@ -6229,10 +6369,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6331,10 +6472,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6436,10 +6578,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6556,10 +6699,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6659,10 +6803,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6757,10 +6902,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
