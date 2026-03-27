@@ -30,9 +30,6 @@ catalogs:
     '@types/supertest':
       specifier: ^6.0.2
       version: 6.0.3
-    '@types/ws':
-      specifier: ^8.5.12
-      version: 8.18.1
     '@typescript/native-preview':
       specifier: ^7.0.0-dev.20251217.1
       version: 7.0.0-dev.20260105.1
@@ -84,9 +81,6 @@ catalogs:
     wrangler:
       specifier: ^4.14.4
       version: 4.60.0
-    ws:
-      specifier: ^8.18.0
-      version: 8.18.3
   runtimeClientOnly:
     cross-spawn:
       specifier: ^7.0.5
@@ -185,9 +179,6 @@ importers:
       '@types/supertest':
         specifier: catalog:devTools
         version: 6.0.3
-      '@types/ws':
-        specifier: catalog:devTools
-        version: 8.18.1
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260105.1
@@ -233,9 +224,6 @@ importers:
       vitest:
         specifier: catalog:devTools
         version: 4.0.16(@types/node@24.10.4)(tsx@4.21.0)(yaml@2.8.2)
-      ws:
-        specifier: catalog:devTools
-        version: 8.18.3
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.5
@@ -2282,9 +2270,6 @@ packages:
 
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
-
-  '@types/ws@8.18.1':
-    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.51.0':
     resolution: {integrity: sha512-XtssGWJvypyM2ytBnSnKtHYOGT+4ZwTnBVl36TA4nRO2f4PRNGz5/1OszHzcZCvcBMh+qb7I06uoCmLTRdR9og==}
@@ -4773,18 +4758,6 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.18.3:
-    resolution: {integrity: sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   wsl-utils@0.3.1:
     resolution: {integrity: sha512-g/eziiSUNBSsdDJtCLB8bdYEUMj4jR7AGeUo96p/3dTafgjHhpF4RiCFPiRILwjQoDXx5MqkBr4fwWtR3Ky4Wg==}
     engines: {node: '>=20'}
@@ -5885,10 +5858,6 @@ snapshots:
       '@types/superagent': 8.1.9
 
   '@types/unist@3.0.3': {}
-
-  '@types/ws@8.18.1':
-    dependencies:
-      '@types/node': 24.10.4
 
   '@typescript-eslint/eslint-plugin@8.51.0(@typescript-eslint/parser@8.51.0(eslint@9.39.2)(typescript@5.9.3))(eslint@9.39.2)(typescript@5.9.3)':
     dependencies:
@@ -8565,8 +8534,6 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.18.0: {}
-
-  ws@8.18.3: {}
 
   wsl-utils@0.3.1:
     dependencies:

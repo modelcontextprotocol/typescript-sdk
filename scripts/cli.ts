@@ -31,6 +31,8 @@ async function runClient(url_or_command: string, args: string[]) {
 
     if (url?.protocol === 'http:' || url?.protocol === 'https:') {
         clientTransport = new SSEClientTransport(new URL(url_or_command));
+    } else if (url?.protocol === 'ws:' || url?.protocol === 'wss:') {
+        throw new Error('WebSocket URLs are no longer supported. Use http(s) or stdio instead.');
     } else {
         clientTransport = new StdioClientTransport({
             command: url_or_command,
