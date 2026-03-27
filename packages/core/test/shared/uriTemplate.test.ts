@@ -249,6 +249,12 @@ describe('UriTemplate', () => {
             expect(match).toEqual({ q: 'hello world' });
             expect(template.variableNames).toEqual(['q']);
         });
+
+        it('should not throw on malformed percent-encoding in query parameters', () => {
+            const template = new UriTemplate('/search{?q}');
+            expect(template.match('/search?q=100%')).toEqual({ q: '100%' });
+            expect(template.match('/search?q=%ZZ')).toEqual({ q: '%ZZ' });
+        });
     });
 
     describe('security and edge cases', () => {
