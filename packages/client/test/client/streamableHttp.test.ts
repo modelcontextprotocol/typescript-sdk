@@ -1,6 +1,6 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
 import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
-import type { Mock, Mocked } from 'vitest';
+import type { Mock, Mocked, MockInstance } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
@@ -779,6 +779,204 @@ describe('StreamableHTTPClientTransport', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1); // Only one fetch call
         expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
 
+        authSpy.mockRestore();
+    });
+
+    describe('mergeScopes behavior (via transport)', () => {
+        const testMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const getScope = () => (transport as unknown as { _scope: string | undefined })._scope;
+        const setScope = (value: string) => {
+            (transport as unknown as { _scope: string | undefined })._scope = value;
+        };
+
+        /** Sorted scope tokens from a space-separated scope string. */
+        const sortedTokens = (scope: string | undefined) => String(scope).split(' ').toSorted();
+
+        let authSpy: MockInstance;
+
+        beforeEach(async () => {
+            const authModule = await import('../../src/client/auth.js');
+            authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+        });
+
+        afterEach(() => {
+            authSpy.mockRestore();
+        });
+
+        it('accumulates scopes from sequential 403 responses with different scopes', async () => {
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({
+                        'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="read:op1"'
+                    }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({
+                        'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="read:op2"'
+                    }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 202,
+                    headers: new Headers()
+                });
+
+            await transport.send(testMessage);
+
+            expect(authSpy).toHaveBeenCalledTimes(2);
+            expect(authSpy).toHaveBeenNthCalledWith(
+                1,
+                expect.anything(),
+                expect.objectContaining({ scope: 'read:op1' })
+            );
+            expect(authSpy).toHaveBeenNthCalledWith(
+                2,
+                expect.anything(),
+                expect.objectContaining({
+                    scope: expect.stringContaining('read:op1')
+                })
+            );
+            expect(sortedTokens(getScope())).toEqual(['read:op1', 'read:op2']);
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+        });
+
+        it('deduplicates repeated scope tokens during accumulation', async () => {
+            setScope('read:op1 read:op2');
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({
+                        'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="read:op2"'
+                    }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 202,
+                    headers: new Headers()
+                });
+
+            await transport.send(testMessage);
+
+            expect(authSpy).toHaveBeenNthCalledWith(
+                1,
+                expect.anything(),
+                expect.objectContaining({
+                    scope: expect.stringContaining('read:op1')
+                })
+            );
+            expect(sortedTokens(getScope())).toEqual(['read:op1', 'read:op2']);
+        });
+
+        it('preserves existing scope when 401 has no scope in WWW-Authenticate', async () => {
+            setScope('read:op1');
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer' }),
+                text: () => Promise.resolve('Unauthorized')
+            });
+
+            await expect(transport.send(testMessage)).rejects.toThrow(UnauthorizedError);
+            expect(getScope()).toBe('read:op1');
+        });
+
+        it('returns undefined scope when both existing and incoming are undefined', async () => {
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer' }),
+                text: () => Promise.resolve('Unauthorized')
+            });
+
+            await expect(transport.send(testMessage)).rejects.toThrow(UnauthorizedError);
+            expect(getScope()).toBeUndefined();
+        });
+
+        it('sets scope from incoming when existing is undefined', async () => {
+            (globalThis.fetch as Mock)
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({
+                        'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="read:op1"'
+                    }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 202,
+                    headers: new Headers()
+                });
+
+            await transport.send(testMessage);
+            expect(getScope()).toBe('read:op1');
+        });
+
+        it('does not lose existing scope when 401 has no scope parameter', async () => {
+            setScope('read:op1');
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer realm="example"' }),
+                text: () => Promise.resolve('Unauthorized')
+            });
+
+            await expect(transport.send(testMessage)).rejects.toThrow(UnauthorizedError);
+            expect(getScope()).toBe('read:op1');
+        });
+    });
+
+    it('circuit-breaker fires on repeated 403 with same WWW-Authenticate header', async () => {
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValue({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({
+                'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="read:op1"'
+            }),
+            text: () => Promise.resolve('Insufficient scope')
+        });
+
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await expect(transport.send({
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        })).rejects.toThrow('Server returned 403 after trying upscoping');
+
+        expect(authSpy).toHaveBeenCalledTimes(1);
         authSpy.mockRestore();
     });
 
