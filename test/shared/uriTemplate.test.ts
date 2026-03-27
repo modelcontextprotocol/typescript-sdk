@@ -194,7 +194,7 @@ describe('UriTemplate', () => {
         it('should handle partial query parameter matches correctly', () => {
             const template = new UriTemplate('/search{?q,page}');
             const match = template.match('/search?q=test');
-            expect(match).toEqual({ q: 'test', page: '' });
+            expect(match).toEqual({ q: 'test' });
             expect(template.variableNames).toEqual(['q', 'page']);
         });
 
@@ -215,8 +215,14 @@ describe('UriTemplate', () => {
         it('should match omitted query parameters', () => {
             const template = new UriTemplate('/search{?q,page}');
             const match = template.match('/search');
-            expect(match).toEqual({ q: '', page: '' });
+            expect(match).toEqual({});
             expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should distinguish absent from empty query parameters', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?q=');
+            expect(match).toEqual({ q: '' });
         });
 
         it('should match nested path segments with query parameters', () => {
@@ -227,8 +233,6 @@ describe('UriTemplate', () => {
                 resource: 'users',
                 apiKey: 'testkey',
                 q: 'user',
-                p: '',
-                sort: ''
             });
             expect(template.variableNames).toEqual(['version', 'resource', 'apiKey', 'q', 'p', 'sort']);
         });
