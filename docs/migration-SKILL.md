@@ -171,7 +171,7 @@ Behavior changes in `callTool` results:
 
 - Input validation failure: `{ isError: true }` → `{ isError: true }` (unchanged)
 - Output validation failure: `{ isError: true }` → throws `ProtocolError` (`InternalError`)
-- Task-required without task: `{ isError: true }` → throws `ProtocolError` (`MethodNotFound`)
+- Task-required without task: `{ isError: true }` → throws `ProtocolError` (`InvalidParams`)
 - Handler throws `ProtocolError`: `{ isError: true }` → re-thrown as JSON-RPC error
 - Handler throws plain `Error`: `{ isError: true }` → `{ isError: true }` (unchanged)
 

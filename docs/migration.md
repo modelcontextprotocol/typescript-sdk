@@ -615,7 +615,7 @@ This aligns error surfaces with the MCP spec's classification:
 
 - **Input validation failure** — unchanged, still returns `{ isError: true }` (spec classifies this as a tool-execution error)
 - **Output validation failure** — now throws `ProtocolError` with `InternalError` code (was `{ isError: true }`)
-- **Task-required tool called without task** — now throws `ProtocolError` with `MethodNotFound` code (was `{ isError: true }`)
+- **Task-required tool called without task** — now throws `ProtocolError` with `InvalidParams` code (was `{ isError: true }`)
 - **Handler throws `ProtocolError`** — now re-thrown as a JSON-RPC error (was `{ isError: true }`)
 - **Handler throws plain `Error`** — unchanged, still returns `{ isError: true }`
 

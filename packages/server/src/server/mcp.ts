@@ -183,7 +183,7 @@ export class McpServer {
                 // Handle taskSupport 'required' without task augmentation
                 if (taskSupport === 'required' && !isTaskRequest) {
                     throw new ProtocolError(
-                        ProtocolErrorCode.MethodNotFound,
+                        ProtocolErrorCode.InvalidParams,
                         `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
                     );
                 }
@@ -332,7 +332,9 @@ export class McpServer {
         }
 
         // Return the final result
-        return (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
+        const result = (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
+        await this.validateToolOutput(tool, result, request.params.name);
+        return result;
     }
 
     private _completionHandlerInitialized = false;
