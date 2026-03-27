@@ -137,6 +137,16 @@ server.registerTool(
 >
 > For protocol details, see [Tools](https://modelcontextprotocol.io/specification/latest/server/tools) in the MCP specification.
 
+> [!NOTE]
+> When defining a named type for `structuredContent`, use a `type` alias rather than an `interface`. Named interfaces lack implicit index signatures in TypeScript, so they aren't assignable to `{ [key: string]: unknown }`:
+>
+> ```ts
+> type BmiResult = { bmi: number };    // assignable
+> interface BmiResult { bmi: number }  // type error
+> ```
+>
+> Alternatively, spread the value: `structuredContent: { ...result }`.
+
 #### `ResourceLink` outputs
 
 Tools can return `resource_link` content items to reference large resources without embedding them directly, allowing clients to fetch only what they need:
