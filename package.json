@@ -35,22 +35,27 @@
             "require": "./dist/cjs/server/index.js"
         },
         "./validation": {
+            "types": "./dist/esm/validation/index.d.ts",
             "import": "./dist/esm/validation/index.js",
             "require": "./dist/cjs/validation/index.js"
         },
         "./validation/ajv": {
+            "types": "./dist/esm/validation/ajv-provider.d.ts",
             "import": "./dist/esm/validation/ajv-provider.js",
             "require": "./dist/cjs/validation/ajv-provider.js"
         },
         "./validation/cfworker": {
+            "types": "./dist/esm/validation/cfworker-provider.d.ts",
             "import": "./dist/esm/validation/cfworker-provider.js",
             "require": "./dist/cjs/validation/cfworker-provider.js"
         },
         "./experimental": {
+            "types": "./dist/esm/experimental/index.d.ts",
             "import": "./dist/esm/experimental/index.js",
             "require": "./dist/cjs/experimental/index.js"
         },
         "./experimental/tasks": {
+            "types": "./dist/esm/experimental/tasks/index.d.ts",
             "import": "./dist/esm/experimental/tasks/index.js",
             "require": "./dist/cjs/experimental/tasks/index.js"
         },
