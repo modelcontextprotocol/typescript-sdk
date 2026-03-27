@@ -287,14 +287,23 @@ export class UriTemplate {
         let queryPart: string;
 
         if (hasLiteralQuery) {
-            // Match the path regex against the full URI without a trailing
-            // anchor, then treat everything after the match as the remaining
-            // query string to parse for {?...}/{&...} expressions.
+            // Match the path regex against the full URI. The lookahead
+            // assertion ensures the literal portion ends exactly at a
+            // query-param separator, fragment, or end-of-string, so a
+            // template like `?id=1` does not spuriously prefix-match
+            // `?id=100`.
+            pattern += '(?=[&#]|$)';
             UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
             const regex = new RegExp(pattern);
             match = uri.match(regex);
             if (!match) return null;
-            queryPart = uri.slice(match[0].length).replace(/^&/, '');
+            // Everything after the match is the remaining query string to
+            // parse for {?...}/{&...} expressions. Strip any fragment and
+            // the leading `&` separator first.
+            let rest = uri.slice(match[0].length);
+            const hashIndex = rest.indexOf('#');
+            if (hashIndex !== -1) rest = rest.slice(0, hashIndex);
+            queryPart = rest.replace(/^&/, '');
         } else {
             // Split URI into path and query parts at the first '?'
             const queryIndex = uri.indexOf('?');

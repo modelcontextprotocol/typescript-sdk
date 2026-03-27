@@ -280,6 +280,26 @@ describe('UriTemplate', () => {
             const match = template.match('/api/v1?format=json&key=secret');
             expect(match).toEqual({ version: 'v1', key: 'secret' });
         });
+
+        it('should not prefix-match literal query values with literal ?', () => {
+            // `?id=1` must not match `?id=100`
+            const template = new UriTemplate('/path?id=1{&extra}');
+            expect(template.match('/path?id=100')).toBeNull();
+            expect(template.match('/path?id=1')).toEqual({});
+            expect(template.match('/path?id=1&extra=x')).toEqual({ extra: 'x' });
+        });
+
+        it('should require a proper separator after the literal ? portion', () => {
+            // malformed URI missing `&` between params must not match
+            const template = new UriTemplate('/path?a=1{&b}');
+            expect(template.match('/path?a=1b=2')).toBeNull();
+        });
+
+        it('should ignore fragments after the literal ? portion', () => {
+            const template = new UriTemplate('/path?a=1{&b}');
+            expect(template.match('/path?a=1#section')).toEqual({});
+            expect(template.match('/path?a=1&b=foo#section')).toEqual({ b: 'foo' });
+        });
     });
 
     describe('security and edge cases', () => {
