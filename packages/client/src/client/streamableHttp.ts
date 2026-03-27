@@ -246,9 +246,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 await response.text?.().catch(() => {});
 
-                // 405 indicates that the server does not offer an SSE stream at GET endpoint
-                // This is an expected case that should not trigger an error
-                if (response.status === 405) {
+                // These status codes indicate that the server does not offer an SSE stream at the GET endpoint.
+                // 404: server has no GET handler at this endpoint (only POST)
+                // 405: server explicitly rejects GET method
+                // 406: server rejects the Accept header for GET (e.g., does not serve text/event-stream)
+                // All are expected cases that should not trigger an error — the client falls back to POST.
+                if (response.status === 404 || response.status === 405 || response.status === 406) {
                     return;
                 }
 

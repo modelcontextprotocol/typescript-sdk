@@ -309,6 +309,64 @@ describe('StreamableHTTPClientTransport', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
+    it('should handle 404 gracefully when server has no GET handler', async () => {
+        // Mock the server having no GET handler at this endpoint (only POST)
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found'
+        });
+
+        await transport.start();
+        await expect(transport['_startOrAuthSse']({})).resolves.not.toThrow();
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                method: 'GET',
+                headers: expect.any(Headers)
+            })
+        );
+
+        // Verify transport still works after 404
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle 406 gracefully when server rejects Accept header for GET', async () => {
+        // Mock the server rejecting the Accept: text/event-stream header
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 406,
+            statusText: 'Not Acceptable'
+        });
+
+        await transport.start();
+        await expect(transport['_startOrAuthSse']({})).resolves.not.toThrow();
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                method: 'GET',
+                headers: expect.any(Headers)
+            })
+        );
+
+        // Verify transport still works after 406
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
     it('should handle successful initial GET connection for SSE', async () => {
         // Set up readable stream for SSE events
         const encoder = new TextEncoder();
