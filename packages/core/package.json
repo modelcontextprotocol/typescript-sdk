@@ -20,6 +20,20 @@
         "mcp",
         "core"
     ],
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.mjs"
+        },
+        "./types": {
+            "types": "./src/exports/types/index.ts",
+            "import": "./src/exports/types/index.ts"
+        },
+        "./public": {
+            "types": "./src/exports/public/index.ts",
+            "import": "./src/exports/public/index.ts"
+        }
+    },
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",

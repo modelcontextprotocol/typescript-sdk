@@ -6,17 +6,21 @@ export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
 export * from './shared/stdio.js';
+export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from './shared/taskManager.js';
+export { extractTaskManagerOptions, NullTaskManager, TaskManager } from './shared/taskManager.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
-export * from './types/types.js';
+export * from './types/index.js';
 export * from './util/inMemory.js';
 export * from './util/schema.js';
+export * from './util/standardSchema.js';
 
 // experimental exports
 export * from './experimental/index.js';
 export * from './validators/ajvProvider.js';
 export * from './validators/cfWorkerProvider.js';
+export * from './validators/fromJsonSchema.js';
 /**
  * JSON Schema validation
  *
