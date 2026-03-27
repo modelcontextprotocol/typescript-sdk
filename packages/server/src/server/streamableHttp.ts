@@ -899,15 +899,34 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         return undefined;
     }
 
-    async close(): Promise<void> {
-        // Close all SSE connections
-        for (const { cleanup } of this._streamMapping.values()) {
-            cleanup();
-        }
-        this._streamMapping.clear();
+    private _closing = false;
 
-        // Clear any pending responses
+    async close(): Promise<void> {
+        // Guard against re-entrant calls. When onclose() triggers the
+        // Protocol layer to call close() again, this prevents infinite
+        // recursion that causes a stack overflow with many transports.
+        if (this._closing) {
+            return;
+        }
+        this._closing = true;
+
+        // Snapshot and clear before iterating to avoid issues with
+        // cleanup callbacks that modify the map during iteration.
+        const streams = Array.from(this._streamMapping.values());
+        this._streamMapping.clear();
         this._requestResponseMap.clear();
+
+        // Close all SSE connections with error isolation so one
+        // failing cleanup doesn't prevent others from running.
+        for (const { cleanup } of streams) {
+            try {
+                cleanup();
+            } catch {
+                // Individual stream cleanup failures should not
+                // prevent other streams from being cleaned up.
+            }
+        }
+
         this.onclose?.();
     }
 
