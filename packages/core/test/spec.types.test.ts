@@ -1033,6 +1033,36 @@ type _K_ElicitResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTyp
 type _K_CreateMessageResult = Assert<AssertExactKeys<SDKTypes.CreateMessageResultWithTools, SpecTypes.CreateMessageResult>>;
 type _K_ResourceTemplate = Assert<AssertExactKeys<SDKTypes.ResourceTemplateType, SpecTypes.ResourceTemplate>>;
 
+// Types excluded from the key-parity completeness guard: union types and primitive aliases
+// that cannot have meaningful AssertExactKeys assertions.
+const KEY_PARITY_EXCLUDED = [
+    // Union types (15)
+    'ClientRequest',
+    'ServerRequest',
+    'ClientNotification',
+    'ServerNotification',
+    'ClientResult',
+    'ServerResult',
+    'JSONRPCMessage',
+    'JSONRPCResponse',
+    'ContentBlock',
+    'SamplingMessageContentBlock',
+    'ElicitRequestParams',
+    'PrimitiveSchemaDefinition',
+    'SingleSelectEnumSchema',
+    'MultiSelectEnumSchema',
+    'EnumSchema',
+    // Primitive aliases (8)
+    'JSONValue',
+    'JSONArray',
+    'Role',
+    'LoggingLevel',
+    'ProgressToken',
+    'RequestId',
+    'Cursor',
+    'TaskStatus'
+];
+
 // This file is .gitignore'd, and fetched by `npm run fetch:spec-types` (called by `npm run test`)
 const SPEC_TYPES_FILE = path.resolve(__dirname, '../src/types/spec.types.ts');
 const SDK_TYPES_FILE = path.resolve(__dirname, '../src/types/types.ts');
@@ -1046,6 +1076,10 @@ const MISSING_SDK_TYPES = [
 function extractExportedTypes(source: string): string[] {
     const matches = [...source.matchAll(/export\s+(?:interface|class|type)\s+(\w+)\b/g)];
     return matches.map(m => m[1]!);
+}
+
+function extractKeyParityTypes(source: string): string[] {
+    return [...source.matchAll(/^type _K_(\w+)\s*=/gm)].map(m => m[1]!);
 }
 
 describe('Spec Types', () => {
@@ -1075,6 +1109,14 @@ describe('Spec Types', () => {
         }
 
         expect(missingTests).toHaveLength(0);
+    });
+
+    it('should have key-parity assertions for all non-excluded compatibility tests', () => {
+        const thisSource = fs.readFileSync(__filename, 'utf8');
+        const checked = new Set(extractKeyParityTypes(thisSource));
+        const excluded = new Set<string>(KEY_PARITY_EXCLUDED);
+        const missing = Object.keys(sdkTypeChecks).filter(name => !checked.has(name) && !excluded.has(name));
+        expect(missing).toHaveLength(0);
     });
 
     describe('Missing SDK Types', () => {
