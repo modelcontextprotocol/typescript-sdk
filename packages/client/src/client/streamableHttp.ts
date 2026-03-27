@@ -353,9 +353,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
         if (this._reconnectionScheduler) {
             const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
-            if (typeof cancel === 'function') {
-                this._cancelReconnection = cancel;
-            }
+            this._cancelReconnection = typeof cancel === 'function' ? cancel : undefined;
         } else {
             const handle = setTimeout(reconnect, delay);
             this._cancelReconnection = () => clearTimeout(handle);
