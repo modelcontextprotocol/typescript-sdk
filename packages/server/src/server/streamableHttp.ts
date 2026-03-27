@@ -912,7 +912,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         // Snapshot and clear before iterating to avoid issues with
         // cleanup callbacks that modify the map during iteration.
-        const streams = Array.from(this._streamMapping.values());
+        const streams = [...this._streamMapping.values()];
         this._streamMapping.clear();
         this._requestResponseMap.clear();
 
