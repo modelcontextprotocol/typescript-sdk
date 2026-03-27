@@ -997,6 +997,10 @@ export const PromptArgumentSchema = z.object({
      */
     name: z.string(),
     /**
+     * A human-readable title for the argument.
+     */
+    title: z.optional(z.string()),
+    /**
      * A human-readable description of the argument.
      */
     description: z.optional(z.string()),
@@ -1314,6 +1318,7 @@ export const ToolSchema = z.object({
      */
     inputSchema: z
         .object({
+            $schema: z.string().optional(),
             type: z.literal('object'),
             properties: z.record(z.string(), JSONValueSchema).optional(),
             required: z.array(z.string()).optional()
@@ -1326,6 +1331,7 @@ export const ToolSchema = z.object({
      */
     outputSchema: z
         .object({
+            $schema: z.string().optional(),
             type: z.literal('object'),
             properties: z.record(z.string(), JSONValueSchema).optional(),
             required: z.array(z.string()).optional()
@@ -1863,6 +1869,7 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
      * Only top-level properties are allowed, without nesting.
      */
     requestedSchema: z.object({
+        $schema: z.string().optional(),
         type: z.literal('object'),
         properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
         required: z.array(z.string()).optional()
@@ -1972,7 +1979,11 @@ export const PromptReferenceSchema = z.object({
     /**
      * The name of the prompt or prompt template
      */
-    name: z.string()
+    name: z.string(),
+    /**
+     * A human-readable title for the prompt.
+     */
+    title: z.string().optional()
 });
 
 /**

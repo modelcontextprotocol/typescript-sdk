@@ -8,8 +8,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import * as ts from 'typescript';
+
 import type * as SpecTypes from '../src/types/spec.types.js';
 import type * as SDKTypes from '../src/types/index.js';
+import * as SchemaExports from '../src/types/schemas.js';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
@@ -778,6 +781,134 @@ function extractExportedTypes(source: string): string[] {
     return matches.map(m => m[1]!);
 }
 
+type IntrospectableSchema = {
+    def?: {
+        element?: unknown;
+        innerType?: unknown;
+    };
+    element?: unknown;
+    shape?: Record<string, unknown>;
+    type?: string;
+    unwrap?: () => unknown;
+};
+
+const specProgram = ts.createProgram([SPEC_TYPES_FILE], {
+    module: ts.ModuleKind.ESNext,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.ES2022
+});
+const specSourceFile = specProgram.getSourceFile(SPEC_TYPES_FILE);
+
+if (!specSourceFile) {
+    throw new Error(`Unable to load ${SPEC_TYPES_FILE}`);
+}
+
+const specTypeChecker = specProgram.getTypeChecker();
+const specModuleSymbol = specTypeChecker.getSymbolAtLocation(specSourceFile);
+
+if (!specModuleSymbol) {
+    throw new Error(`Unable to resolve exports for ${SPEC_TYPES_FILE}`);
+}
+
+const specExportSymbols = new Map(specTypeChecker.getExportsOfModule(specModuleSymbol).map(symbol => [symbol.getName(), symbol]));
+
+function unwrapOptionalSchema(schema: unknown): unknown {
+    let current = schema as IntrospectableSchema | undefined;
+
+    while (current?.type === 'optional') {
+        current = (current.def?.innerType ?? current.unwrap?.() ?? current) as IntrospectableSchema;
+    }
+
+    return current;
+}
+
+function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
+    const candidate = unwrapOptionalSchema(schema) as IntrospectableSchema | undefined;
+    return candidate?.shape && typeof candidate.shape === 'object' ? candidate.shape : undefined;
+}
+
+function getArrayElementSchema(schema: unknown): unknown | undefined {
+    const candidate = unwrapOptionalSchema(schema) as IntrospectableSchema | undefined;
+
+    if (candidate?.type !== 'array') {
+        return undefined;
+    }
+
+    return candidate.element ?? candidate.def?.element;
+}
+
+function getNamedSpecProperties(type: ts.Type): ts.Symbol[] {
+    return specTypeChecker.getPropertiesOfType(type).filter(symbol => !symbol.getName().startsWith('__'));
+}
+
+function isOptionalSpecProperty(property: ts.Symbol): boolean {
+    return (property.getFlags() & ts.SymbolFlags.Optional) !== 0;
+}
+
+function getArrayElementType(type: ts.Type): ts.Type | undefined {
+    const nonNullableType = specTypeChecker.getNonNullableType(type);
+
+    if (specTypeChecker.isArrayType(nonNullableType) || specTypeChecker.isTupleType(nonNullableType)) {
+        return specTypeChecker.getTypeArguments(nonNullableType as ts.TypeReference)[0];
+    }
+
+    if (!specTypeChecker.isArrayLikeType(nonNullableType)) {
+        return undefined;
+    }
+
+    return specTypeChecker.getTypeArguments(nonNullableType as ts.TypeReference)[0];
+}
+
+function collectMissingSchemaProperties(specType: ts.Type, schema: unknown, pathPrefix = '', visited = new Set<string>()): string[] {
+    const shape = getSchemaShape(schema);
+
+    if (!shape) {
+        return [];
+    }
+
+    const nonNullableSpecType = specTypeChecker.getNonNullableType(specType);
+    const visitKey = `${pathPrefix}:${specTypeChecker.typeToString(nonNullableSpecType)}`;
+
+    if (visited.has(visitKey)) {
+        return [];
+    }
+
+    visited.add(visitKey);
+
+    const missing: string[] = [];
+
+    for (const property of getNamedSpecProperties(nonNullableSpecType)) {
+        const propertyName = property.getName();
+        const propertyPath = pathPrefix ? `${pathPrefix}.${propertyName}` : propertyName;
+        const schemaProperty = shape[propertyName];
+
+        if (schemaProperty === undefined) {
+            if (isOptionalSpecProperty(property)) {
+                missing.push(propertyPath);
+            }
+            continue;
+        }
+
+        const propertyDeclaration = property.valueDeclaration ?? property.declarations?.[0] ?? specSourceFile!;
+        const propertyType = specTypeChecker.getTypeOfSymbolAtLocation(property, propertyDeclaration);
+        const nestedObjectShape = getSchemaShape(schemaProperty);
+
+        if (nestedObjectShape) {
+            missing.push(...collectMissingSchemaProperties(propertyType, schemaProperty, propertyPath, visited));
+            continue;
+        }
+
+        const arrayElementSchema = getArrayElementSchema(schemaProperty);
+        const arrayElementType = getArrayElementType(propertyType);
+
+        if (arrayElementSchema && arrayElementType) {
+            missing.push(...collectMissingSchemaProperties(arrayElementType, arrayElementSchema, `${propertyPath}[]`, visited));
+        }
+    }
+
+    return missing;
+}
+
 describe('Spec Types', () => {
     const specTypes = extractExportedTypes(fs.readFileSync(SPEC_TYPES_FILE, 'utf8'));
     const sdkTypes = extractExportedTypes(fs.readFileSync(SDK_TYPES_FILE, 'utf8'));
@@ -811,5 +942,41 @@ describe('Spec Types', () => {
         it.each(MISSING_SDK_TYPES)('%s should not be present in MISSING_SDK_TYPES if it has a compatibility test', type => {
             expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeUndefined();
         });
+    });
+
+    it('should cover named optional spec properties in object schemas', () => {
+        const checkedTypes: string[] = [];
+        const missingPropertiesByType: Array<{ typeName: string; missing: string[] }> = [];
+
+        for (const [schemaExportName, schema] of Object.entries(SchemaExports)) {
+            if (!schemaExportName.endsWith('Schema') || !getSchemaShape(schema)) {
+                continue;
+            }
+
+            const typeName = schemaExportName.slice(0, -'Schema'.length);
+            const specSymbol = specExportSymbols.get(typeName);
+
+            if (!specSymbol) {
+                continue;
+            }
+
+            const specType = specTypeChecker.getDeclaredTypeOfSymbol(specSymbol);
+
+            if (getNamedSpecProperties(specType).length === 0) {
+                continue;
+            }
+
+            checkedTypes.push(typeName);
+
+            const missing = collectMissingSchemaProperties(specType, schema);
+
+            if (missing.length > 0) {
+                missingPropertiesByType.push({ typeName, missing });
+            }
+        }
+
+        expect(checkedTypes).toContain('Implementation');
+        expect(checkedTypes.length).toBeGreaterThan(50);
+        expect(missingPropertiesByType).toEqual([]);
     });
 });
