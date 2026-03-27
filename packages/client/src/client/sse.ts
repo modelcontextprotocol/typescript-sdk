@@ -1,25 +1,17 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import {
+    createFetchWithInit,
+    JSONRPCMessageSchema,
+    mergeScopes,
+    normalizeHeaders,
+    SdkError,
+    SdkErrorCode
+} from '@modelcontextprotocol/core';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
 import type { AuthProvider, OAuthClientProvider } from './auth.js';
 import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
-
-/**
- * Merges two space-separated OAuth scope strings into a deduplicated union.
- * Returns undefined when the resulting set is empty.
- * Preserves insertion order of first occurrence for determinism.
- */
-function mergeScopes(existing: string | undefined, incoming: string | undefined): string | undefined {
-    const existingTokens = existing?.split(/\s+/).filter(Boolean) ?? [];
-    const incomingTokens = incoming?.split(/\s+/).filter(Boolean) ?? [];
-    const merged = new Set<string>([...existingTokens, ...incomingTokens]);
-    if (merged.size === 0) {
-        return undefined;
-    }
-    return [...merged].join(' ');
-}
 
 export class SseError extends Error {
     constructor(
