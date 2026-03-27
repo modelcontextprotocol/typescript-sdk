@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
@@ -172,6 +173,42 @@ describe('StdioClientTransport using cross-spawn', () => {
 
         // verify message is sent correctly
         expect(mockProcess.stdin.write).toHaveBeenCalled();
+    });
+
+    // Regression test for #780: listeners must be detached from the child's
+    // stdio streams on close(), not left attached to a process we no longer track.
+    test('should detach stdout/stdin listeners on close', async () => {
+        const stdout = new EventEmitter();
+        const stdin = Object.assign(new EventEmitter(), {
+            write: vi.fn().mockReturnValue(true),
+            end: vi.fn()
+        });
+        const proc = Object.assign(new EventEmitter(), {
+            stdin,
+            stdout,
+            stderr: null,
+            exitCode: null as number | null,
+            kill: vi.fn()
+        });
+        mockSpawn.mockReturnValue(proc as unknown as ChildProcess);
+
+        const transport = new StdioClientTransport({ command: 'test-command' });
+        const started = transport.start();
+        proc.emit('spawn');
+        await started;
+
+        expect(stdout.listenerCount('data')).toBe(1);
+        expect(stdout.listenerCount('error')).toBe(1);
+        expect(stdin.listenerCount('error')).toBe(1);
+
+        const closed = transport.close();
+        proc.exitCode = 0;
+        proc.emit('close');
+        await closed;
+
+        expect(stdout.listenerCount('data')).toBe(0);
+        expect(stdout.listenerCount('error')).toBe(0);
+        expect(stdin.listenerCount('error')).toBe(0);
     });
 
     describe('windowsHide', () => {
