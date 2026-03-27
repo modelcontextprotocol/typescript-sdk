@@ -800,6 +800,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
+        let onAbort: (() => void) | undefined;
+
         // Send the request
         return new Promise<SchemaOutput<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
@@ -885,9 +887,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
             });
 
-            options?.signal?.addEventListener('abort', () => {
-                cancel(options?.signal?.reason);
-            });
+            onAbort = () => cancel(options?.signal?.reason);
+            options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
@@ -927,6 +928,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     this._cleanupTimeout(messageId);
                     reject(error);
                 });
+            }
+        }).finally(() => {
+            // Detach the abort listener once the request settles so it doesn't
+            // accumulate on a caller-supplied signal reused across requests.
+            if (onAbort) {
+                options?.signal?.removeEventListener('abort', onAbort);
             }
         });
     }
