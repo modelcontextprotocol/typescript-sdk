@@ -322,7 +322,9 @@ export class McpServer {
         const createTaskResult = (await tool.executor(args, ctx)) as CreateTaskResult;
 
         const taskId = createTaskResult.task.taskId;
-        this._experimental.tasks._recordTask(taskId, request.params.name);
+        // Note: no _recordTask here — automatic polling calls handlers directly rather
+        // than routing through tasks/get and tasks/result, so the _taskToTool map entry
+        // would never be consumed and would leak until onClose().
 
         const handler = isToolTaskHandler(tool.handler) ? tool.handler : undefined;
         const taskCtx = { ...ctx, task: { ...ctx.task, id: taskId, store: ctx.task.store } };

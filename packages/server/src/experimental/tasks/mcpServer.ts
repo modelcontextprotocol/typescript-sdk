@@ -90,6 +90,12 @@ export class ExperimentalMcpServerTasks {
         const toolName = this._taskToTool.get(taskId);
         if (!toolName) return undefined;
 
+        // getTaskResult is terminal — drop the mapping now so it's cleaned up even if
+        // the tool lacks a getTaskResult handler or any guard below returns early.
+        if (method === 'getTaskResult') {
+            this._taskToTool.delete(taskId);
+        }
+
         const tool = (this._mcpServer as unknown as McpServerInternal)._registeredTools[toolName];
         if (!tool || !isToolTaskHandler(tool.handler)) return undefined;
 
@@ -104,11 +110,7 @@ export class ExperimentalMcpServerTasks {
             task: { ...serverCtx.task, id: taskId, store: serverCtx.task.store }
         };
 
-        const result = (await handler(taskCtx)) as M extends 'getTask' ? GetTaskResult : CallToolResult;
-        if (method === 'getTaskResult') {
-            this._taskToTool.delete(taskId);
-        }
-        return result;
+        return (await handler(taskCtx)) as M extends 'getTask' ? GetTaskResult : CallToolResult;
     }
 
     /**
