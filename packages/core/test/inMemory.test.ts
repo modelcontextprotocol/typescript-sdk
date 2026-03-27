@@ -1,4 +1,4 @@
-import type { AuthInfo, JSONRPCMessage } from '../src/types/types.js';
+import type { AuthInfo, JSONRPCMessage } from '../src/types/index.js';
 import { InMemoryTransport } from '../src/util/inMemory.js';
 
 describe('InMemoryTransport', () => {
@@ -97,6 +97,53 @@ describe('InMemoryTransport', () => {
     test('should throw error when sending after close', async () => {
         await clientTransport.close();
         await expect(clientTransport.send({ jsonrpc: '2.0', method: 'test', id: 1 })).rejects.toThrow('Not connected');
+    });
+
+    test('should fire onclose exactly once per transport', async () => {
+        let clientCloseCount = 0;
+        let serverCloseCount = 0;
+
+        clientTransport.onclose = () => clientCloseCount++;
+        serverTransport.onclose = () => serverCloseCount++;
+
+        await clientTransport.close();
+
+        expect(clientCloseCount).toBe(1);
+        expect(serverCloseCount).toBe(1);
+    });
+
+    test('should handle double close idempotently', async () => {
+        let clientCloseCount = 0;
+        clientTransport.onclose = () => clientCloseCount++;
+
+        await clientTransport.close();
+        await clientTransport.close();
+
+        expect(clientCloseCount).toBe(1);
+    });
+
+    test('should handle concurrent close from both sides', async () => {
+        let clientCloseCount = 0;
+        let serverCloseCount = 0;
+
+        clientTransport.onclose = () => clientCloseCount++;
+        serverTransport.onclose = () => serverCloseCount++;
+
+        await Promise.all([clientTransport.close(), serverTransport.close()]);
+
+        expect(clientCloseCount).toBe(1);
+        expect(serverCloseCount).toBe(1);
+    });
+
+    test('should fire onclose even if peer onclose throws', async () => {
+        let clientCloseCount = 0;
+        clientTransport.onclose = () => clientCloseCount++;
+        serverTransport.onclose = () => {
+            throw new Error('boom');
+        };
+
+        await expect(clientTransport.close()).rejects.toThrow('boom');
+        expect(clientCloseCount).toBe(1);
     });
 
     test('should queue messages sent before start', async () => {
