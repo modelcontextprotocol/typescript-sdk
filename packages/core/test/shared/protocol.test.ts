@@ -288,6 +288,23 @@ describe('protocol tests', () => {
         expect(removeSpy).toHaveBeenCalledTimes(5);
     });
 
+    test('should remove abort listener when request rejects', async () => {
+        await protocol.connect(transport);
+
+        const controller = new AbortController();
+        const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+        const mockSchema = z.object({ result: z.string() });
+        await expect(
+            testRequest(protocol, { method: 'example', params: {} }, mockSchema, {
+                signal: controller.signal,
+                timeout: 0
+            })
+        ).rejects.toThrow();
+
+        expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+    });
+
     test('should not overwrite existing hooks when connecting transports', async () => {
         const oncloseMock = vi.fn();
         const onerrorMock = vi.fn();
