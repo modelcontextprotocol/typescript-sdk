@@ -1,7 +1,7 @@
 import { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import { InvalidJSONRPCMessageError, ProtocolErrorCode, ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 
 import { StdioServerTransport } from '../../src/server/stdio.js';
 
@@ -95,8 +95,7 @@ test('should read multiple messages', async () => {
         };
     });
 
-    input.push(serializeMessage(messages[0]!));
-    input.push(serializeMessage(messages[1]!));
+    input.push(Buffer.from(serializeMessage(messages[0]!) + serializeMessage(messages[1]!)));
 
     await server.start();
     await finished;
@@ -178,4 +177,42 @@ test('should fire onerror before onclose on stdout error', async () => {
     output.emit('error', new Error('EPIPE'));
 
     expect(events).toEqual(['error', 'close']);
+});
+
+test('should send an invalid request error for schema-invalid JSON-RPC and continue reading', async () => {
+    const server = new StdioServerTransport(input, output);
+    const receivedErrors: Error[] = [];
+    const validMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'ping'
+    };
+
+    server.onerror = error => {
+        receivedErrors.push(error);
+    };
+
+    const validMessageReceived = new Promise<void>(resolve => {
+        server.onmessage = message => {
+            if (JSON.stringify(message) === JSON.stringify(validMessage)) {
+                resolve();
+            }
+        };
+    });
+
+    await server.start();
+    input.push(Buffer.from('{"jsonrpc":"2.0","id":9007199254740992,"method":"ping"}\n' + serializeMessage(validMessage)));
+
+    await validMessageReceived;
+
+    expect(receivedErrors).toHaveLength(1);
+    expect(receivedErrors[0]).toBeInstanceOf(InvalidJSONRPCMessageError);
+    expect(outputBuffer.readMessage()).toEqual({
+        jsonrpc: '2.0',
+        error: {
+            code: ProtocolErrorCode.InvalidRequest,
+            message: 'Invalid Request'
+        }
+    });
+    expect(outputBuffer.readMessage()).toBeNull();
 });

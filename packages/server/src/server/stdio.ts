@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCErrorResponse, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import { InvalidJSONRPCMessageError, ProtocolErrorCode, ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
@@ -72,6 +72,19 @@ export class StdioServerTransport implements Transport {
                 this.onmessage?.(message);
             } catch (error) {
                 this.onerror?.(error as Error);
+                if (error instanceof InvalidJSONRPCMessageError) {
+                    const invalidRequestResponse: JSONRPCErrorResponse = {
+                        jsonrpc: '2.0',
+                        error: {
+                            code: ProtocolErrorCode.InvalidRequest,
+                            message: 'Invalid Request'
+                        }
+                    };
+
+                    this.send(invalidRequestResponse).catch(sendError => {
+                        this.onerror?.(sendError);
+                    });
+                }
             }
         }
     }

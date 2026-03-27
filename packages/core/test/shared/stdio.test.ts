@@ -1,4 +1,4 @@
-import { ReadBuffer } from '../../src/shared/stdio.js';
+import { InvalidJSONRPCMessageError, ReadBuffer } from '../../src/shared/stdio.js';
 import type { JSONRPCMessage } from '../../src/types/index.js';
 
 const testMessage: JSONRPCMessage = {
@@ -110,6 +110,13 @@ describe('non-JSON line filtering', () => {
         const readBuffer = new ReadBuffer();
         readBuffer.append(Buffer.from('{"not": "a jsonrpc message"}\n'));
 
-        expect(() => readBuffer.readMessage()).toThrow();
+        expect(() => readBuffer.readMessage()).toThrow(InvalidJSONRPCMessageError);
+    });
+
+    test('should reject request ids larger than Number.MAX_SAFE_INTEGER', () => {
+        const readBuffer = new ReadBuffer();
+        readBuffer.append(Buffer.from('{"jsonrpc":"2.0","id":9007199254740992,"method":"ping"}\n'));
+
+        expect(() => readBuffer.readMessage()).toThrow(InvalidJSONRPCMessageError);
     });
 });
