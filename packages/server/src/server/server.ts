@@ -660,17 +660,20 @@ export class Server extends Protocol<ServerContext> {
         });
     }
 
-    async sendResourceListChanged() {
-        return this.notification({
-            method: 'notifications/resources/list_changed'
-        });
+    async sendResourceListChanged(options?: NotificationOptions) {
+        return this.notification(
+            {
+                method: 'notifications/resources/list_changed'
+            },
+            options
+        );
     }
 
-    async sendToolListChanged() {
-        return this.notification({ method: 'notifications/tools/list_changed' });
+    async sendToolListChanged(options?: NotificationOptions) {
+        return this.notification({ method: 'notifications/tools/list_changed' }, options);
     }
 
-    async sendPromptListChanged() {
-        return this.notification({ method: 'notifications/prompts/list_changed' });
+    async sendPromptListChanged(options?: NotificationOptions) {
+        return this.notification({ method: 'notifications/prompts/list_changed' }, options);
     }
 }

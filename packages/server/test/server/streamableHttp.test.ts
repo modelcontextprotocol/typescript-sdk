@@ -107,6 +107,14 @@ function parseSSEData(text: string): unknown {
     return JSON.parse(dataLine.slice(5).trim());
 }
 
+function parseSSEEvents(text: string): unknown[] {
+    return text
+        .split('\n\n')
+        .map(chunk => chunk.trim())
+        .filter(chunk => chunk.includes('data:'))
+        .map(parseSSEData);
+}
+
 function expectErrorResponse(data: unknown, expectedCode: number, expectedMessagePattern: RegExp): void {
     expect(data).toMatchObject({
         jsonrpc: '2.0',
@@ -266,6 +274,63 @@ describe('Zod v4', () => {
                                 text: 'Hello, Test User!'
                             }
                         ]
+                    },
+                    id: 'call-1'
+                });
+            });
+
+            it('should inline tool list change notifications on the active POST SSE stream', async () => {
+                sessionId = await initializeServer();
+
+                mcpServer.registerTool(
+                    'unlock-tools',
+                    {
+                        description: 'Unlocks additional tools',
+                        inputSchema: z.object({})
+                    },
+                    async (_args, ctx): Promise<CallToolResult> => {
+                        mcpServer.registerTool(
+                            'secret-tool',
+                            {
+                                description: 'A newly unlocked tool',
+                                inputSchema: z.object({})
+                            },
+                            async (): Promise<CallToolResult> => ({
+                                content: [{ type: 'text', text: 'Unlocked tool' }]
+                            })
+                        );
+
+                        await mcpServer.sendToolListChanged({ relatedRequestId: ctx.mcpReq.id });
+
+                        return { content: [{ type: 'text', text: 'Unlocked tools' }] };
+                    }
+                );
+
+                const toolCallMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: {
+                        name: 'unlock-tools',
+                        arguments: {}
+                    },
+                    id: 'call-1'
+                };
+
+                const request = createRequest('POST', toolCallMessage, { sessionId });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+
+                const events = parseSSEEvents(await response.text());
+
+                expect(events).toContainEqual({
+                    jsonrpc: '2.0',
+                    method: 'notifications/tools/list_changed'
+                });
+                expect(events).toContainEqual({
+                    jsonrpc: '2.0',
+                    result: {
+                        content: [{ type: 'text', text: 'Unlocked tools' }]
                     },
                     id: 'call-1'
                 });
