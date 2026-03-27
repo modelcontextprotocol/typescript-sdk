@@ -384,6 +384,46 @@ function isClientAuthMethod(method: string): method is ClientAuthMethod {
 
 const AUTHORIZATION_CODE_RESPONSE_TYPE = 'code';
 const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
+const inFlightRefreshAuthorizations = new WeakMap<OAuthClientProvider, Map<string, Promise<AuthResult>>>();
+
+function buildRefreshAuthorizationKey(authorizationServerUrl: string | URL, refreshToken: string, resource?: URL): string {
+    return JSON.stringify({
+        authorizationServerUrl: String(authorizationServerUrl),
+        refreshToken,
+        resource: resource?.toString()
+    });
+}
+
+async function runWithRefreshAuthorizationLock(
+    provider: OAuthClientProvider,
+    key: string,
+    runRefreshAuthorization: () => Promise<AuthResult>
+): Promise<AuthResult> {
+    const existingRefreshAuthorization = inFlightRefreshAuthorizations.get(provider)?.get(key);
+    if (existingRefreshAuthorization) {
+        return await existingRefreshAuthorization;
+    }
+
+    let refreshesByKey = inFlightRefreshAuthorizations.get(provider);
+    if (!refreshesByKey) {
+        refreshesByKey = new Map();
+        inFlightRefreshAuthorizations.set(provider, refreshesByKey);
+    }
+
+    const refreshAuthorizationPromise = runRefreshAuthorization();
+    refreshesByKey.set(key, refreshAuthorizationPromise);
+    try {
+        return await refreshAuthorizationPromise;
+    } finally {
+        const currentRefreshesByKey = inFlightRefreshAuthorizations.get(provider);
+        if (currentRefreshesByKey?.get(key) === refreshAuthorizationPromise) {
+            currentRefreshesByKey.delete(key);
+            if (currentRefreshesByKey.size === 0) {
+                inFlightRefreshAuthorizations.delete(provider);
+            }
+        }
+    }
+}
 
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
@@ -731,18 +771,21 @@ async function authInternal(
     // Handle token refresh or new authorization
     if (tokens?.refresh_token) {
         try {
-            // Attempt to refresh the token
-            const newTokens = await refreshAuthorization(authorizationServerUrl, {
-                metadata,
-                clientInformation,
-                refreshToken: tokens.refresh_token,
-                resource,
-                addClientAuthentication: provider.addClientAuthentication,
-                fetchFn
-            });
+            const refreshToken = tokens.refresh_token;
+            const refreshAuthorizationKey = buildRefreshAuthorizationKey(authorizationServerUrl, refreshToken, resource);
+            return await runWithRefreshAuthorizationLock(provider, refreshAuthorizationKey, async () => {
+                const newTokens = await refreshAuthorization(authorizationServerUrl, {
+                    metadata,
+                    clientInformation,
+                    refreshToken,
+                    resource,
+                    addClientAuthentication: provider.addClientAuthentication,
+                    fetchFn
+                });
 
-            await provider.saveTokens(newTokens);
-            return 'AUTHORIZED';
+                await provider.saveTokens(newTokens);
+                return 'AUTHORIZED';
+            });
         } catch (error) {
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
             if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {

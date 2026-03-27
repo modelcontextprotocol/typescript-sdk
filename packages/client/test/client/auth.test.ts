@@ -2492,6 +2492,99 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
+        it('deduplicates concurrent refreshes for the same provider and resource', async () => {
+            let releaseTokensReaders: (() => void) | undefined;
+            const tokensReady = new Promise<void>(resolve => {
+                releaseTokensReaders = resolve;
+            });
+            let tokensReaderCount = 0;
+            let resolveRefreshResponse: ((value: { ok: true; status: 200; json: () => Promise<OAuthTokens> }) => void) | undefined;
+            const refreshResponse = new Promise<{ ok: true; status: 200; json: () => Promise<OAuthTokens> }>(resolve => {
+                resolveRefreshResponse = resolve;
+            });
+            let refreshRequestCount = 0;
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    refreshRequestCount++;
+                    if (refreshRequestCount > 1) {
+                        throw new Error('duplicate refresh request');
+                    }
+                    return refreshResponse;
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockImplementation(async () => {
+                tokensReaderCount++;
+                if (tokensReaderCount === 2) {
+                    releaseTokensReaders?.();
+                }
+                await tokensReady;
+                return {
+                    access_token: 'old-access',
+                    refresh_token: 'refresh123'
+                };
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const authResults = Promise.all([
+                auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })
+            ]);
+
+            await vi.waitFor(() => {
+                expect(refreshRequestCount).toBe(1);
+            });
+
+            resolveRefreshResponse?.({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'new-access123',
+                    refresh_token: 'new-refresh456',
+                    token_type: 'Bearer',
+                    expires_in: 3600
+                })
+            });
+
+            await expect(authResults).resolves.toEqual(['AUTHORIZED', 'AUTHORIZED']);
+            expect(refreshRequestCount).toBe(1);
+            expect(mockProvider.saveTokens).toHaveBeenCalledTimes(1);
+        });
+
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
             const mockValidateResourceURL = vi.fn().mockResolvedValue(undefined);
             const providerWithCustomValidation = {
