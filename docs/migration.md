@@ -759,6 +759,26 @@ try {
 
 ## Enhancements
 
+### `UriTemplate.match()` now handles optional query parameters
+
+Resource templates with query parameters (e.g. `products{?page,limit}`) previously required all query parameters to be present in the exact order specified, or the match would fail. Now they match per RFC 6570 semantics: query parameters are optional, order-independent, and URL-decoded.
+
+```typescript
+const template = new UriTemplate('products{?page,limit}');
+
+// v1: returned null
+// v2: returns {}
+template.match('products');
+
+// v1: returned null (wrong order)
+// v2: returns { page: '1', limit: '10' }
+template.match('products?limit=10&page=1');
+```
+
+Absent query parameters are omitted from the result (not set to `''`), so you can use `vars.page ?? defaultValue`. A parameter present with an empty value (e.g. `?page=`) returns `''`, distinguishing "absent" from "empty".
+
+If you were relying on strict query parameter matching to reject requests, you'll now need to validate parameters explicitly in your resource callback.
+
 ### Automatic JSON Schema validator selection by runtime
 
 The SDK now automatically selects the appropriate JSON Schema validator based on your runtime environment:
