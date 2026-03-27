@@ -2308,8 +2308,8 @@ describe('createMcpExpressApp', () => {
         expect(response.status).toBe(403);
     });
 
-    test('should not apply host validation for 0.0.0.0 without allowedHosts', async () => {
-        const app = createMcpExpressApp({ host: '0.0.0.0' });
+    test('should not apply host validation for :: (IPv6 all interfaces) without allowedHosts', async () => {
+        const app = createMcpExpressApp({ host: '::' });
         app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
