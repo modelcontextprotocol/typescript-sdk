@@ -7,6 +7,14 @@ const MAX_VARIABLE_LENGTH = 1000000; // 1MB
 const MAX_TEMPLATE_EXPRESSIONS = 10000;
 const MAX_REGEX_LENGTH = 1000000; // 1MB
 
+function safeDecode(s: string): string {
+    try {
+        return decodeURIComponent(s);
+    } catch {
+        return s;
+    }
+}
+
 export class UriTemplate {
     /**
      * Returns true if the given string contains any URI template expressions.
@@ -295,8 +303,8 @@ export class UriTemplate {
                 for (const pair of queryPart.split('&')) {
                     const equalIndex = pair.indexOf('=');
                     if (equalIndex !== -1) {
-                        const key = decodeURIComponent(pair.slice(0, equalIndex));
-                        const value = decodeURIComponent(pair.slice(equalIndex + 1));
+                        const key = safeDecode(pair.slice(0, equalIndex));
+                        const value = safeDecode(pair.slice(equalIndex + 1));
                         queryParams.set(key, value);
                     }
                 }

@@ -232,7 +232,7 @@ describe('UriTemplate', () => {
                 version: 'v1',
                 resource: 'users',
                 apiKey: 'testkey',
-                q: 'user',
+                q: 'user'
             });
             expect(template.variableNames).toEqual(['version', 'resource', 'apiKey', 'q', 'p', 'sort']);
         });
