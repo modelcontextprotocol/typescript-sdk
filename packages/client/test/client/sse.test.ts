@@ -3,13 +3,28 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import { SSEClientTransport } from '../../src/client/sse.js';
+
+/**
+ * Parses HTTP Basic auth from a request's Authorization header.
+ * Returns the decoded client_id and client_secret, or undefined if the header is absent or malformed.
+ * client_secret_basic is the default client auth method when server metadata omits
+ * token_endpoint_auth_methods_supported (RFC 8414 §2).
+ */
+function parseBasicAuth(req: IncomingMessage): { clientId: string; clientSecret: string } | undefined {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Basic ')) return undefined;
+    const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
+    const sep = decoded.indexOf(':');
+    if (sep === -1) return undefined;
+    return { clientId: decoded.slice(0, sep), clientSecret: decoded.slice(sep + 1) };
+}
 
 describe('SSEClientTransport', () => {
     let resourceServer: Server;
@@ -111,7 +126,7 @@ describe('SSEClientTransport', () => {
             // Create a server that returns 403
             await resourceServer.close();
 
-            resourceServer = createServer((req, res) => {
+            resourceServer = createServer((_req, res) => {
                 res.writeHead(403);
                 res.end();
             });
@@ -673,11 +688,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'refresh_token' &&
                             params.get('refresh_token') === 'refresh-token' &&
-                            params.get('client_id') === 'test-client-id' &&
-                            params.get('client_secret') === 'test-client-secret'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -801,11 +817,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'refresh_token' &&
                             params.get('refresh_token') === 'refresh-token' &&
-                            params.get('client_id') === 'test-client-id' &&
-                            params.get('client_secret') === 'test-client-secret'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -1001,7 +1018,7 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
         });
 
-        it('invalidates all credentials on InvalidClientError during token refresh', async () => {
+        it('invalidates all credentials on OAuthErrorCode.InvalidClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1009,9 +1026,10 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             });
 
+            const expectedError = new OAuthError(OAuthErrorCode.InvalidClient, 'Client authentication failed');
             let baseUrl = resourceBaseUrl;
 
-            // Create server that returns InvalidClientError on token refresh
+            // Create server that returns OAuthErrorCode.InvalidClient on token refresh
             const server = createServer((req, res) => {
                 lastServerRequest = req;
 
@@ -1031,9 +1049,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return InvalidClientError
-                    const error = new InvalidClientError('Client authentication failed');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1050,11 +1066,11 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(InvalidClientError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
         });
 
-        it('invalidates all credentials on UnauthorizedClientError during token refresh', async () => {
+        it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1062,6 +1078,7 @@ describe('SSEClientTransport', () => {
                 refresh_token: 'refresh-token'
             });
 
+            const expectedError = new OAuthError(OAuthErrorCode.UnauthorizedClient, 'Client not authorized');
             let baseUrl = resourceBaseUrl;
 
             const server = createServer((req, res) => {
@@ -1083,9 +1100,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return UnauthorizedClientError
-                    const error = new UnauthorizedClientError('Client not authorized');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1102,17 +1117,19 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(UnauthorizedClientError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
         });
 
-        it('invalidates tokens on InvalidGrantError during token refresh', async () => {
+        it('invalidates tokens on OAuthErrorCode.InvalidGrant during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
                 token_type: 'Bearer',
                 refresh_token: 'refresh-token'
             });
+
+            const expectedError = new OAuthError(OAuthErrorCode.InvalidGrant, 'Invalid refresh token');
             let baseUrl = resourceBaseUrl;
 
             const server = createServer((req, res) => {
@@ -1134,9 +1151,7 @@ describe('SSEClientTransport', () => {
                 }
 
                 if (req.url === '/token' && req.method === 'POST') {
-                    // Handle token refresh request - return InvalidGrantError
-                    const error = new InvalidGrantError('Invalid refresh token');
-                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(error.toResponseObject()));
+                    res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify(expectedError.toResponseObject()));
                     return;
                 }
 
@@ -1153,7 +1168,7 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(InvalidGrantError);
+            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
         });
     });
@@ -1236,10 +1251,12 @@ describe('SSEClientTransport', () => {
                     });
                     req.on('end', () => {
                         const params = new URLSearchParams(body);
+                        const basicAuth = parseBasicAuth(req);
                         if (
                             params.get('grant_type') === 'authorization_code' &&
                             params.get('code') === 'test-auth-code' &&
-                            params.get('client_id') === 'test-client-id'
+                            basicAuth?.clientId === 'test-client-id' &&
+                            basicAuth?.clientSecret === 'test-client-secret'
                         ) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -1509,6 +1526,174 @@ describe('SSEClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('minimal AuthProvider (non-OAuth)', () => {
+        let postResponses: number[];
+        let postCount: number;
+
+        async function setupServer(): Promise<void> {
+            await resourceServer.close();
+
+            postCount = 0;
+            resourceServer = createServer((req, res) => {
+                lastServerRequest = req;
+
+                if (req.method === 'GET') {
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache, no-transform',
+                        Connection: 'keep-alive'
+                    });
+                    res.write('event: endpoint\n');
+                    res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+                    return;
+                }
+
+                if (req.method === 'POST') {
+                    const status = postResponses[postCount] ?? 200;
+                    postCount++;
+                    res.writeHead(status).end();
+                    return;
+                }
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+        }
+
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: '1' };
+
+        it('throws UnauthorizedError on POST 401 when onUnauthorized is not provided', async () => {
+            postResponses = [401];
+            await setupServer();
+
+            const authProvider: AuthProvider = { token: async () => 'api-key' };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        });
+
+        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkError', async () => {
+            postResponses = [401, 401];
+            await setupServer();
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'still-bad'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            const error = await transport.send(message).catch(e => e);
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect(postCount).toBe(2);
+        });
+
+        it('resets retry guard when onUnauthorized throws, allowing retry on next send', async () => {
+            postResponses = [401, 401, 200];
+            await setupServer();
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn().mockRejectedValueOnce(new Error('transient network error')).mockResolvedValueOnce(undefined)
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            // First send: 401 → onUnauthorized throws transient error
+            await expect(transport.send(message)).rejects.toThrow('transient network error');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+
+            // Second send: flag should be reset, so 401 → onUnauthorized (succeeds) → retry → 200
+            await transport.send(message);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(postCount).toBe(3);
+        });
+
+        it('throws when finishAuth is called with a non-OAuth AuthProvider', async () => {
+            postResponses = [];
+            await setupServer();
+
+            const authProvider: AuthProvider = { token: async () => 'api-key' };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+
+            await expect(transport.finishAuth('auth-code')).rejects.toThrow('finishAuth requires an OAuthClientProvider');
+        });
+
+        it('SSE connect 401 retry does not poison future 401s — onUnauthorized called on each attempt', async () => {
+            // Regression: _startOrAuth(true) baked isAuthRetry=true into the retry EventSource's
+            // onerror closure, so a subsequent 401 (token expiry on reconnect) would throw
+            // instead of refreshing. Fix: retry always calls _startOrAuth() fresh.
+            await resourceServer.close();
+
+            let getAttempt = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method !== 'GET') {
+                    res.writeHead(404).end();
+                    return;
+                }
+                getAttempt++;
+                if (getAttempt < 3) {
+                    res.writeHead(401).end();
+                    return;
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache, no-transform',
+                    Connection: 'keep-alive'
+                });
+                res.write('event: endpoint\n');
+                res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+
+            await transport.start(); // should resolve on attempt 3
+
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(getAttempt).toBe(3);
+        });
+
+        it('retry failure during SSE connect fires onerror exactly once', async () => {
+            // Regression: when the retry EventSource rejected, its onerror fired inside, then
+            // the outer .then() rejection handler fired onerror AGAIN for the same error.
+            // Fix: inner retry chains to .then(resolve, reject) — no outer onerror call.
+            // onUnauthorized's own failure is handled separately and fires onerror once.
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(401).end(); // always 401
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const onUnauthorized: AuthProvider['onUnauthorized'] = vi
+                .fn()
+                .mockResolvedValueOnce(undefined) // first call succeeds → triggers retry
+                .mockRejectedValueOnce(new Error('refresh failed')); // second call (in retry) throws
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await expect(transport.start()).rejects.toThrow('refresh failed');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls[0]![0].message).toBe('refresh failed');
         });
     });
 });

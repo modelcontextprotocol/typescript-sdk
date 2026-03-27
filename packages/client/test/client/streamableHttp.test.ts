@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
@@ -122,6 +122,33 @@ describe('StreamableHTTPClientTransport', () => {
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
     });
 
+    it('should accept protocolVersion constructor option and include it in request headers', async () => {
+        // When reconnecting with a preserved sessionId, users need to also preserve the
+        // negotiated protocol version so the required mcp-protocol-version header is sent.
+        const reconnectTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'preserved-session-id',
+            protocolVersion: '2025-11-25'
+        });
+
+        expect(reconnectTransport.sessionId).toBe('preserved-session-id');
+        expect(reconnectTransport.protocolVersion).toBe('2025-11-25');
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await reconnectTransport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+
+        const calls = (globalThis.fetch as Mock).mock.calls;
+        const lastCall = calls.at(-1)!;
+        expect(lastCall[1].headers.get('mcp-session-id')).toBe('preserved-session-id');
+        expect(lastCall[1].headers.get('mcp-protocol-version')).toBe('2025-11-25');
+
+        await reconnectTransport.close().catch(() => {});
+    });
+
     it('should terminate session with DELETE request', async () => {
         // First, simulate getting a session ID
         const message: JSONRPCMessage = {
@@ -212,7 +239,12 @@ describe('StreamableHTTPClientTransport', () => {
         const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
-        await expect(transport.send(message)).rejects.toThrow('Streamable HTTP error: Error POSTing to endpoint: Session not found');
+        await expect(transport.send(message)).rejects.toThrow(
+            new SdkError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
+                status: 404,
+                text: 'Session not found'
+            })
+        );
         expect(errorSpy).toHaveBeenCalled();
     });
 
@@ -418,6 +450,34 @@ describe('StreamableHTTPClientTransport', () => {
         const fetchCall = fetchSpy.mock.calls[0]!;
         const headers = fetchCall[1].headers;
         expect(headers.get('last-event-id')).toBe('test-event-id');
+    });
+
+    it('should include requestInit options (credentials, mode, etc.) in GET SSE request', async () => {
+        // Regression test for #895: POST and DELETE requests spread _requestInit but the
+        // GET SSE request did not, so non-header options like credentials were dropped.
+        vi.clearAllMocks();
+
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: { credentials: 'include', mode: 'cors' }
+        });
+
+        const fetchSpy = globalThis.fetch as Mock;
+        fetchSpy.mockReset();
+        fetchSpy.mockResolvedValue({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: new ReadableStream()
+        });
+
+        await transport.start();
+        await (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({});
+
+        expect(fetchSpy).toHaveBeenCalled();
+        const init = fetchSpy.mock.calls[0]![1];
+        expect(init.method).toBe('GET');
+        expect(init.credentials).toBe('include');
+        expect(init.mode).toBe('cors');
     });
 
     it('should throw error when invalid content-type is received', async () => {
@@ -1050,7 +1110,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
-    it('invalidates all credentials on InvalidClientError during auth', async () => {
+    it('invalidates all credentials on OAuthErrorCode.InvalidClient during auth', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -1092,9 +1152,11 @@ describe('StreamableHTTPClientTransport', () => {
                     code_challenge_methods_supported: ['S256']
                 })
             })
-            // Token refresh fails with InvalidClientError
+            // Token refresh fails with OAuthErrorCode.InvalidClient
             .mockResolvedValueOnce(
-                Response.json(new InvalidClientError('Client authentication failed').toResponseObject(), { status: 400 })
+                Response.json(new OAuthError(OAuthErrorCode.InvalidClient, 'Client authentication failed').toResponseObject(), {
+                    status: 400
+                })
             )
             // Fallback should fail to complete the flow
             .mockResolvedValue({
@@ -1107,7 +1169,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message).catch(() => {});
     });
 
-    it('invalidates all credentials on UnauthorizedClientError during auth', async () => {
+    it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during auth', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -1149,8 +1211,12 @@ describe('StreamableHTTPClientTransport', () => {
                     code_challenge_methods_supported: ['S256']
                 })
             })
-            // Token refresh fails with UnauthorizedClientError
-            .mockResolvedValueOnce(Response.json(new UnauthorizedClientError('Client not authorized').toResponseObject(), { status: 400 }))
+            // Token refresh fails with OAuthErrorCode.UnauthorizedClient
+            .mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.UnauthorizedClient, 'Client not authorized').toResponseObject(), {
+                    status: 400
+                })
+            )
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
@@ -1165,7 +1231,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message).catch(() => {});
     });
 
-    it('invalidates tokens on InvalidGrantError during auth', async () => {
+    it('invalidates tokens on OAuthErrorCode.InvalidGrant during auth', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -1207,8 +1273,10 @@ describe('StreamableHTTPClientTransport', () => {
                     code_challenge_methods_supported: ['S256']
                 })
             })
-            // Token refresh fails with InvalidGrantError
-            .mockResolvedValueOnce(Response.json(new InvalidGrantError('Invalid refresh token').toResponseObject(), { status: 400 }))
+            // Token refresh fails with OAuthErrorCode.InvalidGrant
+            .mockResolvedValueOnce(
+                Response.json(new OAuthError(OAuthErrorCode.InvalidGrant, 'Invalid refresh token').toResponseObject(), { status: 400 })
+            )
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
@@ -1218,7 +1286,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-        // Behavior for InvalidGrantError during auth is covered in dedicated OAuth
+        // Behavior for OAuthErrorCode.InvalidGrant during auth is covered in dedicated OAuth
         // unit tests and SSE transport tests. Here we just assert that the call
         // path completes without unhandled rejections.
         await transport.send(message).catch(() => {});
@@ -1255,9 +1323,11 @@ describe('StreamableHTTPClientTransport', () => {
                         code_challenge_methods_supported: ['S256']
                     })
                 })
-                // Token refresh fails with InvalidClientError
+                // Token refresh fails with OAuthErrorCode.InvalidClient
                 .mockResolvedValueOnce(
-                    Response.json(new InvalidClientError('Client authentication failed').toResponseObject(), { status: 400 })
+                    Response.json(new OAuthError(OAuthErrorCode.InvalidClient, 'Client authentication failed').toResponseObject(), {
+                        status: 400
+                    })
                 )
                 // Fallback should fail to complete the flow
                 .mockResolvedValue({
@@ -1635,7 +1705,9 @@ describe('StreamableHTTPClientTransport', () => {
                 // Retry the original request - still 401 (broken server)
                 .mockResolvedValueOnce(unauthedResponse);
 
-            await expect(transport.send(message)).rejects.toThrow('Server returned 401 after successful authentication');
+            const error = await transport.send(message).catch(e => e);
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-access-token',
                 token_type: 'Bearer',

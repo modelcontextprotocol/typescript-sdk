@@ -1,3 +1,4 @@
+import { CORS_IS_POSSIBLE } from '@modelcontextprotocol/client/_shims';
 import type {
     AuthorizationServerMetadata,
     FetchLike,
@@ -11,21 +12,16 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     checkResourceAllowed,
-    InvalidClientError,
-    InvalidClientMetadataError,
-    InvalidGrantError,
     LATEST_PROTOCOL_VERSION,
-    OAUTH_ERRORS,
     OAuthClientInformationFullSchema,
     OAuthError,
+    OAuthErrorCode,
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
-    resourceUrlFromServerUrl,
-    ServerError,
-    UnauthorizedClientError
+    resourceUrlFromServerUrl
 } from '@modelcontextprotocol/core';
 import pkceChallenge from 'pkce-challenge';
 
@@ -40,17 +36,115 @@ export type AddClientAuthentication = (
 ) => void | Promise<void>;
 
 /**
+ * Context passed to {@linkcode AuthProvider.onUnauthorized} when the server
+ * responds with 401. Provides everything needed to refresh credentials.
+ */
+export interface UnauthorizedContext {
+    /** The 401 response — inspect `WWW-Authenticate` for resource metadata, scope, etc. */
+    response: Response;
+    /** The MCP server URL, for passing to {@linkcode auth} or discovery helpers. */
+    serverUrl: URL;
+    /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
+    fetchFn: FetchLike;
+}
+
+/**
+ * Minimal interface for authenticating MCP client transports with bearer tokens.
+ *
+ * Transports call {@linkcode AuthProvider.token | token()} before every request
+ * to obtain the current token, and {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
+ * (if provided) when the server responds with 401, giving the provider a chance
+ * to refresh credentials before the transport retries once.
+ *
+ * For simple cases (API keys, gateway-managed tokens), implement only `token()`:
+ * ```typescript
+ * const authProvider: AuthProvider = { token: async () => process.env.API_KEY };
+ * ```
+ *
+ * For OAuth flows, pass an {@linkcode OAuthClientProvider} directly — transports
+ * accept either shape and adapt OAuth providers automatically via {@linkcode adaptOAuthProvider}.
+ */
+export interface AuthProvider {
+    /**
+     * Returns the current bearer token, or `undefined` if no token is available.
+     * Called before every request.
+     */
+    token(): Promise<string | undefined>;
+
+    /**
+     * Called when the server responds with 401. If provided, the transport will
+     * await this, then retry the request once. If the retry also gets 401, or if
+     * this method is not provided, the transport throws {@linkcode UnauthorizedError}.
+     *
+     * Implementations should refresh tokens, re-authenticate, etc. — whatever is
+     * needed so the next `token()` call returns a valid token.
+     */
+    onUnauthorized?(ctx: UnauthorizedContext): Promise<void>;
+}
+
+/**
+ * Type guard distinguishing `OAuthClientProvider` from a minimal `AuthProvider`.
+ * Transports use this at construction time to classify the `authProvider` option.
+ *
+ * Checks for `tokens()` + `clientInformation()` — two required `OAuthClientProvider`
+ * methods that a minimal `AuthProvider` `{ token: ... }` would never have.
+ */
+export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvider | undefined): provider is OAuthClientProvider {
+    if (provider == null) return false;
+    const p = provider as OAuthClientProvider;
+    return typeof p.tokens === 'function' && typeof p.clientInformation === 'function';
+}
+
+/**
+ * Standard `onUnauthorized` behavior for OAuth providers: extracts
+ * `WWW-Authenticate` parameters from the 401 response and runs {@linkcode auth}.
+ * Used by {@linkcode adaptOAuthProvider} to bridge `OAuthClientProvider` to `AuthProvider`.
+ */
+export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx: UnauthorizedContext): Promise<void> {
+    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+    const result = await auth(provider, {
+        serverUrl: ctx.serverUrl,
+        resourceMetadataUrl,
+        scope,
+        fetchFn: ctx.fetchFn
+    });
+    if (result !== 'AUTHORIZED') {
+        throw new UnauthorizedError();
+    }
+}
+
+/**
+ * Adapts an `OAuthClientProvider` to the minimal `AuthProvider` interface that
+ * transports consume. Called once at transport construction — the transport stores
+ * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
+ * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
+ */
+export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider {
+    return {
+        token: async () => {
+            const tokens = await provider.tokens();
+            return tokens?.access_token;
+        },
+        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
+    };
+}
+
+/**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
+ *
+ * Transports accept `OAuthClientProvider` directly via the `authProvider` option —
+ * they adapt it to {@linkcode AuthProvider} internally via {@linkcode adaptOAuthProvider}.
+ * No changes are needed to existing implementations.
  */
 export interface OAuthClientProvider {
     /**
      * The URL to redirect the user agent to after authorization.
-     * Return undefined for non-interactive flows that don't require user interaction
-     * (e.g., client_credentials, jwt-bearer).
+     * Return `undefined` for non-interactive flows that don't require user interaction
+     * (e.g., `client_credentials`, `jwt-bearer`).
      */
     get redirectUrl(): string | URL | undefined;
 
@@ -65,7 +159,7 @@ export interface OAuthClientProvider {
     get clientMetadata(): OAuthClientMetadata;
 
     /**
-     * Returns a OAuth2 state parameter.
+     * Returns an OAuth2 state parameter.
      */
     state?(): string | Promise<string>;
 
@@ -79,7 +173,7 @@ export interface OAuthClientProvider {
     /**
      * If implemented, this permits the OAuth client to dynamically register with
      * the server. Client information saved this way should later be read via
-     * `clientInformation()`.
+     * {@linkcode OAuthClientProvider.clientInformation | clientInformation()}.
      *
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
@@ -149,7 +243,7 @@ export interface OAuthClientProvider {
      * credentials, in the case where the server has indicated that they are no longer valid.
      * This avoids requiring the user to intervene manually.
      */
-    invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+    invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void | Promise<void>;
 
     /**
      * Prepares grant-specific parameters for a token request.
@@ -159,11 +253,11 @@ export interface OAuthClientProvider {
      * any grant-specific parameters needed for the token exchange.
      *
      * If not implemented, the default behavior depends on the flow:
-     * - For authorization code flow: uses code, code_verifier, and redirect_uri
-     * - For client_credentials: detected via grant_types in clientMetadata
+     * - For authorization code flow: uses `code`, `code_verifier`, and `redirect_uri`
+     * - For `client_credentials`: detected via `grant_types` in {@linkcode OAuthClientProvider.clientMetadata | clientMetadata}
      *
      * @param scope - Optional scope to request
-     * @returns Grant type and parameters, or undefined to use default behavior
+     * @returns Grant type and parameters, or `undefined` to use default behavior
      *
      * @example
      * // For client_credentials grant:
@@ -188,6 +282,90 @@ export interface OAuthClientProvider {
      * }
      */
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
+
+    /**
+     * Saves the authorization server URL after RFC 9728 discovery.
+     * This method is called by {@linkcode auth} after successful discovery of the
+     * authorization server via protected resource metadata.
+     *
+     * Providers implementing Cross-App Access or other flows that need access to
+     * the discovered authorization server URL should implement this method.
+     *
+     * @param authorizationServerUrl - The authorization server URL discovered via RFC 9728
+     */
+    saveAuthorizationServerUrl?(authorizationServerUrl: string): void | Promise<void>;
+
+    /**
+     * Returns the previously saved authorization server URL, if available.
+     *
+     * Providers implementing Cross-App Access can use this to access the
+     * authorization server URL discovered during the OAuth flow.
+     *
+     * @returns The authorization server URL, or `undefined` if not available
+     */
+    authorizationServerUrl?(): string | undefined | Promise<string | undefined>;
+
+    /**
+     * Saves the resource URL after RFC 9728 discovery.
+     * This method is called by {@linkcode auth} after successful discovery of the
+     * resource metadata.
+     *
+     * Providers implementing Cross-App Access or other flows that need access to
+     * the discovered resource URL should implement this method.
+     *
+     * @param resourceUrl - The resource URL discovered via RFC 9728
+     */
+    saveResourceUrl?(resourceUrl: string): void | Promise<void>;
+
+    /**
+     * Returns the previously saved resource URL, if available.
+     *
+     * Providers implementing Cross-App Access can use this to access the
+     * resource URL discovered during the OAuth flow.
+     *
+     * @returns The resource URL, or `undefined` if not available
+     */
+    resourceUrl?(): string | undefined | Promise<string | undefined>;
+
+    /**
+     * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
+     * discovery. Providers can persist this state to avoid redundant discovery requests
+     * on subsequent {@linkcode auth} calls.
+     *
+     * This state can also be provided out-of-band (e.g., from a previous session or
+     * external configuration) to bootstrap the OAuth flow without discovery.
+     *
+     * Called by {@linkcode auth} after successful discovery.
+     */
+    saveDiscoveryState?(state: OAuthDiscoveryState): void | Promise<void>;
+
+    /**
+     * Returns previously saved discovery state, or `undefined` if none is cached.
+     *
+     * When available, {@linkcode auth} restores the discovery state (authorization server
+     * URL, resource metadata, etc.) instead of performing RFC 9728 discovery, reducing
+     * latency on subsequent calls.
+     *
+     * Providers should clear cached discovery state on repeated authentication failures
+     * (via {@linkcode invalidateCredentials} with scope `'discovery'` or `'all'`) to allow
+     * re-discovery in case the authorization server has changed.
+     */
+    discoveryState?(): OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
+}
+
+/**
+ * Discovery state that can be persisted across sessions by an {@linkcode OAuthClientProvider}.
+ *
+ * Contains the results of RFC 9728 protected resource metadata discovery and
+ * authorization server metadata discovery. Persisting this state avoids
+ * redundant discovery HTTP requests on subsequent {@linkcode auth} calls.
+ */
+// TODO: Consider adding `authorizationServerMetadataUrl` to capture the exact well-known URL
+// at which authorization server metadata was discovered. This would require
+// `discoverAuthorizationServerMetadata()` to return the successful discovery URL.
+export interface OAuthDiscoveryState extends OAuthServerInfo {
+    /** The URL at which the protected resource metadata was found, if available. */
+    resourceMetadataUrl?: string;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -198,7 +376,7 @@ export class UnauthorizedError extends Error {
     }
 }
 
-type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
+export type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
 function isClientAuthMethod(method: string): method is ClientAuthMethod {
     return ['client_secret_basic', 'client_secret_post', 'none'].includes(method);
@@ -211,9 +389,9 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
  * Determines the best client authentication method to use based on server support and client configuration.
  *
  * Priority order (highest to lowest):
- * 1. client_secret_basic (if client secret is available)
- * 2. client_secret_post (if client secret is available)
- * 3. none (for public clients)
+ * 1. `client_secret_basic` (if client secret is available)
+ * 2. `client_secret_post` (if client secret is available)
+ * 3. `none` (for public clients)
  *
  * @param clientInformation - OAuth client information containing credentials
  * @param supportedMethods - Authentication methods supported by the authorization server
@@ -222,19 +400,23 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
 export function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
     const hasClientSecret = clientInformation.client_secret !== undefined;
 
-    // If server doesn't specify supported methods, use RFC 6749 defaults
-    if (supportedMethods.length === 0) {
-        return hasClientSecret ? 'client_secret_post' : 'none';
-    }
-
-    // Prefer the method returned by the server during client registration if valid and supported
+    // Prefer the method returned by the server during client registration, if valid.
+    // When server metadata is present we also require the method to be listed as supported;
+    // when supportedMethods is empty (metadata omitted the field) the DCR hint stands alone.
     if (
         'token_endpoint_auth_method' in clientInformation &&
         clientInformation.token_endpoint_auth_method &&
         isClientAuthMethod(clientInformation.token_endpoint_auth_method) &&
-        supportedMethods.includes(clientInformation.token_endpoint_auth_method)
+        (supportedMethods.length === 0 || supportedMethods.includes(clientInformation.token_endpoint_auth_method))
     ) {
         return clientInformation.token_endpoint_auth_method;
+    }
+
+    // If server metadata omits token_endpoint_auth_methods_supported, RFC 8414 §2 says the
+    // default is client_secret_basic. RFC 6749 §2.3.1 also requires servers to support HTTP
+    // Basic authentication for clients with a secret, making it the safest default.
+    if (supportedMethods.length === 0) {
+        return hasClientSecret ? 'client_secret_basic' : 'none';
     }
 
     // Try methods in priority order (most secure first)
@@ -258,9 +440,9 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * Applies client authentication to the request based on the specified method.
  *
  * Implements OAuth 2.1 client authentication methods:
- * - client_secret_basic: HTTP Basic authentication (RFC 6749 Section 2.3.1)
- * - client_secret_post: Credentials in request body (RFC 6749 Section 2.3.1)
- * - none: Public client authentication (RFC 6749 Section 2.1)
+ * - `client_secret_basic`: HTTP Basic authentication (RFC 6749 Section 2.3.1)
+ * - `client_secret_post`: Credentials in request body (RFC 6749 Section 2.3.1)
+ * - `none`: Public client authentication (RFC 6749 Section 2.1)
  *
  * @param method - The authentication method to use
  * @param clientInformation - OAuth client information containing credentials
@@ -268,7 +450,7 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * @param params - URL search parameters to modify
  * @throws {Error} When required credentials are missing
  */
-function applyClientAuthentication(
+export function applyClientAuthentication(
     method: ClientAuthMethod,
     clientInformation: OAuthClientInformation,
     headers: Headers,
@@ -298,7 +480,7 @@ function applyClientAuthentication(
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
-function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
+export function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
     if (!clientSecret) {
         throw new Error('client_secret_basic authentication requires a client_secret');
     }
@@ -310,7 +492,7 @@ function applyBasicAuth(clientId: string, clientSecret: string | undefined, head
 /**
  * Applies POST body authentication (RFC 6749 Section 2.3.1)
  */
-function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
+export function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
     params.set('client_id', clientId);
     if (clientSecret) {
         params.set('client_secret', clientSecret);
@@ -320,7 +502,7 @@ function applyPostAuth(clientId: string, clientSecret: string | undefined, param
 /**
  * Applies public client authentication (RFC 6749 Section 2.1)
  */
-function applyPublicAuth(clientId: string, params: URLSearchParams): void {
+export function applyPublicAuth(clientId: string, params: URLSearchParams): void {
     params.set('client_id', clientId);
 }
 
@@ -328,12 +510,12 @@ function applyPublicAuth(clientId: string, params: URLSearchParams): void {
  * Parses an OAuth error response from a string or Response object.
  *
  * If the input is a standard OAuth2.0 error response, it will be parsed according to the spec
- * and an instance of the appropriate OAuthError subclass will be returned.
- * If parsing fails, it falls back to a generic ServerError that includes
+ * and an {@linkcode OAuthError} will be returned with the appropriate error code.
+ * If parsing fails, it falls back to a generic {@linkcode OAuthErrorCode.ServerError | ServerError} that includes
  * the response status (if available) and original content.
  *
  * @param input - A Response object or string containing the error response
- * @returns A Promise that resolves to an OAuthError instance
+ * @returns A Promise that resolves to an {@linkcode OAuthError} instance
  */
 export async function parseErrorResponse(input: Response | string): Promise<OAuthError> {
     const statusCode = input instanceof Response ? input.status : undefined;
@@ -341,13 +523,11 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 
     try {
         const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
-        const { error, error_description, error_uri } = result;
-        const errorClass = OAUTH_ERRORS[error] || ServerError;
-        return new errorClass(error_description || '', error_uri);
+        return OAuthError.fromResponse(result);
     } catch (error) {
         // Not a valid OAuth error response, but try to inform the user of the raw data anyway
         const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
-        return new ServerError(errorMessage);
+        return new OAuthError(OAuthErrorCode.ServerError, errorMessage);
     }
 }
 
@@ -371,12 +551,14 @@ export async function auth(
         return await authInternal(provider, options);
     } catch (error) {
         // Handle recoverable error types by invalidating credentials and retrying
-        if (error instanceof InvalidClientError || error instanceof UnauthorizedClientError) {
-            await provider.invalidateCredentials?.('all');
-            return await authInternal(provider, options);
-        } else if (error instanceof InvalidGrantError) {
-            await provider.invalidateCredentials?.('tokens');
-            return await authInternal(provider, options);
+        if (error instanceof OAuthError) {
+            if (error.code === OAuthErrorCode.InvalidClient || error.code === OAuthErrorCode.UnauthorizedClient) {
+                await provider.invalidateCredentials?.('all');
+                return await authInternal(provider, options);
+            } else if (error.code === OAuthErrorCode.InvalidGrant) {
+                await provider.invalidateCredentials?.('tokens');
+                return await authInternal(provider, options);
+            }
         }
 
         // Throw otherwise
@@ -400,31 +582,89 @@ async function authInternal(
         fetchFn?: FetchLike;
     }
 ): Promise<AuthResult> {
+    // Check if the provider has cached discovery state to skip discovery
+    const cachedState = await provider.discoveryState?.();
+
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
-    let authorizationServerUrl: string | URL | undefined;
+    let authorizationServerUrl: string | URL;
+    let metadata: AuthorizationServerMetadata | undefined;
 
-    try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
-        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
-            authorizationServerUrl = resourceMetadata.authorization_servers[0];
+    // If resourceMetadataUrl is not provided, try to load it from cached state
+    // This handles browser redirects where the URL was saved before navigation
+    let effectiveResourceMetadataUrl = resourceMetadataUrl;
+    if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
+        effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
+    }
+
+    if (cachedState?.authorizationServerUrl) {
+        // Restore discovery state from cache
+        authorizationServerUrl = cachedState.authorizationServerUrl;
+        resourceMetadata = cachedState.resourceMetadata;
+        metadata =
+            cachedState.authorizationServerMetadata ?? (await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn }));
+
+        // If resource metadata wasn't cached, try to fetch it for selectResourceURL
+        if (!resourceMetadata) {
+            try {
+                resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+                    serverUrl,
+                    { resourceMetadataUrl: effectiveResourceMetadataUrl },
+                    fetchFn
+                );
+            } catch (error) {
+                // Network failures (DNS, connection refused) surface as TypeError — propagate
+                // those rather than masking a transient reachability problem.
+                if (error instanceof TypeError) {
+                    throw error;
+                }
+                // RFC 9728 not available — selectResourceURL will handle undefined
+            }
         }
-    } catch {
-        // Ignore errors and fall back to /.well-known/oauth-authorization-server
+
+        // Re-save if we enriched the cached state with missing metadata
+        if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
+            await provider.saveDiscoveryState?.({
+                authorizationServerUrl: String(authorizationServerUrl),
+                resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                resourceMetadata,
+                authorizationServerMetadata: metadata
+            });
+        }
+    } else {
+        // Full discovery via RFC 9728
+        const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
+        authorizationServerUrl = serverInfo.authorizationServerUrl;
+        metadata = serverInfo.authorizationServerMetadata;
+        resourceMetadata = serverInfo.resourceMetadata;
+
+        // Persist discovery state for future use
+        // TODO: resourceMetadataUrl is only populated when explicitly provided via options
+        // or loaded from cached state. The URL derived internally by
+        // discoverOAuthProtectedResourceMetadata() is not captured back here.
+        await provider.saveDiscoveryState?.({
+            authorizationServerUrl: String(authorizationServerUrl),
+            resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+            resourceMetadata,
+            authorizationServerMetadata: metadata
+        });
     }
 
-    /**
-     * If we don't get a valid authorization server metadata from protected resource metadata,
-     * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server base URL acts as the Authorization server.
-     */
-    if (!authorizationServerUrl) {
-        authorizationServerUrl = new URL('/', serverUrl);
-    }
+    // Save authorization server URL for providers that need it (e.g., CrossAppAccessProvider)
+    await provider.saveAuthorizationServerUrl?.(String(authorizationServerUrl));
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
-    const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
-        fetchFn
-    });
+    // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
+    if (resource) {
+        await provider.saveResourceUrl?.(String(resource));
+    }
+
+    // Apply scope selection strategy (SEP-835):
+    // 1. WWW-Authenticate scope (passed via `scope` param)
+    // 2. PRM scopes_supported
+    // 3. Client metadata scope (user-configured fallback)
+    // The resolved scope is used consistently for both DCR and the authorization request.
+    const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
 
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -437,7 +677,8 @@ async function authInternal(
         const clientMetadataUrl = provider.clientMetadataUrl;
 
         if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
-            throw new InvalidClientMetadataError(
+            throw new OAuthError(
+                OAuthErrorCode.InvalidClientMetadata,
                 `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${clientMetadataUrl}`
             );
         }
@@ -459,6 +700,7 @@ async function authInternal(
             const fullInformation = await registerClient(authorizationServerUrl, {
                 metadata,
                 clientMetadata: provider.clientMetadata,
+                scope: resolvedScope,
                 fetchFn
             });
 
@@ -476,6 +718,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
+            scope,
             fetchFn
         });
 
@@ -502,7 +745,7 @@ async function authInternal(
             return 'AUTHORIZED';
         } catch (error) {
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
-            if (!(error instanceof OAuthError) || error instanceof ServerError) {
+            if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
                 // Could not refresh OAuth tokens
             } else {
                 // Refresh failed for another reason, re-throw
@@ -519,7 +762,7 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
+        scope: resolvedScope,
         resource
     });
 
@@ -530,7 +773,7 @@ async function authInternal(
 
 /**
  * SEP-991: URL-based Client IDs
- * Validate that the client_id is a valid URL with https scheme
+ * Validate that the `client_id` is a valid URL with `https` scheme
  */
 export function isHttpsUrl(value?: string): boolean {
     if (!value) return false;
@@ -568,7 +811,7 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract resource_metadata, scope, and error from WWW-Authenticate header.
+ * Extract `resource_metadata`, `scope`, and `error` from `WWW-Authenticate` header.
  */
 export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -603,10 +846,10 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
 }
 
 /**
- * Extracts a specific field's value from the WWW-Authenticate header string.
+ * Extracts a specific field's value from the `WWW-Authenticate` header string.
  *
  * @param response The HTTP response object containing the headers.
- * @param fieldName The name of the field to extract (e.g., "realm", "nonce").
+ * @param fieldName The name of the field to extract (e.g., `"realm"`, `"nonce"`).
  * @returns The field value
  */
 function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
@@ -630,8 +873,8 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
 }
 
 /**
- * Extract resource_metadata from response header.
- * @deprecated Use `extractWWWAuthenticateParams` instead.
+ * Extract `resource_metadata` from response header.
+ * @deprecated Use {@linkcode extractWWWAuthenticateParams} instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -658,7 +901,8 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 }
 
 /**
- * Looks up RFC 9728 OAuth 2.0 Protected Resource Metadata.
+ * Looks up {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728}
+ * OAuth 2.0 Protected Resource Metadata.
  *
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
@@ -686,18 +930,45 @@ export async function discoverOAuthProtectedResourceMetadata(
 }
 
 /**
- * Helper function to handle fetch with CORS retry logic
+ * Fetch with a retry heuristic for CORS errors caused by custom headers.
+ *
+ * In browsers, adding a custom header (e.g. `MCP-Protocol-Version`) triggers a CORS preflight.
+ * If the server doesn't allow that header, the browser throws a `TypeError` before any response
+ * is received. Retrying without custom headers often succeeds because the request becomes
+ * "simple" (no preflight). If the server sends no CORS headers at all, the retry also fails
+ * with `TypeError` and we return `undefined` so callers can fall through to an alternate URL.
+ *
+ * However, `fetch()` also throws `TypeError` for non-CORS failures (DNS resolution, connection
+ * refused, invalid URL). Swallowing those and returning `undefined` masks real errors and can
+ * cause callers to silently fall through to a different discovery URL. CORS is a browser-only
+ * concept, so in non-browser runtimes (Node.js, Workers) a `TypeError` from `fetch` is never a
+ * CORS error — there we propagate the error instead of swallowing it.
+ *
+ * In browsers, we cannot reliably distinguish CORS `TypeError` from network `TypeError` from the
+ * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
     try {
         return await fetchFn(url, { headers });
     } catch (error) {
-        if (error instanceof TypeError) {
-            // CORS errors come back as TypeError, retry without headers
-            // We're getting CORS errors on retry too, return undefined
-            return headers ? fetchWithCorsRetry(url, undefined, fetchFn) : undefined;
+        if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
+            throw error;
         }
-        throw error;
+        if (headers) {
+            // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
+            // request: if that succeeds, we've sidestepped the preflight.
+            try {
+                return await fetchFn(url, {});
+            } catch (retryError) {
+                if (!(retryError instanceof TypeError)) {
+                    throw retryError;
+                }
+                // Retry also got CORS-blocked (server sends no CORS headers at all).
+                // Return undefined so the caller tries the next discovery URL.
+                return undefined;
+            }
+        }
+        return undefined;
     }
 }
 
@@ -773,7 +1044,7 @@ async function discoverMetadataWithFallback(
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
  *
- * @deprecated This function is deprecated in favor of `discoverAuthorizationServerMetadata`.
+ * @deprecated This function is deprecated in favor of {@linkcode discoverAuthorizationServerMetadata}.
  */
 export async function discoverOAuthMetadata(
     issuer: string | URL,
@@ -876,8 +1147,11 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
 }
 
 /**
- * Discovers authorization server metadata with support for RFC 8414 OAuth 2.0 Authorization Server Metadata
- * and OpenID Connect Discovery 1.0 specifications.
+ * Discovers authorization server metadata with support for
+ * {@link https://datatracker.ietf.org/doc/html/rfc8414 | RFC 8414} OAuth 2.0
+ * Authorization Server Metadata and
+ * {@link https://openid.net/specs/openid-connect-discovery-1_0.html | OpenID Connect Discovery 1.0}
+ * specifications.
  *
  * This function implements a fallback strategy for authorization server discovery:
  * 1. Attempts RFC 8414 OAuth metadata discovery first
@@ -888,7 +1162,7 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  *                                 metadata was not found.
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use, defaults to LATEST_PROTOCOL_VERSION
+ * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
  */
 export async function discoverAuthorizationServerMetadata(
@@ -939,6 +1213,93 @@ export async function discoverAuthorizationServerMetadata(
     }
 
     return undefined;
+}
+
+/**
+ * Result of {@linkcode discoverOAuthServerInfo}.
+ */
+export interface OAuthServerInfo {
+    /**
+     * The authorization server URL, either discovered via RFC 9728
+     * or derived from the MCP server URL as a fallback.
+     */
+    authorizationServerUrl: string;
+
+    /**
+     * The authorization server metadata (endpoints, capabilities),
+     * or `undefined` if metadata discovery failed.
+     */
+    authorizationServerMetadata?: AuthorizationServerMetadata;
+
+    /**
+     * The OAuth 2.0 Protected Resource Metadata from RFC 9728,
+     * or `undefined` if the server does not support it.
+     */
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+}
+
+/**
+ * Discovers the authorization server for an MCP server following
+ * {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728} (OAuth 2.0 Protected
+ * Resource Metadata), with fallback to treating the server URL as the
+ * authorization server.
+ *
+ * This function combines two discovery steps into one call:
+ * 1. Probes `/.well-known/oauth-protected-resource` on the MCP server to find the
+ *    authorization server URL (RFC 9728).
+ * 2. Fetches authorization server metadata from that URL (RFC 8414 / OpenID Connect Discovery).
+ *
+ * Use this when you need the authorization server metadata for operations outside the
+ * {@linkcode auth} orchestrator, such as token refresh or token revocation.
+ *
+ * @param serverUrl - The MCP resource server URL
+ * @param opts - Optional configuration
+ * @param opts.resourceMetadataUrl - Override URL for the protected resource metadata endpoint
+ * @param opts.fetchFn - Custom fetch function for HTTP requests
+ * @returns Authorization server URL, metadata, and resource metadata (if available)
+ */
+export async function discoverOAuthServerInfo(
+    serverUrl: string | URL,
+    opts?: {
+        resourceMetadataUrl?: URL;
+        fetchFn?: FetchLike;
+    }
+): Promise<OAuthServerInfo> {
+    let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+    let authorizationServerUrl: string | undefined;
+
+    try {
+        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+            serverUrl,
+            { resourceMetadataUrl: opts?.resourceMetadataUrl },
+            opts?.fetchFn
+        );
+        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+            authorizationServerUrl = resourceMetadata.authorization_servers[0];
+        }
+    } catch (error) {
+        // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
+        // transient reachability problems, not "server doesn't support PRM" — propagate so the
+        // caller sees the real error instead of silently falling back to a different auth server.
+        if (error instanceof TypeError) {
+            throw error;
+        }
+        // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
+    }
+
+    // If we don't get a valid authorization server from protected resource metadata,
+    // fall back to the legacy MCP spec behavior: MCP server base URL acts as the authorization server
+    if (!authorizationServerUrl) {
+        authorizationServerUrl = String(new URL('/', serverUrl));
+    }
+
+    const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn: opts?.fetchFn });
+
+    return {
+        authorizationServerUrl,
+        authorizationServerMetadata,
+        resourceMetadata
+    };
 }
 
 /**
@@ -1016,13 +1377,13 @@ export async function startAuthorization(
 /**
  * Prepares token request parameters for an authorization code exchange.
  *
- * This is the default implementation used by fetchToken when the provider
- * doesn't implement prepareTokenRequest.
+ * This is the default implementation used by {@linkcode fetchToken} when the provider
+ * doesn't implement {@linkcode OAuthClientProvider.prepareTokenRequest | prepareTokenRequest}.
  *
  * @param authorizationCode - The authorization code received from the authorization endpoint
  * @param codeVerifier - The PKCE code verifier
  * @param redirectUri - The redirect URI used in the authorization request
- * @returns URLSearchParams for the authorization_code grant
+ * @returns URLSearchParams for the `authorization_code` grant
  */
 export function prepareAuthorizationCodeRequest(
     authorizationCode: string,
@@ -1039,9 +1400,9 @@ export function prepareAuthorizationCodeRequest(
 
 /**
  * Internal helper to execute a token request with the given parameters.
- * Used by exchangeAuthorization, refreshAuthorization, and fetchToken.
+ * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
-async function executeTokenRequest(
+export async function executeTokenRequest(
     authorizationServerUrl: string | URL,
     {
         metadata,
@@ -1157,7 +1518,7 @@ export async function exchangeAuthorization(
  *
  * @param authorizationServerUrl - The authorization server's base URL
  * @param options - Configuration object containing client info, refresh token, etc.
- * @returns Promise resolving to OAuth tokens (preserves original refresh_token if not replaced)
+ * @returns Promise resolving to OAuth tokens (preserves original `refresh_token` if not replaced)
  * @throws {Error} When token refresh fails or authentication is invalid
  */
 export async function refreshAuthorization(
@@ -1197,30 +1558,31 @@ export async function refreshAuthorization(
 }
 
 /**
- * Unified token fetching that works with any grant type via provider.prepareTokenRequest().
+ * Unified token fetching that works with any grant type via {@linkcode OAuthClientProvider.prepareTokenRequest | prepareTokenRequest()}.
  *
  * This function provides a single entry point for obtaining tokens regardless of the
- * OAuth grant type. The provider's prepareTokenRequest() method determines which grant
+ * OAuth grant type. The provider's `prepareTokenRequest()` method determines which grant
  * to use and supplies the grant-specific parameters.
  *
- * @param provider - OAuth client provider that implements prepareTokenRequest()
+ * @param provider - OAuth client provider that implements `prepareTokenRequest()`
  * @param authorizationServerUrl - The authorization server's base URL
  * @param options - Configuration for the token request
  * @returns Promise resolving to OAuth tokens
- * @throws {Error} When provider doesn't implement prepareTokenRequest or token fetch fails
+ * @throws {Error} When provider doesn't implement `prepareTokenRequest` or token fetch fails
  *
  * @example
+ * ```ts source="./auth.examples.ts#fetchToken_clientCredentials"
  * // Provider for client_credentials:
- * class MyProvider implements OAuthClientProvider {
- *   prepareTokenRequest(scope) {
- *     const params = new URLSearchParams({ grant_type: 'client_credentials' });
- *     if (scope) params.set('scope', scope);
- *     return params;
- *   }
- *   // ... other methods
+ * class MyProvider extends MyProviderBase implements OAuthClientProvider {
+ *     prepareTokenRequest(scope?: string) {
+ *         const params = new URLSearchParams({ grant_type: 'client_credentials' });
+ *         if (scope) params.set('scope', scope);
+ *         return params;
+ *     }
  * }
  *
- * const tokens = await fetchToken(provider, authServerUrl, { metadata });
+ * const tokens = await fetchToken(new MyProvider(), authServerUrl, { metadata });
+ * ```
  */
 export async function fetchToken(
     provider: OAuthClientProvider,
@@ -1229,21 +1591,25 @@ export async function fetchToken(
         metadata,
         resource,
         authorizationCode,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: URL;
-        /** Authorization code for the default authorization_code grant flow */
+        /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
+        /** Optional scope parameter from auth() options */
+        scope?: string;
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
-    const scope = provider.clientMetadata.scope;
+    // Prefer scope from options, fallback to provider.clientMetadata.scope
+    const effectiveScope = scope ?? provider.clientMetadata.scope;
 
     // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
     let tokenRequestParams: URLSearchParams | undefined;
     if (provider.prepareTokenRequest) {
-        tokenRequestParams = await provider.prepareTokenRequest(scope);
+        tokenRequestParams = await provider.prepareTokenRequest(effectiveScope);
     }
 
     // Default to authorization_code grant if no custom prepareTokenRequest
@@ -1271,17 +1637,24 @@ export async function fetchToken(
 }
 
 /**
- * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
+ * Performs OAuth 2.0 Dynamic Client Registration according to
+ * {@link https://datatracker.ietf.org/doc/html/rfc7591 | RFC 7591}.
+ *
+ * If `scope` is provided, it overrides `clientMetadata.scope` in the registration
+ * request body. This allows callers to apply the Scope Selection Strategy (SEP-835)
+ * consistently across both DCR and the subsequent authorization request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
     {
         metadata,
         clientMetadata,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         clientMetadata: OAuthClientMetadata;
+        scope?: string;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthClientInformationFull> {
@@ -1302,7 +1675,10 @@ export async function registerClient(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(clientMetadata)
+        body: JSON.stringify({
+            ...clientMetadata,
+            ...(scope === undefined ? {} : { scope })
+        })
     });
 
     if (!response.ok) {

@@ -87,6 +87,14 @@ export default defineConfig(
         }
     },
     {
+        // Example files contain intentionally unused functions (one per region)
+        files: ['**/*.examples.ts'],
+        rules: {
+            '@typescript-eslint/no-unused-vars': 'off',
+            'no-console': 'off'
+        }
+    },
+    {
         // Ignore generated protocol types everywhere
         ignores: ['**/spec.types.ts']
     },

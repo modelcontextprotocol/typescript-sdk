@@ -7,12 +7,14 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    normalizeHeaders
+    normalizeHeaders,
+    SdkError,
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
-import type { AuthResult, OAuthClientProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth.js';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -21,15 +23,6 @@ const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOp
     reconnectionDelayGrowFactor: 1.5,
     maxRetries: 2
 };
-
-export class StreamableHTTPError extends Error {
-    constructor(
-        public readonly code: number | undefined,
-        message: string | undefined
-    ) {
-        super(`Streamable HTTP error: ${message}`);
-    }
-}
 
 /**
  * Options for starting or authenticating an SSE connection
@@ -51,13 +44,13 @@ export interface StartSSEOptions {
 
     /**
      * Override Message ID to associate with the replay message
-     * so that response can be associate with the new resumed request.
+     * so that the response can be associated with the new resumed request.
      */
     replayMessageId?: string | number;
 }
 
 /**
- * Configuration options for reconnection behavior of the StreamableHTTPClientTransport.
+ * Configuration options for reconnection behavior of the {@linkcode StreamableHTTPClientTransport}.
  */
 export interface StreamableHTTPReconnectionOptions {
     /**
@@ -86,24 +79,27 @@ export interface StreamableHTTPReconnectionOptions {
 }
 
 /**
- * Configuration options for the `StreamableHTTPClientTransport`.
+ * Configuration options for the {@linkcode StreamableHTTPClientTransport}.
  */
 export type StreamableHTTPClientTransportOptions = {
     /**
      * An OAuth client provider to use for authentication.
      *
-     * When an `authProvider` is specified and the connection is started:
-     * 1. The connection is attempted with any existing access token from the `authProvider`.
-     * 2. If the access token has expired, the `authProvider` is used to refresh the token.
-     * 3. If token refresh fails or no access token exists, and auth is required, `OAuthClientProvider.redirectToAuthorization` is called, and an `UnauthorizedError` will be thrown from `connect`/`start`.
+     * {@linkcode AuthProvider.token | token()} is called before every request to obtain the
+     * bearer token. When the server responds with 401, {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
+     * is called (if provided) to refresh credentials, then the request is retried once. If
+     * the retry also gets 401, or `onUnauthorized` is not provided, {@linkcode UnauthorizedError}
+     * is thrown.
      *
-     * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call `StreamableHTTPClientTransport.finishAuth` with the authorization code before retrying the connection.
+     * For simple bearer tokens: `{ token: async () => myApiKey }`.
      *
-     * If an `authProvider` is not provided, and auth is required, an `UnauthorizedError` will be thrown.
-     *
-     * `UnauthorizedError` might also be thrown when sending any message over the transport, indicating that the session has expired, and needs to be re-authed and reconnected.
+     * For OAuth flows, pass an {@linkcode index.OAuthClientProvider | OAuthClientProvider} implementation
+     * directly — the transport adapts it to `AuthProvider` internally. Interactive flows: after
+     * {@linkcode UnauthorizedError}, redirect the user, then call
+     * {@linkcode StreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
+     * reconnecting.
      */
-    authProvider?: OAuthClientProvider;
+    authProvider?: AuthProvider | OAuthClientProvider;
 
     /**
      * Customizes HTTP requests to the server.
@@ -125,11 +121,18 @@ export type StreamableHTTPClientTransportOptions = {
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
     sessionId?: string;
+
+    /**
+     * The MCP protocol version to include in the `mcp-protocol-version` header on all requests.
+     * When reconnecting with a preserved `sessionId`, set this to the version negotiated during the original
+     * handshake so the reconnected transport continues sending the required header.
+     */
+    protocolVersion?: string;
 };
 
 /**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
- * It will connect to a server using HTTP POST for sending messages and HTTP GET with Server-Sent Events
+ * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
  */
 export class StreamableHTTPClientTransport implements Transport {
@@ -138,13 +141,13 @@ export class StreamableHTTPClientTransport implements Transport {
     private _resourceMetadataUrl?: URL;
     private _scope?: string;
     private _requestInit?: RequestInit;
-    private _authProvider?: OAuthClientProvider;
+    private _authProvider?: AuthProvider;
+    private _oauthProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
-    private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
@@ -158,45 +161,24 @@ export class StreamableHTTPClientTransport implements Transport {
         this._resourceMetadataUrl = undefined;
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
-        this._authProvider = opts?.authProvider;
+        if (isOAuthClientProvider(opts?.authProvider)) {
+            this._oauthProvider = opts.authProvider;
+            this._authProvider = adaptOAuthProvider(opts.authProvider);
+        } else {
+            this._authProvider = opts?.authProvider;
+        }
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
+        this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
-    }
-
-    private async _authThenStart(): Promise<void> {
-        if (!this._authProvider) {
-            throw new UnauthorizedError('No auth provider');
-        }
-
-        let result: AuthResult;
-        try {
-            result = await auth(this._authProvider, {
-                serverUrl: this._url,
-                resourceMetadataUrl: this._resourceMetadataUrl,
-                scope: this._scope,
-                fetchFn: this._fetchWithInit
-            });
-        } catch (error) {
-            this.onerror?.(error as Error);
-            throw error;
-        }
-
-        if (result !== 'AUTHORIZED') {
-            throw new UnauthorizedError();
-        }
-
-        return await this._startOrAuthSse({ resumptionToken: undefined });
     }
 
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
-        if (this._authProvider) {
-            const tokens = await this._authProvider.tokens();
-            if (tokens) {
-                headers['Authorization'] = `Bearer ${tokens.access_token}`;
-            }
+        const token = await this._authProvider?.token();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
         }
 
         if (this._sessionId) {
@@ -214,7 +196,7 @@ export class StreamableHTTPClientTransport implements Transport {
         });
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
+    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
         const { resumptionToken } = options;
 
         try {
@@ -229,18 +211,40 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const response = await (this._fetch ?? fetch)(this._url, {
+                ...this._requestInit,
                 method: 'GET',
                 headers,
                 signal: this._abortController?.signal
             });
 
             if (!response.ok) {
-                await response.text?.().catch(() => {});
-
                 if (response.status === 401 && this._authProvider) {
-                    // Need to authenticate
-                    return await this._authThenStart();
+                    if (response.headers.has('www-authenticate')) {
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
+                    }
+
+                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                        await this._authProvider.onUnauthorized({
+                            response,
+                            serverUrl: this._url,
+                            fetchFn: this._fetchWithInit
+                        });
+                        await response.text?.().catch(() => {});
+                        // Purposely _not_ awaited, so we don't call onerror twice
+                        return this._startOrAuthSse(options, true);
+                    }
+                    await response.text?.().catch(() => {});
+                    if (isAuthRetry) {
+                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401
+                        });
+                    }
+                    throw new UnauthorizedError();
                 }
+
+                await response.text?.().catch(() => {});
 
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
                 // This is an expected case that should not trigger an error
@@ -248,7 +252,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new StreamableHTTPError(response.status, `Failed to open SSE stream: ${response.statusText}`);
+                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
             }
 
             this._handleSseStream(response.body, options, true);
@@ -259,7 +266,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Calculates the next reconnection delay using  backoff algorithm
+     * Calculates the next reconnection delay using a backoff algorithm
      *
      * @param attempt Current reconnection attempt count for the specific stream
      * @returns Time to wait in milliseconds before next reconnection attempt
@@ -434,11 +441,11 @@ export class StreamableHTTPClientTransport implements Transport {
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
      */
     async finishAuth(authorizationCode: string): Promise<void> {
-        if (!this._authProvider) {
-            throw new UnauthorizedError('No auth provider');
+        if (!this._oauthProvider) {
+            throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
-        const result = await auth(this._authProvider, {
+        const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
@@ -463,11 +470,19 @@ export class StreamableHTTPClientTransport implements Transport {
         message: JSONRPCMessage | JSONRPCMessage[],
         options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
     ): Promise<void> {
+        return this._send(message, options, false);
+    }
+
+    private async _send(
+        message: JSONRPCMessage | JSONRPCMessage[],
+        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void } | undefined,
+        isAuthRetry: boolean
+    ): Promise<void> {
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
 
             if (resumptionToken) {
-                // If we have at last event ID, we need to reconnect the SSE stream
+                // If we have a last event ID, we need to reconnect the SSE stream
                 this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
                     error => this.onerror?.(error)
                 );
@@ -495,35 +510,36 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                const text = await response.text?.().catch(() => null);
-
                 if (response.status === 401 && this._authProvider) {
-                    // Prevent infinite recursion when server returns 401 after successful auth
-                    if (this._hasCompletedAuthFlow) {
-                        throw new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+                    // Store WWW-Authenticate params for interactive finishAuth() path
+                    if (response.headers.has('www-authenticate')) {
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
                     }
 
-                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                    this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
-
-                    const result = await auth(this._authProvider, {
-                        serverUrl: this._url,
-                        resourceMetadataUrl: this._resourceMetadataUrl,
-                        scope: this._scope,
-                        fetchFn: this._fetchWithInit
-                    });
-                    if (result !== 'AUTHORIZED') {
-                        throw new UnauthorizedError();
+                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                        await this._authProvider.onUnauthorized({
+                            response,
+                            serverUrl: this._url,
+                            fetchFn: this._fetchWithInit
+                        });
+                        await response.text?.().catch(() => {});
+                        // Purposely _not_ awaited, so we don't call onerror twice
+                        return this._send(message, options, true);
                     }
-
-                    // Mark that we completed auth flow
-                    this._hasCompletedAuthFlow = true;
-                    // Purposely _not_ awaited, so we don't call onerror twice
-                    return this.send(message);
+                    await response.text?.().catch(() => {});
+                    if (isAuthRetry) {
+                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401
+                        });
+                    }
+                    throw new UnauthorizedError();
                 }
 
-                if (response.status === 403 && this._authProvider) {
+                const text = await response.text?.().catch(() => null);
+
+                if (response.status === 403 && this._oauthProvider) {
                     const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
 
                     if (error === 'insufficient_scope') {
@@ -531,7 +547,10 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Check if we've already tried upscoping with this header to prevent infinite loops.
                         if (this._lastUpscopingHeader === wwwAuthHeader) {
-                            throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
+                            throw new SdkError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
+                                status: 403,
+                                text
+                            });
                         }
 
                         if (scope) {
@@ -544,26 +563,27 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Mark that upscoping was tried.
                         this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
-                        const result = await auth(this._authProvider, {
+                        const result = await auth(this._oauthProvider, {
                             serverUrl: this._url,
                             resourceMetadataUrl: this._resourceMetadataUrl,
                             scope: this._scope,
-                            fetchFn: this._fetch
+                            fetchFn: this._fetchWithInit
                         });
 
                         if (result !== 'AUTHORIZED') {
                             throw new UnauthorizedError();
                         }
 
-                        return this.send(message);
+                        return this._send(message, options, isAuthRetry);
                     }
                 }
 
-                throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
+                throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
+                    status: response.status,
+                    text
+                });
             }
 
-            // Reset auth loop flag on successful response
-            this._hasCompletedAuthFlow = false;
             this._lastUpscopingHeader = undefined;
 
             // If the response is 202 Accepted, there's no body to process
@@ -604,7 +624,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 } else {
                     await response.text?.().catch(() => {});
-                    throw new StreamableHTTPError(-1, `Unexpected content type: ${contentType}`);
+                    throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, `Unexpected content type: ${contentType}`, {
+                        contentType
+                    });
                 }
             } else {
                 // No requests in message but got 200 OK - still need to release connection
@@ -621,14 +643,14 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Terminates the current session by sending a DELETE request to the server.
+     * Terminates the current session by sending a `DELETE` request to the server.
      *
      * Clients that no longer need a particular session
      * (e.g., because the user is leaving the client application) SHOULD send an
-     * HTTP DELETE to the MCP endpoint with the Mcp-Session-Id header to explicitly
+     * HTTP `DELETE` to the MCP endpoint with the `Mcp-Session-Id` header to explicitly
      * terminate the session.
      *
-     * The server MAY respond with HTTP 405 Method Not Allowed, indicating that
+     * The server MAY respond with HTTP `405 Method Not Allowed`, indicating that
      * the server does not allow clients to terminate sessions.
      */
     async terminateSession(): Promise<void> {
@@ -652,7 +674,10 @@ export class StreamableHTTPClientTransport implements Transport {
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
-                throw new StreamableHTTPError(response.status, `Failed to terminate session: ${response.statusText}`);
+                throw new SdkError(SdkErrorCode.ClientHttpFailedToTerminateSession, `Failed to terminate session: ${response.statusText}`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
             }
 
             this._sessionId = undefined;
@@ -671,7 +696,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     /**
      * Resume an SSE stream from a previous event ID.
-     * Opens a GET SSE connection with Last-Event-ID header to replay missed events.
+     * Opens a `GET` SSE connection with `Last-Event-ID` header to replay missed events.
      *
      * @param lastEventId The event ID to resume from
      * @param options Optional callback to receive new resumption tokens
