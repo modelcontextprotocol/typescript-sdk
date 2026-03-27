@@ -340,9 +340,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
         const reconnect = (): void => {
             this._cancelReconnection = undefined;
+            if (this._abortController?.signal.aborted) return;
             this._startOrAuthSse(options).catch(error => {
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
-                this._scheduleReconnection(options, attemptCount + 1);
+                try {
+                    this._scheduleReconnection(options, attemptCount + 1);
+                } catch (scheduleError) {
+                    this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
+                }
             });
         };
 
@@ -499,12 +504,13 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        if (this._cancelReconnection) {
-            this._cancelReconnection();
+        try {
+            this._cancelReconnection?.();
+        } finally {
             this._cancelReconnection = undefined;
+            this._abortController?.abort();
+            this.onclose?.();
         }
-        this._abortController?.abort();
-        this.onclose?.();
     }
 
     async send(

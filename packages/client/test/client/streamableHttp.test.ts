@@ -1811,5 +1811,45 @@ describe('StreamableHTTPClientTransport', () => {
 
             expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
         });
+
+        it('ignores a late-firing reconnect after close()', async () => {
+            let capturedReconnect: (() => void) | undefined;
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: reconnect => {
+                    capturedReconnect = reconnect;
+                }
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await transport.start();
+            triggerReconnection(transport);
+            await transport.close();
+
+            capturedReconnect?.();
+            await vi.runAllTimersAsync();
+
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('still aborts and fires onclose if the cancel function throws', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: () => () => {
+                    throw new Error('cancel failed');
+                }
+            });
+            const onclose = vi.fn();
+            transport.onclose = onclose;
+
+            await transport.start();
+            triggerReconnection(transport);
+            const abortController = transport['_abortController'];
+
+            await expect(transport.close()).rejects.toThrow('cancel failed');
+            expect(abortController?.signal.aborted).toBe(true);
+            expect(onclose).toHaveBeenCalledTimes(1);
+        });
     });
 });
