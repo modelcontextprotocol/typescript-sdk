@@ -623,7 +623,9 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
-        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/vnd.example.v1+json, application/json, text/event-stream');
+        expect((actualReqInit.headers as Headers).get('accept')).toBe(
+            'application/vnd.example.v1+json, application/json, text/event-stream'
+        );
     });
 
     it('should append custom Accept header to required types on GET SSE requests', async () => {
