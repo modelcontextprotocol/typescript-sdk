@@ -217,6 +217,36 @@ describe('protocol tests', () => {
         expect(oncloseMock).toHaveBeenCalled();
     });
 
+    test('should abort in-flight request handlers when the connection is closed', async () => {
+        await protocol.connect(transport);
+
+        let abortReason: unknown;
+        let handlerStarted = false;
+        const handlerDone = new Promise<void>(resolve => {
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                handlerStarted = true;
+                await new Promise<void>(resolveInner => {
+                    ctx.mcpReq.signal.addEventListener('abort', () => {
+                        abortReason = ctx.mcpReq.signal.reason;
+                        resolveInner();
+                    });
+                });
+                resolve();
+                return {};
+            });
+        });
+
+        transport.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
+
+        await vi.waitFor(() => expect(handlerStarted).toBe(true));
+
+        await transport.close();
+        await handlerDone;
+
+        expect(abortReason).toBeInstanceOf(SdkError);
+        expect((abortReason as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
+    });
+
     test('should not overwrite existing hooks when connecting transports', async () => {
         const oncloseMock = vi.fn();
         const onerrorMock = vi.fn();

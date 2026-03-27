@@ -16,6 +16,27 @@ import { completable, McpServer, ResourceTemplate, StdioServerTransport } from '
 import * as z from 'zod/v4';
 
 // ---------------------------------------------------------------------------
+// Instructions
+// ---------------------------------------------------------------------------
+
+/** Example: Providing server instructions to guide LLM usage. */
+function instructions_basic() {
+    //#region instructions_basic
+    const server = new McpServer(
+        {
+            name: 'multi-tool-server',
+            version: '1.0.0'
+        },
+        {
+            instructions: `This server provides data-pipeline tools. Always call "validate-schema"
+before calling "transform-data" to avoid runtime errors.`
+        }
+    );
+    //#endregion instructions_basic
+    return server;
+}
+
+// ---------------------------------------------------------------------------
 // Tools, resources, and prompts
 // ---------------------------------------------------------------------------
 
@@ -373,6 +394,7 @@ function dnsRebinding_allowedHosts() {
 }
 
 // Suppress unused-function warnings (functions exist solely for type-checking)
+void instructions_basic;
 void registerTool_basic;
 void registerTool_resourceLink;
 void registerTool_logging;
