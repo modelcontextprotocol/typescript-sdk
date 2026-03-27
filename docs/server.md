@@ -330,6 +330,26 @@ server.registerTool(
 >
 > For protocol details, see [Logging](https://modelcontextprotocol.io/specification/latest/server/utilities/logging) in the MCP specification.
 
+## Instructions
+
+Pass an `instructions` string in the server options to describe how to use the server and its features. This can be used by clients to improve the LLM's understanding of available tools, resources, and prompts. It can be thought of like a "hint" to the model — for example, a client MAY add it to the system prompt. See [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification.
+
+```ts source="../examples/server/src/serverGuide.examples.ts#instructions_basic"
+const server = new McpServer(
+    {
+        name: 'multi-tool-server',
+        version: '1.0.0'
+    },
+    {
+        instructions: `This server provides data-pipeline tools. Always call "validate-schema"
+before calling "transform-data" to avoid runtime errors.`
+    }
+);
+```
+
+> [!TIP]
+> Use instructions for cross-tool relationships, workflow ordering, and constraints that individual tool descriptions cannot express on their own.
+
 ## Server‑initiated requests
 
 MCP is bidirectional — servers can also send requests *to* the client during tool execution, as long as the client declares matching capabilities.
