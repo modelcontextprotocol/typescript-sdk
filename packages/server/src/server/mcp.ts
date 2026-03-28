@@ -13,6 +13,7 @@ import type {
     ListResourcesResult,
     ListToolsResult,
     LoggingMessageNotification,
+    NotificationOptions,
     Prompt,
     PromptReference,
     ReadResourceResult,
@@ -973,27 +974,27 @@ export class McpServer {
     /**
      * Sends a resource list changed event to the client, if connected.
      */
-    sendResourceListChanged() {
+    sendResourceListChanged(options?: NotificationOptions) {
         if (this.isConnected()) {
-            this.server.sendResourceListChanged();
+            this.server.sendResourceListChanged(options);
         }
     }
 
     /**
      * Sends a tool list changed event to the client, if connected.
      */
-    sendToolListChanged() {
+    sendToolListChanged(options?: NotificationOptions) {
         if (this.isConnected()) {
-            this.server.sendToolListChanged();
+            this.server.sendToolListChanged(options);
         }
     }
 
     /**
      * Sends a prompt list changed event to the client, if connected.
      */
-    sendPromptListChanged() {
+    sendPromptListChanged(options?: NotificationOptions) {
         if (this.isConnected()) {
-            this.server.sendPromptListChanged();
+            this.server.sendPromptListChanged(options);
         }
     }
 }
