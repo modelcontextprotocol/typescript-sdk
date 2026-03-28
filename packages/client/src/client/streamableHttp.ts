@@ -578,6 +578,17 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
+                // Per MCP spec §Session Management: on 404 with an Mcp-Session-Id
+                // header, the client MUST clear the session ID and re-initialize.
+                // Clear the stale session so subsequent calls don't keep failing.
+                if (response.status === 404) {
+                    this._sessionId = undefined;
+                    throw new SdkError(SdkErrorCode.ClientHttpNotFound, `Session not found (HTTP 404). Clear and re-initialize. ${text}`.trim(), {
+                        status: 404,
+                        text
+                    });
+                }
+
                 throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
                     status: response.status,
                     text

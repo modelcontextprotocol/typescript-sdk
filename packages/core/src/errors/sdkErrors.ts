@@ -31,6 +31,7 @@ export enum SdkErrorCode {
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',
     ClientHttpAuthentication = 'CLIENT_HTTP_AUTHENTICATION',
     ClientHttpForbidden = 'CLIENT_HTTP_FORBIDDEN',
+    ClientHttpNotFound = 'CLIENT_HTTP_NOT_FOUND',
     ClientHttpUnexpectedContent = 'CLIENT_HTTP_UNEXPECTED_CONTENT',
     ClientHttpFailedToOpenStream = 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
     ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'
