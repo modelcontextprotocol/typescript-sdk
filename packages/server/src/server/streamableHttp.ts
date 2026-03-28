@@ -230,6 +230,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
+    private _closed: boolean = false;
     private _standaloneSseStreamId: string = '_GET_stream';
     private _eventStore?: EventStore;
     private _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
@@ -900,6 +901,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) return;
+        this._closed = true;
+
         // Close all SSE connections
         for (const { cleanup } of this._streamMapping.values()) {
             cleanup();
