@@ -15,8 +15,8 @@ describe('Server', () => {
             await server.connect(serverTransport);
 
             // Collect response from the server
-            const responsePromise = new Promise<JSONRPCMessage>((resolve) => {
-                clientTransport.onmessage = (msg) => resolve(msg);
+            const responsePromise = new Promise<JSONRPCMessage>(resolve => {
+                clientTransport.onmessage = msg => resolve(msg);
             });
             await clientTransport.start();
 
