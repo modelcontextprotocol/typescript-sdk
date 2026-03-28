@@ -1338,6 +1338,17 @@ export async function startAuthorization(
             throw new Error(`Incompatible auth server: does not support code challenge method ${AUTHORIZATION_CODE_CHALLENGE_METHOD}`);
         }
     } else {
+        // Guard against silent path loss: new URL('/authorize', 'https://example.com/admin')
+        // → https://example.com/authorize (subpath '/admin' is silently lost).
+        // Only use root-path fallback when AS is at the domain root.
+        if (authorizationServerUrl.pathname !== '/') {
+            throw new Error(
+                `Authorization server metadata discovery failed for '${authorizationServerUrl.href}'. ` +
+                    `Cannot safely construct '/authorize' — the server URL has a non-root path. ` +
+                    `Ensure the AS metadata endpoint is reachable at '${authorizationServerUrl.origin}/.well-known/oauth-authorization-server${authorizationServerUrl.pathname}' ` +
+                    `or provide metadata explicitly.`
+            );
+        }
         authorizationUrl = new URL('/authorize', authorizationServerUrl);
     }
 
@@ -1420,7 +1431,20 @@ export async function executeTokenRequest(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
+    const tokenUrl = metadata?.token_endpoint
+        ? new URL(metadata.token_endpoint)
+        : (() => {
+                // Guard: same silent-path-loss problem as /authorize above
+                if (authorizationServerUrl.pathname !== '/') {
+                    throw new Error(
+                        `Token endpoint discovery failed for '${authorizationServerUrl.href}'. ` +
+                            `Cannot safely construct '/token' — the server URL has a non-root path. ` +
+                            `Ensure the AS metadata endpoint is reachable at '${authorizationServerUrl.origin}/.well-known/oauth-authorization-server${authorizationServerUrl.pathname}' ` +
+                            `or provide metadata explicitly.`
+                    );
+                }
+                return new URL('/token', authorizationServerUrl);
+          })();
 
     const headers = new Headers({
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -1671,6 +1695,15 @@ export async function registerClient(
 
         registrationUrl = new URL(metadata.registration_endpoint);
     } else {
+        // Guard: same silent-path-loss problem as /authorize above
+        if (authorizationServerUrl.pathname !== '/') {
+            throw new Error(
+                `Dynamic client registration failed for '${authorizationServerUrl.href}'. ` +
+                    `Cannot safely construct '/register' — the server URL has a non-root path. ` +
+                    `Ensure the AS metadata endpoint is reachable at '${authorizationServerUrl.origin}/.well-known/oauth-authorization-server${authorizationServerUrl.pathname}' ` +
+                    `or provide metadata explicitly.`
+            );
+        }
         registrationUrl = new URL('/register', authorizationServerUrl);
     }
 
