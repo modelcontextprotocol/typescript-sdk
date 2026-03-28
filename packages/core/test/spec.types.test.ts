@@ -855,7 +855,6 @@ type _K_ReadResourceResult = Assert<AssertExactKeys<SDKTypes.ReadResourceResult,
 type _K_ResourceContents = Assert<AssertExactKeys<SDKTypes.ResourceContents, SpecTypes.ResourceContents>>;
 type _K_TextResourceContents = Assert<AssertExactKeys<SDKTypes.TextResourceContents, SpecTypes.TextResourceContents>>;
 type _K_BlobResourceContents = Assert<AssertExactKeys<SDKTypes.BlobResourceContents, SpecTypes.BlobResourceContents>>;
-// @ts-expect-error Genuine mismatch: SDK Resource is missing 'size' from spec
 type _K_Resource = Assert<AssertExactKeys<SDKTypes.Resource, SpecTypes.Resource>>;
 // @ts-expect-error Genuine mismatch: SDK PromptArgument is missing 'title' from spec
 type _K_PromptArgument = Assert<AssertExactKeys<SDKTypes.PromptArgument, SpecTypes.PromptArgument>>;
@@ -866,7 +865,6 @@ type _K_TextContent = Assert<AssertExactKeys<SDKTypes.TextContent, SpecTypes.Tex
 type _K_ImageContent = Assert<AssertExactKeys<SDKTypes.ImageContent, SpecTypes.ImageContent>>;
 type _K_AudioContent = Assert<AssertExactKeys<SDKTypes.AudioContent, SpecTypes.AudioContent>>;
 type _K_EmbeddedResource = Assert<AssertExactKeys<SDKTypes.EmbeddedResource, SpecTypes.EmbeddedResource>>;
-// @ts-expect-error Genuine mismatch: SDK ResourceLink is missing 'size' from spec
 type _K_ResourceLink = Assert<AssertExactKeys<SDKTypes.ResourceLink, SpecTypes.ResourceLink>>;
 type _K_PromptMessage = Assert<AssertExactKeys<SDKTypes.PromptMessage, SpecTypes.PromptMessage>>;
 type _K_BooleanSchema = Assert<AssertExactKeys<SDKTypes.BooleanSchema, SpecTypes.BooleanSchema>>;
@@ -886,9 +884,7 @@ type _K_LegacyTitledEnumSchema = Assert<AssertExactKeys<SDKTypes.LegacyTitledEnu
 type _K_JSONRPCErrorResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCErrorResponse, SpecTypes.JSONRPCErrorResponse>>;
 type _K_JSONRPCResultResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCResultResponse, SpecTypes.JSONRPCResultResponse>>;
 type _K_InitializeResult = Assert<AssertExactKeys<SDKTypes.InitializeResult, SpecTypes.InitializeResult>>;
-// @ts-expect-error Genuine mismatch: SDK ClientCapabilities is missing 'extensions' from spec
 type _K_ClientCapabilities = Assert<AssertExactKeys<SDKTypes.ClientCapabilities, SpecTypes.ClientCapabilities>>;
-// @ts-expect-error Genuine mismatch: SDK ServerCapabilities is missing 'extensions' from spec
 type _K_ServerCapabilities = Assert<AssertExactKeys<SDKTypes.ServerCapabilities, SpecTypes.ServerCapabilities>>;
 type _K_SamplingMessage = Assert<AssertExactKeys<SDKTypes.SamplingMessage, SpecTypes.SamplingMessage>>;
 type _K_Icon = Assert<AssertExactKeys<SDKTypes.Icon, SpecTypes.Icon>>;
