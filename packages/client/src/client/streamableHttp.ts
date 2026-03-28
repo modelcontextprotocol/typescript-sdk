@@ -491,7 +491,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
-            headers.set('accept', 'application/json, text/event-stream');
+            if (!headers.has('accept')) {
+                headers.set('accept', 'application/json, text/event-stream');
+            }
 
             const init = {
                 ...this._requestInit,
