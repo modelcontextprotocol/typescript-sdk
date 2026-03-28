@@ -26,6 +26,14 @@ import {
 import pkceChallenge from 'pkce-challenge';
 
 /**
+ * Deduplicates concurrent auth() calls for the same provider.
+ * When multiple requests hit a 401 simultaneously, only one auth refresh
+ * runs — all callers share the same Promise and receive the same result.
+ * This prevents race conditions with rotating refresh tokens (RFC 6819 §5.2.2.3).
+ */
+const pendingAuth = new Map<OAuthClientProvider, Promise<AuthResult>>();
+
+/**
  * Function type for adding client authentication to token requests.
  */
 export type AddClientAuthentication = (
@@ -547,23 +555,40 @@ export async function auth(
         fetchFn?: FetchLike;
     }
 ): Promise<AuthResult> {
-    try {
-        return await authInternal(provider, options);
-    } catch (error) {
-        // Handle recoverable error types by invalidating credentials and retrying
-        if (error instanceof OAuthError) {
-            if (error.code === OAuthErrorCode.InvalidClient || error.code === OAuthErrorCode.UnauthorizedClient) {
-                await provider.invalidateCredentials?.('all');
-                return await authInternal(provider, options);
-            } else if (error.code === OAuthErrorCode.InvalidGrant) {
-                await provider.invalidateCredentials?.('tokens');
-                return await authInternal(provider, options);
-            }
-        }
-
-        // Throw otherwise
-        throw error;
+    // Deduplicate concurrent auth calls for the same provider.
+    // This prevents a race condition where two simultaneous 401 responses both
+    // trigger auth(), both call refreshAuthorization() with the same rotating
+    // refresh token, and the second one gets InvalidGrant because the server
+    // already consumed the token (RFC 6819 §5.2.2.3 replay detection).
+    const pending = pendingAuth.get(provider);
+    if (pending !== undefined) {
+        return pending;
     }
+
+    const promise = (async () => {
+        try {
+            return await authInternal(provider, options);
+        } catch (error) {
+            // Handle recoverable error types by invalidating credentials and retrying
+            if (error instanceof OAuthError) {
+                if (error.code === OAuthErrorCode.InvalidClient || error.code === OAuthErrorCode.UnauthorizedClient) {
+                    await provider.invalidateCredentials?.('all');
+                    return await authInternal(provider, options);
+                } else if (error.code === OAuthErrorCode.InvalidGrant) {
+                    await provider.invalidateCredentials?.('tokens');
+                    return await authInternal(provider, options);
+                }
+            }
+
+            // Throw otherwise
+            throw error;
+        } finally {
+            pendingAuth.delete(provider);
+        }
+    })();
+
+    pendingAuth.set(provider, promise);
+    return promise;
 }
 
 async function authInternal(
