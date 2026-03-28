@@ -119,7 +119,15 @@ export const ResultSchema = z.looseObject({
 /**
  * A uniquely identifying ID for a request in JSON-RPC.
  */
-export const RequestIdSchema = z.union([z.string(), z.number().int()]);
+export const RequestIdSchema = z.union([
+    z.string(),
+    z
+        .number()
+        .int()
+        .refine(n => n >= Number.MIN_SAFE_INTEGER && n <= Number.MAX_SAFE_INTEGER, {
+            message: 'Request ID must be within Number.MAX_SAFE_INTEGER range'
+        })
+]);
 
 /**
  * A request that expects a response.

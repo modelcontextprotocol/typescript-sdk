@@ -1,4 +1,5 @@
 import {
+    RequestIdSchema,
     CallToolResultSchema,
     ClientCapabilitiesSchema,
     CompleteRequestSchema,
@@ -982,5 +983,25 @@ describe('Types', () => {
                 expect(result.data.sampling?.tools).toBeDefined();
             }
         });
+    });
+});
+
+describe('RequestIdSchema', () => {
+    test('should accept string IDs', () => {
+        expect(RequestIdSchema.parse('abc-123')).toBe('abc-123');
+    });
+
+    test('should accept safe integer IDs', () => {
+        expect(RequestIdSchema.parse(1)).toBe(1);
+        expect(RequestIdSchema.parse(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+    });
+
+    test('should reject IDs exceeding MAX_SAFE_INTEGER', () => {
+        expect(() => RequestIdSchema.parse(Number.MAX_SAFE_INTEGER + 1)).toThrow();
+        expect(() => RequestIdSchema.parse(9007199254740992)).toThrow();
+    });
+
+    test('should reject non-integer numeric IDs', () => {
+        expect(() => RequestIdSchema.parse(1.5)).toThrow();
     });
 });
