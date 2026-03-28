@@ -119,8 +119,18 @@ export const ResultSchema = z.looseObject({
 
 /**
  * A uniquely identifying ID for a request in JSON-RPC.
+ * Rejects integers outside Number.MAX_SAFE_INTEGER to prevent JavaScript
+ * Map/Object key precision loss that causes server hangs (Issue #1765).
  */
-export const RequestIdSchema = z.union([z.string(), z.number().int()]);
+export const RequestIdSchema = z.union([
+    z.string(),
+    z
+        .number()
+        .int()
+        .refine((n) => Math.abs(n) <= Number.MAX_SAFE_INTEGER, {
+            message: `Request ID must be a safe integer (|id| ≤ ${Number.MAX_SAFE_INTEGER})`
+        })
+]);
 
 /**
  * A request that expects a response.
