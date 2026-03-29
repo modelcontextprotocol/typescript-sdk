@@ -35,10 +35,9 @@ export const CursorSchema = z.string();
  */
 export const TaskCreationParamsSchema = z.looseObject({
     /**
-     * Time in milliseconds to keep task results available after completion.
-     * If null, the task has unlimited lifetime until manually cleaned up.
+     * Requested duration in milliseconds to retain task from creation.
      */
-    ttl: z.union([z.number(), z.null()]).optional(),
+    ttl: z.number().optional(),
 
     /**
      * Time in milliseconds to wait between task status requests.
@@ -900,6 +899,13 @@ export const ResourceSchema = z.object({
      * The MIME type of this resource, if known.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
+     *
+     * This can be used by Hosts to display file sizes and estimate context window usage.
+     */
+    size: z.optional(z.number()),
 
     /**
      * Optional annotations for the client.
