@@ -1715,5 +1715,42 @@ describe('StreamableHTTPClientTransport', () => {
                 refresh_token: 'refresh-token' // Refresh token is preserved
             });
         });
+
+        it('should suppress abort-driven onerror callbacks during close()', async () => {
+            const abortError = new Error('The operation was aborted.');
+            abortError.name = 'AbortError';
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockRejectedValueOnce(abortError);
+
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await transport.start();
+            const sendPromise = transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: '1' } as JSONRPCMessage);
+
+            await transport.close();
+            await expect(sendPromise).rejects.toThrow('The operation was aborted.');
+
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('should still report abort errors when not closing', async () => {
+            const abortError = new Error('The operation was aborted.');
+            abortError.name = 'AbortError';
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockRejectedValueOnce(abortError);
+
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await transport.start();
+            await expect(transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: '1' } as JSONRPCMessage)).rejects.toThrow(
+                'The operation was aborted.'
+            );
+
+            expect(onerror).toHaveBeenCalledTimes(1);
+        });
     });
 });
