@@ -3668,4 +3668,348 @@ describe('OAuth Authorization', () => {
             });
         });
     });
+
+    describe('concurrent auth deduplication', () => {
+        it('deduplicates concurrent token refresh requests for the same provider', async () => {
+            let tokenRequestCount = 0;
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    tokenRequestCount++;
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-access-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const concurrentProvider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'client-id',
+                    client_secret: 'client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'expired-access-token',
+                    token_type: 'bearer',
+                    refresh_token: 'current-refresh-token'
+                }),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn()
+            };
+
+            // Fire 3 concurrent auth calls for the same provider
+            const results = await Promise.all([
+                auth(concurrentProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                auth(concurrentProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                auth(concurrentProvider, { serverUrl: 'https://api.example.com/mcp-server' })
+            ]);
+
+            // All should succeed
+            expect(results).toEqual(['AUTHORIZED', 'AUTHORIZED', 'AUTHORIZED']);
+
+            // Only ONE token refresh request should have been made
+            expect(tokenRequestCount).toBe(1);
+        });
+
+        it('allows new auth after previous one completes', async () => {
+            let tokenRequestCount = 0;
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    tokenRequestCount++;
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: `access-token-${tokenRequestCount}`,
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: `refresh-token-${tokenRequestCount}`
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const sequentialProvider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'client-id',
+                    client_secret: 'client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'expired-access-token',
+                    token_type: 'bearer',
+                    refresh_token: 'current-refresh-token'
+                }),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn()
+            };
+
+            // First auth call
+            const result1 = await auth(sequentialProvider, { serverUrl: 'https://api.example.com/mcp-server' });
+            expect(result1).toBe('AUTHORIZED');
+
+            // Second auth call (after first completes) should trigger a new refresh
+            const result2 = await auth(sequentialProvider, { serverUrl: 'https://api.example.com/mcp-server' });
+            expect(result2).toBe('AUTHORIZED');
+
+            // Two separate token requests should have been made
+            expect(tokenRequestCount).toBe(2);
+        });
+
+        it('propagates errors to all concurrent callers', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 400,
+                        text: async () => JSON.stringify({
+                            error: 'invalid_grant',
+                            error_description: 'Refresh token has been revoked'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const errorProvider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'client-id',
+                    client_secret: 'client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'expired-access-token',
+                    token_type: 'bearer',
+                    refresh_token: 'revoked-refresh-token'
+                }),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                invalidateCredentials: vi.fn()
+            };
+
+            // Fire concurrent auth calls — all should get the same error handling result
+            // (invalid_grant triggers credential invalidation and retry, which leads to REDIRECT)
+            const results = await Promise.all([
+                auth(errorProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                auth(errorProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                auth(errorProvider, { serverUrl: 'https://api.example.com/mcp-server' })
+            ]);
+
+            // All callers should get the same result
+            expect(results[0]).toBe(results[1]);
+            expect(results[1]).toBe(results[2]);
+        });
+
+        it('does not deduplicate auth calls for different providers', async () => {
+            let tokenRequestCount = 0;
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    tokenRequestCount++;
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: `access-token-${tokenRequestCount}`,
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: `refresh-token-${tokenRequestCount}`
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const makeProvider = (): OAuthClientProvider => ({
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'client-id',
+                    client_secret: 'client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'expired-access-token',
+                    token_type: 'bearer',
+                    refresh_token: 'current-refresh-token'
+                }),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn()
+            });
+
+            const providerA = makeProvider();
+            const providerB = makeProvider();
+
+            // Concurrent calls with different providers should NOT be deduplicated
+            const results = await Promise.all([
+                auth(providerA, { serverUrl: 'https://api.example.com/mcp-server' }),
+                auth(providerB, { serverUrl: 'https://api.example.com/mcp-server' })
+            ]);
+
+            expect(results).toEqual(['AUTHORIZED', 'AUTHORIZED']);
+
+            // Each provider should have triggered its own token refresh
+            expect(tokenRequestCount).toBe(2);
+        });
+    });
 });
