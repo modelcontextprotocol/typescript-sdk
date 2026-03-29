@@ -169,3 +169,8 @@ process.on('SIGINT', async () => {
     // eslint-disable-next-line unicorn/no-process-exit
     process.exit(0);
 });
+process.on('SIGTERM', async () => {
+    console.log('Shutting down server...');
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(0);
+});

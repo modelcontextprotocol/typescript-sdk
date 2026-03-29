@@ -10,7 +10,7 @@ export class WebSocketClientTransport implements Transport {
     private _socket?: WebSocket;
     private _url: URL;
 
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
@@ -38,8 +38,8 @@ export class WebSocketClientTransport implements Transport {
                 resolve();
             };
 
-            this._socket.onclose = () => {
-                this.onclose?.();
+            this._socket.onclose = async () => {
+                await this.onclose?.();
             };
 
             this._socket.onmessage = (event: MessageEvent) => {

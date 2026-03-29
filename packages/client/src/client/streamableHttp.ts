@@ -152,7 +152,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
 
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
@@ -463,7 +463,7 @@ export class StreamableHTTPClientTransport implements Transport {
             this._reconnectionTimeout = undefined;
         }
         this._abortController?.abort();
-        this.onclose?.();
+        await this.onclose?.();
     }
 
     async send(
