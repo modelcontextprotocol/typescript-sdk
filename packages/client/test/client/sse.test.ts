@@ -36,6 +36,20 @@ describe('SSEClientTransport', () => {
     let sendServerMessage: ((message: string) => void) | null = null;
 
     beforeEach(async () => {
+        const sessionStorageStore = new Map<string, string>();
+        Object.defineProperty(globalThis, 'sessionStorage', {
+            configurable: true,
+            value: {
+                getItem: (key: string) => sessionStorageStore.get(key) ?? null,
+                setItem: (key: string, value: string) => {
+                    sessionStorageStore.set(key, value);
+                },
+                removeItem: (key: string) => {
+                    sessionStorageStore.delete(key);
+                }
+            }
+        });
+
         // Reset state
         lastServerRequest = null as unknown as IncomingMessage;
         sendServerMessage = null;
@@ -111,6 +125,7 @@ describe('SSEClientTransport', () => {
         await authServer.close();
 
         vi.clearAllMocks();
+        delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
     });
 
     describe('connection handling', () => {
@@ -1526,6 +1541,50 @@ describe('SSEClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();
+        });
+
+        it('persists interactive auth metadata across transport recreation before finishAuth', async () => {
+            const authProviderWithCode = createMockAuthProvider({
+                clientRegistered: true,
+                authorizationCode: 'test-auth-code'
+            });
+
+            const unauthorizedResponse = new Response(null, {
+                status: 401,
+                headers: {
+                    'WWW-Authenticate': `Bearer realm="mcp", resource_metadata="${resourceBaseUrl.href}.well-known/oauth-protected-resource", scope="calendar.read"`
+                }
+            });
+
+            const firstAuthProvider = {
+                token: vi.fn(async () => undefined)
+            };
+
+            const firstTransport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: firstAuthProvider,
+                fetch: vi.fn().mockResolvedValue(unauthorizedResponse)
+            });
+
+            // Skip EventSource startup; directly exercise POST 401 path where metadata is captured.
+            (firstTransport as unknown as { _endpoint: URL })._endpoint = new URL(resourceBaseUrl.href);
+            await expect(firstTransport.send({ jsonrpc: '2.0', method: 'ping', params: {}, id: '1' })).rejects.toThrow(UnauthorizedError);
+            await firstTransport.close();
+
+            const secondTransport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: authProviderWithCode,
+                fetch: customFetch
+            });
+
+            await secondTransport.finishAuth('test-auth-code');
+
+            expect(authProviderWithCode.saveTokens).toHaveBeenCalledWith({
+                access_token: 'new-access-token',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                refresh_token: 'new-refresh-token'
+            });
+
+            await secondTransport.close();
         });
     });
 

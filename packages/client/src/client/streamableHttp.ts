@@ -152,6 +152,8 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
 
+    private static readonly _INTERACTIVE_AUTH_STATE_PREFIX = 'mcp:oauth:interactive:streamable-http:';
+
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
@@ -172,6 +174,64 @@ export class StreamableHTTPClientTransport implements Transport {
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+
+        this._loadInteractiveAuthState();
+    }
+
+    private _interactiveAuthStateKey(): string {
+        return `${StreamableHTTPClientTransport._INTERACTIVE_AUTH_STATE_PREFIX}${this._url.toString()}`;
+    }
+
+    private _saveInteractiveAuthState(): void {
+        if (typeof sessionStorage === 'undefined') {
+            return;
+        }
+
+        const state = {
+            resourceMetadataUrl: this._resourceMetadataUrl?.toString(),
+            scope: this._scope
+        };
+
+        try {
+            sessionStorage.setItem(this._interactiveAuthStateKey(), JSON.stringify(state));
+        } catch {
+            // Ignore storage failures (e.g. quota exceeded)
+        }
+    }
+
+    private _loadInteractiveAuthState(): void {
+        if (typeof sessionStorage === 'undefined') {
+            return;
+        }
+
+        try {
+            const raw = sessionStorage.getItem(this._interactiveAuthStateKey());
+            if (!raw) {
+                return;
+            }
+
+            const parsed = JSON.parse(raw) as { resourceMetadataUrl?: string; scope?: string };
+            if (parsed.resourceMetadataUrl) {
+                this._resourceMetadataUrl = new URL(parsed.resourceMetadataUrl);
+            }
+            if (parsed.scope) {
+                this._scope = parsed.scope;
+            }
+        } catch {
+            // Ignore malformed persisted state
+        }
+    }
+
+    private _clearInteractiveAuthState(): void {
+        if (typeof sessionStorage === 'undefined') {
+            return;
+        }
+
+        try {
+            sessionStorage.removeItem(this._interactiveAuthStateKey());
+        } catch {
+            // Ignore storage failures
+        }
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -223,6 +283,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
                         this._scope = scope;
+                        this._saveInteractiveAuthState();
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
@@ -455,6 +516,8 @@ export class StreamableHTTPClientTransport implements Transport {
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
         }
+
+        this._clearInteractiveAuthState();
     }
 
     async close(): Promise<void> {
@@ -516,6 +579,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
                         this._scope = scope;
+                        this._saveInteractiveAuthState();
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
