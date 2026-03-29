@@ -2,6 +2,7 @@ import { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import { vi } from 'vitest';
 
 import { StdioServerTransport } from '../../src/server/stdio.js';
 
@@ -178,4 +179,56 @@ test('should fire onerror before onclose on stdout error', async () => {
     output.emit('error', new Error('EPIPE'));
 
     expect(events).toEqual(['error', 'close']);
+});
+
+test('should close transport when monitored parent process exits', async () => {
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, _signal) => {
+        const err = new Error('No such process') as NodeJS.ErrnoException;
+        err.code = 'ESRCH';
+        throw err;
+    });
+
+    try {
+        const server = new StdioServerTransport(input, output, {
+            parentPid: 424242,
+            parentCheckInterval: 1
+        });
+
+        let didClose = false;
+        server.onclose = () => {
+            didClose = true;
+        };
+
+        await server.start();
+
+        // Wait briefly for parent monitor tick
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(killSpy).toHaveBeenCalledWith(424242, 0);
+        expect(didClose).toBeTruthy();
+    } finally {
+        killSpy.mockRestore();
+    }
+});
+
+test('should clear parent monitor timer on close', async () => {
+    const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+
+    try {
+        const server = new StdioServerTransport(input, output, {
+            parentPid: 99999,
+            parentCheckInterval: 5
+        });
+
+        await server.start();
+        await server.close();
+
+        const callsAtClose = killSpy.mock.calls.length;
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        // No additional kill checks should happen after close
+        expect(killSpy.mock.calls.length).toBe(callsAtClose);
+    } finally {
+        killSpy.mockRestore();
+    }
 });

@@ -28,6 +28,7 @@ export type { HostHeaderValidationResult } from './server/middleware/hostHeaderV
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation.js';
 export type { ServerOptions } from './server/server.js';
 export { Server } from './server/server.js';
+export type { StdioServerTransportOptions } from './server/stdio.js';
 export { StdioServerTransport } from './server/stdio.js';
 export type {
     EventId,

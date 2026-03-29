@@ -20,3 +20,17 @@ async function StdioServerTransport_basicUsage() {
     await server.connect(transport);
     //#endregion StdioServerTransport_basicUsage
 }
+
+/**
+ * Example: Stdio transport with parent process monitoring.
+ */
+async function StdioServerTransport_parentProcessMonitoring() {
+    //#region StdioServerTransport_parentProcessMonitoring
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+    const transport = new StdioServerTransport(process.stdin, process.stdout, {
+        parentPid: process.ppid,
+        parentCheckInterval: 3000
+    });
+    await server.connect(transport);
+    //#endregion StdioServerTransport_parentProcessMonitoring
+}

@@ -19,5 +19,8 @@ export const process = {
     },
     get stdout(): never {
         return notSupported();
+    },
+    kill(): never {
+        return notSupported();
     }
 };

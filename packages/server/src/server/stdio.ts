@@ -5,6 +5,27 @@ import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
+ * Options for StdioServerTransport
+ */
+export interface StdioServerTransportOptions {
+    /**
+     * Optional parent process ID to monitor. If provided, the transport will periodically check
+     * if the parent process is still alive and close itself when the parent exits.
+     * This helps prevent zombie processes.
+     *
+     * @default undefined (no monitoring)
+     */
+    parentPid?: number;
+
+    /**
+     * Interval in milliseconds for checking parent process liveness
+     *
+     * @default 3000
+     */
+    parentCheckInterval?: number;
+}
+
+/**
  * Server transport for stdio: this communicates with an MCP client by reading from the current process' `stdin` and writing to `stdout`.
  *
  * This transport is only available in Node.js environments.
@@ -20,11 +41,18 @@ export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
     private _closed = false;
+    private _parentCheckTimer?: NodeJS.Timeout;
+    private _parentPid?: number;
+    private _parentCheckInterval: number;
 
     constructor(
         private _stdin: Readable = process.stdin,
-        private _stdout: Writable = process.stdout
-    ) {}
+        private _stdout: Writable = process.stdout,
+        options?: StdioServerTransportOptions
+    ) {
+        this._parentPid = options?.parentPid;
+        this._parentCheckInterval = options?.parentCheckInterval ?? 3000;
+    }
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -59,6 +87,38 @@ export class StdioServerTransport implements Transport {
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
         this._stdout.on('error', this._onstdouterror);
+
+        // Start parent process monitoring if parentPid was provided
+        if (this._parentPid !== undefined) {
+            this._startParentMonitoring();
+        }
+    }
+
+    /**
+     * Starts periodic checks to see if the parent process is still alive.
+     * If the parent process has exited, this transport will close itself.
+     */
+    private _startParentMonitoring(): void {
+        this._parentCheckTimer = setInterval(() => {
+            try {
+                // process.kill with signal 0 checks if process exists without actually killing it
+                process.kill(this._parentPid!, 0);
+            } catch (error) {
+                const errno = error as NodeJS.ErrnoException;
+                if (errno.code === 'EPERM') {
+                    // Process exists but we don't have permission to signal it.
+                    return;
+                }
+
+                // Parent process no longer exists - close this transport
+                this.close().catch(() => {
+                    // Ignore errors during close
+                });
+            }
+        }, this._parentCheckInterval);
+
+        // Prevent the timer from keeping the process alive
+        this._parentCheckTimer.unref();
     }
 
     private processReadBuffer() {
@@ -81,6 +141,11 @@ export class StdioServerTransport implements Transport {
             return;
         }
         this._closed = true;
+
+        if (this._parentCheckTimer !== undefined) {
+            clearInterval(this._parentCheckTimer);
+            this._parentCheckTimer = undefined;
+        }
 
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
