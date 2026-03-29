@@ -3875,10 +3875,11 @@ describe('OAuth Authorization', () => {
                     return Promise.resolve({
                         ok: false,
                         status: 400,
-                        text: async () => JSON.stringify({
-                            error: 'invalid_grant',
-                            error_description: 'Refresh token has been revoked'
-                        })
+                        text: async () =>
+                            JSON.stringify({
+                                error: 'invalid_grant',
+                                error_description: 'Refresh token has been revoked'
+                            })
                     });
                 }
 
