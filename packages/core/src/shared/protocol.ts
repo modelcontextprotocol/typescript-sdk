@@ -480,6 +480,28 @@ export abstract class Protocol<ContextT extends BaseContext> {
             } else if (isJSONRPCNotification(message)) {
                 this._onnotification(message);
             } else {
+                // Check if this is a request-like message with an invalid ID (e.g.,
+                // a numeric ID exceeding Number.MAX_SAFE_INTEGER). Such IDs fail
+                // schema validation because JavaScript cannot represent them exactly,
+                // which prevents reliable request/response correlation. Respond with
+                // a JSON-RPC Invalid Request error instead of silently dropping it.
+                const msg = message as Record<string, unknown>;
+                if (msg && typeof msg === 'object' && msg.jsonrpc === '2.0' && 'id' in msg && 'method' in msg) {
+                    const errorResponse: JSONRPCErrorResponse = {
+                        jsonrpc: '2.0',
+                        id: msg.id as RequestId,
+                        error: {
+                            code: ProtocolErrorCode.InvalidRequest,
+                            message: 'Invalid request: ID must be a string or a safe integer'
+                        }
+                    };
+
+                    this._transport
+                        ?.send(errorResponse)
+                        .catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
+                    return;
+                }
+
                 this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
             }
         };

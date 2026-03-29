@@ -5509,6 +5509,106 @@ describe('Error handling for missing resolvers', () => {
             expect(callOrder).toEqual([1, 2, 3]);
         });
     });
+
+    describe('unsafe integer request ID validation', () => {
+        let protocol: Protocol<BaseContext>;
+        let transport: MockTransport;
+
+        beforeEach(() => {
+            transport = new MockTransport();
+            protocol = new (class extends Protocol<BaseContext> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected buildContext(ctx: BaseContext): BaseContext {
+                    return ctx;
+                }
+                protected assertTaskHandlerCapability(): void {}
+            })();
+        });
+
+        it('should respond with InvalidRequest error when request ID exceeds MAX_SAFE_INTEGER', async () => {
+            await protocol.connect(transport);
+            const sendSpy = vi.spyOn(transport, 'send');
+
+            // Send a request with an ID exceeding Number.MAX_SAFE_INTEGER
+            // Note: 9007199254740992 === Number.MAX_SAFE_INTEGER + 1, but due to
+            // floating-point precision loss, JavaScript cannot represent it exactly.
+            const unsafeId = Number.MAX_SAFE_INTEGER + 1;
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: unsafeId,
+                method: 'tools/list',
+                params: {}
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Should have sent an error response
+            expect(sendSpy).toHaveBeenCalledTimes(1);
+            const sentMessage = sendSpy.mock.calls[0][0] as JSONRPCErrorResponse;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(unsafeId);
+            expect(sentMessage.error.code).toBe(ProtocolErrorCode.InvalidRequest);
+            expect(sentMessage.error.message).toBe('Invalid request: ID must be a string or a safe integer');
+        });
+
+        it('should process requests normally when ID is at MAX_SAFE_INTEGER', async () => {
+            await protocol.connect(transport);
+            const sendSpy = vi.spyOn(transport, 'send');
+
+            protocol.setRequestHandler('tools/list', async () => {
+                return { tools: [] };
+            });
+
+            // Send a request with ID exactly at Number.MAX_SAFE_INTEGER
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: Number.MAX_SAFE_INTEGER,
+                method: 'tools/list',
+                params: {}
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Should have sent a successful response, not an error
+            expect(sendSpy).toHaveBeenCalledTimes(1);
+            const sentMessage = sendSpy.mock.calls[0][0] as JSONRPCResultResponse;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(Number.MAX_SAFE_INTEGER);
+            expect(sentMessage.result).toBeDefined();
+        });
+
+        it('should process requests normally when ID is a string', async () => {
+            await protocol.connect(transport);
+            const sendSpy = vi.spyOn(transport, 'send');
+
+            protocol.setRequestHandler('tools/list', async () => {
+                return { tools: [] };
+            });
+
+            // String IDs should always be accepted regardless of content
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: '9007199254740992',
+                method: 'tools/list',
+                params: {}
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Should have sent a successful response
+            expect(sendSpy).toHaveBeenCalledTimes(1);
+            const sentMessage = sendSpy.mock.calls[0][0] as JSONRPCResultResponse;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe('9007199254740992');
+            expect(sentMessage.result).toBeDefined();
+        });
+    });
 });
 
 describe('Protocol without task configuration', () => {
