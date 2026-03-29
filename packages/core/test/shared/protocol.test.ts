@@ -5548,7 +5548,7 @@ describe('Error handling for missing resolvers', () => {
 
             // Should have sent an error response
             expect(sendSpy).toHaveBeenCalledTimes(1);
-            const sentMessage = sendSpy.mock.calls[0][0] as JSONRPCErrorResponse;
+            const sentMessage = sendSpy.mock.calls[0]![0] as JSONRPCErrorResponse;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(unsafeId);
             expect(sentMessage.error.code).toBe(ProtocolErrorCode.InvalidRequest);
@@ -5576,7 +5576,7 @@ describe('Error handling for missing resolvers', () => {
 
             // Should have sent a successful response, not an error
             expect(sendSpy).toHaveBeenCalledTimes(1);
-            const sentMessage = sendSpy.mock.calls[0][0] as JSONRPCResultResponse;
+            const sentMessage = sendSpy.mock.calls[0]![0] as JSONRPCResultResponse;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(Number.MAX_SAFE_INTEGER);
             expect(sentMessage.result).toBeDefined();
@@ -5603,7 +5603,7 @@ describe('Error handling for missing resolvers', () => {
 
             // Should have sent a successful response
             expect(sendSpy).toHaveBeenCalledTimes(1);
-            const sentMessage = sendSpy.mock.calls[0][0] as JSONRPCResultResponse;
+            const sentMessage = sendSpy.mock.calls[0]![0] as JSONRPCResultResponse;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe('9007199254740992');
             expect(sentMessage.result).toBeDefined();
