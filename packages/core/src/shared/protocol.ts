@@ -457,8 +457,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
-            _onclose?.();
-            this._onclose();
+            try {
+                _onclose?.();
+            } finally {
+                this._onclose();
+            }
         };
 
         const _onerror = this.transport?.onerror;
@@ -494,13 +497,28 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._taskManager.onClose();
         this._pendingDebouncedNotifications.clear();
 
+        for (const info of this._timeoutInfo.values()) {
+            clearTimeout(info.timeoutId);
+        }
+        this._timeoutInfo.clear();
+
+        const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
+        this._requestHandlerAbortControllers = new Map();
+
         const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
 
         this._transport = undefined;
-        this.onclose?.();
 
-        for (const handler of responseHandlers.values()) {
-            handler(error);
+        try {
+            this.onclose?.();
+        } finally {
+            for (const handler of responseHandlers.values()) {
+                handler(error);
+            }
+
+            for (const controller of requestHandlerAbortControllers.values()) {
+                controller.abort(error);
+            }
         }
     }
 
@@ -642,7 +660,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             )
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
             .finally(() => {
-                this._requestHandlerAbortControllers.delete(request.id);
+                if (this._requestHandlerAbortControllers.get(request.id) === abortController) {
+                    this._requestHandlerAbortControllers.delete(request.id);
+                }
             });
     }
 
