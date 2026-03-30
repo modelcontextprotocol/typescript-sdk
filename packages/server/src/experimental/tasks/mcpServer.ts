@@ -1,17 +1,17 @@
 /**
- * Experimental McpServer task features for MCP SDK.
+ * Experimental {@linkcode McpServer} task features for MCP SDK.
  * WARNING: These APIs are experimental and may change without notice.
  *
  * @experimental
  */
 
-import type { AnySchema, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
+import type { StandardSchemaWithJSON, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
 
 import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
 import type { ToolTaskHandler } from './interfaces.js';
 
 /**
- * Internal interface for accessing McpServer's private _createRegisteredTool method.
+ * Internal interface for accessing {@linkcode McpServer}'s private _createRegisteredTool method.
  * @internal
  */
 interface McpServerInternal {
@@ -19,17 +19,17 @@ interface McpServerInternal {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: AnySchema | undefined,
-        outputSchema: AnySchema | undefined,
+        inputSchema: StandardSchemaWithJSON | undefined,
+        outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
-        handler: AnyToolHandler<AnySchema | undefined>
+        handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool;
 }
 
 /**
- * Experimental task features for McpServer.
+ * Experimental task features for {@linkcode McpServer}.
  *
  * Access via `server.experimental.tasks`:
  * ```typescript
@@ -45,7 +45,7 @@ export class ExperimentalMcpServerTasks {
      * Registers a task-based tool with a config object and handler.
      *
      * Task-based tools support long-running operations that can be polled for status
-     * and results. The handler must implement `createTask`, `getTask`, and `getTaskResult`
+     * and results. The handler must implement {@linkcode ToolTaskHandler.createTask | createTask}, {@linkcode ToolTaskHandler.getTask | getTask}, and {@linkcode ToolTaskHandler.getTaskResult | getTaskResult}
      * methods.
      *
      * @example
@@ -71,12 +71,12 @@ export class ExperimentalMcpServerTasks {
      *
      * @param name - The tool name
      * @param config - Tool configuration (description, schemas, etc.)
-     * @param handler - Task handler with createTask, getTask, getTaskResult methods
-     * @returns RegisteredTool for managing the tool's lifecycle
+     * @param handler - Task handler with {@linkcode ToolTaskHandler.createTask | createTask}, {@linkcode ToolTaskHandler.getTask | getTask}, {@linkcode ToolTaskHandler.getTaskResult | getTaskResult} methods
+     * @returns {@linkcode server/mcp.RegisteredTool | RegisteredTool} for managing the tool's lifecycle
      *
      * @experimental
      */
-    registerToolTask<OutputArgs extends AnySchema | undefined>(
+    registerToolTask<OutputArgs extends StandardSchemaWithJSON | undefined>(
         name: string,
         config: {
             title?: string;
@@ -89,7 +89,7 @@ export class ExperimentalMcpServerTasks {
         handler: ToolTaskHandler<undefined>
     ): RegisteredTool;
 
-    registerToolTask<InputArgs extends AnySchema, OutputArgs extends AnySchema | undefined>(
+    registerToolTask<InputArgs extends StandardSchemaWithJSON, OutputArgs extends StandardSchemaWithJSON | undefined>(
         name: string,
         config: {
             title?: string;
@@ -103,7 +103,7 @@ export class ExperimentalMcpServerTasks {
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool;
 
-    registerToolTask<InputArgs extends AnySchema | undefined, OutputArgs extends AnySchema | undefined>(
+    registerToolTask<InputArgs extends StandardSchemaWithJSON | undefined, OutputArgs extends StandardSchemaWithJSON | undefined>(
         name: string,
         config: {
             title?: string;
@@ -133,7 +133,7 @@ export class ExperimentalMcpServerTasks {
             config.annotations,
             execution,
             config._meta,
-            handler as AnyToolHandler<AnySchema | undefined>
+            handler as AnyToolHandler<StandardSchemaWithJSON | undefined>
         );
     }
 }

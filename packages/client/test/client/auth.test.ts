@@ -1,4 +1,4 @@
-import type { AuthorizationServerMetadata, OAuthTokens } from '@modelcontextprotocol/core';
+import type { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
 import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
@@ -7,9 +7,11 @@ import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
     auth,
     buildDiscoveryUrls,
+    determineScope,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
+    discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
     isHttpsUrl,
@@ -32,9 +34,33 @@ vi.mock('pkce-challenge', () => ({
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
+/**
+ * fetchWithCorsRetry gates its CORS-swallowing heuristic on the `CORS_IS_POSSIBLE` shim constant.
+ * Tests run under the Node shim (`false`), so a fetch TypeError is treated as a real network error
+ * and thrown instead of swallowed. Tests that specifically exercise the browser CORS retry path
+ * call `withBrowserLikeEnvironment()` to flip the mocked constant to `true`. The `afterEach` hook
+ * resets it so a failed assertion can't leak the override into later tests.
+ */
+let mockedCorsIsPossible = false;
+vi.mock('@modelcontextprotocol/client/_shims', async importOriginal => {
+    const actual = await importOriginal<typeof import('@modelcontextprotocol/client/_shims')>();
+    return {
+        ...actual,
+        get CORS_IS_POSSIBLE() {
+            return mockedCorsIsPossible;
+        }
+    };
+});
+function withBrowserLikeEnvironment(): void {
+    mockedCorsIsPossible = true;
+}
+
 describe('OAuth Authorization', () => {
     beforeEach(() => {
         mockFetch.mockReset();
+    });
+    afterEach(() => {
+        mockedCorsIsPossible = false;
     });
 
     describe('extractWWWAuthenticateParams', () => {
@@ -130,7 +156,8 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
         });
 
-        it('returns metadata when first fetch fails but second without MCP header succeeds', async () => {
+        it('returns metadata when first fetch fails but second without MCP header succeeds (browser CORS retry)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -158,7 +185,8 @@ describe('OAuth Authorization', () => {
             expect(mockFetch.mock.calls[0]![1]?.headers).toHaveProperty('MCP-Protocol-Version');
         });
 
-        it('throws an error when all fetch attempts fail', async () => {
+        it('throws an error when all fetch attempts fail (browser, retry throws non-TypeError)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -174,6 +202,18 @@ describe('OAuth Authorization', () => {
 
             // Verify both calls were made
             expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('throws TypeError immediately in non-browser environments without retrying', async () => {
+            // In Node.js/Workers, CORS doesn't exist — a TypeError from fetch is a real
+            // network/config error (DNS failure, connection refused, invalid URL) and
+            // should propagate rather than being silently swallowed.
+            mockFetch.mockImplementation(() => Promise.reject(new TypeError('getaddrinfo ENOTFOUND resource.example.com')));
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(TypeError);
+
+            // Only one call — no CORS retry attempted
+            expect(mockFetch).toHaveBeenCalledTimes(1);
         });
 
         it('throws on 404 errors', async () => {
@@ -347,7 +387,8 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
         });
 
-        it('falls back when path-aware discovery encounters CORS error', async () => {
+        it('falls back when path-aware discovery encounters CORS error (browser)', async () => {
+            withBrowserLikeEnvironment();
             // First call (path-aware) fails with TypeError (CORS)
             mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('CORS error')));
 
@@ -559,7 +600,8 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
         });
 
-        it('falls back when path-aware discovery encounters CORS error', async () => {
+        it('falls back when path-aware discovery encounters CORS error (browser)', async () => {
+            withBrowserLikeEnvironment();
             // First call (path-aware) fails with TypeError (CORS)
             mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('CORS error')));
 
@@ -590,7 +632,8 @@ describe('OAuth Authorization', () => {
             });
         });
 
-        it('returns metadata when first fetch fails but second without MCP header succeeds', async () => {
+        it('returns metadata when first fetch fails but second without MCP header succeeds (browser CORS retry)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -618,7 +661,8 @@ describe('OAuth Authorization', () => {
             expect(mockFetch.mock.calls[0]![1]?.headers).toHaveProperty('MCP-Protocol-Version');
         });
 
-        it('throws an error when all fetch attempts fail', async () => {
+        it('throws an error when all fetch attempts fail (browser, retry throws non-TypeError)', async () => {
+            withBrowserLikeEnvironment();
             // Set up a counter to control behavior
             let callCount = 0;
 
@@ -636,7 +680,8 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
-        it('returns undefined when both CORS requests fail in fetchWithCorsRetry', async () => {
+        it('returns undefined when both CORS requests fail in fetchWithCorsRetry (browser)', async () => {
+            withBrowserLikeEnvironment();
             // fetchWithCorsRetry tries with headers (fails with CORS), then retries without headers (also fails with CORS)
             // simulating a 404 w/o headers set. We want this to return undefined, not throw TypeError
             mockFetch.mockImplementation(() => {
@@ -826,7 +871,8 @@ describe('OAuth Authorization', () => {
             await expect(discoverAuthorizationServerMetadata('https://mcp.example.com')).rejects.toThrow('HTTP 500');
         });
 
-        it('handles CORS errors with retry', async () => {
+        it('handles CORS errors with retry (browser)', async () => {
+            withBrowserLikeEnvironment();
             // First call fails with CORS
             mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('CORS error')));
 
@@ -882,7 +928,8 @@ describe('OAuth Authorization', () => {
             });
         });
 
-        it('returns undefined when all URLs fail with CORS errors', async () => {
+        it('returns undefined when all URLs fail with CORS errors (browser)', async () => {
+            withBrowserLikeEnvironment();
             // All fetch attempts fail with CORS errors (TypeError)
             mockFetch.mockImplementation(() => Promise.reject(new TypeError('CORS error')));
 
@@ -892,6 +939,390 @@ describe('OAuth Authorization', () => {
 
             // Verify that all discovery URLs were attempted
             expect(mockFetch).toHaveBeenCalledTimes(6); // 3 URLs × 2 attempts each (with and without headers)
+        });
+
+        it('throws TypeError in non-browser environments instead of silently falling through (network failure)', async () => {
+            // In Node.js, a TypeError from fetch is a real error (DNS/connection), not CORS.
+            // Swallowing it and returning undefined would cause the caller to silently fall
+            // through to the next discovery URL, masking the actual network failure.
+            mockFetch.mockImplementation(() => Promise.reject(new TypeError('getaddrinfo ENOTFOUND auth.example.com')));
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com/tenant1')).rejects.toThrow(TypeError);
+
+            // Only one call — no CORS retry attempted in non-browser environments
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('discoverOAuthServerInfo', () => {
+        const validResourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: ['https://auth.example.com']
+        };
+
+        const validAuthMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+            response_types_supported: ['code']
+        };
+
+        it('returns auth server from RFC 9728 protected resource metadata', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://auth.example.com');
+            expect(result.resourceMetadata).toEqual(validResourceMetadata);
+            expect(result.authorizationServerMetadata).toEqual(validAuthMetadata);
+        });
+
+        it('falls back to server URL when RFC 9728 is not supported', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                // RFC 9728 returns 404
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            ...validAuthMetadata,
+                            issuer: 'https://resource.example.com'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            // Should fall back to server URL origin
+            expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
+            expect(result.resourceMetadata).toBeUndefined();
+            expect(result.authorizationServerMetadata).toBeDefined();
+        });
+
+        it('forwards resourceMetadataUrl override to protected resource metadata discovery', async () => {
+            const overrideUrl = new URL('https://custom.example.com/.well-known/oauth-protected-resource');
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString === overrideUrl.toString()) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com', {
+                resourceMetadataUrl: overrideUrl
+            });
+
+            expect(result.resourceMetadata).toEqual(validResourceMetadata);
+            // Verify the override URL was used instead of the default well-known path
+            expect(mockFetch.mock.calls[0]![0].toString()).toBe(overrideUrl.toString());
+        });
+
+        it('propagates network failures instead of silently falling back (non-browser)', async () => {
+            // PRM discovery hits a DNS/connection failure. That's a transient reachability problem,
+            // not "server doesn't support RFC 9728" — the caller should see the real error rather
+            // than silently falling back to treating the MCP server URL as the auth server.
+            mockFetch.mockImplementation(() => Promise.reject(new TypeError('getaddrinfo ENOTFOUND resource.example.com')));
+
+            await expect(discoverOAuthServerInfo('https://resource.example.com')).rejects.toThrow(TypeError);
+        });
+    });
+
+    describe('auth with provider authorization server URL caching', () => {
+        const validResourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: ['https://auth.example.com']
+        };
+
+        const validAuthMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+
+        function createMockProvider(overrides: Partial<OAuthClientProvider> = {}): OAuthClientProvider {
+            return {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'test-client-id',
+                    client_secret: 'test-client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                ...overrides
+            };
+        }
+
+        beforeEach(() => {
+            vi.clearAllMocks();
+        });
+
+        it('calls saveDiscoveryState after discovery when provider implements it', async () => {
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({ saveDiscoveryState });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadata: validResourceMetadata,
+                    authorizationServerMetadata: validAuthMetadata
+                })
+            );
+        });
+
+        it('restores full discovery state from cache including resource metadata', async () => {
+            const provider = createMockProvider({
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadata: validResourceMetadata,
+                    authorizationServerMetadata: validAuthMetadata
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            // Should NOT have called any discovery endpoints -- all from cache
+            const discoveryCalls = mockFetch.mock.calls.filter(
+                call => call[0].toString().includes('oauth-protected-resource') || call[0].toString().includes('oauth-authorization-server')
+            );
+            expect(discoveryCalls).toHaveLength(0);
+
+            // Verify the token request includes the resource parameter from cached metadata
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('resource')).toBe('https://resource.example.com/');
+        });
+
+        it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({
+                // Partial cache: auth server URL only, no metadata
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com'
+                }),
+                saveDiscoveryState,
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validAuthMetadata
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            // Should re-save with the enriched state including fetched metadata
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    authorizationServerMetadata: validAuthMetadata,
+                    resourceMetadata: validResourceMetadata
+                })
+            );
+        });
+
+        it('uses resourceMetadataUrl from cached discovery state for PRM discovery', async () => {
+            const cachedPrmUrl = 'https://custom.example.com/.well-known/oauth-protected-resource';
+            const provider = createMockProvider({
+                // Cache has auth server URL + resourceMetadataUrl but no resourceMetadata
+                // (simulates browser redirect where PRM URL was saved but metadata wasn't)
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadataUrl: cachedPrmUrl,
+                    authorizationServerMetadata: validAuthMetadata
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                // The cached PRM URL should be used for resource metadata discovery
+                if (urlString === cachedPrmUrl) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => validResourceMetadata
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            // Should have used the cached PRM URL, not the default well-known path
+            const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
+            expect(prmCalls).toHaveLength(1);
+            expect(prmCalls[0]![0].toString()).toBe(cachedPrmUrl);
         });
     });
 
@@ -911,6 +1342,27 @@ describe('OAuth Authorization', () => {
             const supportedMethods = ['client_secret_post', 'client_secret_basic', 'none'];
             const authMethod = selectClientAuthMethod(clientInfo, supportedMethods);
             expect(authMethod).toBe('none');
+        });
+        it('defaults to client_secret_basic when server omits token_endpoint_auth_methods_supported (RFC 8414 §2)', () => {
+            // RFC 8414 §2: if omitted, the default is client_secret_basic.
+            // RFC 6749 §2.3.1: servers MUST support HTTP Basic for clients with a secret.
+            const clientInfo = { client_id: 'test-client-id', client_secret: 'test-client-secret' };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('client_secret_basic');
+        });
+        it('defaults to none for public clients when server omits token_endpoint_auth_methods_supported', () => {
+            const clientInfo = { client_id: 'test-client-id' };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('none');
+        });
+        it('honors DCR-returned token_endpoint_auth_method even when server metadata omits supported methods', () => {
+            const clientInfo = {
+                client_id: 'test-client-id',
+                client_secret: 'test-client-secret',
+                token_endpoint_auth_method: 'client_secret_post'
+            };
+            const authMethod = selectClientAuthMethod(clientInfo, []);
+            expect(authMethod).toBe('client_secret_post');
         });
     });
 
@@ -1128,8 +1580,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1167,8 +1621,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1292,8 +1748,10 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect((options.headers as Headers).get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
@@ -1352,8 +1810,10 @@ describe('OAuth Authorization', () => {
             const body = mockFetch.mock.calls[0]![1].body as URLSearchParams;
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            // Default auth method is client_secret_basic when no metadata provided (RFC 8414 §2)
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
+            expect(headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
@@ -1488,6 +1948,43 @@ describe('OAuth Authorization', () => {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(validClientMetadata)
+                })
+            );
+        });
+
+        it('includes scope in registration body when provided, overriding clientMetadata.scope', async () => {
+            const clientMetadataWithScope: OAuthClientMetadata = {
+                ...validClientMetadata,
+                scope: 'should-be-overridden'
+            };
+
+            const expectedClientInfo = {
+                ...validClientInfo,
+                scope: 'openid profile'
+            };
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => expectedClientInfo
+            });
+
+            const clientInfo = await registerClient('https://auth.example.com', {
+                clientMetadata: clientMetadataWithScope,
+                scope: 'openid profile'
+            });
+
+            expect(clientInfo).toEqual(expectedClientInfo);
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/register'
+                }),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ...validClientMetadata, scope: 'openid profile' })
                 })
             );
         });
@@ -2368,6 +2865,12 @@ describe('OAuth Authorization', () => {
             const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0]!;
             const authUrl: URL = redirectCall[0];
             expect(authUrl?.searchParams.get('scope')).toBe('mcp:read mcp:write mcp:admin');
+
+            // Verify the same scope was also used in the DCR request body
+            const registerCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/register'));
+            expect(registerCall).toBeDefined();
+            const registerBody = JSON.parse(registerCall![1].body as string);
+            expect(registerBody.scope).toBe('mcp:read mcp:write mcp:admin');
         });
 
         it('prefers explicit scope parameter over scopes_supported from PRM', async () => {
@@ -2712,7 +3215,7 @@ describe('OAuth Authorization', () => {
             expect(body.get('client_secret')).toBeNull();
         });
 
-        it('defaults to client_secret_post when no auth methods specified', async () => {
+        it('defaults to client_secret_basic when no auth methods specified (RFC 8414 §2)', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -2729,13 +3232,15 @@ describe('OAuth Authorization', () => {
             expect(tokens).toEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
-            // Check headers
-            expect(request.headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
-            expect(request.headers.get('Authorization')).toBeNull();
+            // RFC 8414 §2: when token_endpoint_auth_methods_supported is omitted,
+            // the default is client_secret_basic (HTTP Basic auth, not body params)
+            const authHeader = request.headers.get('Authorization');
+            const expected = 'Basic ' + btoa('client123:secret123');
+            expect(authHeader).toBe(expected);
 
             const body = request.body as URLSearchParams;
-            expect(body.get('client_id')).toBe('client123');
-            expect(body.get('client_secret')).toBe('secret123');
+            expect(body.get('client_id')).toBeNull();
+            expect(body.get('client_secret')).toBeNull();
         });
     });
 
@@ -3227,6 +3732,229 @@ describe('OAuth Authorization', () => {
                 client_id: 'generated-uuid',
                 client_secret: 'generated-secret',
                 redirect_uris: ['http://localhost:3000/callback']
+            });
+        });
+    });
+
+    describe('determineScope', () => {
+        const baseClientMetadata = {
+            redirect_uris: ['http://localhost:3000/callback'],
+            client_name: 'Test Client'
+        };
+
+        describe('MCP Scope Selection Strategy', () => {
+            it('returns explicit requestedScope as-is (priority 1)', () => {
+                const result = determineScope({
+                    requestedScope: 'files:read',
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'fallback:scope'
+                    }
+                });
+
+                expect(result).toBe('files:read');
+            });
+
+            it('uses PRM scopes_supported when no explicit scope (priority 2)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write', 'mcp:admin']
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'fallback:scope'
+                    }
+                });
+
+                expect(result).toBe('mcp:read mcp:write mcp:admin');
+            });
+
+            it('falls back to clientMetadata.scope when no PRM scopes (priority 3)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/'
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'client:default'
+                    }
+                });
+
+                expect(result).toBe('client:default');
+            });
+
+            it('returns undefined when no scope source available (priority 4)', () => {
+                const result = determineScope({
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBeUndefined();
+            });
+
+            it('returns undefined when PRM has no scopes_supported and clientMetadata has no scope', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/'
+                    },
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBeUndefined();
+            });
+        });
+
+        describe('SEP-2207: offline_access scope augmentation', () => {
+            const asMetadataWithOfflineAccess = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/authorize',
+                token_endpoint: 'https://auth.example.com/token',
+                response_types_supported: ['code'] as string[],
+                scopes_supported: ['openid', 'profile', 'offline_access']
+            };
+
+            const asMetadataWithoutOfflineAccess = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/authorize',
+                token_endpoint: 'https://auth.example.com/token',
+                response_types_supported: ['code'] as string[],
+                scopes_supported: ['openid', 'profile']
+            };
+
+            const clientMetadataWithRefreshToken = {
+                ...baseClientMetadata,
+                grant_types: ['authorization_code', 'refresh_token']
+            };
+
+            it('augments explicit scope with offline_access', () => {
+                const result = determineScope({
+                    requestedScope: 'mcp:read mcp:write',
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write offline_access');
+            });
+
+            it('adds offline_access when AS supports it and client grant_types includes refresh_token', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write offline_access');
+            });
+
+            it('adds offline_access when using clientMetadata.scope fallback', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...clientMetadataWithRefreshToken,
+                        scope: 'mcp:tools'
+                    }
+                });
+
+                expect(result).toBe('mcp:tools offline_access');
+            });
+
+            it('does NOT augment when no other scopes are present', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBeUndefined();
+            });
+
+            it('does NOT augment when AS metadata lacks offline_access', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithoutOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when AS metadata is undefined', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when offline_access already in clientMetadata.scope', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...clientMetadataWithRefreshToken,
+                        scope: 'mcp:tools offline_access'
+                    }
+                });
+
+                expect(result).toBe('mcp:tools offline_access');
+            });
+
+            it('does NOT augment when non-compliant PRM already includes offline_access', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'offline_access', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read offline_access mcp:write');
+            });
+
+            it('does NOT augment when grant_types omits refresh_token', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        grant_types: ['authorization_code']
+                    }
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when grant_types is undefined (respects OAuth defaults)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
             });
         });
     });

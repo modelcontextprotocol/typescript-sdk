@@ -15,7 +15,7 @@ import {
     ToolResultContentSchema,
     ToolSchema,
     ToolUseContentSchema
-} from '../src/types/types.js';
+} from '../src/types/index.js';
 
 describe('Types', () => {
     test('should have correct latest protocol version', () => {

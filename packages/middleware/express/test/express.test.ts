@@ -178,5 +178,15 @@ describe('@modelcontextprotocol/express', () => {
 
             warn.mockRestore();
         });
+
+        test('should accept jsonLimit option', () => {
+            const app = createMcpExpressApp({ jsonLimit: '10mb' });
+            expect(app).toBeDefined();
+        });
+
+        test('should work without jsonLimit option', () => {
+            const app = createMcpExpressApp();
+            expect(app).toBeDefined();
+        });
     });
 });

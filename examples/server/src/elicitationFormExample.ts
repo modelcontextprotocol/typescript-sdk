@@ -14,305 +14,309 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
-// Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
-// The validator supports format validation (email, date, etc.) if ajv-formats is installed
-const mcpServer = new McpServer(
-    {
-        name: 'form-elicitation-example-server',
-        version: '1.0.0'
-    },
-    {
-        capabilities: {}
-    }
-);
-
-/**
- * Example 1: Simple user registration tool
- * Collects username, email, and password from the user
- */
-mcpServer.registerTool(
-    'register_user',
-    {
-        description: 'Register a new user account by collecting their information'
-    },
-    async () => {
-        try {
-            // Request user information through form elicitation
-            const result = await mcpServer.server.elicitInput({
-                mode: 'form',
-                message: 'Please provide your registration information:',
-                requestedSchema: {
-                    type: 'object',
-                    properties: {
-                        username: {
-                            type: 'string',
-                            title: 'Username',
-                            description: 'Your desired username (3-20 characters)',
-                            minLength: 3,
-                            maxLength: 20
-                        },
-                        email: {
-                            type: 'string',
-                            title: 'Email',
-                            description: 'Your email address',
-                            format: 'email'
-                        },
-                        password: {
-                            type: 'string',
-                            title: 'Password',
-                            description: 'Your password (min 8 characters)',
-                            minLength: 8
-                        },
-                        newsletter: {
-                            type: 'boolean',
-                            title: 'Newsletter',
-                            description: 'Subscribe to newsletter?',
-                            default: false
-                        }
-                    },
-                    required: ['username', 'email', 'password']
-                }
-            });
-
-            // Handle the different possible actions
-            if (result.action === 'accept' && result.content) {
-                const { username, email, newsletter } = result.content as {
-                    username: string;
-                    email: string;
-                    password: string;
-                    newsletter?: boolean;
-                };
-
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Registration successful!\n\nUsername: ${username}\nEmail: ${email}\nNewsletter: ${newsletter ? 'Yes' : 'No'}`
-                        }
-                    ]
-                };
-            } else if (result.action === 'decline') {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Registration cancelled by user.'
-                        }
-                    ]
-                };
-            } else {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Registration was cancelled.'
-                        }
-                    ]
-                };
-            }
-        } catch (error) {
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Registration failed: ${error instanceof Error ? error.message : String(error)}`
-                    }
-                ],
-                isError: true
-            };
+// Create a fresh MCP server per client connection to avoid shared state between clients.
+// The validator supports format validation (email, date, etc.) if ajv-formats is installed.
+const getServer = () => {
+    const mcpServer = new McpServer(
+        {
+            name: 'form-elicitation-example-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {}
         }
-    }
-);
+    );
 
-/**
- * Example 2: Multi-step workflow with multiple form elicitation requests
- * Demonstrates how to collect information in multiple steps
- */
-mcpServer.registerTool(
-    'create_event',
-    {
-        description: 'Create a calendar event by collecting event details'
-    },
-    async () => {
-        try {
-            // Step 1: Collect basic event information
-            const basicInfo = await mcpServer.server.elicitInput({
-                mode: 'form',
-                message: 'Step 1: Enter basic event information',
-                requestedSchema: {
-                    type: 'object',
-                    properties: {
-                        title: {
-                            type: 'string',
-                            title: 'Event Title',
-                            description: 'Name of the event',
-                            minLength: 1
+    /**
+     * Example 1: Simple user registration tool
+     * Collects username, email, and password from the user
+     */
+    mcpServer.registerTool(
+        'register_user',
+        {
+            description: 'Register a new user account by collecting their information'
+        },
+        async () => {
+            try {
+                // Request user information through form elicitation
+                const result = await mcpServer.server.elicitInput({
+                    mode: 'form',
+                    message: 'Please provide your registration information:',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: {
+                            username: {
+                                type: 'string',
+                                title: 'Username',
+                                description: 'Your desired username (3-20 characters)',
+                                minLength: 3,
+                                maxLength: 20
+                            },
+                            email: {
+                                type: 'string',
+                                title: 'Email',
+                                description: 'Your email address',
+                                format: 'email'
+                            },
+                            password: {
+                                type: 'string',
+                                title: 'Password',
+                                description: 'Your password (min 8 characters)',
+                                minLength: 8
+                            },
+                            newsletter: {
+                                type: 'boolean',
+                                title: 'Newsletter',
+                                description: 'Subscribe to newsletter?',
+                                default: false
+                            }
                         },
-                        description: {
-                            type: 'string',
-                            title: 'Description',
-                            description: 'Event description (optional)'
-                        }
-                    },
-                    required: ['title']
-                }
-            });
-
-            if (basicInfo.action !== 'accept' || !basicInfo.content) {
-                return {
-                    content: [{ type: 'text', text: 'Event creation cancelled.' }]
-                };
-            }
-
-            // Step 2: Collect date and time
-            const dateTime = await mcpServer.server.elicitInput({
-                mode: 'form',
-                message: 'Step 2: Enter date and time',
-                requestedSchema: {
-                    type: 'object',
-                    properties: {
-                        date: {
-                            type: 'string',
-                            title: 'Date',
-                            description: 'Event date',
-                            format: 'date'
-                        },
-                        startTime: {
-                            type: 'string',
-                            title: 'Start Time',
-                            description: 'Event start time (HH:MM)'
-                        },
-                        duration: {
-                            type: 'integer',
-                            title: 'Duration',
-                            description: 'Duration in minutes',
-                            minimum: 15,
-                            maximum: 480
-                        }
-                    },
-                    required: ['date', 'startTime', 'duration']
-                }
-            });
-
-            if (dateTime.action !== 'accept' || !dateTime.content) {
-                return {
-                    content: [{ type: 'text', text: 'Event creation cancelled.' }]
-                };
-            }
-
-            // Combine all collected information
-            const event = {
-                ...basicInfo.content,
-                ...dateTime.content
-            };
-
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Event created successfully!\n\n${JSON.stringify(event, null, 2)}`
+                        required: ['username', 'email', 'password']
                     }
-                ]
-            };
-        } catch (error) {
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Event creation failed: ${error instanceof Error ? error.message : String(error)}`
-                    }
-                ],
-                isError: true
-            };
-        }
-    }
-);
+                });
 
-/**
- * Example 3: Collecting address information
- * Demonstrates validation with patterns and optional fields
- */
-mcpServer.registerTool(
-    'update_shipping_address',
-    {
-        description: 'Update shipping address with validation'
-    },
-    async () => {
-        try {
-            const result = await mcpServer.server.elicitInput({
-                mode: 'form',
-                message: 'Please provide your shipping address:',
-                requestedSchema: {
-                    type: 'object',
-                    properties: {
-                        name: {
-                            type: 'string',
-                            title: 'Full Name',
-                            description: 'Recipient name',
-                            minLength: 1
-                        },
-                        street: {
-                            type: 'string',
-                            title: 'Street Address',
-                            minLength: 1
-                        },
-                        city: {
-                            type: 'string',
-                            title: 'City',
-                            minLength: 1
-                        },
-                        state: {
-                            type: 'string',
-                            title: 'State/Province',
-                            minLength: 2,
-                            maxLength: 2
-                        },
-                        zipCode: {
-                            type: 'string',
-                            title: 'ZIP/Postal Code',
-                            description: '5-digit ZIP code'
-                        },
-                        phone: {
-                            type: 'string',
-                            title: 'Phone Number (optional)',
-                            description: 'Contact phone number'
-                        }
-                    },
-                    required: ['name', 'street', 'city', 'state', 'zipCode']
+                // Handle the different possible actions
+                if (result.action === 'accept' && result.content) {
+                    const { username, email, newsletter } = result.content as {
+                        username: string;
+                        email: string;
+                        password: string;
+                        newsletter?: boolean;
+                    };
+
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Registration successful!\n\nUsername: ${username}\nEmail: ${email}\nNewsletter: ${newsletter ? 'Yes' : 'No'}`
+                            }
+                        ]
+                    };
+                } else if (result.action === 'decline') {
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'Registration cancelled by user.'
+                            }
+                        ]
+                    };
+                } else {
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'Registration was cancelled.'
+                            }
+                        ]
+                    };
                 }
-            });
-
-            if (result.action === 'accept' && result.content) {
+            } catch (error) {
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Address updated successfully!\n\n${JSON.stringify(result.content, null, 2)}`
+                            text: `Registration failed: ${error instanceof Error ? error.message : String(error)}`
+                        }
+                    ],
+                    isError: true
+                };
+            }
+        }
+    );
+
+    /**
+     * Example 2: Multi-step workflow with multiple form elicitation requests
+     * Demonstrates how to collect information in multiple steps
+     */
+    mcpServer.registerTool(
+        'create_event',
+        {
+            description: 'Create a calendar event by collecting event details'
+        },
+        async () => {
+            try {
+                // Step 1: Collect basic event information
+                const basicInfo = await mcpServer.server.elicitInput({
+                    mode: 'form',
+                    message: 'Step 1: Enter basic event information',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: {
+                            title: {
+                                type: 'string',
+                                title: 'Event Title',
+                                description: 'Name of the event',
+                                minLength: 1
+                            },
+                            description: {
+                                type: 'string',
+                                title: 'Description',
+                                description: 'Event description (optional)'
+                            }
+                        },
+                        required: ['title']
+                    }
+                });
+
+                if (basicInfo.action !== 'accept' || !basicInfo.content) {
+                    return {
+                        content: [{ type: 'text', text: 'Event creation cancelled.' }]
+                    };
+                }
+
+                // Step 2: Collect date and time
+                const dateTime = await mcpServer.server.elicitInput({
+                    mode: 'form',
+                    message: 'Step 2: Enter date and time',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: {
+                            date: {
+                                type: 'string',
+                                title: 'Date',
+                                description: 'Event date',
+                                format: 'date'
+                            },
+                            startTime: {
+                                type: 'string',
+                                title: 'Start Time',
+                                description: 'Event start time (HH:MM)'
+                            },
+                            duration: {
+                                type: 'integer',
+                                title: 'Duration',
+                                description: 'Duration in minutes',
+                                minimum: 15,
+                                maximum: 480
+                            }
+                        },
+                        required: ['date', 'startTime', 'duration']
+                    }
+                });
+
+                if (dateTime.action !== 'accept' || !dateTime.content) {
+                    return {
+                        content: [{ type: 'text', text: 'Event creation cancelled.' }]
+                    };
+                }
+
+                // Combine all collected information
+                const event = {
+                    ...basicInfo.content,
+                    ...dateTime.content
+                };
+
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Event created successfully!\n\n${JSON.stringify(event, null, 2)}`
                         }
                     ]
                 };
-            } else if (result.action === 'decline') {
+            } catch (error) {
                 return {
-                    content: [{ type: 'text', text: 'Address update cancelled by user.' }]
-                };
-            } else {
-                return {
-                    content: [{ type: 'text', text: 'Address update was cancelled.' }]
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Event creation failed: ${error instanceof Error ? error.message : String(error)}`
+                        }
+                    ],
+                    isError: true
                 };
             }
-        } catch (error) {
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Address update failed: ${error instanceof Error ? error.message : String(error)}`
-                    }
-                ],
-                isError: true
-            };
         }
-    }
-);
+    );
+
+    /**
+     * Example 3: Collecting address information
+     * Demonstrates validation with patterns and optional fields
+     */
+    mcpServer.registerTool(
+        'update_shipping_address',
+        {
+            description: 'Update shipping address with validation'
+        },
+        async () => {
+            try {
+                const result = await mcpServer.server.elicitInput({
+                    mode: 'form',
+                    message: 'Please provide your shipping address:',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: {
+                            name: {
+                                type: 'string',
+                                title: 'Full Name',
+                                description: 'Recipient name',
+                                minLength: 1
+                            },
+                            street: {
+                                type: 'string',
+                                title: 'Street Address',
+                                minLength: 1
+                            },
+                            city: {
+                                type: 'string',
+                                title: 'City',
+                                minLength: 1
+                            },
+                            state: {
+                                type: 'string',
+                                title: 'State/Province',
+                                minLength: 2,
+                                maxLength: 2
+                            },
+                            zipCode: {
+                                type: 'string',
+                                title: 'ZIP/Postal Code',
+                                description: '5-digit ZIP code'
+                            },
+                            phone: {
+                                type: 'string',
+                                title: 'Phone Number (optional)',
+                                description: 'Contact phone number'
+                            }
+                        },
+                        required: ['name', 'street', 'city', 'state', 'zipCode']
+                    }
+                });
+
+                if (result.action === 'accept' && result.content) {
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Address updated successfully!\n\n${JSON.stringify(result.content, null, 2)}`
+                            }
+                        ]
+                    };
+                } else if (result.action === 'decline') {
+                    return {
+                        content: [{ type: 'text', text: 'Address update cancelled by user.' }]
+                    };
+                } else {
+                    return {
+                        content: [{ type: 'text', text: 'Address update was cancelled.' }]
+                    };
+                }
+            } catch (error) {
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Address update failed: ${error instanceof Error ? error.message : String(error)}`
+                        }
+                    ],
+                    isError: true
+                };
+            }
+        }
+    );
+
+    return mcpServer;
+};
 
 async function main() {
     const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
@@ -354,7 +358,8 @@ async function main() {
                     }
                 };
 
-                // Connect the transport to the MCP server BEFORE handling the request
+                // Connect a fresh MCP server to the transport BEFORE handling the request
+                const mcpServer = getServer();
                 await mcpServer.connect(transport);
 
                 await transport.handleRequest(req, res, req.body);
