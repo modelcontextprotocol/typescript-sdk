@@ -383,6 +383,10 @@ export interface ClientCapabilities {
       };
     };
   };
+  /**
+   * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
+   */
+  extensions?: { [key: string]: object };
 }
 
 /**
@@ -461,6 +465,10 @@ export interface ServerCapabilities {
       };
     };
   };
+  /**
+   * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
+   */
+  extensions?: { [key: string]: object };
 }
 
 /**
