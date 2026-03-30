@@ -4,7 +4,7 @@ import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
-import type { StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
+import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
 describe('StreamableHTTPClientTransport', () => {
@@ -120,6 +120,33 @@ describe('StreamableHTTPClientTransport', () => {
         const lastCall = calls.at(-1)!;
         expect(lastCall[1].headers).toBeDefined();
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
+    });
+
+    it('should accept protocolVersion constructor option and include it in request headers', async () => {
+        // When reconnecting with a preserved sessionId, users need to also preserve the
+        // negotiated protocol version so the required mcp-protocol-version header is sent.
+        const reconnectTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'preserved-session-id',
+            protocolVersion: '2025-11-25'
+        });
+
+        expect(reconnectTransport.sessionId).toBe('preserved-session-id');
+        expect(reconnectTransport.protocolVersion).toBe('2025-11-25');
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await reconnectTransport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+
+        const calls = (globalThis.fetch as Mock).mock.calls;
+        const lastCall = calls.at(-1)!;
+        expect(lastCall[1].headers.get('mcp-session-id')).toBe('preserved-session-id');
+        expect(lastCall[1].headers.get('mcp-protocol-version')).toBe('2025-11-25');
+
+        await reconnectTransport.close().catch(() => {});
     });
 
     it('should terminate session with DELETE request', async () => {
@@ -1590,8 +1617,8 @@ describe('StreamableHTTPClientTransport', () => {
                 })
             );
 
-            // Verify no timeout was scheduled (no reconnection attempt)
-            expect(transport['_reconnectionTimeout']).toBeUndefined();
+            // Verify no reconnection was scheduled
+            expect(transport['_cancelReconnection']).toBeUndefined();
         });
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
@@ -1613,10 +1640,10 @@ describe('StreamableHTTPClientTransport', () => {
 
             // ASSERT - should schedule a reconnection, not report error yet
             expect(errorSpy).not.toHaveBeenCalled();
-            expect(transport['_reconnectionTimeout']).toBeDefined();
+            expect(transport['_cancelReconnection']).toBeDefined();
 
-            // Clean up the timeout to avoid test pollution
-            clearTimeout(transport['_reconnectionTimeout']);
+            // Clean up the pending reconnection to avoid test pollution
+            transport['_cancelReconnection']?.();
         });
     });
 
@@ -1678,13 +1705,151 @@ describe('StreamableHTTPClientTransport', () => {
                 // Retry the original request - still 401 (broken server)
                 .mockResolvedValueOnce(unauthedResponse);
 
-            await expect(transport.send(message)).rejects.toThrow('Server returned 401 after successful authentication');
+            const error = await transport.send(message).catch(e => e);
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-access-token',
                 token_type: 'Bearer',
                 expires_in: 3600,
                 refresh_token: 'refresh-token' // Refresh token is preserved
             });
+        });
+    });
+
+    describe('reconnectionScheduler', () => {
+        const reconnectionOptions: StreamableHTTPReconnectionOptions = {
+            initialReconnectionDelay: 1000,
+            maxReconnectionDelay: 5000,
+            reconnectionDelayGrowFactor: 2,
+            maxRetries: 3
+        };
+
+        function triggerReconnection(t: StreamableHTTPClientTransport): void {
+            (t as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection({}, 0);
+        }
+
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('invokes the custom scheduler with reconnect, delay, and attemptCount', () => {
+            const scheduler = vi.fn<ReconnectionScheduler>();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+
+            triggerReconnection(transport);
+
+            expect(scheduler).toHaveBeenCalledTimes(1);
+            expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 1000, 0);
+        });
+
+        it('falls back to setTimeout when no scheduler is provided', () => {
+            const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+
+            triggerReconnection(transport);
+
+            expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+        });
+
+        it('does not use setTimeout when a custom scheduler is provided', () => {
+            const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: vi.fn()
+            });
+
+            triggerReconnection(transport);
+
+            expect(setTimeoutSpy).not.toHaveBeenCalled();
+        });
+
+        it('calls the returned cancel function on close()', async () => {
+            const cancel = vi.fn();
+            const scheduler: ReconnectionScheduler = vi.fn(() => cancel);
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+
+            triggerReconnection(transport);
+            expect(cancel).not.toHaveBeenCalled();
+
+            await transport.close();
+            expect(cancel).toHaveBeenCalledTimes(1);
+        });
+
+        it('tolerates schedulers that return void (no cancel function)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: () => {
+                    /* no return */
+                }
+            });
+
+            triggerReconnection(transport);
+            await expect(transport.close()).resolves.toBeUndefined();
+        });
+
+        it('clears the default setTimeout on close() when no scheduler is provided', async () => {
+            const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+
+            triggerReconnection(transport);
+            await transport.close();
+
+            expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores a late-firing reconnect after close()', async () => {
+            let capturedReconnect: (() => void) | undefined;
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: reconnect => {
+                    capturedReconnect = reconnect;
+                }
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await transport.start();
+            triggerReconnection(transport);
+            await transport.close();
+
+            capturedReconnect?.();
+            await vi.runAllTimersAsync();
+
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('still aborts and fires onclose if the cancel function throws', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: () => () => {
+                    throw new Error('cancel failed');
+                }
+            });
+            const onclose = vi.fn();
+            transport.onclose = onclose;
+
+            await transport.start();
+            triggerReconnection(transport);
+            const abortController = transport['_abortController'];
+
+            await expect(transport.close()).rejects.toThrow('cancel failed');
+            expect(abortController?.signal.aborted).toBe(true);
+            expect(onclose).toHaveBeenCalledTimes(1);
         });
     });
 });
