@@ -1,15 +1,73 @@
-export * from './client/auth.js';
-export * from './client/authExtensions.js';
-export * from './client/client.js';
-export * from './client/crossAppAccess.js';
-export * from './client/middleware.js';
-export * from './client/sse.js';
-export * from './client/stdio.js';
-export * from './client/streamableHttp.js';
-export * from './client/websocket.js';
+// Public API for @modelcontextprotocol/client.
+//
+// This file defines the complete public surface. It consists of:
+//   - Package-specific exports: listed explicitly below (named imports)
+//   - Protocol-level types: re-exported from @modelcontextprotocol/core/public
+//
+// Any new export added here becomes public API. Use named exports, not wildcards.
+
+export type {
+    AddClientAuthentication,
+    AuthProvider,
+    AuthResult,
+    ClientAuthMethod,
+    OAuthClientProvider,
+    OAuthDiscoveryState,
+    OAuthServerInfo
+} from './client/auth.js';
+export {
+    auth,
+    buildDiscoveryUrls,
+    discoverAuthorizationServerMetadata,
+    discoverOAuthMetadata,
+    discoverOAuthProtectedResourceMetadata,
+    discoverOAuthServerInfo,
+    exchangeAuthorization,
+    extractResourceMetadataUrl,
+    extractWWWAuthenticateParams,
+    fetchToken,
+    isHttpsUrl,
+    parseErrorResponse,
+    prepareAuthorizationCodeRequest,
+    refreshAuthorization,
+    registerClient,
+    selectClientAuthMethod,
+    selectResourceURL,
+    startAuthorization,
+    UnauthorizedError
+} from './client/auth.js';
+export type {
+    AssertionCallback,
+    ClientCredentialsProviderOptions,
+    CrossAppAccessContext,
+    CrossAppAccessProviderOptions,
+    PrivateKeyJwtProviderOptions,
+    StaticPrivateKeyJwtProviderOptions
+} from './client/authExtensions.js';
+export {
+    ClientCredentialsProvider,
+    createPrivateKeyJwtAuth,
+    CrossAppAccessProvider,
+    PrivateKeyJwtProvider,
+    StaticPrivateKeyJwtProvider
+} from './client/authExtensions.js';
+export type { ClientOptions } from './client/client.js';
+export { Client } from './client/client.js';
+export { getSupportedElicitationModes } from './client/client.js';
+export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess.js';
+export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess.js';
+export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware.js';
+export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware.js';
+export type { SSEClientTransportOptions } from './client/sse.js';
+export { SSEClientTransport, SseError } from './client/sse.js';
+export type { StdioServerParameters } from './client/stdio.js';
+export { DEFAULT_INHERITED_ENV_VARS, getDefaultEnvironment, StdioClientTransport } from './client/stdio.js';
+export type { StartSSEOptions, StreamableHTTPClientTransportOptions, StreamableHTTPReconnectionOptions } from './client/streamableHttp.js';
+export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
+export { WebSocketClientTransport } from './client/websocket.js';
 
 // experimental exports
-export * from './experimental/index.js';
+export { ExperimentalClientTasks } from './experimental/tasks/client.js';
 
-// re-export shared types
-export * from '@modelcontextprotocol/core';
+// re-export curated public API from core
+export * from '@modelcontextprotocol/core/public';

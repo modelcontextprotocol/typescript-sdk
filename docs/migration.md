@@ -52,13 +52,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 ```typescript
 import { Client, StreamableHTTPClientTransport, StdioClientTransport } from '@modelcontextprotocol/client';
 import { McpServer, StdioServerTransport, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { CallToolResultSchema } from '@modelcontextprotocol/core';
 
 // Node.js HTTP server transport is in the @modelcontextprotocol/node package
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 ```
 
-Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
+Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
 
 ### Dropped Node.js 18 and CommonJS
 
@@ -117,7 +116,7 @@ Server-side OAuth/auth has been removed entirely from the SDK. This includes `mc
 
 Use a dedicated auth library (e.g., `better-auth`) or a full Authorization Server instead. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
 
-Note: `AuthInfo` has moved from `server/auth/types.ts` to `@modelcontextprotocol/core` (it's now a core type).
+Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
 ### `Headers` object instead of plain objects
 
@@ -252,7 +251,7 @@ server.registerTool('greet', {
 }, async ({ name }) => { ... });
 
 // Raw JSON Schema via fromJsonSchema
-import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
 server.registerTool('greet', {
   inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
 }, handler);
@@ -264,6 +263,7 @@ server.registerTool('ping', {
 ```
 
 This applies to:
+
 - `inputSchema` in `registerTool()`
 - `outputSchema` in `registerTool()`
 - `argsSchema` in `registerPrompt()`
@@ -360,25 +360,21 @@ Common method string replacements:
 
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
 
-The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
+like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
 
 **`client.request()` — Before (v1):**
 
 ```typescript
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const result = await client.request(
-    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } },
-    CallToolResultSchema
-);
+const result = await client.request({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } }, CallToolResultSchema);
 ```
 
 **After (v2):**
 
 ```typescript
-const result = await client.request(
-    { method: 'tools/call', params: { name: 'my-tool', arguments: {} } }
-);
+const result = await client.request({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } });
 ```
 
 **`ctx.mcpReq.send()` — Before (v1):**
@@ -411,10 +407,7 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 ```typescript
 import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const result = await client.callTool(
-    { name: 'my-tool', arguments: {} },
-    CompatibilityCallToolResultSchema
-);
+const result = await client.callTool({ name: 'my-tool', arguments: {} }, CompatibilityCallToolResultSchema);
 ```
 
 **After (v2):**
@@ -440,6 +433,22 @@ const client = new Client(
 );
 ```
 
+### `InMemoryTransport` removed from public API
+
+`InMemoryTransport` has been removed from the public API surface. It was previously used for in-process client-server connections and testing.
+
+For **testing**, import it directly from the internal core package:
+
+```typescript
+// v1
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
+// v2 (testing only — @modelcontextprotocol/core is internal, not for production use)
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+```
+
+For **production in-process connections**, use `StreamableHTTPClientTransport` with a local server URL, or connect client and server via paired streams.
+
 ### Removed type aliases and deprecated exports
 
 The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
@@ -453,9 +462,9 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
 | `ResourceReference`                      | `ResourceTemplateReference`                      |
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`) |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
-All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names in `@modelcontextprotocol/core`.
+All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
 
 **Before (v1):**
 
@@ -466,39 +475,39 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 **After (v2):**
 
 ```typescript
-import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
+import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/server';
 ```
 
 ### Request handler context types
 
 The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy using nested groups:
 
-| v1 | v2 |
-|----|-----|
+| v1                                       | v2                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
 | `RequestHandlerExtra` (flat, all fields) | `ServerContext` (server handlers) or `ClientContext` (client handlers) |
-| `extra` parameter name | `ctx` parameter name |
-| `extra.signal` | `ctx.mcpReq.signal` |
-| `extra.requestId` | `ctx.mcpReq.id` |
-| `extra._meta` | `ctx.mcpReq._meta` |
-| `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
-| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
-| `extra.authInfo` | `ctx.http?.authInfo` |
-| `extra.requestInfo` | `ctx.http?.req` (only on `ServerContext`) |
-| `extra.closeSSEStream` | `ctx.http?.closeSSE` (only on `ServerContext`) |
-| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`) |
-| `extra.sessionId` | `ctx.sessionId` |
-| `extra.taskStore` | `ctx.task?.store` |
-| `extra.taskId` | `ctx.task?.id` |
-| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+| `extra` parameter name                   | `ctx` parameter name                                                   |
+| `extra.signal`                           | `ctx.mcpReq.signal`                                                    |
+| `extra.requestId`                        | `ctx.mcpReq.id`                                                        |
+| `extra._meta`                            | `ctx.mcpReq._meta`                                                     |
+| `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
+| `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
+| `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
+| `extra.requestInfo`                      | `ctx.http?.req` (only on `ServerContext`)                              |
+| `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
+| `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
+| `extra.sessionId`                        | `ctx.sessionId`                                                        |
+| `extra.taskStore`                        | `ctx.task?.store`                                                      |
+| `extra.taskId`                           | `ctx.task?.id`                                                         |
+| `extra.taskRequestedTtl`                 | `ctx.task?.requestedTtl`                                               |
 
 **Before (v1):**
 
 ```typescript
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-  const headers = extra.requestInfo?.headers;
-  const taskStore = extra.taskStore;
-  await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
-  return { content: [{ type: 'text', text: 'result' }] };
+    const headers = extra.requestInfo?.headers;
+    const taskStore = extra.taskStore;
+    await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+    return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
@@ -506,10 +515,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-  const headers = ctx.http?.req?.headers;
-  const taskStore = ctx.task?.store;
-  await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
-  return { content: [{ type: 'text', text: 'result' }] };
+    const headers = ctx.http?.req?.headers;
+    const taskStore = ctx.task?.store;
+    await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
+    return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
@@ -525,22 +534,22 @@ Context fields are organized into 4 groups:
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-  // Send a log message (respects client's log level filter)
-  await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
+    // Send a log message (respects client's log level filter)
+    await ctx.mcpReq.log('info', 'Processing tool call', 'my-logger');
 
-  // Request client to sample an LLM
-  const samplingResult = await ctx.mcpReq.requestSampling({
-    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
-    maxTokens: 100,
-  });
+    // Request client to sample an LLM
+    const samplingResult = await ctx.mcpReq.requestSampling({
+        messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+        maxTokens: 100
+    });
 
-  // Elicit user input via a form
-  const elicitResult = await ctx.mcpReq.elicitInput({
-    message: 'Please provide details',
-    requestedSchema: { type: 'object', properties: { name: { type: 'string' } } },
-  });
+    // Elicit user input via a form
+    const elicitResult = await ctx.mcpReq.elicitInput({
+        message: 'Please provide details',
+        requestedSchema: { type: 'object', properties: { name: { type: 'string' } } }
+    });
 
-  return { content: [{ type: 'text', text: 'done' }] };
+    return { content: [{ type: 'text', text: 'done' }] };
 });
 ```
 
@@ -582,7 +591,7 @@ try {
 **After (v2):**
 
 ```typescript
-import { ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { ProtocolError, ProtocolErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await client.callTool({ name: 'test', arguments: {} });
@@ -602,21 +611,21 @@ try {
 
 The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 
-| Code                                              | Description                                |
-| ------------------------------------------------- | ------------------------------------------ |
-| `SdkErrorCode.NotConnected`                       | Transport is not connected                 |
-| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected             |
-| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                |
-| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported       |
-| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response     |
-| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                      |
-| `SdkErrorCode.SendFailed`                         | Failed to send message                     |
-| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                   |
-| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after successful auth  |
-| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping |
-| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response   |
-| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                  |
-| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                |
+| Code                                              | Description                                 |
+| ------------------------------------------------- | ------------------------------------------- |
+| `SdkErrorCode.NotConnected`                       | Transport is not connected                  |
+| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected              |
+| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                 |
+| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported        |
+| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response      |
+| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                       |
+| `SdkErrorCode.SendFailed`                         | Failed to send message                      |
+| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                    |
+| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication |
+| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping  |
+| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response    |
+| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                   |
+| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                 |
 
 #### `StreamableHTTPError` removed
 
@@ -639,7 +648,7 @@ try {
 **After (v2):**
 
 ```typescript
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await transport.send(message);
@@ -647,7 +656,7 @@ try {
     if (error instanceof SdkError) {
         switch (error.code) {
             case SdkErrorCode.ClientHttpAuthentication:
-                console.log('Auth failed after completing auth flow');
+                console.log('Auth failed — server rejected token after re-auth');
                 break;
             case SdkErrorCode.ClientHttpForbidden:
                 console.log('Forbidden after upscoping attempt');
@@ -667,7 +676,8 @@ try {
 
 #### Why this change?
 
-Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was semantically inconsistent.
+Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was
+semantically inconsistent.
 
 The new design:
 
@@ -708,7 +718,7 @@ The `OAUTH_ERRORS` constant has also been removed.
 **Before (v1):**
 
 ```typescript
-import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/client';
 
 try {
     await refreshToken();
@@ -726,7 +736,7 @@ try {
 **After (v2):**
 
 ```typescript
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await refreshToken();
@@ -747,6 +757,46 @@ try {
 }
 ```
 
+### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+
+The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let the server decide the lifetime.
+
+This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
+
+**Before (v1):**
+
+```typescript
+// Requesting unlimited lifetime by passing null
+const result = await client.callTool({
+    name: 'long-task',
+    arguments: {},
+    task: { ttl: null }
+});
+
+// Handler context had number | null | undefined
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const ttl: number | null | undefined = ctx.task?.requestedTtl;
+});
+```
+
+**After (v2):**
+
+```typescript
+// Omit ttl to let the server decide (server may return null for unlimited)
+const result = await client.callTool({
+    name: 'long-task',
+    arguments: {},
+    task: {}
+});
+
+// Handler context is now number | undefined
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const ttl: number | undefined = ctx.task?.requestedTtl;
+});
+```
+
+> **Note:** These task APIs are marked `@experimental` and may change without notice.
+
 ## Enhancements
 
 ### Automatic JSON Schema validator selection by runtime
@@ -764,11 +814,11 @@ This means Cloudflare Workers users no longer need to explicitly pass the valida
 import { McpServer, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
 
 const server = new McpServer(
-  { name: 'my-server', version: '1.0.0' },
-  {
-    capabilities: { tools: {} },
-    jsonSchemaValidator: new CfWorkerJsonSchemaValidator() // Required in v1
-  }
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator() // Required in v1
+    }
 );
 ```
 
@@ -778,9 +828,9 @@ const server = new McpServer(
 import { McpServer } from '@modelcontextprotocol/server';
 
 const server = new McpServer(
-  { name: 'my-server', version: '1.0.0' },
-  { capabilities: { tools: {} } }
-  // Validator auto-selected based on runtime
+    { name: 'my-server', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+    // Validator auto-selected based on runtime
 );
 ```
 

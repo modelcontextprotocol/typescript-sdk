@@ -1,4 +1,4 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/types.js';
+import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -77,7 +77,7 @@ export interface Transport {
      *
      * This method should only be called after callbacks are installed, or else messages may be lost.
      *
-     * NOTE: This method should not be called explicitly when using {@linkcode @modelcontextprotocol/client!client/client.Client | Client}, {@linkcode @modelcontextprotocol/server!server/server.Server | Server}, or {@linkcode @modelcontextprotocol/server!index.Protocol | Protocol} classes, as they will implicitly call {@linkcode Transport.start | start()}.
+     * NOTE: This method should not be called explicitly when using {@linkcode @modelcontextprotocol/client!client/client.Client | Client} or {@linkcode @modelcontextprotocol/server!server/server.Server | Server} classes, as they will implicitly call {@linkcode Transport.start | start()}.
      */
     start(): Promise<void>;
 
