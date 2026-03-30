@@ -188,6 +188,21 @@ export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | un
     return undefined;
 }
 
+function getDotPath(path: (string | number)[]) {
+    if (path.length === 0) {
+        return 'object root';
+    }
+    return path.reduce((acc, seg, index) => {
+        if (index === 0) {
+            return String(seg);
+        }
+        if (typeof seg === 'number') {
+            return `${acc}[${seg}]`;
+        }
+        return `${acc}.${seg}`;
+    }, '');
+}
+
 // --- Error message extraction ---
 /**
  * Safely extracts an error message from a parse result error.
@@ -195,15 +210,20 @@ export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | un
  */
 export function getParseErrorMessage(error: unknown): string {
     if (error && typeof error === 'object') {
+        // When present, prioritize zod issues and format as a message and path
+        if ('issues' in error && Array.isArray(error.issues) && error.issues.length > 0) {
+            return error.issues
+                .map((i: { message: string; path?: (string | number)[] }) => {
+                    if (!i.path) {
+                        return i.message;
+                    }
+                    return `${i.message} at ${getDotPath(i.path)}`;
+                })
+                .join('\n');
+        }
         // Try common error structures
         if ('message' in error && typeof error.message === 'string') {
             return error.message;
-        }
-        if ('issues' in error && Array.isArray(error.issues) && error.issues.length > 0) {
-            const firstIssue = error.issues[0];
-            if (firstIssue && typeof firstIssue === 'object' && 'message' in firstIssue) {
-                return String(firstIssue.message);
-            }
         }
         // Fallback: try to stringify the error
         try {
