@@ -532,12 +532,53 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 }
 
 /**
+ * In-flight auth promises keyed by provider, used to deduplicate concurrent
+ * auth() calls. When multiple requests detect a 401 at the same time, only the
+ * first caller performs the actual token refresh; subsequent callers await the
+ * same promise. This prevents rotating refresh tokens from being used more than
+ * once, which would trigger RFC 6819 §5.2.2.3 replay detection and revoke the
+ * entire token family.
+ */
+const pendingAuthRequests = new Map<OAuthClientProvider, Promise<AuthResult>>();
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
+ *
+ * Concurrent calls for the same provider are deduplicated: only one auth flow
+ * runs at a time, and all concurrent callers receive the same result. This is
+ * critical for OAuth servers that use rotating refresh tokens, where concurrent
+ * refresh requests would invalidate each other.
  */
 export async function auth(
+    provider: OAuthClientProvider,
+    options: {
+        serverUrl: string | URL;
+        authorizationCode?: string;
+        scope?: string;
+        resourceMetadataUrl?: URL;
+        fetchFn?: FetchLike;
+    }
+): Promise<AuthResult> {
+    // If there's already an in-flight auth for this provider, reuse it
+    const pending = pendingAuthRequests.get(provider);
+    if (pending) {
+        return await pending;
+    }
+
+    const authPromise = authWithErrorHandling(provider, options);
+    pendingAuthRequests.set(provider, authPromise);
+
+    try {
+        return await authPromise;
+    } finally {
+        pendingAuthRequests.delete(provider);
+    }
+}
+
+async function authWithErrorHandling(
     provider: OAuthClientProvider,
     options: {
         serverUrl: string | URL;
