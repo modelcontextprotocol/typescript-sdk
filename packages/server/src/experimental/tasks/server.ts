@@ -22,7 +22,7 @@ import type {
     ResponseMessage,
     ResultTypeMap
 } from '@modelcontextprotocol/core';
-import { getResultSchema, GetTaskPayloadResultSchema } from '@modelcontextprotocol/core';
+import { getResultSchema, GetTaskPayloadResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 
@@ -122,7 +122,7 @@ export class ExperimentalServerTasks {
 
         // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !clientCapabilities?.sampling?.tools) {
-            throw new Error('Client does not support sampling tools capability.');
+            throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
@@ -221,13 +221,13 @@ export class ExperimentalServerTasks {
         switch (mode) {
             case 'url': {
                 if (!clientCapabilities?.elicitation?.url) {
-                    throw new Error('Client does not support url elicitation.');
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
                 }
                 break;
             }
             case 'form': {
                 if (!clientCapabilities?.elicitation?.form) {
-                    throw new Error('Client does not support form elicitation.');
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
                 }
                 break;
             }
