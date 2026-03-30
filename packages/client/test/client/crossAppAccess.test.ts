@@ -1,4 +1,5 @@
 import type { FetchLike } from '@modelcontextprotocol/core';
+import { OAuthError } from '@modelcontextprotocol/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from '../../src/client/crossAppAccess.js';
@@ -174,14 +175,15 @@ describe('crossAppAccess', () => {
         });
 
         it('handles OAuth error responses', async () => {
-            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
-                ok: false,
-                status: 400,
-                json: async () => ({
-                    error: 'invalid_grant',
-                    error_description: 'Audience validation failed'
-                })
-            } as Response);
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue(
+                new Response(
+                    JSON.stringify({
+                        error: 'invalid_grant',
+                        error_description: 'Audience validation failed'
+                    }),
+                    { status: 400 }
+                )
+            );
 
             await expect(
                 requestJwtAuthorizationGrant({
@@ -193,15 +195,13 @@ describe('crossAppAccess', () => {
                     clientSecret: 'secret',
                     fetchFn: mockFetch
                 })
-            ).rejects.toThrow('Token exchange failed: invalid_grant - Audience validation failed');
+            ).rejects.toThrow(OAuthError);
         });
 
         it('handles non-OAuth error responses', async () => {
-            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
-                ok: false,
-                status: 500,
-                json: async () => ({ message: 'Internal server error' })
-            } as Response);
+            const mockFetch = vi
+                .fn<FetchLike>()
+                .mockResolvedValue(new Response(JSON.stringify({ message: 'Internal server error' }), { status: 500 }));
 
             await expect(
                 requestJwtAuthorizationGrant({
@@ -213,7 +213,7 @@ describe('crossAppAccess', () => {
                     clientSecret: 'secret',
                     fetchFn: mockFetch
                 })
-            ).rejects.toThrow('Token exchange failed with status 500');
+            ).rejects.toThrow(OAuthError);
         });
     });
 
@@ -385,14 +385,15 @@ describe('crossAppAccess', () => {
         });
 
         it('handles OAuth error responses', async () => {
-            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
-                ok: false,
-                status: 400,
-                json: async () => ({
-                    error: 'invalid_grant',
-                    error_description: 'JWT signature verification failed'
-                })
-            } as Response);
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue(
+                new Response(
+                    JSON.stringify({
+                        error: 'invalid_grant',
+                        error_description: 'JWT signature verification failed'
+                    }),
+                    { status: 400 }
+                )
+            );
 
             await expect(
                 exchangeJwtAuthGrant({
@@ -402,7 +403,7 @@ describe('crossAppAccess', () => {
                     clientSecret: 'secret',
                     fetchFn: mockFetch
                 })
-            ).rejects.toThrow('JWT grant exchange failed: invalid_grant - JWT signature verification failed');
+            ).rejects.toThrow(OAuthError);
         });
 
         it('validates token response with schema', async () => {

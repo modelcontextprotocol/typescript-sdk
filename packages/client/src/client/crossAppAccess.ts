@@ -8,11 +8,11 @@
  * @module
  */
 
-import type { FetchLike } from '@modelcontextprotocol/core';
-import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthTokens } from '@modelcontextprotocol/core';
+import { IdJagTokenExchangeResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
 
 import type { ClientAuthMethod } from './auth.js';
-import { applyClientAuthentication, discoverAuthorizationServerMetadata } from './auth.js';
+import { applyClientAuthentication, discoverAuthorizationServerMetadata, parseErrorResponse } from './auth.js';
 
 /**
  * Options for requesting a JWT Authorization Grant via RFC 8693 Token Exchange.
@@ -104,7 +104,7 @@ export interface JwtAuthGrantResult {
  *
  * @param options - Configuration for the token exchange request
  * @returns The JWT Authorization Grant and related metadata
- * @throws {Error} If the token exchange fails or returns an error response
+ * @throws {OAuthError} If the token exchange fails or returns an error response
  *
  * @example
  * ```ts
@@ -154,16 +154,7 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
     });
 
     if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}));
-
-        // Try to parse as OAuth error response
-        const parseResult = OAuthErrorResponseSchema.safeParse(errorBody);
-        if (parseResult.success) {
-            const { error, error_description } = parseResult.data;
-            throw new Error(`Token exchange failed: ${error}${error_description ? ` - ${error_description}` : ''}`);
-        }
-
-        throw new Error(`Token exchange failed with status ${response.status}: ${JSON.stringify(errorBody)}`);
+        throw await parseErrorResponse(response);
     }
 
     const parseResult = IdJagTokenExchangeResponseSchema.safeParse(await response.json());
@@ -186,7 +177,7 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
  *
  * @param options - Configuration including IdP URL for discovery
  * @returns The JWT Authorization Grant and related metadata
- * @throws {Error} If discovery fails or the token exchange fails
+ * @throws {OAuthError} If the token exchange fails or returns an error response
  *
  * @example
  * ```ts
@@ -226,7 +217,7 @@ export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequest
  *
  * @param options - Configuration for the JWT grant exchange
  * @returns OAuth tokens (access token, token type, etc.)
- * @throws {Error} If the exchange fails or returns an error response
+ * @throws {OAuthError} If the exchange fails or returns an error response
  *
  * Defaults to `client_secret_basic` (HTTP Basic Authorization header), matching
  * `CrossAppAccessProvider`'s declared `token_endpoint_auth_method` and the
@@ -257,7 +248,7 @@ export async function exchangeJwtAuthGrant(options: {
      */
     authMethod?: ClientAuthMethod;
     fetchFn?: FetchLike;
-}): Promise<{ access_token: string; token_type: string; expires_in?: number; scope?: string }> {
+}): Promise<OAuthTokens> {
     const { tokenEndpoint, jwtAuthGrant, clientId, clientSecret, authMethod = 'client_secret_basic', fetchFn = fetch } = options;
 
     // Prepare JWT bearer grant request per RFC 7523
@@ -279,16 +270,7 @@ export async function exchangeJwtAuthGrant(options: {
     });
 
     if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}));
-
-        // Try to parse as OAuth error response
-        const parseResult = OAuthErrorResponseSchema.safeParse(errorBody);
-        if (parseResult.success) {
-            const { error, error_description } = parseResult.data;
-            throw new Error(`JWT grant exchange failed: ${error}${error_description ? ` - ${error_description}` : ''}`);
-        }
-
-        throw new Error(`JWT grant exchange failed with status ${response.status}: ${JSON.stringify(errorBody)}`);
+        throw await parseErrorResponse(response);
     }
 
     const responseBody = await response.json();
