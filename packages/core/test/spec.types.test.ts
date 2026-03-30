@@ -25,16 +25,17 @@ import type * as SDKTypes from '../src/types/index.js';
  * Note: this slightly relaxes the spec side of the bidirectional check — if the spec
  * ever tightened an optional field to required, this wrapper could mask that change.
  */
-type DeepAddUndefinedToOptionals<T> =
-    T extends (infer U)[]
-        ? DeepAddUndefinedToOptionals<U>[]
-        : T extends object
-          ? { [K in keyof T]: string extends K
+type DeepAddUndefinedToOptionals<T> = T extends (infer U)[]
+    ? DeepAddUndefinedToOptionals<U>[]
+    : T extends object
+      ? {
+            [K in keyof T]: string extends K
                 ? T[K] // preserve index signature values unchanged
                 : undefined extends T[K]
                   ? DeepAddUndefinedToOptionals<Exclude<T[K], undefined>> | undefined
-                  : DeepAddUndefinedToOptionals<T[K]> }
-          : T;
+                  : DeepAddUndefinedToOptionals<T[K]>;
+        }
+      : T;
 
 // Shorthand alias for wrapping spec types in the bidirectional checks below.
 type Spec<T> = DeepAddUndefinedToOptionals<T>;
@@ -294,7 +295,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ToolListChangedNotification: (sdk: WithJSONRPC<SDKTypes.ToolListChangedNotification>, spec: Spec<SpecTypes.ToolListChangedNotification>) => {
+    ToolListChangedNotification: (
+        sdk: WithJSONRPC<SDKTypes.ToolListChangedNotification>,
+        spec: Spec<SpecTypes.ToolListChangedNotification>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -319,7 +323,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ResourceUpdatedNotification: (sdk: WithJSONRPC<SDKTypes.ResourceUpdatedNotification>, spec: Spec<SpecTypes.ResourceUpdatedNotification>) => {
+    ResourceUpdatedNotification: (
+        sdk: WithJSONRPC<SDKTypes.ResourceUpdatedNotification>,
+        spec: Spec<SpecTypes.ResourceUpdatedNotification>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -458,7 +465,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    UntitledSingleSelectEnumSchema: (sdk: SDKTypes.UntitledSingleSelectEnumSchema, spec: Spec<SpecTypes.UntitledSingleSelectEnumSchema>) => {
+    UntitledSingleSelectEnumSchema: (
+        sdk: SDKTypes.UntitledSingleSelectEnumSchema,
+        spec: Spec<SpecTypes.UntitledSingleSelectEnumSchema>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -534,7 +544,10 @@ const sdkTypeChecks = {
         // @ts-expect-error: SDK _meta adds "io.modelcontextprotocol/related-task" not in spec; index sig mismatch under exactOptionalPropertyTypes
         spec = sdk;
     },
-    LoggingMessageNotification: (sdk: WithJSONRPC<SDKTypes.LoggingMessageNotification>, spec: Spec<SpecTypes.LoggingMessageNotification>) => {
+    LoggingMessageNotification: (
+        sdk: WithJSONRPC<SDKTypes.LoggingMessageNotification>,
+        spec: Spec<SpecTypes.LoggingMessageNotification>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -710,7 +723,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ListResourcesResultResponse: (sdk: TypedResultResponse<SDKTypes.ListResourcesResult>, spec: Spec<SpecTypes.ListResourcesResultResponse>) => {
+    ListResourcesResultResponse: (
+        sdk: TypedResultResponse<SDKTypes.ListResourcesResult>,
+        spec: Spec<SpecTypes.ListResourcesResultResponse>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -721,7 +737,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ReadResourceResultResponse: (sdk: TypedResultResponse<SDKTypes.ReadResourceResult>, spec: Spec<SpecTypes.ReadResourceResultResponse>) => {
+    ReadResourceResultResponse: (
+        sdk: TypedResultResponse<SDKTypes.ReadResourceResult>,
+        spec: Spec<SpecTypes.ReadResourceResultResponse>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
