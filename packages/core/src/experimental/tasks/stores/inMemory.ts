@@ -11,8 +11,8 @@ interface StoredTask {
     task: Task;
     request: Request;
     requestId: RequestId;
-    sessionId?: string;
-    result?: Result;
+    sessionId?: string | undefined;
+    result?: Result | undefined;
 }
 
 /**
@@ -183,7 +183,7 @@ export class InMemoryTaskStore implements TaskStore {
     }
 
     /** {@inheritDoc TaskStore.listTasks} */
-    async listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
+    async listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string | undefined }> {
         const PAGE_SIZE = 10;
 
         // Filter tasks by session ownership before pagination

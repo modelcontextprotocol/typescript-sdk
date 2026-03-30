@@ -259,7 +259,7 @@ Pass `onprogress` to receive incremental progress notifications from long-runnin
 const result = await client.callTool(
     { name: 'long-operation', arguments: {} },
     {
-        onprogress: ({ progress, total }: { progress: number; total?: number }) => {
+        onprogress: ({ progress, total }: { progress: number; total?: number | undefined }) => {
             console.log(`Progress: ${progress}/${total ?? '?'}`);
         },
         resetTimeoutOnProgress: true,

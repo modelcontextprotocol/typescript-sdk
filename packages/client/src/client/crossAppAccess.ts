@@ -51,17 +51,17 @@ export interface RequestJwtAuthGrantOptions {
      * not mandate confidential clients for token exchange. Omitting this parameter
      * omits `client_secret` from the request body.
      */
-    clientSecret?: string;
+    clientSecret?: string | undefined;
 
     /**
      * Optional space-separated list of scopes to request for the target MCP server.
      */
-    scope?: string;
+    scope?: string | undefined;
 
     /**
      * Custom fetch implementation. Defaults to global fetch.
      */
-    fetchFn?: FetchLike;
+    fetchFn?: FetchLike | undefined;
 }
 
 /**
@@ -88,12 +88,12 @@ export interface JwtAuthGrantResult {
     /**
      * Optional expiration time in seconds for the JWT Authorization Grant.
      */
-    expiresIn?: number;
+    expiresIn?: number | undefined;
 
     /**
      * Optional scope granted by the IdP (may differ from requested scope).
      */
-    scope?: string;
+    scope?: string | undefined;
 }
 
 /**
@@ -257,7 +257,7 @@ export async function exchangeJwtAuthGrant(options: {
      */
     authMethod?: ClientAuthMethod;
     fetchFn?: FetchLike;
-}): Promise<{ access_token: string; token_type: string; expires_in?: number; scope?: string }> {
+}): Promise<{ access_token: string; token_type: string; expires_in?: number | undefined; scope?: string | undefined }> {
     const { tokenEndpoint, jwtAuthGrant, clientId, clientSecret, authMethod = 'client_secret_basic', fetchFn = fetch } = options;
 
     // Prepare JWT bearer grant request per RFC 7523

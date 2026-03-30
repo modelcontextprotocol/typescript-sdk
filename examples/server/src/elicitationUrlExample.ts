@@ -128,7 +128,7 @@ interface ElicitationMetadata {
     completeResolver: () => void;
     createdAt: Date;
     sessionId: string;
-    completionNotifier?: () => Promise<void>;
+    completionNotifier?: (() => Promise<void>) | undefined;
 }
 
 const elicitationsMap = new Map<string, ElicitationMetadata>();

@@ -100,7 +100,7 @@ export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
-    private _instructions?: string;
+    private _instructions?: string | undefined;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _experimental?: { tasks: ExperimentalServerTasks };
 
@@ -116,9 +116,10 @@ export class Server extends Protocol<ServerContext> {
         private _serverInfo: Implementation,
         options?: ServerOptions
     ) {
+        const tasks = extractTaskManagerOptions(options?.capabilities?.tasks);
         super({
             ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
+            ...(tasks === undefined ? {} : { tasks })
         });
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
@@ -417,11 +418,19 @@ export class Server extends Protocol<ServerContext> {
     }
 
     protected assertTaskCapability(method: string): void {
-        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
+        assertClientRequestTaskCapability(
+            this._clientCapabilities?.tasks?.requests as Parameters<typeof assertClientRequestTaskCapability>[0],
+            method,
+            'Client'
+        );
     }
 
     protected assertTaskHandlerCapability(method: string): void {
-        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
+        assertToolsCallTaskCapability(
+            this._capabilities?.tasks?.requests as Parameters<typeof assertToolsCallTaskCapability>[0],
+            method,
+            'Server'
+        );
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {

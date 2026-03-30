@@ -8,14 +8,7 @@
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 
-import type {
-    ElicitRequest,
-    ElicitRequestURLParams,
-    ElicitResult,
-    ListToolsRequest,
-    OAuthClientMetadata,
-    ResourceLink
-} from '@modelcontextprotocol/client';
+import type { ElicitRequest, ElicitRequestURLParams, ElicitResult, OAuthClientMetadata, ResourceLink } from '@modelcontextprotocol/client';
 import {
     Client,
     getDisplayName,
@@ -659,11 +652,7 @@ async function listTools(): Promise<void> {
     }
 
     try {
-        const toolsRequest: ListToolsRequest = {
-            method: 'tools/list',
-            params: {}
-        };
-        const toolsResult = await client.request(toolsRequest);
+        const toolsResult = await client.request({ method: 'tools/list' });
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {

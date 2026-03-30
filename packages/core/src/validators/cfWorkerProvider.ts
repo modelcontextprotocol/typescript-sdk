@@ -58,7 +58,7 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
         // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
-        const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], this.draft, this.shortcircuit);
+        const validator = new Validator(schema as unknown as ConstructorParameters<typeof Validator>[0], this.draft, this.shortcircuit);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const result = validator.validate(input);

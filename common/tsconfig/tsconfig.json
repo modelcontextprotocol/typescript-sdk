@@ -10,6 +10,7 @@
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
         "libReplacement": false,
+        "exactOptionalPropertyTypes": true,
         "noImplicitReturns": true,
         "incremental": true,
         "declaration": true,

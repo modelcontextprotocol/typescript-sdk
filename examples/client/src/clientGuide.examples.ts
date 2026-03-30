@@ -222,7 +222,7 @@ async function callTool_progress(client: Client) {
     const result = await client.callTool(
         { name: 'long-operation', arguments: {} },
         {
-            onprogress: ({ progress, total }: { progress: number; total?: number }) => {
+            onprogress: ({ progress, total }: { progress: number; total?: number | undefined }) => {
                 console.log(`Progress: ${progress}/${total ?? '?'}`);
             },
             resetTimeoutOnProgress: true,

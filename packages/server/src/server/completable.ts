@@ -5,7 +5,7 @@ export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 export type CompleteCallback<T extends StandardSchemaWithJSON = StandardSchemaWithJSON> = (
     value: StandardSchemaWithJSON.InferInput<T>,
     context?: {
-        arguments?: Record<string, string>;
+        arguments?: Record<string, string> | undefined;
     }
 ) => StandardSchemaWithJSON.InferInput<T>[] | Promise<StandardSchemaWithJSON.InferInput<T>[]>;
 

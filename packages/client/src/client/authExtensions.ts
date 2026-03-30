@@ -29,9 +29,9 @@ export function createPrivateKeyJwtAuth(options: {
     subject: string;
     privateKey: string | Uint8Array | Record<string, unknown>;
     alg: string;
-    audience?: string | URL;
-    lifetimeSeconds?: number;
-    claims?: Record<string, unknown>;
+    audience?: string | URL | undefined;
+    lifetimeSeconds?: number | undefined;
+    claims?: Record<string, unknown> | undefined;
 }): AddClientAuthentication {
     return async (_headers, params, url, metadata) => {
         // Lazy import to avoid heavy dependency unless used
@@ -429,7 +429,7 @@ export interface CrossAppAccessContext {
     /**
      * Optional scope being requested for the MCP server.
      */
-    scope?: string;
+    scope?: string | undefined;
 
     /**
      * Fetch function to use for HTTP requests (e.g., for IdP token exchange).
@@ -545,9 +545,9 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
     private _clientMetadata: OAuthClientMetadata;
     private _assertionCallback: AssertionCallback;
     private _fetchFn: FetchLike;
-    private _authorizationServerUrl?: string;
-    private _resourceUrl?: string;
-    private _scope?: string;
+    private _authorizationServerUrl?: string | undefined;
+    private _resourceUrl?: string | undefined;
+    private _scope?: string | undefined;
 
     constructor(options: CrossAppAccessProviderOptions) {
         this._clientInfo = {

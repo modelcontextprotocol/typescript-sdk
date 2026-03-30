@@ -77,7 +77,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      *
      * If not provided, session management is disabled (stateless mode).
      */
-    sessionIdGenerator?: () => string;
+    sessionIdGenerator?: (() => string) | undefined;
 
     /**
      * A callback for session initialization events
@@ -86,7 +86,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * and need to keep track of them.
      * @param sessionId The generated session ID
      */
-    onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+    onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
 
     /**
      * A callback for session close events
@@ -98,48 +98,48 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * session open/running.
      * @param sessionId The session ID that was closed
      */
-    onsessionclosed?: (sessionId: string) => void | Promise<void>;
+    onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
 
     /**
      * If `true`, the server will return JSON responses instead of starting an SSE stream.
      * This can be useful for simple request/response scenarios without streaming.
      * Default is `false` (SSE streams are preferred).
      */
-    enableJsonResponse?: boolean;
+    enableJsonResponse?: boolean | undefined;
 
     /**
      * Event store for resumability support
      * If provided, resumability will be enabled, allowing clients to reconnect and resume messages
      */
-    eventStore?: EventStore;
+    eventStore?: EventStore | undefined;
 
     /**
      * List of allowed `Host` header values for DNS rebinding protection.
      * If not specified, host validation is disabled.
      * @deprecated Use external middleware for host validation instead.
      */
-    allowedHosts?: string[];
+    allowedHosts?: string[] | undefined;
 
     /**
      * List of allowed `Origin` header values for DNS rebinding protection.
      * If not specified, origin validation is disabled.
      * @deprecated Use external middleware for origin validation instead.
      */
-    allowedOrigins?: string[];
+    allowedOrigins?: string[] | undefined;
 
     /**
      * Enable DNS rebinding protection (requires `allowedHosts` and/or `allowedOrigins` to be configured).
      * Default is `false` for backwards compatibility.
      * @deprecated Use external middleware for DNS rebinding protection instead.
      */
-    enableDnsRebindingProtection?: boolean;
+    enableDnsRebindingProtection?: boolean | undefined;
 
     /**
      * Retry interval in milliseconds to suggest to clients in SSE `retry` field.
      * When set, the server will send a `retry` field in SSE priming events to control
      * client reconnection timing for polling behavior.
      */
-    retryInterval?: number;
+    retryInterval?: number | undefined;
 
     /**
      * List of protocol versions that this transport will accept.
@@ -151,7 +151,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      *
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
-    supportedProtocolVersions?: string[];
+    supportedProtocolVersions?: string[] | undefined;
 }
 
 /**
@@ -167,7 +167,7 @@ export interface HandleRequestOptions {
     /**
      * Authentication info from middleware. If provided, will be passed to message handlers.
      */
-    authInfo?: AuthInfo;
+    authInfo?: AuthInfo | undefined;
 }
 
 /**
@@ -231,19 +231,19 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
     private _standaloneSseStreamId: string = '_GET_stream';
-    private _eventStore?: EventStore;
-    private _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
-    private _onsessionclosed?: (sessionId: string) => void | Promise<void>;
-    private _allowedHosts?: string[];
-    private _allowedOrigins?: string[];
+    private _eventStore?: EventStore | undefined;
+    private _onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
+    private _onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
+    private _allowedHosts?: string[] | undefined;
+    private _allowedOrigins?: string[] | undefined;
     private _enableDnsRebindingProtection: boolean;
-    private _retryInterval?: number;
+    private _retryInterval?: number | undefined;
     private _supportedProtocolVersions: string[];
 
-    sessionId?: string;
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    sessionId?: string | undefined;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined;
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
@@ -707,7 +707,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (!hasRequests) {
                 // if it only contains notifications or responses, return 202
                 for (const message of messages) {
-                    this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
+                    this.onmessage?.(message, { ...(options?.authInfo === undefined ? {} : { authInfo: options.authInfo }), requestInfo });
                 }
                 return new Response(null, { status: 202 });
             }
@@ -741,7 +741,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     for (const message of messages) {
-                        this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
+                        this.onmessage?.(message, {
+                            ...(options?.authInfo === undefined ? {} : { authInfo: options.authInfo }),
+                            requestInfo
+                        });
                     }
                 });
             }
@@ -811,7 +814,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     };
                 }
 
-                this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
+                this.onmessage?.(message, {
+                    ...(options?.authInfo === undefined ? {} : { authInfo: options.authInfo }),
+                    requestInfo,
+                    ...(closeSSEStream === undefined ? {} : { closeSSEStream }),
+                    ...(closeStandaloneSSEStream === undefined ? {} : { closeStandaloneSSEStream })
+                });
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready

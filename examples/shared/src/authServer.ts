@@ -289,7 +289,7 @@ export function createProtectedResourceMetadataRouter(resourcePath = '/mcp'): Ro
  */
 export async function verifyAccessToken(
     token: string,
-    options?: { strictResource?: boolean; expectedResource?: URL }
+    options?: { strictResource?: boolean | undefined; expectedResource?: URL | undefined }
 ): Promise<{
     token: string;
     clientId: string;

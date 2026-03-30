@@ -4,6 +4,7 @@ import * as z from 'zod/v4';
 import type { ZodType } from 'zod/v4';
 
 import type {
+    CreateTaskOptions,
     QueuedMessage,
     QueuedNotification,
     QueuedRequest,
@@ -31,8 +32,7 @@ import type {
     RequestId,
     Result,
     ServerCapabilities,
-    Task,
-    TaskCreationParams
+    Task
 } from '../../src/types/index.js';
 import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/index.js';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
@@ -86,7 +86,7 @@ function createMockTaskStore(options?: {
 }): TaskStore & { [K in keyof TaskStore]: MockInstance } {
     const tasks: Record<string, Task & { result?: Result }> = {};
     return {
-        createTask: vi.fn((taskParams: TaskCreationParams, _1: RequestId, _2: Request) => {
+        createTask: vi.fn((taskParams: CreateTaskOptions, _1: RequestId, _2: Request) => {
             // Generate a unique task ID
             const taskId = `test-task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const createdAt = new Date().toISOString();

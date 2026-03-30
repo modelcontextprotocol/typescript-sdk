@@ -1,4 +1,3 @@
-import type { ListToolsRequest } from '@modelcontextprotocol/client';
 import { Client, SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
@@ -125,11 +124,7 @@ async function connectWithBackwardsCompatibility(url: string): Promise<{
  */
 async function listTools(client: Client): Promise<void> {
     try {
-        const toolsRequest: ListToolsRequest = {
-            method: 'tools/list',
-            params: {}
-        };
-        const toolsResult = await client.request(toolsRequest);
+        const toolsResult = await client.request({ method: 'tools/list' });
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {

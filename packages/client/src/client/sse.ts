@@ -35,7 +35,7 @@ export type SSEClientTransportOptions = {
      * Interactive flows: after {@linkcode UnauthorizedError}, redirect the user, then call
      * {@linkcode SSEClientTransport.finishAuth | finishAuth} with the authorization code before reconnecting.
      */
-    authProvider?: AuthProvider | OAuthClientProvider;
+    authProvider?: (AuthProvider | OAuthClientProvider) | undefined;
 
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
@@ -45,17 +45,17 @@ export type SSEClientTransportOptions = {
      * also given. This can be worked around by setting the `Authorization` header
      * manually.
      */
-    eventSourceInit?: EventSourceInit;
+    eventSourceInit?: EventSourceInit | undefined;
 
     /**
      * Customizes recurring `POST` requests to the server.
      */
-    requestInit?: RequestInit;
+    requestInit?: RequestInit | undefined;
 
     /**
      * Custom fetch implementation used for all network requests.
      */
-    fetch?: FetchLike;
+    fetch?: FetchLike | undefined;
 };
 
 /**
@@ -65,22 +65,22 @@ export type SSEClientTransportOptions = {
  */
 export class SSEClientTransport implements Transport {
     private _eventSource?: EventSource;
-    private _endpoint?: URL;
+    private _endpoint?: URL | undefined;
     private _abortController?: AbortController;
     private _url: URL;
-    private _resourceMetadataUrl?: URL;
-    private _scope?: string;
-    private _eventSourceInit?: EventSourceInit;
-    private _requestInit?: RequestInit;
-    private _authProvider?: AuthProvider;
+    private _resourceMetadataUrl?: URL | undefined;
+    private _scope?: string | undefined;
+    private _eventSourceInit?: EventSourceInit | undefined;
+    private _requestInit?: RequestInit | undefined;
+    private _authProvider?: AuthProvider | undefined;
     private _oauthProvider?: OAuthClientProvider;
-    private _fetch?: FetchLike;
+    private _fetch?: FetchLike | undefined;
     private _fetchWithInit: FetchLike;
-    private _protocolVersion?: string;
+    private _protocolVersion?: string | undefined;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     constructor(url: URL, opts?: SSEClientTransportOptions) {
         this._url = url;
@@ -98,7 +98,7 @@ export class SSEClientTransport implements Transport {
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
-    private _last401Response?: Response;
+    private _last401Response?: Response | undefined;
 
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
@@ -263,7 +263,7 @@ export class SSEClientTransport implements Transport {
                 headers,
                 body: JSON.stringify(message),
                 signal: this._abortController?.signal
-            };
+            } as RequestInit;
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {

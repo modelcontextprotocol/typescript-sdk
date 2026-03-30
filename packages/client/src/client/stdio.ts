@@ -16,28 +16,28 @@ export type StdioServerParameters = {
     /**
      * Command line arguments to pass to the executable.
      */
-    args?: string[];
+    args?: string[] | undefined;
 
     /**
      * The environment to use when spawning the process.
      *
      * If not specified, the result of {@linkcode getDefaultEnvironment} will be used.
      */
-    env?: Record<string, string>;
+    env?: Record<string, string> | undefined;
 
     /**
      * How to handle stderr of the child process. This matches the semantics of Node's `child_process.spawn`.
      *
      * The default is `"inherit"`, meaning messages to stderr will be printed to the parent process's stderr.
      */
-    stderr?: IOType | Stream | number;
+    stderr?: IOType | Stream | number | undefined;
 
     /**
      * The working directory to use when spawning the process.
      *
      * If not specified, the current working directory will be inherited.
      */
-    cwd?: string;
+    cwd?: string | undefined;
 };
 
 /**
@@ -91,14 +91,14 @@ export function getDefaultEnvironment(): Record<string, string> {
  * This transport is only available in Node.js environments.
  */
 export class StdioClientTransport implements Transport {
-    private _process?: ChildProcess;
+    private _process?: ChildProcess | undefined;
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     constructor(server: StdioServerParameters) {
         this._serverParams = server;

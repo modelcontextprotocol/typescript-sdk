@@ -151,7 +151,7 @@ export interface OAuthClientProvider {
     /**
      * External URL the server should use to fetch client metadata document
      */
-    clientMetadataUrl?: string;
+    clientMetadataUrl?: string | undefined;
 
     /**
      * Metadata about this OAuth client.
@@ -365,7 +365,7 @@ export interface OAuthClientProvider {
 // `discoverAuthorizationServerMetadata()` to return the successful discovery URL.
 export interface OAuthDiscoveryState extends OAuthServerInfo {
     /** The URL at which the protected resource metadata was found, if available. */
-    resourceMetadataUrl?: string;
+    resourceMetadataUrl?: string | undefined;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -541,10 +541,10 @@ export async function auth(
     provider: OAuthClientProvider,
     options: {
         serverUrl: string | URL;
-        authorizationCode?: string;
-        scope?: string;
-        resourceMetadataUrl?: URL;
-        fetchFn?: FetchLike;
+        authorizationCode?: string | undefined;
+        scope?: string | undefined;
+        resourceMetadataUrl?: URL | undefined;
+        fetchFn?: FetchLike | undefined;
     }
 ): Promise<AuthResult> {
     try {
@@ -576,10 +576,10 @@ async function authInternal(
         fetchFn
     }: {
         serverUrl: string | URL;
-        authorizationCode?: string;
-        scope?: string;
-        resourceMetadataUrl?: URL;
-        fetchFn?: FetchLike;
+        authorizationCode?: string | undefined;
+        scope?: string | undefined;
+        resourceMetadataUrl?: URL | undefined;
+        fetchFn?: FetchLike | undefined;
     }
 ): Promise<AuthResult> {
     // Check if the provider has cached discovery state to skip discovery
@@ -813,7 +813,11 @@ export async function selectResourceURL(
 /**
  * Extract `resource_metadata`, `scope`, and `error` from `WWW-Authenticate` header.
  */
-export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
+export function extractWWWAuthenticateParams(res: Response): {
+    resourceMetadataUrl?: URL | undefined;
+    scope?: string | undefined;
+    error?: string | undefined;
+} {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
     if (!authenticateHeader) {
         return {};
@@ -909,7 +913,7 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
  */
 export async function discoverOAuthProtectedResourceMetadata(
     serverUrl: string | URL,
-    opts?: { protocolVersion?: string; resourceMetadataUrl?: string | URL },
+    opts?: { protocolVersion?: string | undefined; resourceMetadataUrl?: string | URL | undefined },
     fetchFn: FetchLike = fetch
 ): Promise<OAuthProtectedResourceMetadata> {
     const response = await discoverMetadataWithFallback(serverUrl, 'oauth-protected-resource', fetchFn, {
@@ -949,7 +953,7 @@ export async function discoverOAuthProtectedResourceMetadata(
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
     try {
-        return await fetchFn(url, { headers });
+        return await fetchFn(url, { headers } as RequestInit);
     } catch (error) {
         if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
             throw error;
@@ -1012,7 +1016,7 @@ async function discoverMetadataWithFallback(
     serverUrl: string | URL,
     wellKnownType: 'oauth-authorization-server' | 'oauth-protected-resource',
     fetchFn: FetchLike,
-    opts?: { protocolVersion?: string; metadataUrl?: string | URL; metadataServerUrl?: string | URL }
+    opts?: { protocolVersion?: string | undefined; metadataUrl?: string | URL | undefined; metadataServerUrl?: string | URL | undefined }
 ): Promise<Response | undefined> {
     const issuer = new URL(serverUrl);
     const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
@@ -1052,8 +1056,8 @@ export async function discoverOAuthMetadata(
         authorizationServerUrl,
         protocolVersion
     }: {
-        authorizationServerUrl?: string | URL;
-        protocolVersion?: string;
+        authorizationServerUrl?: string | URL | undefined;
+        protocolVersion?: string | undefined;
     } = {},
     fetchFn: FetchLike = fetch
 ): Promise<OAuthMetadata | undefined> {
@@ -1171,8 +1175,8 @@ export async function discoverAuthorizationServerMetadata(
         fetchFn = fetch,
         protocolVersion = LATEST_PROTOCOL_VERSION
     }: {
-        fetchFn?: FetchLike;
-        protocolVersion?: string;
+        fetchFn?: FetchLike | undefined;
+        protocolVersion?: string | undefined;
     } = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
     const headers = {
@@ -1229,13 +1233,13 @@ export interface OAuthServerInfo {
      * The authorization server metadata (endpoints, capabilities),
      * or `undefined` if metadata discovery failed.
      */
-    authorizationServerMetadata?: AuthorizationServerMetadata;
+    authorizationServerMetadata?: AuthorizationServerMetadata | undefined;
 
     /**
      * The OAuth 2.0 Protected Resource Metadata from RFC 9728,
      * or `undefined` if the server does not support it.
      */
-    resourceMetadata?: OAuthProtectedResourceMetadata;
+    resourceMetadata?: OAuthProtectedResourceMetadata | undefined;
 }
 
 /**
@@ -1261,8 +1265,8 @@ export interface OAuthServerInfo {
 export async function discoverOAuthServerInfo(
     serverUrl: string | URL,
     opts?: {
-        resourceMetadataUrl?: URL;
-        fetchFn?: FetchLike;
+        resourceMetadataUrl?: URL | undefined;
+        fetchFn?: FetchLike | undefined;
     }
 ): Promise<OAuthServerInfo> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
@@ -1315,12 +1319,12 @@ export async function startAuthorization(
         state,
         resource
     }: {
-        metadata?: AuthorizationServerMetadata;
+        metadata?: AuthorizationServerMetadata | undefined;
         clientInformation: OAuthClientInformationMixed;
         redirectUrl: string | URL;
-        scope?: string;
-        state?: string;
-        resource?: URL;
+        scope?: string | undefined;
+        state?: string | undefined;
+        resource?: URL | undefined;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -1412,12 +1416,12 @@ export async function executeTokenRequest(
         resource,
         fetchFn
     }: {
-        metadata?: AuthorizationServerMetadata;
+        metadata?: AuthorizationServerMetadata | undefined;
         tokenRequestParams: URLSearchParams;
-        clientInformation?: OAuthClientInformationMixed;
-        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
-        fetchFn?: FetchLike;
+        clientInformation?: OAuthClientInformationMixed | undefined;
+        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'] | undefined;
+        resource?: URL | undefined;
+        fetchFn?: FetchLike | undefined;
     }
 ): Promise<OAuthTokens> {
     const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
@@ -1487,14 +1491,14 @@ export async function exchangeAuthorization(
         addClientAuthentication,
         fetchFn
     }: {
-        metadata?: AuthorizationServerMetadata;
+        metadata?: AuthorizationServerMetadata | undefined;
         clientInformation: OAuthClientInformationMixed;
         authorizationCode: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
-        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        fetchFn?: FetchLike;
+        resource?: URL | undefined;
+        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'] | undefined;
+        fetchFn?: FetchLike | undefined;
     }
 ): Promise<OAuthTokens> {
     const tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, redirectUri);
@@ -1531,12 +1535,12 @@ export async function refreshAuthorization(
         addClientAuthentication,
         fetchFn
     }: {
-        metadata?: AuthorizationServerMetadata;
+        metadata?: AuthorizationServerMetadata | undefined;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL;
-        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        fetchFn?: FetchLike;
+        resource?: URL | undefined;
+        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'] | undefined;
+        fetchFn?: FetchLike | undefined;
     }
 ): Promise<OAuthTokens> {
     const tokenRequestParams = new URLSearchParams({
@@ -1594,13 +1598,13 @@ export async function fetchToken(
         scope,
         fetchFn
     }: {
-        metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        metadata?: AuthorizationServerMetadata | undefined;
+        resource?: URL | undefined;
         /** Authorization code for the default `authorization_code` grant flow */
-        authorizationCode?: string;
+        authorizationCode?: string | undefined;
         /** Optional scope parameter from auth() options */
-        scope?: string;
-        fetchFn?: FetchLike;
+        scope?: string | undefined;
+        fetchFn?: FetchLike | undefined;
     } = {}
 ): Promise<OAuthTokens> {
     // Prefer scope from options, fallback to provider.clientMetadata.scope
@@ -1652,10 +1656,10 @@ export async function registerClient(
         scope,
         fetchFn
     }: {
-        metadata?: AuthorizationServerMetadata;
+        metadata?: AuthorizationServerMetadata | undefined;
         clientMetadata: OAuthClientMetadata;
-        scope?: string;
-        fetchFn?: FetchLike;
+        scope?: string | undefined;
+        fetchFn?: FetchLike | undefined;
     }
 ): Promise<OAuthClientInformationFull> {
     let registrationUrl: URL;

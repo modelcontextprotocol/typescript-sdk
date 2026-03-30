@@ -5,7 +5,7 @@ import { JSONRPCMessageSchema } from '../types/index.js';
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  */
 export class ReadBuffer {
-    private _buffer?: Buffer;
+    private _buffer?: Buffer | undefined;
 
     append(chunk: Buffer): void {
         this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;

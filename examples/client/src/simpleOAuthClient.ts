@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 
-import type { CallToolResult, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
+import type { CallToolResult, OAuthClientMetadata } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import open from 'open';
 
@@ -251,12 +251,7 @@ class InteractiveOAuthClient {
         }
 
         try {
-            const request: ListToolsRequest = {
-                method: 'tools/list',
-                params: {}
-            };
-
-            const result = await this.client.request(request);
+            const result = await this.client.request({ method: 'tools/list' });
 
             if (result.tools && result.tools.length > 0) {
                 console.log('\n📋 Available tools:');

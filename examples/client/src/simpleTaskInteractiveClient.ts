@@ -32,10 +32,10 @@ function getTextContent(result: { content: Array<{ type: string; text?: string }
 }
 
 async function elicitationCallback(params: {
-    mode?: string;
+    mode?: string | undefined;
     message: string;
-    requestedSchema?: object;
-}): Promise<{ action: 'accept' | 'cancel' | 'decline'; content?: Record<string, string | number | boolean | string[]> }> {
+    requestedSchema?: object | undefined;
+}): Promise<{ action: 'accept' | 'cancel' | 'decline'; content?: Record<string, string | number | boolean | string[]> | undefined }> {
     console.log(`\n[Elicitation] Server asks: ${params.message}`);
 
     // Simple terminal prompt for y/n
