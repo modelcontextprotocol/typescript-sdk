@@ -6,21 +6,23 @@
  */
 
 import type {
-    AnySchema,
+    AnyObjectSchema,
     CancelTaskResult,
     CreateMessageRequestParams,
     CreateMessageResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    GetTaskPayloadResult,
     GetTaskResult,
     ListTasksResult,
+    Request,
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    ResultTypeMap,
-    SchemaOutput
+    ResultTypeMap
 } from '@modelcontextprotocol/core';
+import { getResultSchema, GetTaskPayloadResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 
@@ -39,6 +41,10 @@ import type { Server } from '../../server/server.js';
 export class ExperimentalServerTasks {
     constructor(private readonly _server: Server) {}
 
+    private get _module() {
+        return this._server.taskManager;
+    }
+
     /**
      * Sends a request and returns an AsyncGenerator that yields response messages.
      * The generator is guaranteed to end with either a `'result'` or `'error'` message.
@@ -56,14 +62,12 @@ export class ExperimentalServerTasks {
         request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
-        // Delegate to the server's underlying Protocol method
-        type ServerWithRequestStream = {
-            requestStream<N extends RequestMethod>(
-                request: { method: N; params?: Record<string, unknown> },
-                options?: RequestOptions
-            ): AsyncGenerator<ResponseMessage<ResultTypeMap[N]>, void, void>;
-        };
-        return (this._server as unknown as ServerWithRequestStream).requestStream(request, options);
+        const resultSchema = getResultSchema(request.method) as unknown as AnyObjectSchema;
+        return this._module.requestStream(request as Request, resultSchema, options) as AsyncGenerator<
+            ResponseMessage<ResultTypeMap[M]>,
+            void,
+            void
+        >;
     }
 
     /**
@@ -118,7 +122,7 @@ export class ExperimentalServerTasks {
 
         // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !clientCapabilities?.sampling?.tools) {
-            throw new Error('Client does not support sampling tools capability.');
+            throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
@@ -217,13 +221,13 @@ export class ExperimentalServerTasks {
         switch (mode) {
             case 'url': {
                 if (!clientCapabilities?.elicitation?.url) {
-                    throw new Error('Client does not support url elicitation.');
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
                 }
                 break;
             }
             case 'form': {
                 if (!clientCapabilities?.elicitation?.form) {
-                    throw new Error('Client does not support form elicitation.');
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
                 }
                 break;
             }
@@ -250,30 +254,21 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async getTask(taskId: string, options?: RequestOptions): Promise<GetTaskResult> {
-        type ServerWithGetTask = { getTask(params: { taskId: string }, options?: RequestOptions): Promise<GetTaskResult> };
-        return (this._server as unknown as ServerWithGetTask).getTask({ taskId }, options);
+        return this._module.getTask({ taskId }, options);
     }
 
     /**
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
      * @param options - Optional request options
-     * @returns The task result
+     * @returns The task result. The payload structure matches the result type of the
+     *   original request (e.g., a `tools/call` task returns a `CallToolResult`).
      *
      * @experimental
      */
-    async getTaskResult<T extends AnySchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
-        return (
-            this._server as unknown as {
-                getTaskResult: <U extends AnySchema>(
-                    params: { taskId: string },
-                    resultSchema?: U,
-                    options?: RequestOptions
-                ) => Promise<SchemaOutput<U>>;
-            }
-        ).getTaskResult({ taskId }, resultSchema, options);
+    async getTaskResult(taskId: string, options?: RequestOptions): Promise<GetTaskPayloadResult> {
+        return this._module.getTaskResult({ taskId }, GetTaskPayloadResultSchema, options);
     }
 
     /**
@@ -286,11 +281,7 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async listTasks(cursor?: string, options?: RequestOptions): Promise<ListTasksResult> {
-        return (
-            this._server as unknown as {
-                listTasks: (params?: { cursor?: string }, options?: RequestOptions) => Promise<ListTasksResult>;
-            }
-        ).listTasks(cursor ? { cursor } : undefined, options);
+        return this._module.listTasks(cursor ? { cursor } : undefined, options);
     }
 
     /**
@@ -302,10 +293,6 @@ export class ExperimentalServerTasks {
      * @experimental
      */
     async cancelTask(taskId: string, options?: RequestOptions): Promise<CancelTaskResult> {
-        return (
-            this._server as unknown as {
-                cancelTask: (params: { taskId: string }, options?: RequestOptions) => Promise<CancelTaskResult>;
-            }
-        ).cancelTask({ taskId }, options);
+        return this._module.cancelTask({ taskId }, options);
     }
 }
