@@ -12,18 +12,28 @@ export class ReadBuffer {
     }
 
     readMessage(): JSONRPCMessage | null {
-        if (!this._buffer) {
-            return null;
-        }
+        while (this._buffer) {
+            const index = this._buffer.indexOf('\n');
+            if (index === -1) {
+                return null;
+            }
 
-        const index = this._buffer.indexOf('\n');
-        if (index === -1) {
-            return null;
-        }
+            const line = this._buffer.toString('utf8', 0, index).replace(/\r$/, '');
+            this._buffer = this._buffer.subarray(index + 1);
 
-        const line = this._buffer.toString('utf8', 0, index).replace(/\r$/, '');
-        this._buffer = this._buffer.subarray(index + 1);
-        return deserializeMessage(line);
+            try {
+                return deserializeMessage(line);
+            } catch (error) {
+                // Skip non-JSON lines (e.g., debug output from hot-reload tools like
+                // tsx or nodemon that write to stdout). Schema validation errors still
+                // throw so malformed-but-valid-JSON messages surface via onerror.
+                if (error instanceof SyntaxError) {
+                    continue;
+                }
+                throw error;
+            }
+        }
+        return null;
     }
 
     clear(): void {
