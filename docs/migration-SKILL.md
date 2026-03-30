@@ -433,11 +433,30 @@ const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
-## 12. Client Behavioral Changes
+## 12. Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+
+`TaskCreationParams.ttl` changed from `z.union([z.number(), z.null()]).optional()` to `z.number().optional()`. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Omit `ttl` to let the server decide.
+
+| v1 | v2 |
+|---|---|
+| `task: { ttl: null }` | `task: {}` (omit ttl) |
+| `task: { ttl: 60000 }` | `task: { ttl: 60000 }` (unchanged) |
+
+Type changes in handler context:
+
+| Type | v1 | v2 |
+|---|---|---|
+| `TaskContext.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+| `CreateTaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+| `TaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+
+> These task APIs are `@experimental` and may change without notice.
+
+## 13. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 13. Runtime-Specific JSON Schema Validators (Enhancement)
+## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 
@@ -461,7 +480,7 @@ new McpServer({ name: 'server', version: '1.0.0' }, {});
 
 Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
 
-## 14. Migration Steps (apply in this order)
+## 15. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
