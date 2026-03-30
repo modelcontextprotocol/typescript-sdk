@@ -137,6 +137,16 @@ server.registerTool(
 >
 > For protocol details, see [Tools](https://modelcontextprotocol.io/specification/latest/server/tools) in the MCP specification.
 
+> [!NOTE]
+> When defining a named type for `structuredContent`, use a `type` alias rather than an `interface`. Named interfaces lack implicit index signatures in TypeScript, so they aren't assignable to `{ [key: string]: unknown }`:
+>
+> ```ts
+> type BmiResult = { bmi: number };    // assignable
+> interface BmiResult { bmi: number }  // type error
+> ```
+>
+> Alternatively, spread the value: `structuredContent: { ...result }`.
+
 #### `ResourceLink` outputs
 
 Tools can return `resource_link` content items to reference large resources without embedding them directly, allowing clients to fetch only what they need:
@@ -329,6 +339,26 @@ server.registerTool(
 > For logging in a full server, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts) and [`jsonResponseStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/jsonResponseStreamableHttp.ts).
 >
 > For protocol details, see [Logging](https://modelcontextprotocol.io/specification/latest/server/utilities/logging) in the MCP specification.
+
+## Instructions
+
+Pass an `instructions` string in the server options to describe how to use the server and its features. This can be used by clients to improve the LLM's understanding of available tools, resources, and prompts. It can be thought of like a "hint" to the model — for example, a client MAY add it to the system prompt. See [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification.
+
+```ts source="../examples/server/src/serverGuide.examples.ts#instructions_basic"
+const server = new McpServer(
+    {
+        name: 'multi-tool-server',
+        version: '1.0.0'
+    },
+    {
+        instructions: `This server provides data-pipeline tools. Always call "validate-schema"
+before calling "transform-data" to avoid runtime errors.`
+    }
+);
+```
+
+> [!TIP]
+> Use instructions for cross-tool relationships, workflow ordering, and constraints that individual tool descriptions cannot express on their own.
 
 ## Server‑initiated requests
 
