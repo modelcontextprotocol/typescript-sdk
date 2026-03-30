@@ -570,9 +570,9 @@ export async function auth(
  * Selects scopes per the MCP spec and augment for refresh token support.
  */
 export function determineScope(options: {
-    requestedScope?: string;
-    resourceMetadata?: OAuthProtectedResourceMetadata;
-    authServerMetadata?: AuthorizationServerMetadata;
+    requestedScope?: string | undefined;
+    resourceMetadata?: OAuthProtectedResourceMetadata | undefined;
+    authServerMetadata?: AuthorizationServerMetadata | undefined;
     clientMetadata: OAuthClientMetadata;
 }): string | undefined {
     const { requestedScope, resourceMetadata, authServerMetadata, clientMetadata } = options;
