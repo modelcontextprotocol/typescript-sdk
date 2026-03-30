@@ -151,7 +151,7 @@ export interface RequestTaskStore {
 export type TaskContext = {
     id?: string;
     store: RequestTaskStore;
-    requestedTtl?: number | null;
+    requestedTtl?: number;
 };
 
 export type TaskManagerOptions = {
@@ -801,6 +801,7 @@ export class TaskManager {
 
     onClose(): void {
         this._taskProgressTokens.clear();
+        this._requestResolvers.clear();
     }
 
     // -- Private helpers --
@@ -892,9 +893,5 @@ export class NullTaskManager extends TaskManager {
         _options?: NotificationOptions
     ): Promise<{ queued: boolean; jsonrpcNotification?: JSONRPCNotification }> {
         return { queued: false, jsonrpcNotification: { ...notification, jsonrpc: '2.0' } };
-    }
-
-    override onClose(): void {
-        // No-op
     }
 }
