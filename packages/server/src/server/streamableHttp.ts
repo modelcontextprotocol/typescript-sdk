@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -634,10 +634,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
             }
 
-            // Build request info from headers
-            const requestInfo: RequestInfo = {
-                headers: req.headers
-            };
+            const requestInfo = req;
 
             let rawMessage;
             if (options?.parsedBody === undefined) {

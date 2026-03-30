@@ -24,7 +24,6 @@ import type {
     RelatedTaskMetadata,
     Request,
     RequestId,
-    RequestInfo,
     RequestMeta,
     RequestMethod,
     RequestTypeMap,
@@ -257,9 +256,9 @@ export type ServerContext = BaseContext & {
 
     http?: {
         /**
-         * The original HTTP request information.
+         * The original HTTP request.
          */
-        req?: RequestInfo;
+        req?: globalThis.Request;
 
         /**
          * Closes the SSE stream for this request, triggering client reconnection.
