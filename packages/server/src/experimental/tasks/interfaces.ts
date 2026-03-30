@@ -4,12 +4,12 @@
  */
 
 import type {
-    AnySchema,
     CallToolResult,
     CreateTaskResult,
     CreateTaskServerContext,
     GetTaskResult,
     Result,
+    StandardSchemaWithJSON,
     TaskServerContext
 } from '@modelcontextprotocol/core';
 
@@ -23,18 +23,17 @@ import type { BaseToolCallback } from '../../server/mcp.js';
  * Handler for creating a task.
  * @experimental
  */
-export type CreateTaskRequestHandler<ResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
-    ResultT,
-    CreateTaskServerContext,
-    Args
->;
+export type CreateTaskRequestHandler<
+    SendResultT extends Result,
+    Args extends StandardSchemaWithJSON | undefined = undefined
+> = BaseToolCallback<SendResultT, CreateTaskServerContext, Args>;
 
 /**
  * Handler for task operations (`get`, `getResult`).
  * @experimental
  */
-export type TaskRequestHandler<ResultT extends Result, Args extends AnySchema | undefined = undefined> = BaseToolCallback<
-    ResultT,
+export type TaskRequestHandler<SendResultT extends Result, Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
+    SendResultT,
     TaskServerContext,
     Args
 >;
@@ -48,7 +47,7 @@ export type TaskRequestHandler<ResultT extends Result, Args extends AnySchema | 
  * @see {@linkcode @modelcontextprotocol/server!experimental/tasks/mcpServer.ExperimentalMcpServerTasks#registerToolTask | registerToolTask} for registration.
  * @experimental
  */
-export interface ToolTaskHandler<Args extends AnySchema | undefined = undefined> {
+export interface ToolTaskHandler<Args extends StandardSchemaWithJSON | undefined = undefined> {
     /**
      * Called on the initial `tools/call` request.
      *

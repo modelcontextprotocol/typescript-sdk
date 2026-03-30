@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
-import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
+import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/index.js';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -39,10 +39,10 @@ describe('Protocol transport handling bug', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
             protected buildContext(ctx: BaseContext): BaseContext {
                 return ctx;
             }
-            protected assertTaskHandlerCapability(): void {}
         })();
 
         transportA = new MockTransport('A');
