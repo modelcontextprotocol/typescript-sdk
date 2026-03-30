@@ -915,7 +915,7 @@ export class McpServer {
      * );
      * ```
      */
-    registerPrompt<Args extends StandardSchemaWithJSON>(
+    registerPrompt<Args extends StandardSchemaWithJSON | undefined = undefined>(
         name: string,
         config: {
             title?: string;
