@@ -26,7 +26,7 @@ import type {
  * @experimental
  */
 export type CreateTaskServerContext = ServerContext & {
-    task: { store: RequestTaskStore; requestedTtl?: number | null };
+    task: { store: RequestTaskStore; requestedTtl?: number };
 };
 
 /**
@@ -34,7 +34,7 @@ export type CreateTaskServerContext = ServerContext & {
  * @experimental
  */
 export type TaskServerContext = ServerContext & {
-    task: { id: string; store: RequestTaskStore; requestedTtl?: number | null };
+    task: { id: string; store: RequestTaskStore; requestedTtl?: number };
 };
 
 /**
@@ -137,7 +137,7 @@ export interface TaskMessageQueue {
  */
 export interface CreateTaskOptions {
     /**
-     * Time in milliseconds to keep task results available after completion.
+     * Duration in milliseconds to retain task from creation.
      * If `null`, the task has unlimited lifetime until manually cleaned up.
      */
     ttl?: number | null;
