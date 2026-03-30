@@ -41,6 +41,12 @@ Include what changed, why, and how to migrate. Search for related sections and g
 - **Testing**: Co-locate tests with source files, use descriptive test names
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
 
+### JSDoc `@example` Code Snippets
+
+JSDoc `@example` tags should pull type-checked code from companion `.examples.ts` files (e.g., `client.ts` → `client.examples.ts`). Use `` ```ts source="./file.examples.ts#regionName" `` fences referencing `//#region regionName` blocks; region names follow `exportedName_variant` or `ClassName_methodName_variant` pattern (e.g., `applyMiddlewares_basicUsage`, `Client_connect_basicUsage`). For whole-file inclusion (any file type), omit the `#regionName`.
+
+Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdown files.
+
 ## Architecture Overview
 
 ### Core Layers
@@ -55,6 +61,19 @@ The SDK is organized into three main layers:
     - `Client` (`packages/client/src/client/client.ts`) - Client implementation extending Protocol with typed methods for MCP operations
     - `Server` (`packages/server/src/server/server.ts`) - Server implementation extending Protocol with request handler registration
     - `McpServer` (`packages/server/src/server/mcp.ts`) - High-level server API with simplified resource/tool/prompt registration
+
+### Public API Exports
+
+The SDK has a two-layer export structure to separate internal code from the public API:
+
+- **`@modelcontextprotocol/core`** (main entry, `packages/core/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
+- **`@modelcontextprotocol/core/public`** (`packages/core/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
+- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core/public`.
+
+When modifying exports:
+- Use explicit named exports, not `export *`, in package `index.ts` files and `core/public`.
+- Adding a symbol to a package `index.ts` makes it public API — do so intentionally.
+- Internal helpers should stay in the core internal barrel and not be added to `core/public` or package index files.
 
 ### Transport System
 
@@ -96,10 +115,10 @@ The SDK uses `zod/v4` internally. Schema utilities live in:
 
 ### Validation
 
-Pluggable JSON Schema validation (`packages/core/src/validation/`):
+Pluggable JSON Schema validation (`packages/core/src/validators/`):
 
-- `ajv-provider.ts` - Default Ajv-based validator
-- `cfworker-provider.ts` - Cloudflare Workers-compatible alternative
+- `ajvProvider.ts` - Default Ajv-based validator
+- `cfWorkerProvider.ts` - Cloudflare Workers-compatible alternative
 
 ### Examples
 

@@ -1,5 +1,4 @@
 import type {
-    AnySchema,
     BaseMetadata,
     CallToolRequest,
     CallToolResult,
@@ -15,14 +14,13 @@ import type {
     ListToolsResult,
     LoggingMessageNotification,
     Prompt,
-    PromptArgument,
     PromptReference,
     ReadResourceResult,
     Resource,
     ResourceTemplateReference,
     Result,
-    SchemaOutput,
     ServerContext,
+    StandardSchemaWithJSON,
     Tool,
     ToolAnnotations,
     ToolExecution,
@@ -32,16 +30,13 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
-    getSchemaDescription,
-    getSchemaShape,
-    isOptionalSchema,
-    parseSchemaAsync,
+    promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
-    schemaToJson,
-    unwrapOptionalSchema,
+    standardSchemaToJsonSchema,
     UriTemplate,
-    validateAndWarnToolName
+    validateAndWarnToolName,
+    validateStandardSchema
 } from '@modelcontextprotocol/core';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
@@ -53,11 +48,19 @@ import { Server } from './server.js';
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
- * Server instance available via the `server` property.
+ * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
+ *
+ * @example
+ * ```ts source="./mcp.examples.ts#McpServer_basicUsage"
+ * const server = new McpServer({
+ *     name: 'my-server',
+ *     version: '1.0.0'
+ * });
+ * ```
  */
 export class McpServer {
     /**
-     * The underlying Server instance, useful for advanced operations like sending notifications.
+     * The underlying {@linkcode Server} instance, useful for advanced operations like sending notifications.
      */
     public readonly server: Server;
 
@@ -92,7 +95,14 @@ export class McpServer {
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
-     * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
+     * The `server` object assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_connect_stdio"
+     * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+     * const transport = new StdioServerTransport();
+     * await server.connect(transport);
+     * ```
      */
     async connect(transport: Transport): Promise<void> {
         return await this.server.connect(transport);
@@ -117,7 +127,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             tools: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().tools?.listChanged ?? true
             }
         });
 
@@ -132,7 +142,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (schemaToJson(tool.inputSchema, { io: 'input' }) as Tool['inputSchema'])
+                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             execution: tool.execution,
@@ -140,9 +150,7 @@ export class McpServer {
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = schemaToJson(tool.outputSchema, {
-                                io: 'output'
-                            }) as Tool['outputSchema'];
+                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
@@ -151,18 +159,18 @@ export class McpServer {
         );
 
         this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
-            try {
-                const tool = this._registeredTools[request.params.name];
-                if (!tool) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
-                }
-                if (!tool.enabled) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
-                }
+            const tool = this._registeredTools[request.params.name];
+            if (!tool) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+            }
+            if (!tool.enabled) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+            }
 
+            try {
                 const isTaskRequest = !!request.params.task;
                 const taskSupport = tool.execution?.taskSupport;
-                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<AnySchema>);
+                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<StandardSchemaWithJSON>);
 
                 // Validate task hint configuration
                 if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
@@ -230,23 +238,22 @@ export class McpServer {
      * Validates tool input arguments against the tool's input schema.
      */
     private async validateToolInput<
-        Tool extends RegisteredTool,
-        Args extends Tool['inputSchema'] extends infer InputSchema
-            ? InputSchema extends AnySchema
-                ? SchemaOutput<InputSchema>
+        ToolType extends RegisteredTool,
+        Args extends ToolType['inputSchema'] extends infer InputSchema
+            ? InputSchema extends StandardSchemaWithJSON
+                ? StandardSchemaWithJSON.InferOutput<InputSchema>
                 : undefined
             : undefined
-    >(tool: Tool, args: Args, toolName: string): Promise<Args> {
+    >(tool: ToolType, args: Args, toolName: string): Promise<Args> {
         if (!tool.inputSchema) {
             return undefined as Args;
         }
 
-        const parseResult = await parseSchemaAsync(tool.inputSchema, args ?? {});
+        const parseResult = await validateStandardSchema(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
-            const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
-                `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`
+                `Input validation error: Invalid arguments for tool ${toolName}: ${parseResult.error}`
             );
         }
 
@@ -278,12 +285,11 @@ export class McpServer {
         }
 
         // if the tool has an output schema, validate structured content
-        const parseResult = await parseSchemaAsync(tool.outputSchema, result.structuredContent);
+        const parseResult = await validateStandardSchema(tool.outputSchema, result.structuredContent);
         if (!parseResult.success) {
-            const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
-                `Output validation error: Invalid structured content for tool ${toolName}: ${errorMessage}`
+                `Output validation error: Invalid structured content for tool ${toolName}: ${parseResult.error}`
             );
         }
     }
@@ -297,7 +303,7 @@ export class McpServer {
     }
 
     /**
-     * Handles automatic task polling for tools with taskSupport 'optional'.
+     * Handles automatic task polling for tools with `taskSupport` `'optional'`.
      */
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
@@ -379,7 +385,7 @@ export class McpServer {
         }
 
         const promptShape = getSchemaShape(prompt.argsSchema);
-        const field = promptShape?.[request.params.argument.name];
+        const field = unwrapOptionalSchema(promptShape?.[request.params.argument.name]);
         if (!isCompletable(field)) {
             return EMPTY_COMPLETION_RESULT;
         }
@@ -388,6 +394,7 @@ export class McpServer {
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
         }
+
         const suggestions = await completer(request.params.argument.value, request.params.context);
         return createCompletionResult(suggestions);
     }
@@ -429,7 +436,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             resources: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().resources?.listChanged ?? true
             }
         });
 
@@ -491,7 +498,7 @@ export class McpServer {
                 }
             }
 
-            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} not found`);
+            throw new ProtocolError(ProtocolErrorCode.ResourceNotFound, `Resource ${uri} not found`);
         });
 
         this._resourceHandlersInitialized = true;
@@ -509,7 +516,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             prompts: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().prompts?.listChanged ?? true
             }
         });
 
@@ -523,7 +530,7 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
+                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined
                         };
                     })
             })
@@ -548,7 +555,22 @@ export class McpServer {
 
     /**
      * Registers a resource with a config object and callback.
-     * For static resources, use a URI string. For dynamic resources, use a ResourceTemplate.
+     * For static resources, use a URI string. For dynamic resources, use a {@linkcode ResourceTemplate}.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_registerResource_static"
+     * server.registerResource(
+     *     'config',
+     *     'config://app',
+     *     {
+     *         title: 'Application Config',
+     *         mimeType: 'text/plain'
+     *     },
+     *     async uri => ({
+     *         contents: [{ uri: uri.href, text: 'App configuration here' }]
+     *     })
+     * );
+     * ```
      */
     registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
     registerResource(
@@ -676,8 +698,8 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        argsSchema: AnySchema | undefined,
-        callback: PromptCallback<AnySchema | undefined>
+        argsSchema: StandardSchemaWithJSON | undefined,
+        callback: PromptCallback<StandardSchemaWithJSON | undefined>
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
         let currentArgsSchema = argsSchema;
@@ -708,7 +730,7 @@ export class McpServer {
                     needsHandlerRegen = true;
                 }
                 if (updates.callback !== undefined) {
-                    currentCallback = updates.callback as PromptCallback<AnySchema | undefined>;
+                    currentCallback = updates.callback as PromptCallback<StandardSchemaWithJSON | undefined>;
                     needsHandlerRegen = true;
                 }
                 if (needsHandlerRegen) {
@@ -742,12 +764,12 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: AnySchema | undefined,
-        outputSchema: AnySchema | undefined,
+        inputSchema: StandardSchemaWithJSON | undefined,
+        outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
-        handler: AnyToolHandler<AnySchema | undefined>
+        handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
@@ -788,7 +810,7 @@ export class McpServer {
                 }
                 if (updates.callback !== undefined) {
                     registeredTool.handler = updates.callback;
-                    currentHandler = updates.callback as AnyToolHandler<AnySchema | undefined>;
+                    currentHandler = updates.callback as AnyToolHandler<StandardSchemaWithJSON | undefined>;
                     needsExecutorRegen = true;
                 }
                 if (needsExecutorRegen) {
@@ -812,8 +834,31 @@ export class McpServer {
 
     /**
      * Registers a tool with a config object and callback.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_registerTool_basic"
+     * server.registerTool(
+     *     'calculate-bmi',
+     *     {
+     *         title: 'BMI Calculator',
+     *         description: 'Calculate Body Mass Index',
+     *         inputSchema: z.object({
+     *             weightKg: z.number(),
+     *             heightM: z.number()
+     *         }),
+     *         outputSchema: z.object({ bmi: z.number() })
+     *     },
+     *     async ({ weightKg, heightM }) => {
+     *         const output = { bmi: weightKg / (heightM * heightM) };
+     *         return {
+     *             content: [{ type: 'text', text: JSON.stringify(output) }],
+     *             structuredContent: output
+     *         };
+     *     }
+     * );
+     * ```
      */
-    registerTool<OutputArgs extends AnySchema, InputArgs extends AnySchema | undefined = undefined>(
+    registerTool<OutputArgs extends StandardSchemaWithJSON, InputArgs extends StandardSchemaWithJSON | undefined = undefined>(
         name: string,
         config: {
             title?: string;
@@ -840,14 +885,37 @@ export class McpServer {
             annotations,
             { taskSupport: 'forbidden' },
             _meta,
-            cb as ToolCallback<AnySchema | undefined>
+            cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
     }
 
     /**
      * Registers a prompt with a config object and callback.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_registerPrompt_basic"
+     * server.registerPrompt(
+     *     'review-code',
+     *     {
+     *         title: 'Code Review',
+     *         description: 'Review code for best practices',
+     *         argsSchema: z.object({ code: z.string() })
+     *     },
+     *     ({ code }) => ({
+     *         messages: [
+     *             {
+     *                 role: 'user' as const,
+     *                 content: {
+     *                     type: 'text' as const,
+     *                     text: `Please review this code:\n\n${code}`
+     *                 }
+     *             }
+     *         ]
+     *     })
+     * );
+     * ```
      */
-    registerPrompt<Args extends AnySchema>(
+    registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
             title?: string;
@@ -867,7 +935,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
-            cb as PromptCallback<AnySchema | undefined>
+            cb as PromptCallback<StandardSchemaWithJSON | undefined>
         );
 
         this.setPromptRequestHandlers();
@@ -878,7 +946,7 @@ export class McpServer {
 
     /**
      * Checks if the server is connected to a transport.
-     * @returns True if the server is connected
+     * @returns `true` if the server is connected
      */
     isConnected() {
         return this.server.transport !== undefined;
@@ -886,10 +954,18 @@ export class McpServer {
 
     /**
      * Sends a logging message to the client, if connected.
-     * Note: You only need to send the parameters object, not the entire JSON RPC message
-     * @see LoggingMessageNotification
+     * Note: You only need to send the parameters object, not the entire JSON-RPC message.
+     * @see {@linkcode LoggingMessageNotification}
      * @param params
-     * @param sessionId optional for stateless and backward compatibility
+     * @param sessionId Optional for stateless transports and backward compatibility.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_sendLoggingMessage_basic"
+     * await server.sendLoggingMessage({
+     *     level: 'info',
+     *     data: 'Processing complete'
+     * });
+     * ```
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         return this.server.sendLoggingMessage(params, sessionId);
@@ -943,7 +1019,7 @@ export class ResourceTemplate {
         uriTemplate: string | UriTemplate,
         private _callbacks: {
             /**
-             * A callback to list all resources matching this template. This is required to specified, even if `undefined`, to avoid accidentally forgetting resource listing.
+             * A callback to list all resources matching this template. This is required to be specified, even if `undefined`, to avoid accidentally forgetting resource listing.
              */
             list: ListResourcesCallback | undefined;
 
@@ -980,19 +1056,27 @@ export class ResourceTemplate {
     }
 }
 
-export type BaseToolCallback<ResultT extends Result, Ctx extends ServerContext, Args extends AnySchema | undefined> = Args extends AnySchema
-    ? (args: SchemaOutput<Args>, ctx: Ctx) => ResultT | Promise<ResultT>
-    : (ctx: Ctx) => ResultT | Promise<ResultT>;
+export type BaseToolCallback<
+    SendResultT extends Result,
+    Ctx extends ServerContext,
+    Args extends StandardSchemaWithJSON | undefined
+> = Args extends StandardSchemaWithJSON
+    ? (args: StandardSchemaWithJSON.InferOutput<Args>, ctx: Ctx) => SendResultT | Promise<SendResultT>
+    : (ctx: Ctx) => SendResultT | Promise<SendResultT>;
 
 /**
- * Callback for a tool handler registered with Server.tool().
+ * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
-export type ToolCallback<Args extends AnySchema | undefined = undefined> = BaseToolCallback<CallToolResult, ServerContext, Args>;
+export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
+    CallToolResult,
+    ServerContext,
+    Args
+>;
 
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
-export type AnyToolHandler<Args extends AnySchema | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
@@ -1002,13 +1086,13 @@ type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResul
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: AnySchema;
-    outputSchema?: AnySchema;
+    inputSchema?: StandardSchemaWithJSON;
+    outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
-    handler: AnyToolHandler<AnySchema | undefined>;
-    /** @internal */
+    handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
+    /** @hidden */
     executor: ToolExecutor;
     enabled: boolean;
     enable(): void;
@@ -1017,11 +1101,11 @@ export type RegisteredTool = {
         name?: string | null;
         title?: string;
         description?: string;
-        paramsSchema?: AnySchema;
-        outputSchema?: AnySchema;
+        paramsSchema?: StandardSchemaWithJSON;
+        outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
         _meta?: Record<string, unknown>;
-        callback?: ToolCallback<AnySchema>;
+        callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
     }): void;
     remove(): void;
@@ -1029,10 +1113,13 @@ export type RegisteredTool = {
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
- * When inputSchema is defined, the handler is called with (args, ctx).
- * When inputSchema is undefined, the handler is called with just (ctx).
+ * When `inputSchema` is defined, the handler is called with `(args, ctx)`.
+ * When `inputSchema` is undefined, the handler is called with just `(ctx)`.
  */
-function createToolExecutor(inputSchema: AnySchema | undefined, handler: AnyToolHandler<AnySchema | undefined>): ToolExecutor {
+function createToolExecutor(
+    inputSchema: StandardSchemaWithJSON | undefined,
+    handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
+): ToolExecutor {
     const isTaskHandler = 'createTask' in handler;
 
     if (isTaskHandler) {
@@ -1127,8 +1214,8 @@ export type RegisteredResourceTemplate = {
     remove(): void;
 };
 
-export type PromptCallback<Args extends AnySchema | undefined = undefined> = Args extends AnySchema
-    ? (args: SchemaOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
+export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = Args extends StandardSchemaWithJSON
+    ? (args: StandardSchemaWithJSON.InferOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
     : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
 /**
@@ -1146,13 +1233,13 @@ type TaskHandlerInternal = {
 export type RegisteredPrompt = {
     title?: string;
     description?: string;
-    argsSchema?: AnySchema;
-    /** @internal */
+    argsSchema?: StandardSchemaWithJSON;
+    /** @hidden */
     handler: PromptHandler;
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<Args extends AnySchema>(updates: {
+    update<Args extends StandardSchemaWithJSON>(updates: {
         name?: string | null;
         title?: string;
         description?: string;
@@ -1169,19 +1256,18 @@ export type RegisteredPrompt = {
  */
 function createPromptHandler(
     name: string,
-    argsSchema: AnySchema | undefined,
-    callback: PromptCallback<AnySchema | undefined>
+    argsSchema: StandardSchemaWithJSON | undefined,
+    callback: PromptCallback<StandardSchemaWithJSON | undefined>
 ): PromptHandler {
     if (argsSchema) {
-        const typedCallback = callback as (args: SchemaOutput<AnySchema>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (args: unknown, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
         return async (args, ctx) => {
-            const parseResult = await parseSchemaAsync(argsSchema, args);
+            const parseResult = await validateStandardSchema(argsSchema, args);
             if (!parseResult.success) {
-                const errorMessage = parseResult.error.issues.map((i: { message: string }) => i.message).join(', ');
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${errorMessage}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${parseResult.error}`);
             }
-            return typedCallback(parseResult.data as SchemaOutput<AnySchema>, ctx);
+            return typedCallback(parseResult.data, ctx);
         };
     } else {
         const typedCallback = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
@@ -1190,18 +1276,6 @@ function createPromptHandler(
             return typedCallback(ctx);
         };
     }
-}
-
-function promptArgumentsFromSchema(schema: AnySchema): PromptArgument[] {
-    const shape = getSchemaShape(schema);
-    if (!shape) return [];
-    return Object.entries(shape).map(([name, field]): PromptArgument => {
-        return {
-            name,
-            description: getSchemaDescription(field),
-            required: !isOptionalSchema(field)
-        };
-    });
 }
 
 function createCompletionResult(suggestions: readonly unknown[]): CompleteResult {
@@ -1221,3 +1295,27 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
         hasMore: false
     }
 };
+
+/** @internal Gets the shape of a Zod object schema */
+function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
+    const candidate = schema as { shape?: unknown };
+    if (candidate.shape && typeof candidate.shape === 'object') {
+        return candidate.shape as Record<string, unknown>;
+    }
+    return undefined;
+}
+
+/** @internal Checks if a Zod schema is optional */
+function isOptionalSchema(schema: unknown): boolean {
+    const candidate = schema as { type?: string } | null | undefined;
+    return candidate?.type === 'optional';
+}
+
+/** @internal Unwraps an optional Zod schema */
+function unwrapOptionalSchema(schema: unknown): unknown {
+    if (!isOptionalSchema(schema)) {
+        return schema;
+    }
+    const candidate = schema as { def?: { innerType?: unknown } };
+    return candidate.def?.innerType ?? schema;
+}

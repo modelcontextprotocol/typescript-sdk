@@ -5,9 +5,11 @@
  * @experimental
  */
 
+import { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
+
 /**
  * Type representing the task requests capability structure.
- * This is derived from ClientTasksCapability.requests and ServerTasksCapability.requests.
+ * This is derived from `ClientTasksCapability.requests` and `ServerTasksCapability.requests`.
  */
 interface TaskRequestsCapability {
     tools?: { call?: object };
@@ -16,13 +18,13 @@ interface TaskRequestsCapability {
 }
 
 /**
- * Asserts that task creation is supported for tools/call.
- * Used by Client.assertTaskCapability and Server.assertTaskHandlerCapability.
+ * Asserts that task creation is supported for `tools/call`.
+ * Used to implement the `assertTaskCapability` or `assertTaskHandlerCapability` abstract methods on Protocol.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
- * @param entityName - 'Server' or 'Client' for error messages
- * @throws Error if the capability is not supported
+ * @param entityName - `'Server'` or `'Client'` for error messages
+ * @throws {@linkcode SdkError} with {@linkcode SdkErrorCode.CapabilityNotSupported} if the capability is not supported
  *
  * @experimental
  */
@@ -32,13 +34,16 @@ export function assertToolsCallTaskCapability(
     entityName: 'Server' | 'Client'
 ): void {
     if (!requests) {
-        throw new Error(`${entityName} does not support task creation (required for ${method})`);
+        throw new SdkError(SdkErrorCode.CapabilityNotSupported, `${entityName} does not support task creation (required for ${method})`);
     }
 
     switch (method) {
         case 'tools/call': {
             if (!requests.tools?.call) {
-                throw new Error(`${entityName} does not support task creation for tools/call (required for ${method})`);
+                throw new SdkError(
+                    SdkErrorCode.CapabilityNotSupported,
+                    `${entityName} does not support task creation for tools/call (required for ${method})`
+                );
             }
             break;
         }
@@ -51,13 +56,13 @@ export function assertToolsCallTaskCapability(
 }
 
 /**
- * Asserts that task creation is supported for sampling/createMessage or elicitation/create.
- * Used by Server.assertTaskCapability and Client.assertTaskHandlerCapability.
+ * Asserts that task creation is supported for `sampling/createMessage` or `elicitation/create`.
+ * Used to implement the `assertTaskCapability` or `assertTaskHandlerCapability` abstract methods on Protocol.
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
- * @param entityName - 'Server' or 'Client' for error messages
- * @throws Error if the capability is not supported
+ * @param entityName - `'Server'` or `'Client'` for error messages
+ * @throws {@linkcode SdkError} with {@linkcode SdkErrorCode.CapabilityNotSupported} if the capability is not supported
  *
  * @experimental
  */
@@ -67,20 +72,26 @@ export function assertClientRequestTaskCapability(
     entityName: 'Server' | 'Client'
 ): void {
     if (!requests) {
-        throw new Error(`${entityName} does not support task creation (required for ${method})`);
+        throw new SdkError(SdkErrorCode.CapabilityNotSupported, `${entityName} does not support task creation (required for ${method})`);
     }
 
     switch (method) {
         case 'sampling/createMessage': {
             if (!requests.sampling?.createMessage) {
-                throw new Error(`${entityName} does not support task creation for sampling/createMessage (required for ${method})`);
+                throw new SdkError(
+                    SdkErrorCode.CapabilityNotSupported,
+                    `${entityName} does not support task creation for sampling/createMessage (required for ${method})`
+                );
             }
             break;
         }
 
         case 'elicitation/create': {
             if (!requests.elicitation?.create) {
-                throw new Error(`${entityName} does not support task creation for elicitation/create (required for ${method})`);
+                throw new SdkError(
+                    SdkErrorCode.CapabilityNotSupported,
+                    `${entityName} does not support task creation for elicitation/create (required for ${method})`
+                );
             }
             break;
         }

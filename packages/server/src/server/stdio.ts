@@ -5,13 +5,21 @@ import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
- * Server transport for stdio: this communicates with an MCP client by reading from the current process' stdin and writing to stdout.
+ * Server transport for stdio: this communicates with an MCP client by reading from the current process' `stdin` and writing to `stdout`.
  *
  * This transport is only available in Node.js environments.
+ *
+ * @example
+ * ```ts source="./stdio.examples.ts#StdioServerTransport_basicUsage"
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ * const transport = new StdioServerTransport();
+ * await server.connect(transport);
+ * ```
  */
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
+    private _closed = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -30,9 +38,15 @@ export class StdioServerTransport implements Transport {
     _onerror = (error: Error) => {
         this.onerror?.(error);
     };
+    _onstdouterror = (error: Error) => {
+        this.onerror?.(error);
+        this.close().catch(() => {
+            // Ignore errors during close — we're already in an error path
+        });
+    };
 
     /**
-     * Starts listening for messages on stdin.
+     * Starts listening for messages on `stdin`.
      */
     async start(): Promise<void> {
         if (this._started) {
@@ -44,6 +58,7 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._stdout.on('error', this._onstdouterror);
     }
 
     private processReadBuffer() {
@@ -62,9 +77,15 @@ export class StdioServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
+        this._stdout.off('error', this._onstdouterror);
 
         // Check if we were the only data listener
         const remainingDataListeners = this._stdin.listenerCount('data');
@@ -80,12 +101,37 @@ export class StdioServerTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
+        if (this._closed) {
+            return Promise.reject(new Error('StdioServerTransport is closed'));
+        }
+        return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-            if (this._stdout.write(json)) {
+
+            let settled = false;
+            const onError = (error: Error) => {
+                if (settled) return;
+                settled = true;
+                this._stdout.off('error', onError);
+                this._stdout.off('drain', onDrain);
+                reject(error);
+            };
+            const onDrain = () => {
+                if (settled) return;
+                settled = true;
+                this._stdout.off('error', onError);
+                this._stdout.off('drain', onDrain);
                 resolve();
-            } else {
-                this._stdout.once('drain', resolve);
+            };
+
+            this._stdout.once('error', onError);
+
+            if (this._stdout.write(json)) {
+                if (settled) return;
+                settled = true;
+                this._stdout.off('error', onError);
+                resolve();
+            } else if (!settled) {
+                this._stdout.once('drain', onDrain);
             }
         });
     }

@@ -1,11 +1,12 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
     "include": ["./"],
-    "exclude": ["node_modules", "dist"],
+    "exclude": ["node_modules", "dist", "test/server/bun.test.ts", "test/server/deno.test.ts"],
     "compilerOptions": {
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
+            "@modelcontextprotocol/core/public": ["./node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"],
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
