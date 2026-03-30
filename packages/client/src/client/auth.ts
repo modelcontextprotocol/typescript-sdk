@@ -1002,7 +1002,9 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-    return !response || (!response.ok && pathname !== '/');
+    if (!response) return true; // CORS error — always try fallback
+    if (pathname === '/') return false; // Already at root
+    return (response.status >= 400 && response.status < 500) || response.status === 502;
 }
 
 /**
@@ -1029,7 +1031,7 @@ async function discoverMetadataWithFallback(
 
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
-    // If path-aware discovery fails (any non-OK status) and we're not already at root, try fallback to root discovery
+    // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery
     if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
         const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
@@ -1197,7 +1199,12 @@ export async function discoverAuthorizationServerMetadata(
 
         if (!response.ok) {
             await response.text?.().catch(() => {});
-            continue; // Try next URL for any non-OK response (4xx, 5xx)
+            if ((response.status >= 400 && response.status < 500) || response.status === 502) {
+                continue; // Try next URL for 4xx or 502 (Bad Gateway)
+            }
+            throw new Error(
+                `HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`
+            );
         }
 
         // Parse and validate based on type

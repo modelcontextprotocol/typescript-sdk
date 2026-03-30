@@ -337,14 +337,8 @@ describe('OAuth Authorization', () => {
             expect(calls.length).toBe(2);
         });
 
-        it('falls back to root on 500 status for path URL', async () => {
-            // First call (path-aware) returns 500 (reverse proxy)
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
-                status: 500
-            });
-
-            // Root fallback also returns 500
+        it('throws on 500 status without fallback', async () => {
+            // First call (path-aware) returns 500 (overloaded server)
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 500
@@ -353,7 +347,26 @@ describe('OAuth Authorization', () => {
             await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow('HTTP 500');
 
             const calls = mockFetch.mock.calls;
-            expect(calls.length).toBe(2); // Should attempt root fallback
+            expect(calls.length).toBe(1); // Should not attempt fallback
+        });
+
+        it('falls back to root on 502 status for path URL', async () => {
+            // First call (path-aware) returns 502 (reverse proxy routing error)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 502
+            });
+
+            // Root fallback also returns 502
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 502
+            });
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow('HTTP 502');
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(2); // Should attempt root fallback for 502
         });
 
         it('does not fallback when the original URL is already at root path', async () => {
@@ -715,7 +728,7 @@ describe('OAuth Authorization', () => {
             await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
         });
 
-        it('falls back to root URL on 5xx for path-aware discovery', async () => {
+        it('falls back to root URL on 502 for path-aware discovery', async () => {
             // Path-aware URL returns 502 (reverse proxy has no route for well-known path)
             mockFetch.mockResolvedValueOnce(new Response(null, { status: 502 }));
 
@@ -730,8 +743,20 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
-        it('throws when root fallback also returns 5xx for path-aware discovery', async () => {
-            // Path-aware URL returns 502
+        it('does not fall back on non-502 5xx for path-aware discovery', async () => {
+            // Path-aware URL returns 500 (overloaded server — should not retry)
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+            await expect(
+                discoverOAuthMetadata('https://auth.example.com/tenant1', {
+                    authorizationServerUrl: 'https://auth.example.com/tenant1'
+                })
+            ).rejects.toThrow('HTTP 500');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('throws when root fallback also returns error for path-aware discovery', async () => {
+            // Path-aware URL returns 502 (gateway error — triggers fallback)
             mockFetch.mockResolvedValueOnce(new Response(null, { status: 502 }));
 
             // Root fallback also returns 503
@@ -897,8 +922,8 @@ describe('OAuth Authorization', () => {
             expect(metadata).toEqual(validOpenIdMetadata);
         });
 
-        it('continues on 5xx errors and tries next URL', async () => {
-            // First URL (OAuth) returns 502 (e.g. reverse proxy with no route)
+        it('continues on 502 and tries next URL', async () => {
+            // First URL (OAuth) returns 502 (reverse proxy with no route)
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 502,
@@ -918,8 +943,19 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
-        it('returns undefined when all URLs fail with 5xx', async () => {
-            // All URLs return 5xx
+        it('throws on non-502 5xx errors', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 500,
+                text: async () => ''
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('returns undefined when all URLs fail with 502', async () => {
+            // All URLs return 502
             mockFetch.mockResolvedValue({
                 ok: false,
                 status: 502,
