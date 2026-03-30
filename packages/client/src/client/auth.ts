@@ -566,6 +566,38 @@ export async function auth(
     }
 }
 
+/**
+ * Selects scopes per the MCP spec and augment for refresh token support.
+ */
+export function determineScope(options: {
+    requestedScope?: string;
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+    authServerMetadata?: AuthorizationServerMetadata;
+    clientMetadata: OAuthClientMetadata;
+}): string | undefined {
+    const { requestedScope, resourceMetadata, authServerMetadata, clientMetadata } = options;
+
+    // Scope selection priority (MCP spec):
+    //   1. WWW-Authenticate header scope
+    //   2. PRM scopes_supported
+    //   3. clientMetadata.scope (SDK fallback)
+    //   4. Omit scope parameter
+    let effectiveScope = requestedScope || resourceMetadata?.scopes_supported?.join(' ') || clientMetadata.scope;
+
+    // SEP-2207: Append offline_access when the AS advertises it
+    // and the client supports the refresh_token grant.
+    if (
+        effectiveScope &&
+        authServerMetadata?.scopes_supported?.includes('offline_access') &&
+        !effectiveScope.split(' ').includes('offline_access') &&
+        clientMetadata.grant_types?.includes('refresh_token')
+    ) {
+        effectiveScope = `${effectiveScope} offline_access`;
+    }
+
+    return effectiveScope;
+}
+
 async function authInternal(
     provider: OAuthClientProvider,
     {
@@ -659,12 +691,13 @@ async function authInternal(
         await provider.saveResourceUrl?.(String(resource));
     }
 
-    // Apply scope selection strategy (SEP-835):
-    // 1. WWW-Authenticate scope (passed via `scope` param)
-    // 2. PRM scopes_supported
-    // 3. Client metadata scope (user-configured fallback)
-    // The resolved scope is used consistently for both DCR and the authorization request.
-    const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
+    // Scope selection used consistently for DCR and the authorization request.
+    const resolvedScope = determineScope({
+        requestedScope: scope,
+        resourceMetadata,
+        authServerMetadata: metadata,
+        clientMetadata: provider.clientMetadata
+    });
 
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -718,7 +751,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
-            scope,
+            scope: resolvedScope,
             fetchFn
         });
 
@@ -1360,7 +1393,7 @@ export async function startAuthorization(
         authorizationUrl.searchParams.set('scope', scope);
     }
 
-    if (scope?.includes('offline_access')) {
+    if (scope?.split(' ').includes('offline_access')) {
         // if the request includes the OIDC-only "offline_access" scope,
         // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
         // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
