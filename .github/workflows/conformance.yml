@@ -18,12 +18,12 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
                   run_install: false
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@v6
               with:
                   node-version: 24
                   cache: pnpm
@@ -36,12 +36,12 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
                   run_install: false
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@v6
               with:
                   node-version: 24
                   cache: pnpm
