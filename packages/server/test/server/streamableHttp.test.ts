@@ -1074,12 +1074,12 @@ describe('Zod v4', () => {
             const getRes = await transport.handleRequest(getReq);
 
             expect(getRes.status).toBe(200);
+            expect(vi.getTimerCount()).toBe(1);
 
             // Close the transport, which should clear the interval
             await transport.close();
 
-            // Advancing timers after close should not throw
-            vi.advanceTimersByTime(200);
+            expect(vi.getTimerCount()).toBe(0);
         });
     });
 });
