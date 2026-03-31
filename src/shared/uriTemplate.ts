@@ -43,6 +43,19 @@ export class UriTemplate {
         UriTemplate.validateLength(template, MAX_TEMPLATE_LENGTH, 'Template');
         this.template = template;
         this.parts = this.parse(template);
+
+        // Templates with a literal '?' in a string segment are incompatible
+        // with match()'s split-at-'?' query parsing — the path regex would
+        // include the escaped '?' but the URI is split before matching.
+        // Supporting this requires a fragile two-code-path implementation
+        // that has proven bug-prone, so reject at construction time.
+        const literalQueryPart = this.parts.find(part => typeof part === 'string' && part.includes('?'));
+        if (literalQueryPart !== undefined) {
+            throw new Error(
+                `UriTemplate: literal '?' in template string is not supported. ` +
+                    `Use {?param} to introduce query parameters instead. Template: "${template}"`
+            );
+        }
     }
 
     toString(): string {
@@ -256,12 +269,6 @@ export class UriTemplate {
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
 
-        // Check whether any literal string segment in the template contains a
-        // '?'. If so, the template author has written a manual query-string
-        // prefix (e.g. `/path?fixed=1{&var}`) and we cannot simply split the
-        // URI at its first '?' — the path regex itself needs to consume past it.
-        const hasLiteralQuery = this.parts.some(part => typeof part === 'string' && part.includes('?'));
-
         // Build regex pattern for path (non-query) parts
         let pattern = '^';
         const names: Array<{ name: string; exploded: boolean }> = [];
@@ -283,39 +290,20 @@ export class UriTemplate {
             }
         }
 
-        let match: RegExpMatchArray | null;
-        let queryPart: string;
+        // Strip any URI fragment before splitting path/query.
+        const hashIndex = uri.indexOf('#');
+        const uriNoFrag = hashIndex === -1 ? uri : uri.slice(0, hashIndex);
 
-        if (hasLiteralQuery) {
-            // Match the path regex against the full URI. The lookahead
-            // assertion ensures the literal portion ends exactly at a
-            // query-param separator, fragment, or end-of-string, so a
-            // template like `?id=1` does not spuriously prefix-match
-            // `?id=100`.
-            pattern += '(?=[&#]|$)';
-            UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
-            const regex = new RegExp(pattern);
-            match = uri.match(regex);
-            if (!match) return null;
-            // Everything after the match is the remaining query string to
-            // parse for {?...}/{&...} expressions. Strip any fragment and
-            // the leading `&` separator first.
-            let rest = uri.slice(match[0].length);
-            const hashIndex = rest.indexOf('#');
-            if (hashIndex !== -1) rest = rest.slice(0, hashIndex);
-            queryPart = rest.replace(/^&/, '');
-        } else {
-            // Split URI into path and query parts at the first '?'
-            const queryIndex = uri.indexOf('?');
-            const pathPart = queryIndex === -1 ? uri : uri.slice(0, queryIndex);
-            queryPart = queryIndex === -1 ? '' : uri.slice(queryIndex + 1);
+        // Split URI into path and query parts at the first '?'
+        const queryIndex = uriNoFrag.indexOf('?');
+        const pathPart = queryIndex === -1 ? uriNoFrag : uriNoFrag.slice(0, queryIndex);
+        const queryPart = queryIndex === -1 ? '' : uriNoFrag.slice(queryIndex + 1);
 
-            pattern += '$';
-            UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
-            const regex = new RegExp(pattern);
-            match = pathPart.match(regex);
-            if (!match) return null;
-        }
+        pattern += '$';
+        UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
+        const regex = new RegExp(pattern);
+        const match = pathPart.match(regex);
+        if (!match) return null;
 
         const result: Variables = {};
 
