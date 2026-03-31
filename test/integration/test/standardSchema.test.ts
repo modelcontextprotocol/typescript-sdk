@@ -6,7 +6,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import type { TextContent } from '@modelcontextprotocol/core';
 import { AjvJsonSchemaValidator, fromJsonSchema, InMemoryTransport } from '@modelcontextprotocol/core';
-import { completable, McpServer } from '@modelcontextprotocol/server';
+import { completable, fromJsonSchema as serverFromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
 import * as v from 'valibot';
@@ -422,6 +422,44 @@ describe('Standard Schema Support', () => {
 
             const result = await client.request({ method: 'tools/call', params: { name: 'double', arguments: { count: 'not a number' } } });
 
+            expect(result.isError).toBe(true);
+            const errorText = (result.content[0] as TextContent).text;
+            expect(errorText).toContain('Input validation error');
+        });
+    });
+
+    describe('fromJsonSchema with default validator (server wrapper)', () => {
+        test('should use runtime-appropriate default validator when none is provided', async () => {
+            const inputSchema = serverFromJsonSchema<{ name: string }>({
+                type: 'object',
+                properties: { name: { type: 'string' } },
+                required: ['name']
+            });
+
+            mcpServer.registerTool('greet-default', { inputSchema }, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            }));
+
+            await connectClientAndServer();
+
+            const result = await client.request({ method: 'tools/call', params: { name: 'greet-default', arguments: { name: 'World' } } });
+            expect((result.content[0] as TextContent).text).toBe('Hello, World!');
+        });
+
+        test('should reject invalid input with default validator', async () => {
+            const inputSchema = serverFromJsonSchema({ type: 'object', properties: { count: { type: 'number' } }, required: ['count'] });
+
+            mcpServer.registerTool('double-default', { inputSchema }, async args => {
+                const { count } = args as { count: number };
+                return { content: [{ type: 'text', text: `${count * 2}` }] };
+            });
+
+            await connectClientAndServer();
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: { name: 'double-default', arguments: { count: 'not a number' } }
+            });
             expect(result.isError).toBe(true);
             const errorText = (result.content[0] as TextContent).text;
             expect(errorText).toContain('Input validation error');
