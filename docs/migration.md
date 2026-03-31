@@ -274,10 +274,10 @@ server.registerTool('greet', {
   inputSchema: type({ name: 'string' })
 }, async ({ name }) => { ... });
 
-// Raw JSON Schema via fromJsonSchema
-import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
+// Raw JSON Schema via fromJsonSchema (validator defaults to runtime-appropriate choice)
+import { fromJsonSchema } from '@modelcontextprotocol/server';
 server.registerTool('greet', {
-  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
+  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } })
 }, handler);
 
 // For tools with no parameters, use z.object({})
