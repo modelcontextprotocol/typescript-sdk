@@ -982,7 +982,9 @@ describe('Zod v4', () => {
             // Inject a fake stream entry to verify cleanup runs exactly once
             // @ts-expect-error accessing private map for test purposes
             transport._streamMapping.set('stream-1', {
-                cleanup: () => { cleanupCalls.push('stream-1'); }
+                cleanup: () => {
+                    cleanupCalls.push('stream-1');
+                }
             });
 
             // Fire two concurrent close() calls — only the first should proceed
