@@ -634,7 +634,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
             }
 
-            const requestInfo = req;
+            const request = req;
 
             let rawMessage;
             if (options?.parsedBody === undefined) {
@@ -704,7 +704,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (!hasRequests) {
                 // if it only contains notifications or responses, return 202
                 for (const message of messages) {
-                    this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
+                    this.onmessage?.(message, { authInfo: options?.authInfo, request });
                 }
                 return new Response(null, { status: 202 });
             }
@@ -738,7 +738,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     for (const message of messages) {
-                        this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
+                        this.onmessage?.(message, { authInfo: options?.authInfo, request });
                     }
                 });
             }
@@ -808,7 +808,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     };
                 }
 
-                this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
+                this.onmessage?.(message, { authInfo: options?.authInfo, request, closeSSEStream, closeStandaloneSSEStream });
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready

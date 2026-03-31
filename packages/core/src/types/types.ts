@@ -520,7 +520,7 @@ export interface MessageExtraInfo {
     /**
      * The original HTTP request.
      */
-    requestInfo?: globalThis.Request;
+    request?: globalThis.Request;
 
     /**
      * The authentication information.

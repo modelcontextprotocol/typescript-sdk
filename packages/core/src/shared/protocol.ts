@@ -391,7 +391,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Builds the context object for request handlers. Subclasses must override
-     * to return the appropriate context type (e.g., ServerContext adds requestInfo).
+     * to return the appropriate context type (e.g., ServerContext adds HTTP request info).
      */
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 
