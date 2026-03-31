@@ -43,36 +43,35 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/client/streamableHttp.js` | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/sse.js`            | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/websocket.js`      | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/websocket.js`      | REMOVED (use Streamable HTTP or stdio; implement `Transport` for custom needs) |
 
 ### Server imports
 
-| v1 import path                                       | v2 package                                                                                                                                                                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                      |
-| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                      |
-| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                      |
+| v1 import path                                       | v2 package                                                                                                                                                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
-| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                                |
-| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                 |
-| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                  |
+| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
+| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                |
+| `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                 |
 
 ### Types / shared imports
 
 | v1 import path                                    | v2 package                   |
 | ------------------------------------------------- | ---------------------------- |
-| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/core` |
-| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/core` |
+| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
 
 Notes:
 
-- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export everything from `@modelcontextprotocol/core`, so you can import types from whichever package you already depend on.
+- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so import from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
 - When multiple v1 imports map to the same v2 package, consolidate them into a single import statement.
-- If code imports from `sdk/client/...`, install `@modelcontextprotocol/client`. If from `sdk/server/...`, install `@modelcontextprotocol/server`. If from `sdk/types.js` or `sdk/shared/...` only, install `@modelcontextprotocol/core`.
 
 ## 4. Renamed Symbols
 
@@ -91,12 +90,13 @@ Notes:
 | `ResourceReference`                      | `ResourceTemplateReference`                              |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                        |
 | `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                     |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now in `@modelcontextprotocol/core`)         |
+| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 | `McpError`                               | `ProtocolError`                                          |
 | `ErrorCode`                              | `ProtocolErrorCode`                                      |
 | `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
 | `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                          |
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
+| `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`) |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
@@ -107,19 +107,19 @@ Two error classes now exist:
 - **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC responses
 - **`SdkError`** (new): Local SDK errors that never cross the wire
 
-| Error scenario                   | v1 type                                      | v2 type                                                           |
-| -------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
-| Request timeout                  | `McpError` with `ErrorCode.RequestTimeout`   | `SdkError` with `SdkErrorCode.RequestTimeout`                     |
-| Connection closed                | `McpError` with `ErrorCode.ConnectionClosed` | `SdkError` with `SdkErrorCode.ConnectionClosed`                   |
-| Capability not supported         | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`             |
-| Not connected                    | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                       |
-| Invalid params (server response) | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`            |
-| HTTP transport error             | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttp*`                        |
-| Failed to open SSE stream        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
-| 401 after auth flow              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpAuthentication`           |
-| 403 after upscoping              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
-| Unexpected content type          | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
-| Session termination failed       | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
+| Error scenario                    | v1 type                                      | v2 type                                                           |
+| --------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
+| Request timeout                   | `McpError` with `ErrorCode.RequestTimeout`   | `SdkError` with `SdkErrorCode.RequestTimeout`                     |
+| Connection closed                 | `McpError` with `ErrorCode.ConnectionClosed` | `SdkError` with `SdkErrorCode.ConnectionClosed`                   |
+| Capability not supported          | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`             |
+| Not connected                     | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                       |
+| Invalid params (server response)  | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`            |
+| HTTP transport error              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttp*`                        |
+| Failed to open SSE stream         | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
+| 401 after re-auth (circuit break) | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpAuthentication`           |
+| 403 after upscoping               | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
+| Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
+| Session termination failed        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
 
 New `SdkErrorCode` enum values:
 
@@ -144,7 +144,7 @@ Update error handling:
 if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) { ... }
 
 // v2
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) { ... }
 ```
 
@@ -158,7 +158,7 @@ if (error instanceof StreamableHTTPError) {
 }
 
 // v2
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpFailedToOpenStream) {
     const status = (error.data as { status?: number })?.status;
 }
@@ -195,21 +195,22 @@ Update OAuth error handling:
 
 ```typescript
 // v1
-import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/client';
 if (error instanceof InvalidClientError) { ... }
 
 // v2
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
 
-**Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
+**Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all
+Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
 
 ## 6. McpServer API Changes
 
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
-**IMPORTANT**: v2 requires full Zod schemas — raw shapes like `{ name: z.string() }` are no longer supported. You must wrap with `z.object()`. This applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
 
 ### Tools
 
@@ -279,25 +280,35 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ### Schema Migration Quick Reference
 
-| v1 (raw shape) | v2 (Zod schema) |
+| v1 (raw shape) | v2 (Standard Schema object) |
 |----------------|-----------------|
 | `{ name: z.string() }` | `z.object({ name: z.string() })` |
 | `{ count: z.number().optional() }` | `z.object({ count: z.number().optional() })` |
-| `{}` (empty) | `z.object({})` |
-| `undefined` (no schema) | `undefined` or omit the field |
+| `{}` (empty)                       | `z.object({})`                               |
+| `undefined` (no schema)            | `undefined` or omit the field                |
+
+### Removed core exports
+
+| Removed from `@modelcontextprotocol/core` | Replacement |
+|---|---|
+| `schemaToJson(schema)` | `standardSchemaToJsonSchema(schema)` |
+| `parseSchemaAsync(schema, data)` | `validateStandardSchema(schema, data)` |
+| `SchemaInput<T>` | `StandardSchemaWithJSON.InferInput<T>` |
+| `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema` | none (internal Zod introspection helpers) |
 
 ## 7. Headers API
 
-Transport constructors and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain objects.
+Transport constructors now use the Web Standard `Headers` object instead of plain objects. The custom `RequestInfo` type has been replaced with the standard Web `Request` object, giving access to headers, URL, query parameters, and method.
 
 ```typescript
-// v1: plain object, bracket access
+// v1: plain object, bracket access, custom RequestInfo
 headers: { 'Authorization': 'Bearer token' }
 extra.requestInfo?.headers['mcp-session-id']
 
-// v2: Headers object, .get() access
+// v2: Headers object, .get() access, standard Web Request
 headers: new Headers({ 'Authorization': 'Bearer token' })
 ctx.http?.req?.headers.get('mcp-session-id')
+new URL(ctx.http?.req?.url).searchParams.get('debug')
 ```
 
 ## 8. Removed Server Features
@@ -370,31 +381,31 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 
 `RequestHandlerExtra` → structured context types with nested groups. Rename `extra` → `ctx` in all handler callbacks.
 
-| v1 | v2 |
-|----|-----|
-| `RequestHandlerExtra` | `ServerContext` (server) / `ClientContext` (client) / `BaseContext` (base) |
-| `extra` (param name) | `ctx` |
-| `extra.signal` | `ctx.mcpReq.signal` |
-| `extra.requestId` | `ctx.mcpReq.id` |
-| `extra._meta` | `ctx.mcpReq._meta` |
-| `extra.sendRequest(...)` | `ctx.mcpReq.send(...)` |
-| `extra.sendNotification(...)` | `ctx.mcpReq.notify(...)` |
-| `extra.authInfo` | `ctx.http?.authInfo` |
-| `extra.sessionId` | `ctx.sessionId` |
-| `extra.requestInfo` | `ctx.http?.req` (only `ServerContext`) |
-| `extra.closeSSEStream` | `ctx.http?.closeSSE` (only `ServerContext`) |
-| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`) |
-| `extra.taskStore` | `ctx.task?.store` |
-| `extra.taskId` | `ctx.task?.id` |
-| `extra.taskRequestedTtl` | `ctx.task?.requestedTtl` |
+| v1                               | v2                                                                         |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `RequestHandlerExtra`            | `ServerContext` (server) / `ClientContext` (client) / `BaseContext` (base) |
+| `extra` (param name)             | `ctx`                                                                      |
+| `extra.signal`                   | `ctx.mcpReq.signal`                                                        |
+| `extra.requestId`                | `ctx.mcpReq.id`                                                            |
+| `extra._meta`                    | `ctx.mcpReq._meta`                                                         |
+| `extra.sendRequest(...)`         | `ctx.mcpReq.send(...)`                                                     |
+| `extra.sendNotification(...)`    | `ctx.mcpReq.notify(...)`                                                   |
+| `extra.authInfo`                 | `ctx.http?.authInfo`                                                       |
+| `extra.sessionId`                | `ctx.sessionId`                                                            |
+| `extra.requestInfo`              | `ctx.http?.req` (standard Web `Request`, only `ServerContext`)             |
+| `extra.closeSSEStream`           | `ctx.http?.closeSSE` (only `ServerContext`)                                |
+| `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
+| `extra.taskStore`                | `ctx.task?.store`                                                          |
+| `extra.taskId`                   | `ctx.task?.id`                                                             |
+| `extra.taskRequestedTtl`         | `ctx.task?.requestedTtl`                                                   |
 
 `ServerContext` convenience methods (new in v2, no v1 equivalent):
 
-| Method | Description | Replaces |
-|--------|-------------|----------|
-| `ctx.mcpReq.log(level, data, logger?)` | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
-| `ctx.mcpReq.elicitInput(params, options?)` | Elicit user input (form or URL) | `server.elicitInput(...)` from within handler |
-| `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client | `server.createMessage(...)` from within handler |
+| Method                                         | Description                                            | Replaces                                             |
+| ---------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
+| `ctx.mcpReq.log(level, data, logger?)`         | Send log notification (respects client's level filter) | `server.sendLoggingMessage(...)` from within handler |
+| `ctx.mcpReq.elicitInput(params, options?)`     | Elicit user input (form or URL)                        | `server.elicitInput(...)` from within handler        |
+| `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client                       | `server.createMessage(...)` from within handler      |
 
 ## 11. Schema parameter removed from `request()`, `send()`, and `callTool()`
 
@@ -413,24 +424,44 @@ const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { .
 const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
-| v1 call | v2 call |
-|---------|---------|
-| `client.request(req, ResultSchema)` | `client.request(req)` |
-| `client.request(req, ResultSchema, options)` | `client.request(req, options)` |
-| `ctx.mcpReq.send(req, ResultSchema)` | `ctx.mcpReq.send(req)` |
-| `ctx.mcpReq.send(req, ResultSchema, options)` | `ctx.mcpReq.send(req, options)` |
-| `client.callTool(params, CompatibilityCallToolResultSchema)` | `client.callTool(params)` |
-| `client.callTool(params, schema, options)` | `client.callTool(params, options)` |
+| v1 call                                                      | v2 call                            |
+| ------------------------------------------------------------ | ---------------------------------- |
+| `client.request(req, ResultSchema)`                          | `client.request(req)`              |
+| `client.request(req, ResultSchema, options)`                 | `client.request(req, options)`     |
+| `ctx.mcpReq.send(req, ResultSchema)`                         | `ctx.mcpReq.send(req)`             |
+| `ctx.mcpReq.send(req, ResultSchema, options)`                | `ctx.mcpReq.send(req, options)`    |
+| `client.callTool(params, CompatibilityCallToolResultSchema)` | `client.callTool(params)`          |
+| `client.callTool(params, schema, options)`                   | `client.callTool(params, options)` |
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
-## 12. Client Behavioral Changes
+## 12. Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+
+`TaskCreationParams.ttl` changed from `z.union([z.number(), z.null()]).optional()` to `z.number().optional()`. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Omit `ttl` to let the server decide.
+
+| v1 | v2 |
+|---|---|
+| `task: { ttl: null }` | `task: {}` (omit ttl) |
+| `task: { ttl: 60000 }` | `task: { ttl: 60000 }` (unchanged) |
+
+Type changes in handler context:
+
+| Type | v1 | v2 |
+|---|---|---|
+| `TaskContext.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+| `CreateTaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+| `TaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+
+> These task APIs are `@experimental` and may change without notice.
+
+## 13. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 13. Runtime-Specific JSON Schema Validators (Enhancement)
+## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
+
 - Node.js → `AjvJsonSchemaValidator` (no change from v1)
 - Cloudflare Workers (workerd) → `CfWorkerJsonSchemaValidator` (previously required manual config)
 
@@ -438,9 +469,12 @@ The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 
 ```typescript
 // v1 (Cloudflare Workers): Required explicit validator
-new McpServer({ name: 'server', version: '1.0.0' }, {
-  jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
-});
+new McpServer(
+    { name: 'server', version: '1.0.0' },
+    {
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
+    }
+);
 
 // v2 (Cloudflare Workers): Auto-selected, explicit config optional
 new McpServer({ name: 'server', version: '1.0.0' }, {});
@@ -448,7 +482,7 @@ new McpServer({ name: 'server', version: '1.0.0' }, {});
 
 Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
 
-## 14. Migration Steps (apply in this order)
+## 15. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
