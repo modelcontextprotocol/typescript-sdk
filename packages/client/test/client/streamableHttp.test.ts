@@ -832,12 +832,9 @@ describe('StreamableHTTPClientTransport', () => {
             await vi.advanceTimersByTimeAsync(20); // Trigger reconnection timeout
 
             // ASSERT
-            expect(errorSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    message: expect.stringContaining('SSE stream disconnected: Error: Network failure')
-                })
-            );
-            // THE KEY ASSERTION: A second fetch call proves reconnection was attempted.
+            // onerror is NOT called: reconnection will handle the disconnect transparently
+            expect(errorSpy).not.toHaveBeenCalled();
+            // A second fetch call proves reconnection was attempted.
             expect(fetchMock).toHaveBeenCalledTimes(2);
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
             expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');

@@ -445,9 +445,6 @@ export class StreamableHTTPClientTransport implements Transport {
                     );
                 }
             } catch (error) {
-                // Handle stream errors - likely a network disconnect
-                this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
-
                 // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
                 // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
                 // BUT don't reconnect if we already received a response - the request is complete
@@ -467,6 +464,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
                     }
+                } else {
+                    // Stream disconnected and reconnection will not happen; surface the error
+                    this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
                 }
             }
         };
