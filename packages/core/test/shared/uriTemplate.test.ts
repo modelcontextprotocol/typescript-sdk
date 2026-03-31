@@ -256,49 +256,31 @@ describe('UriTemplate', () => {
             expect(template.match('/search?q=%ZZ')).toEqual({ q: '%ZZ' });
         });
 
-        it('should match templates with a literal ? followed by {&...} continuation', () => {
-            const template = new UriTemplate('/path?static=1{&dynamic}');
-            const match = template.match('/path?static=1&dynamic=hello');
-            expect(match).toEqual({ dynamic: 'hello' });
-            expect(template.variableNames).toEqual(['dynamic']);
+        it('should reject templates with literal ? in a string segment', () => {
+            expect(() => new UriTemplate('/path?fixed=1')).toThrow(/literal '\?'/);
+            expect(() => new UriTemplate('/path?static=1{?dynamic}')).toThrow(/literal '\?'/);
+            expect(() => new UriTemplate('/path?static=1{&dynamic}')).toThrow(/literal '\?'/);
+            expect(() => new UriTemplate('/api?v=2{&key,page}')).toThrow(/literal '\?'/);
+            expect(() => new UriTemplate('/api/{version}?format=json{&key}')).toThrow(/literal '\?'/);
         });
 
-        it('should match templates with literal ? when continuation param is absent', () => {
-            const template = new UriTemplate('/path?static=1{&dynamic}');
-            const match = template.match('/path?static=1');
-            expect(match).toEqual({});
+        it('should accept templates using {?param} for query parameters', () => {
+            // The supported way to express query parameters
+            const template = new UriTemplate('/path{?fixed}');
+            expect(template.match('/path?fixed=1')).toEqual({ fixed: '1' });
+            expect(template.match('/path')).toEqual({});
         });
 
-        it('should match templates with literal ? and multiple continuation params', () => {
-            const template = new UriTemplate('/api?v=2{&key,page}');
-            const match = template.match('/api?v=2&page=3&key=abc');
-            expect(match).toEqual({ key: 'abc', page: '3' });
+        it('should strip fragments before matching query parameters', () => {
+            const template = new UriTemplate('/path{?a}');
+            expect(template.match('/path?a=1#frag')).toEqual({ a: '1' });
+            expect(template.match('/path?a=1&b=2#frag')).toEqual({ a: '1' });
         });
 
-        it('should match path variables combined with literal ? and {&...}', () => {
-            const template = new UriTemplate('/api/{version}?format=json{&key}');
-            const match = template.match('/api/v1?format=json&key=secret');
-            expect(match).toEqual({ version: 'v1', key: 'secret' });
-        });
-
-        it('should not prefix-match literal query values with literal ?', () => {
-            // `?id=1` must not match `?id=100`
-            const template = new UriTemplate('/path?id=1{&extra}');
-            expect(template.match('/path?id=100')).toBeNull();
-            expect(template.match('/path?id=1')).toEqual({});
-            expect(template.match('/path?id=1&extra=x')).toEqual({ extra: 'x' });
-        });
-
-        it('should require a proper separator after the literal ? portion', () => {
-            // malformed URI missing `&` between params must not match
-            const template = new UriTemplate('/path?a=1{&b}');
-            expect(template.match('/path?a=1b=2')).toBeNull();
-        });
-
-        it('should ignore fragments after the literal ? portion', () => {
-            const template = new UriTemplate('/path?a=1{&b}');
-            expect(template.match('/path?a=1#section')).toEqual({});
-            expect(template.match('/path?a=1&b=foo#section')).toEqual({ b: 'foo' });
+        it('should strip fragments when the URI has no query string', () => {
+            const template = new UriTemplate('/path{?a}');
+            expect(template.match('/path#frag')).toEqual({});
+            expect(template.match('/path')).toEqual({});
         });
     });
 
