@@ -590,6 +590,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     // a stale cancel from an earlier resume must not delete a
                     // successor resumed stream a re-poll has since registered.
                     if (replayedStreamId !== undefined && this._streamMapping.get(replayedStreamId)?.controller === streamController) {
+                        this._clearKeepAliveTimer();
                         this._streamMapping.delete(replayedStreamId);
                     }
                 }
@@ -642,6 +643,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         // Controller might already be closed
                     }
                 }
+            }
+
+            // Start keepalive timer for the replayed stream so reconnecting
+            // clients remain protected from proxy idle timeouts
+            if (this._keepAliveInterval !== undefined) {
+                this._keepAliveTimer = setInterval(() => {
+                    try {
+                        streamController!.enqueue(encoder.encode(': keepalive\n\n'));
+                    } catch {
+                        this._clearKeepAliveTimer();
+                    }
+                }, this._keepAliveInterval);
             }
 
             return new Response(readable, { headers });
