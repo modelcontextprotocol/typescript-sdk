@@ -83,7 +83,7 @@ function createRequest(
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined
-    });
+    } as RequestInit);
 }
 
 /**

@@ -140,17 +140,17 @@ export interface CreateTaskOptions {
      * Duration in milliseconds to retain task from creation.
      * If `null`, the task has unlimited lifetime until manually cleaned up.
      */
-    ttl?: number | null;
+    ttl?: number | null | undefined;
 
     /**
      * Time in milliseconds to wait between task status requests.
      */
-    pollInterval?: number;
+    pollInterval?: number | undefined;
 
     /**
      * Additional context to pass to the task store.
      */
-    context?: Record<string, unknown>;
+    context?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -227,7 +227,7 @@ export interface TaskStore {
      * @param sessionId - Optional session ID for binding the query to a specific session
      * @returns An object containing the tasks array and an optional nextCursor
      */
-    listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
+    listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string | undefined }>;
 }
 
 /**

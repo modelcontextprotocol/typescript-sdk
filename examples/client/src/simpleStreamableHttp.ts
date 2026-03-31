@@ -1,14 +1,6 @@
 import { createInterface } from 'node:readline';
 
-import type {
-    CallToolResult,
-    GetPromptRequest,
-    ListPromptsRequest,
-    ListResourcesRequest,
-    ListToolsRequest,
-    ReadResourceRequest,
-    ResourceLink
-} from '@modelcontextprotocol/client';
+import type { CallToolResult, GetPromptRequest, ReadResourceRequest, ResourceLink } from '@modelcontextprotocol/client';
 import {
     Client,
     getDisplayName,
@@ -536,8 +528,7 @@ async function connect(url?: string): Promise<void> {
                     return;
                 }
                 const resourcesResult = await client.request({
-                    method: 'resources/list',
-                    params: {}
+                    method: 'resources/list'
                 });
                 console.log('Available resources count:', resourcesResult.resources.length);
             } catch {
@@ -619,11 +610,7 @@ async function listTools(): Promise<void> {
     }
 
     try {
-        const toolsRequest: ListToolsRequest = {
-            method: 'tools/list',
-            params: {}
-        };
-        const toolsResult = await client.request(toolsRequest);
+        const toolsResult = await client.request({ method: 'tools/list' });
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -770,11 +757,7 @@ async function listPrompts(): Promise<void> {
     }
 
     try {
-        const promptsRequest: ListPromptsRequest = {
-            method: 'prompts/list',
-            params: {}
-        };
-        const promptsResult = await client.request(promptsRequest);
+        const promptsResult = await client.request({ method: 'prompts/list' });
         console.log('Available prompts:');
         if (promptsResult.prompts.length === 0) {
             console.log('  No prompts available');
@@ -820,11 +803,7 @@ async function listResources(): Promise<void> {
     }
 
     try {
-        const resourcesRequest: ListResourcesRequest = {
-            method: 'resources/list',
-            params: {}
-        };
-        const resourcesResult = await client.request(resourcesRequest);
+        const resourcesResult = await client.request({ method: 'resources/list' });
 
         console.log('Available resources:');
         if (resourcesResult.resources.length === 0) {

@@ -381,9 +381,9 @@ describe('withLogging', () => {
             status: number;
             statusText: string;
             duration: number;
-            requestHeaders?: Headers;
-            responseHeaders?: Headers;
-            error?: Error;
+            requestHeaders?: Headers | undefined;
+            responseHeaders?: Headers | undefined;
+            error?: Error | undefined;
         }) => void
     >;
     let consoleErrorSpy: MockInstance;

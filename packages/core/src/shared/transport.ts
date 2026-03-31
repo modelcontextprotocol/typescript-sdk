@@ -35,12 +35,14 @@ export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: Req
 
     // Return a wrapped fetch that merges base RequestInit with call-specific init
     return async (url: string | URL, init?: RequestInit): Promise<Response> => {
-        const mergedInit: RequestInit = {
+        // Cast needed: spreading RequestInit (a third-party type without `| undefined`
+        // on its optional properties) produces values incompatible with exactOptionalPropertyTypes.
+        const mergedInit = {
             ...baseInit,
             ...init,
             // Headers need special handling - merge instead of replace
             headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
-        };
+        } as RequestInit;
         return baseFetch(url, mergedInit);
     };
 }

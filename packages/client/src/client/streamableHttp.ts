@@ -33,20 +33,20 @@ export interface StartSSEOptions {
      *
      * This allows clients to reconnect and continue from where they left off.
      */
-    resumptionToken?: string;
+    resumptionToken?: string | undefined;
 
     /**
      * A callback that is invoked when the resumption token changes.
      *
      * This allows clients to persist the latest token for potential reconnection.
      */
-    onresumptiontoken?: (token: string) => void;
+    onresumptiontoken?: ((token: string) => void) | undefined;
 
     /**
      * Override Message ID to associate with the replay message
      * so that the response can be associated with the new resumed request.
      */
-    replayMessageId?: string | number;
+    replayMessageId?: string | number | undefined;
 }
 
 /**
@@ -124,22 +124,22 @@ export type StreamableHTTPClientTransportOptions = {
      * {@linkcode StreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
      * reconnecting.
      */
-    authProvider?: AuthProvider | OAuthClientProvider;
+    authProvider?: (AuthProvider | OAuthClientProvider) | undefined;
 
     /**
      * Customizes HTTP requests to the server.
      */
-    requestInit?: RequestInit;
+    requestInit?: RequestInit | undefined;
 
     /**
      * Custom fetch implementation used for all network requests.
      */
-    fetch?: FetchLike;
+    fetch?: FetchLike | undefined;
 
     /**
      * Options to configure the reconnection behavior.
      */
-    reconnectionOptions?: StreamableHTTPReconnectionOptions;
+    reconnectionOptions?: StreamableHTTPReconnectionOptions | undefined;
 
     /**
      * Custom scheduler for reconnection attempts. If not provided, `setTimeout` is used.
@@ -151,14 +151,14 @@ export type StreamableHTTPClientTransportOptions = {
      * Session ID for the connection. This is used to identify the session on the server.
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
-    sessionId?: string;
+    sessionId?: string | undefined;
 
     /**
      * The MCP protocol version to include in the `mcp-protocol-version` header on all requests.
      * When reconnecting with a preserved `sessionId`, set this to the version negotiated during the original
      * handshake so the reconnected transport continues sending the required header.
      */
-    protocolVersion?: string;
+    protocolVersion?: string | undefined;
 };
 
 /**
@@ -169,24 +169,24 @@ export type StreamableHTTPClientTransportOptions = {
 export class StreamableHTTPClientTransport implements Transport {
     private _abortController?: AbortController;
     private _url: URL;
-    private _resourceMetadataUrl?: URL;
-    private _scope?: string;
-    private _requestInit?: RequestInit;
-    private _authProvider?: AuthProvider;
+    private _resourceMetadataUrl?: URL | undefined;
+    private _scope?: string | undefined;
+    private _requestInit?: RequestInit | undefined;
+    private _authProvider?: AuthProvider | undefined;
     private _oauthProvider?: OAuthClientProvider;
-    private _fetch?: FetchLike;
+    private _fetch?: FetchLike | undefined;
     private _fetchWithInit: FetchLike;
-    private _sessionId?: string;
+    private _sessionId?: string | undefined;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
-    private _protocolVersion?: string;
-    private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
+    private _protocolVersion?: string | undefined;
+    private _lastUpscopingHeader?: string | undefined; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
-    private readonly _reconnectionScheduler?: ReconnectionScheduler;
-    private _cancelReconnection?: () => void;
+    private readonly _reconnectionScheduler?: ReconnectionScheduler | undefined;
+    private _cancelReconnection?: (() => void) | undefined;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage) => void) | undefined;
 
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
         this._url = url;
@@ -248,7 +248,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 method: 'GET',
                 headers,
                 signal: this._abortController?.signal
-            });
+            } as RequestInit);
 
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
@@ -513,14 +513,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
+        options?: { resumptionToken?: string | undefined; onresumptiontoken?: ((token: string) => void) | undefined }
     ): Promise<void> {
         return this._send(message, options, false);
     }
 
     private async _send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void } | undefined,
+        options: { resumptionToken?: string | undefined; onresumptiontoken?: ((token: string) => void) | undefined } | undefined,
         isAuthRetry: boolean
     ): Promise<void> {
         try {
@@ -544,7 +544,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers,
                 body: JSON.stringify(message),
                 signal: this._abortController?.signal
-            };
+            } as RequestInit;
 
             const response = await (this._fetch ?? fetch)(this._url, init);
 
@@ -711,7 +711,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 method: 'DELETE',
                 headers,
                 signal: this._abortController?.signal
-            };
+            } as RequestInit;
 
             const response = await (this._fetch ?? fetch)(this._url, init);
             await response.text?.().catch(() => {});

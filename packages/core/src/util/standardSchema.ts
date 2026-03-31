@@ -184,7 +184,7 @@ export async function validateStandardSchema<T extends StandardSchemaWithJSON>(
 
 export function promptArgumentsFromStandardSchema(
     schema: StandardJSONSchemaV1
-): Array<{ name: string; description?: string; required: boolean }> {
+): Array<{ name: string; description?: string | undefined; required: boolean }> {
     const jsonSchema = standardSchemaToJsonSchema(schema, 'input');
     const properties = (jsonSchema.properties as Record<string, { description?: string }>) || {};
     const required = (jsonSchema.required as string[]) || [];

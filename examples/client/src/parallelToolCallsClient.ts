@@ -1,4 +1,4 @@
-import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
+import type { CallToolResult } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
@@ -82,11 +82,7 @@ async function main(): Promise<void> {
  */
 async function listTools(client: Client): Promise<void> {
     try {
-        const toolsRequest: ListToolsRequest = {
-            method: 'tools/list',
-            params: {}
-        };
-        const toolsResult = await client.request(toolsRequest);
+        const toolsResult = await client.request({ method: 'tools/list' });
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {

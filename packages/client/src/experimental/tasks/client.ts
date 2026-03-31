@@ -264,7 +264,7 @@ export class ExperimentalClientTasks {
      * @experimental
      */
     requestStream<M extends RequestMethod>(
-        request: { method: M; params?: Record<string, unknown> },
+        request: { method: M; params?: Record<string, unknown> | undefined },
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<ResultTypeMap[M]>, void, void> {
         const resultSchema = getResultSchema(request.method) as unknown as AnyObjectSchema;

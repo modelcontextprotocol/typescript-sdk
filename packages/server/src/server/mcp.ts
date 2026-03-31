@@ -1004,7 +1004,7 @@ export class McpServer {
 export type CompleteResourceTemplateCallback = (
     value: string,
     context?: {
-        arguments?: Record<string, string>;
+        arguments?: Record<string, string> | undefined;
     }
 ) => string[] | Promise<string[]>;
 
@@ -1084,13 +1084,13 @@ export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = und
 type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | CreateTaskResult>;
 
 export type RegisteredTool = {
-    title?: string;
-    description?: string;
-    inputSchema?: StandardSchemaWithJSON;
-    outputSchema?: StandardSchemaWithJSON;
-    annotations?: ToolAnnotations;
-    execution?: ToolExecution;
-    _meta?: Record<string, unknown>;
+    title?: string | undefined;
+    description?: string | undefined;
+    inputSchema?: StandardSchemaWithJSON | undefined;
+    outputSchema?: StandardSchemaWithJSON | undefined;
+    annotations?: ToolAnnotations | undefined;
+    execution?: ToolExecution | undefined;
+    _meta?: Record<string, unknown> | undefined;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
     executor: ToolExecutor;
@@ -1128,7 +1128,10 @@ function createToolExecutor(
             if (!ctx.task?.store) {
                 throw new Error('No task store provided.');
             }
-            const taskCtx: CreateTaskServerContext = { ...ctx, task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } };
+            const taskCtx: CreateTaskServerContext = {
+                ...ctx,
+                task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } as CreateTaskServerContext['task']
+            };
             if (inputSchema) {
                 return taskHandler.createTask(args, taskCtx);
             }
@@ -1169,8 +1172,8 @@ export type ReadResourceCallback = (uri: URL, ctx: ServerContext) => ReadResourc
 
 export type RegisteredResource = {
     name: string;
-    title?: string;
-    metadata?: ResourceMetadata;
+    title?: string | undefined;
+    metadata?: ResourceMetadata | undefined;
     readCallback: ReadResourceCallback;
     enabled: boolean;
     enable(): void;
@@ -1197,8 +1200,8 @@ export type ReadResourceTemplateCallback = (
 
 export type RegisteredResourceTemplate = {
     resourceTemplate: ResourceTemplate;
-    title?: string;
-    metadata?: ResourceMetadata;
+    title?: string | undefined;
+    metadata?: ResourceMetadata | undefined;
     readCallback: ReadResourceTemplateCallback;
     enabled: boolean;
     enable(): void;
@@ -1231,9 +1234,9 @@ type TaskHandlerInternal = {
 };
 
 export type RegisteredPrompt = {
-    title?: string;
-    description?: string;
-    argsSchema?: StandardSchemaWithJSON;
+    title?: string | undefined;
+    description?: string | undefined;
+    argsSchema?: StandardSchemaWithJSON | undefined;
     /** @hidden */
     handler: PromptHandler;
     enabled: boolean;

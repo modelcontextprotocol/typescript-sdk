@@ -206,14 +206,14 @@ export class Client extends Protocol<ClientContext> {
     private _serverVersion?: Implementation;
     private _negotiatedProtocolVersion?: string;
     private _capabilities: ClientCapabilities;
-    private _instructions?: string;
+    private _instructions?: string | undefined;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
     private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-    private _pendingListChangedConfig?: ListChangedHandlers;
+    private _pendingListChangedConfig?: ListChangedHandlers | undefined;
     private _enforceStrictCapabilities: boolean;
 
     /**
@@ -710,11 +710,19 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertTaskCapability(method: string): void {
-        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
+        assertToolsCallTaskCapability(
+            this._serverCapabilities?.tasks?.requests as Parameters<typeof assertToolsCallTaskCapability>[0],
+            method,
+            'Server'
+        );
     }
 
     protected assertTaskHandlerCapability(method: string): void {
-        assertClientRequestTaskCapability(this._capabilities?.tasks?.requests, method, 'Client');
+        assertClientRequestTaskCapability(
+            this._capabilities?.tasks?.requests as Parameters<typeof assertClientRequestTaskCapability>[0],
+            method,
+            'Client'
+        );
     }
 
     async ping(options?: RequestOptions) {

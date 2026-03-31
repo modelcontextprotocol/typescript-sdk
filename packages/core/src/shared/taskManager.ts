@@ -55,7 +55,7 @@ export interface TaskManagerHost {
  * @internal
  */
 export interface InboundContext {
-    sessionId?: string;
+    sessionId?: string | undefined;
     sendNotification: (notification: Notification, options?: NotificationOptions) => Promise<void>;
     sendRequest: <U extends AnySchema>(request: Request, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
 }
@@ -65,7 +65,7 @@ export interface InboundContext {
  * @internal
  */
 export interface InboundResult {
-    taskContext?: BaseContext['task'];
+    taskContext?: BaseContext['task'] | undefined;
     sendNotification: (notification: Notification) => Promise<void>;
     sendRequest: <U extends AnySchema>(
         request: Request,
@@ -79,7 +79,7 @@ export interface InboundResult {
      * Throwing here produces a proper JSON-RPC error response, matching the behavior of
      * capability checks on main.
      */
-    validateInbound?: () => void;
+    validateInbound?: (() => void) | undefined;
 }
 
 /**
@@ -142,16 +142,16 @@ export interface RequestTaskStore {
      * @param cursor - Optional cursor for pagination
      * @returns An object containing the tasks array and an optional nextCursor
      */
-    listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
+    listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string | undefined }>;
 }
 
 /**
  * Task context provided to request handlers when task storage is configured.
  */
 export type TaskContext = {
-    id?: string;
+    id?: string | undefined;
     store: RequestTaskStore;
-    requestedTtl?: number;
+    requestedTtl?: number | undefined;
 };
 
 export type TaskManagerOptions = {
@@ -159,22 +159,22 @@ export type TaskManagerOptions = {
      * Task storage implementation. Required for handling incoming task requests (server-side).
      * Not required for sending task requests (client-side outbound API).
      */
-    taskStore?: TaskStore;
+    taskStore?: TaskStore | undefined;
     /**
      * Optional task message queue implementation for managing server-initiated messages
      * that will be delivered through the tasks/result response stream.
      */
-    taskMessageQueue?: TaskMessageQueue;
+    taskMessageQueue?: TaskMessageQueue | undefined;
     /**
      * Default polling interval (in milliseconds) for task status checks when no pollInterval
      * is provided by the server. Defaults to 1000ms if not specified.
      */
-    defaultTaskPollInterval?: number;
+    defaultTaskPollInterval?: number | undefined;
     /**
      * Maximum number of messages that can be queued per task for side-channel delivery.
      * If undefined, the queue size is unbounded.
      */
-    maxTaskQueueSize?: number;
+    maxTaskQueueSize?: number | undefined;
 };
 
 /**
@@ -193,12 +193,12 @@ export function extractTaskManagerOptions(tasksCapability: TaskManagerOptions | 
  * @internal
  */
 export class TaskManager {
-    private _taskStore?: TaskStore;
-    private _taskMessageQueue?: TaskMessageQueue;
+    private _taskStore?: TaskStore | undefined;
+    private _taskMessageQueue?: TaskMessageQueue | undefined;
     private _taskProgressTokens: Map<string, number> = new Map();
     private _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _options: TaskManagerOptions;
-    private _host?: TaskManagerHost;
+    private _host?: TaskManagerHost | undefined;
 
     constructor(options: TaskManagerOptions) {
         this._options = options;
@@ -432,7 +432,7 @@ export class TaskManager {
     private async handleListTasks(
         cursor: string | undefined,
         sessionId?: string
-    ): Promise<{ tasks: Task[]; nextCursor?: string; _meta: Record<string, unknown> }> {
+    ): Promise<{ tasks: Task[]; nextCursor?: string | undefined; _meta: Record<string, unknown> }> {
         try {
             const { tasks, nextCursor } = await this._requireTaskStore.listTasks(cursor, sessionId);
             return { tasks, nextCursor, _meta: {} };
@@ -523,9 +523,9 @@ export class TaskManager {
         request: JSONRPCRequest,
         sessionId?: string
     ): {
-        relatedTaskId?: string;
-        taskCreationParams?: TaskCreationParams;
-        taskContext?: TaskContext;
+        relatedTaskId?: string | undefined;
+        taskCreationParams?: TaskCreationParams | undefined;
+        taskContext?: TaskContext | undefined;
     } {
         const relatedTaskId = (request.params?._meta as Record<string, { taskId?: string }> | undefined)?.[RELATED_TASK_META_KEY]?.taskId;
         const taskCreationParams = isTaskAugmentedRequestParams(request.params) ? request.params.task : undefined;

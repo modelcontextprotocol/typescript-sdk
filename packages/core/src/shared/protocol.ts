@@ -92,7 +92,7 @@ export type ProtocolOptions = {
      * `assertTaskCapability()` and `assertTaskHandlerCapability()` methods,
      * so they should NOT be included here.
      */
-    tasks?: TaskManagerOptions;
+    tasks?: TaskManagerOptions | undefined;
 };
 
 /**
@@ -140,12 +140,12 @@ export type RequestOptions = {
     /**
      * If provided, augments the request with task creation parameters to enable call-now, fetch-later execution patterns.
      */
-    task?: TaskCreationParams;
+    task?: TaskCreationParams | undefined;
 
     /**
      * If provided, associates this request with a related task.
      */
-    relatedTask?: RelatedTaskMetadata;
+    relatedTask?: RelatedTaskMetadata | undefined;
 } & TransportSendOptions;
 
 /**
@@ -170,7 +170,7 @@ export type BaseContext = {
     /**
      * The session ID from the transport, if available.
      */
-    sessionId?: string;
+    sessionId?: string | undefined;
 
     /**
      * Information about the MCP request being handled.
@@ -189,7 +189,7 @@ export type BaseContext = {
         /**
          * Metadata from the original request.
          */
-        _meta?: RequestMeta;
+        _meta?: RequestMeta | undefined;
 
         /**
          * An abort signal used to communicate if the request was cancelled from the sender's side.
@@ -202,7 +202,7 @@ export type BaseContext = {
          * This is used by certain transports to correctly associate related messages.
          */
         send: <M extends RequestMethod>(
-            request: { method: M; params?: Record<string, unknown> },
+            request: { method: M; params?: Record<string, unknown> | undefined },
             options?: TaskRequestOptions
         ) => Promise<ResultTypeMap[M]>;
 
@@ -217,17 +217,19 @@ export type BaseContext = {
     /**
      * HTTP transport information, only available when using an HTTP-based transport.
      */
-    http?: {
-        /**
-         * Information about a validated access token, provided to request handlers.
-         */
-        authInfo?: AuthInfo;
-    };
+    http?:
+        | {
+              /**
+               * Information about a validated access token, provided to request handlers.
+               */
+              authInfo?: AuthInfo | undefined;
+          }
+        | undefined;
 
     /**
      * Task context, available when task storage is configured.
      */
-    task?: TaskContext;
+    task?: TaskContext | undefined;
 };
 
 /**
@@ -255,24 +257,26 @@ export type ServerContext = BaseContext & {
         ) => Promise<CreateMessageResult | CreateMessageResultWithTools>;
     };
 
-    http?: {
-        /**
-         * The original HTTP request information.
-         */
-        req?: RequestInfo;
+    http?:
+        | {
+              /**
+               * The original HTTP request information.
+               */
+              req?: RequestInfo | undefined;
 
-        /**
-         * Closes the SSE stream for this request, triggering client reconnection.
-         * Only available when using a StreamableHTTPServerTransport with eventStore configured.
-         */
-        closeSSE?: () => void;
+              /**
+               * Closes the SSE stream for this request, triggering client reconnection.
+               * Only available when using a StreamableHTTPServerTransport with eventStore configured.
+               */
+              closeSSE?: (() => void) | undefined;
 
-        /**
-         * Closes the standalone GET SSE stream, triggering client reconnection.
-         * Only available when using a StreamableHTTPServerTransport with eventStore configured.
-         */
-        closeStandaloneSSE?: () => void;
-    };
+              /**
+               * Closes the standalone GET SSE stream, triggering client reconnection.
+               * Only available when using a StreamableHTTPServerTransport with eventStore configured.
+               */
+              closeStandaloneSSE?: (() => void) | undefined;
+          }
+        | undefined;
 };
 
 /**
@@ -287,7 +291,7 @@ type TimeoutInfo = {
     timeoutId: ReturnType<typeof setTimeout>;
     startTime: number;
     timeout: number;
-    maxTotalTimeout?: number;
+    maxTotalTimeout?: number | undefined;
     resetTimeoutOnProgress: boolean;
     onTimeout: () => void;
 };
@@ -297,7 +301,7 @@ type TimeoutInfo = {
  * features like request/response linking, notifications, and progress.
  */
 export abstract class Protocol<ContextT extends BaseContext> {
-    private _transport?: Transport;
+    private _transport?: Transport | undefined;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
@@ -597,7 +601,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 method: request.method,
                 _meta: request.params?._meta,
                 signal: abortController.signal,
-                send: <M extends RequestMethod>(r: { method: M; params?: Record<string, unknown> }, options?: TaskRequestOptions) => {
+                send: <M extends RequestMethod>(
+                    r: { method: M; params?: Record<string, unknown> | undefined },
+                    options?: TaskRequestOptions
+                ) => {
                     const resultSchema = getResultSchema(r.method);
                     return sendRequest(r as Request, resultSchema, options) as Promise<ResultTypeMap[M]>;
                 },
@@ -780,7 +787,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Do not use this method to emit notifications! Use {@linkcode Protocol.notification | notification()} instead.
      */
     request<M extends RequestMethod>(
-        request: { method: M; params?: Record<string, unknown> },
+        request: { method: M; params?: Record<string, unknown> | undefined },
         options?: RequestOptions
     ): Promise<ResultTypeMap[M]> {
         const resultSchema = getResultSchema(request.method);

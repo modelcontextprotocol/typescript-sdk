@@ -4,21 +4,21 @@ import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/index.js';
 
 interface QueuedMessage {
     message: JSONRPCMessage;
-    extra?: { authInfo?: AuthInfo };
+    extra?: { authInfo?: AuthInfo | undefined } | undefined;
 }
 
 /**
  * In-memory transport for creating clients and servers that talk to each other within the same process.
  */
 export class InMemoryTransport implements Transport {
-    private _otherTransport?: InMemoryTransport;
+    private _otherTransport?: InMemoryTransport | undefined;
     private _messageQueue: QueuedMessage[] = [];
     private _closed = false;
 
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
-    sessionId?: string;
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: ((message: JSONRPCMessage, extra?: { authInfo?: AuthInfo | undefined }) => void) | undefined;
+    sessionId?: string | undefined;
 
     /**
      * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a {@linkcode @modelcontextprotocol/client!client/client.Client | Client} and one to a {@linkcode @modelcontextprotocol/server!server/server.Server | Server}.
