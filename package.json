@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.28.0",
+    "version": "1.29.0",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -20,38 +20,47 @@
     ],
     "exports": {
         ".": {
+            "types": "./dist/esm/index.d.ts",
             "import": "./dist/esm/index.js",
             "require": "./dist/cjs/index.js"
         },
         "./client": {
+            "types": "./dist/esm/client/index.d.ts",
             "import": "./dist/esm/client/index.js",
             "require": "./dist/cjs/client/index.js"
         },
         "./server": {
+            "types": "./dist/esm/server/index.d.ts",
             "import": "./dist/esm/server/index.js",
             "require": "./dist/cjs/server/index.js"
         },
         "./validation": {
+            "types": "./dist/esm/validation/index.d.ts",
             "import": "./dist/esm/validation/index.js",
             "require": "./dist/cjs/validation/index.js"
         },
         "./validation/ajv": {
+            "types": "./dist/esm/validation/ajv-provider.d.ts",
             "import": "./dist/esm/validation/ajv-provider.js",
             "require": "./dist/cjs/validation/ajv-provider.js"
         },
         "./validation/cfworker": {
+            "types": "./dist/esm/validation/cfworker-provider.d.ts",
             "import": "./dist/esm/validation/cfworker-provider.js",
             "require": "./dist/cjs/validation/cfworker-provider.js"
         },
         "./experimental": {
+            "types": "./dist/esm/experimental/index.d.ts",
             "import": "./dist/esm/experimental/index.js",
             "require": "./dist/cjs/experimental/index.js"
         },
         "./experimental/tasks": {
+            "types": "./dist/esm/experimental/tasks/index.d.ts",
             "import": "./dist/esm/experimental/tasks/index.js",
             "require": "./dist/cjs/experimental/tasks/index.js"
         },
         "./*": {
+            "types": "./dist/esm/*.d.ts",
             "import": "./dist/esm/*",
             "require": "./dist/cjs/*"
         }

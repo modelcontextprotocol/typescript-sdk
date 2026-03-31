@@ -511,7 +511,11 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports task creation.
      */
-    tasks: ClientTasksCapabilitySchema.optional()
+    tasks: ClientTasksCapabilitySchema.optional(),
+    /**
+     * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
+     */
+    extensions: z.record(z.string(), AssertObjectSchema).optional()
 });
 
 export const InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -589,7 +593,11 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Present if the server supports task creation.
      */
-    tasks: ServerTasksCapabilitySchema.optional()
+    tasks: ServerTasksCapabilitySchema.optional(),
+    /**
+     * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
+     */
+    extensions: z.record(z.string(), AssertObjectSchema).optional()
 });
 
 /**
@@ -899,6 +907,13 @@ export const ResourceSchema = z.object({
      * The MIME type of this resource, if known.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
+     *
+     * This can be used by Hosts to display file sizes and estimate context window usage.
+     */
+    size: z.optional(z.number()),
 
     /**
      * Optional annotations for the client.

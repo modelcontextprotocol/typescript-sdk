@@ -125,7 +125,7 @@ export class StdioClientTransport implements Transport {
                 },
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
-                windowsHide: process.platform === 'win32' && isElectron(),
+                windowsHide: process.platform === 'win32',
                 cwd: this._serverParams.cwd
             });
 
@@ -256,8 +256,4 @@ export class StdioClientTransport implements Transport {
             }
         });
     }
-}
-
-function isElectron() {
-    return 'type' in process;
 }
