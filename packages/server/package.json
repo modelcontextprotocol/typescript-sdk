@@ -63,15 +63,11 @@
         "zod": "catalog:runtimeShared"
     },
     "peerDependencies": {
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared"
+        "@cfworker/json-schema": "catalog:runtimeShared"
     },
     "peerDependenciesMeta": {
         "@cfworker/json-schema": {
             "optional": true
-        },
-        "zod": {
-            "optional": false
         }
     },
     "devDependencies": {
