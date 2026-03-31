@@ -39,7 +39,7 @@ This monorepo publishes split packages:
 - **`@modelcontextprotocol/server`**: build MCP servers
 - **`@modelcontextprotocol/client`**: build MCP clients
 
-Both packages have a **required peer dependency** on `zod` for schema validation. The SDK uses Zod v4.
+Tool and prompt schemas use [Standard Schema](https://standardschema.dev/) — bring Zod v4, Valibot, ArkType, or any compatible library.
 
 ### Middleware packages (optional)
 
@@ -56,21 +56,21 @@ They are intentionally thin adapters: they should not introduce new MCP function
 ### Server
 
 ```bash
-npm install @modelcontextprotocol/server zod
+npm install @modelcontextprotocol/server
 # or
-bun add @modelcontextprotocol/server zod
+bun add @modelcontextprotocol/server
 # or
-deno add npm:@modelcontextprotocol/server npm:zod
+deno add npm:@modelcontextprotocol/server
 ```
 
 ### Client
 
 ```bash
-npm install @modelcontextprotocol/client zod
+npm install @modelcontextprotocol/client
 # or
-bun add @modelcontextprotocol/client zod
+bun add @modelcontextprotocol/client
 # or
-deno add npm:@modelcontextprotocol/client npm:zod
+deno add npm:@modelcontextprotocol/client
 ```
 
 ### Optional middleware packages
@@ -157,7 +157,8 @@ The `docs:multi` script checks out both the `v1.x` and `main` branches via git w
 
 ## v1 (legacy) documentation and fixes
 
-If you are using the **v1** generation of the SDK, the **v1 API documentation** is available at [`https://ts.sdk.modelcontextprotocol.io/`](https://ts.sdk.modelcontextprotocol.io/). The v1 source code and any v1-specific fixes live on the long-lived [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). V2 API docs are at [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
+If you are using the **v1** generation of the SDK, the **v1 API documentation** is available at [`https://ts.sdk.modelcontextprotocol.io/`](https://ts.sdk.modelcontextprotocol.io/). The v1 source code and any v1-specific fixes live on the long-lived
+[`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x). V2 API docs are at [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
 
 ## Contributing
 
