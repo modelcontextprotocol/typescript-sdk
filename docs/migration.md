@@ -110,6 +110,26 @@ const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: ()
 
 The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
 
+### `WebSocketClientTransport` removed
+
+`WebSocketClientTransport` has been removed. WebSocket is not a spec-defined MCP transport, and keeping it in the SDK encouraged transport proliferation without a conformance baseline.
+
+Use `StdioClientTransport` for local servers or `StreamableHTTPClientTransport` for remote servers. If you need WebSocket for a custom deployment, implement the `Transport` interface directly — it remains exported from `@modelcontextprotocol/client`.
+
+**Before (v1):**
+
+```typescript
+import { WebSocketClientTransport } from '@modelcontextprotocol/sdk/client/websocket.js';
+const transport = new WebSocketClientTransport(new URL('ws://localhost:3000'));
+```
+
+**After (v2):**
+
+```typescript
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
+```
+
 ### Server auth removed
 
 Server-side OAuth/auth has been removed entirely from the SDK. This includes `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and all associated types.
@@ -154,8 +174,12 @@ const transport = new StreamableHTTPClientTransport(url, {
     }
 });
 
-// Reading headers in a request handler
+// Reading headers in a request handler (ctx.http.req is the standard Web Request object)
 const sessionId = ctx.http?.req?.headers.get('mcp-session-id');
+
+// Reading query parameters
+const url = new URL(ctx.http!.req!.url);
+const debug = url.searchParams.get('debug');
 ```
 
 ### `McpServer.tool()`, `.prompt()`, `.resource()` removed
@@ -250,10 +274,10 @@ server.registerTool('greet', {
   inputSchema: type({ name: 'string' })
 }, async ({ name }) => { ... });
 
-// Raw JSON Schema via fromJsonSchema
-import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
+// Raw JSON Schema via fromJsonSchema (validator defaults to runtime-appropriate choice)
+import { fromJsonSchema } from '@modelcontextprotocol/server';
 server.registerTool('greet', {
-  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
+  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } })
 }, handler);
 
 // For tools with no parameters, use z.object({})
@@ -523,7 +547,7 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
 | `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
 | `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
-| `extra.requestInfo`                      | `ctx.http?.req` (only on `ServerContext`)                              |
+| `extra.requestInfo`                      | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)     |
 | `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
 | `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
 | `extra.sessionId`                        | `ctx.sessionId`                                                        |
@@ -546,7 +570,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-    const headers = ctx.http?.req?.headers;
+    const headers = ctx.http?.req?.headers; // standard Web Request object
     const taskStore = ctx.task?.store;
     await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
     return { content: [{ type: 'text', text: 'result' }] };
@@ -787,6 +811,46 @@ try {
     }
 }
 ```
+
+### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+
+The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let the server decide the lifetime.
+
+This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
+
+**Before (v1):**
+
+```typescript
+// Requesting unlimited lifetime by passing null
+const result = await client.callTool({
+    name: 'long-task',
+    arguments: {},
+    task: { ttl: null }
+});
+
+// Handler context had number | null | undefined
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const ttl: number | null | undefined = ctx.task?.requestedTtl;
+});
+```
+
+**After (v2):**
+
+```typescript
+// Omit ttl to let the server decide (server may return null for unlimited)
+const result = await client.callTool({
+    name: 'long-task',
+    arguments: {},
+    task: {}
+});
+
+// Handler context is now number | undefined
+server.setRequestHandler('tools/call', async (request, ctx) => {
+    const ttl: number | undefined = ctx.task?.requestedTtl;
+});
+```
+
+> **Note:** These task APIs are marked `@experimental` and may change without notice.
 
 ## Enhancements
 

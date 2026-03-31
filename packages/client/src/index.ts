@@ -62,12 +62,19 @@ export type { SSEClientTransportOptions } from './client/sse.js';
 export { SSEClientTransport, SseError } from './client/sse.js';
 export type { StdioServerParameters } from './client/stdio.js';
 export { DEFAULT_INHERITED_ENV_VARS, getDefaultEnvironment, StdioClientTransport } from './client/stdio.js';
-export type { StartSSEOptions, StreamableHTTPClientTransportOptions, StreamableHTTPReconnectionOptions } from './client/streamableHttp.js';
+export type {
+    ReconnectionScheduler,
+    StartSSEOptions,
+    StreamableHTTPClientTransportOptions,
+    StreamableHTTPReconnectionOptions
+} from './client/streamableHttp.js';
 export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
-export { WebSocketClientTransport } from './client/websocket.js';
 
 // experimental exports
 export { ExperimentalClientTasks } from './experimental/tasks/client.js';
+
+// runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
+export { fromJsonSchema } from './fromJsonSchema.js';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';

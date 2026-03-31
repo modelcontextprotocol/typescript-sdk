@@ -43,7 +43,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/client/streamableHttp.js` | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/sse.js`            | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/websocket.js`      | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/websocket.js`      | REMOVED (use Streamable HTTP or stdio; implement `Transport` for custom needs) |
 
 ### Server imports
 
@@ -96,8 +96,7 @@ Notes:
 | `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
 | `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                          |
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
-| `ToolTaskHandler.getTask(args, ctx)`     | `ToolTaskHandler.getTask?(ctx)` — now optional, no args  |
-| `ToolTaskHandler.getTaskResult(args, ctx)` | `ToolTaskHandler.getTaskResult?(ctx)` — now optional, no args |
+1000 1000 1001cat /tmp/1764-resolve.txt | perl -pe "s/([\@\$\/])/\\$1/g")
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
@@ -211,7 +210,7 @@ Zod schemas, all callback return types. Note: `callTool()` and `request()` signa
 
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
-**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema, validator)` from `@modelcontextprotocol/server`. Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
 
 ### Tools
 
@@ -299,16 +298,17 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ## 7. Headers API
 
-Transport constructors and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain objects.
+Transport constructors now use the Web Standard `Headers` object instead of plain objects. The custom `RequestInfo` type has been replaced with the standard Web `Request` object, giving access to headers, URL, query parameters, and method.
 
 ```typescript
-// v1: plain object, bracket access
+// v1: plain object, bracket access, custom RequestInfo
 headers: { 'Authorization': 'Bearer token' }
 extra.requestInfo?.headers['mcp-session-id']
 
-// v2: Headers object, .get() access
+// v2: Headers object, .get() access, standard Web Request
 headers: new Headers({ 'Authorization': 'Bearer token' })
 ctx.http?.req?.headers.get('mcp-session-id')
+new URL(ctx.http?.req?.url).searchParams.get('debug')
 ```
 
 ## 8. Removed Server Features
@@ -392,7 +392,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.sendNotification(...)`    | `ctx.mcpReq.notify(...)`                                                   |
 | `extra.authInfo`                 | `ctx.http?.authInfo`                                                       |
 | `extra.sessionId`                | `ctx.sessionId`                                                            |
-| `extra.requestInfo`              | `ctx.http?.req` (only `ServerContext`)                                     |
+| `extra.requestInfo`              | `ctx.http?.req` (standard Web `Request`, only `ServerContext`)             |
 | `extra.closeSSEStream`           | `ctx.http?.closeSSE` (only `ServerContext`)                                |
 | `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
 | `extra.taskStore`                | `ctx.task?.store`                                                          |
@@ -435,11 +435,30 @@ const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
-## 12. Client Behavioral Changes
+## 12. Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+
+`TaskCreationParams.ttl` changed from `z.union([z.number(), z.null()]).optional()` to `z.number().optional()`. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Omit `ttl` to let the server decide.
+
+| v1 | v2 |
+|---|---|
+| `task: { ttl: null }` | `task: {}` (omit ttl) |
+| `task: { ttl: 60000 }` | `task: { ttl: 60000 }` (unchanged) |
+
+Type changes in handler context:
+
+| Type | v1 | v2 |
+|---|---|---|
+| `TaskContext.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+| `CreateTaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+| `TaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
+
+> These task APIs are `@experimental` and may change without notice.
+
+## 13. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 13. Runtime-Specific JSON Schema Validators (Enhancement)
+## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 
@@ -463,7 +482,7 @@ new McpServer({ name: 'server', version: '1.0.0' }, {});
 
 Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
 
-## 14. Migration Steps (apply in this order)
+## 15. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`

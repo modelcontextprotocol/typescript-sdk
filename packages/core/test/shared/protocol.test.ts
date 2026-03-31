@@ -217,6 +217,94 @@ describe('protocol tests', () => {
         expect(oncloseMock).toHaveBeenCalled();
     });
 
+    test('should abort in-flight request handlers when the connection is closed', async () => {
+        await protocol.connect(transport);
+
+        let abortReason: unknown;
+        let handlerStarted = false;
+        const handlerDone = new Promise<void>(resolve => {
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                handlerStarted = true;
+                await new Promise<void>(resolveInner => {
+                    ctx.mcpReq.signal.addEventListener('abort', () => {
+                        abortReason = ctx.mcpReq.signal.reason;
+                        resolveInner();
+                    });
+                });
+                resolve();
+                return {};
+            });
+        });
+
+        transport.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
+
+        await vi.waitFor(() => expect(handlerStarted).toBe(true));
+
+        await transport.close();
+        await handlerDone;
+
+        expect(abortReason).toBeInstanceOf(SdkError);
+        expect((abortReason as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
+    });
+
+    test('should remove abort listener from caller signal when request settles', async () => {
+        await protocol.connect(transport);
+
+        const controller = new AbortController();
+        const addSpy = vi.spyOn(controller.signal, 'addEventListener');
+        const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+        const mockSchema = z.object({ result: z.string() });
+        const reqPromise = testRequest(protocol, { method: 'example', params: {} }, mockSchema, {
+            signal: controller.signal
+        });
+
+        expect(addSpy).toHaveBeenCalledTimes(1);
+        const listener = addSpy.mock.calls[0]![1];
+
+        transport.onmessage?.({ jsonrpc: '2.0', id: 0, result: { result: 'ok' } });
+        await reqPromise;
+
+        expect(removeSpy).toHaveBeenCalledWith('abort', listener);
+    });
+
+    test('should not accumulate abort listeners when reusing a signal across requests', async () => {
+        await protocol.connect(transport);
+
+        const controller = new AbortController();
+        const addSpy = vi.spyOn(controller.signal, 'addEventListener');
+        const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+        const mockSchema = z.object({ result: z.string() });
+        for (let i = 0; i < 5; i++) {
+            const reqPromise = testRequest(protocol, { method: 'example', params: {} }, mockSchema, {
+                signal: controller.signal
+            });
+            transport.onmessage?.({ jsonrpc: '2.0', id: i, result: { result: 'ok' } });
+            await reqPromise;
+        }
+
+        expect(addSpy).toHaveBeenCalledTimes(5);
+        expect(removeSpy).toHaveBeenCalledTimes(5);
+    });
+
+    test('should remove abort listener when request rejects', async () => {
+        await protocol.connect(transport);
+
+        const controller = new AbortController();
+        const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+        const mockSchema = z.object({ result: z.string() });
+        await expect(
+            testRequest(protocol, { method: 'example', params: {} }, mockSchema, {
+                signal: controller.signal,
+                timeout: 0
+            })
+        ).rejects.toThrow();
+
+        expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+    });
+
     test('should not overwrite existing hooks when connecting transports', async () => {
         const oncloseMock = vi.fn();
         const onerrorMock = vi.fn();
