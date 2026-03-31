@@ -2035,10 +2035,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -2104,10 +2105,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6460,10 +6462,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6562,10 +6565,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6667,10 +6671,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6787,10 +6792,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6890,10 +6896,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6988,10 +6995,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 

@@ -1,3 +1,4 @@
+import { CORS_IS_POSSIBLE } from '@modelcontextprotocol/client/_shims';
 import type {
     AuthorizationServerMetadata,
     FetchLike,
@@ -35,11 +36,109 @@ export type AddClientAuthentication = (
 ) => void | Promise<void>;
 
 /**
+ * Context passed to {@linkcode AuthProvider.onUnauthorized} when the server
+ * responds with 401. Provides everything needed to refresh credentials.
+ */
+export interface UnauthorizedContext {
+    /** The 401 response — inspect `WWW-Authenticate` for resource metadata, scope, etc. */
+    response: Response;
+    /** The MCP server URL, for passing to {@linkcode auth} or discovery helpers. */
+    serverUrl: URL;
+    /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
+    fetchFn: FetchLike;
+}
+
+/**
+ * Minimal interface for authenticating MCP client transports with bearer tokens.
+ *
+ * Transports call {@linkcode AuthProvider.token | token()} before every request
+ * to obtain the current token, and {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
+ * (if provided) when the server responds with 401, giving the provider a chance
+ * to refresh credentials before the transport retries once.
+ *
+ * For simple cases (API keys, gateway-managed tokens), implement only `token()`:
+ * ```typescript
+ * const authProvider: AuthProvider = { token: async () => process.env.API_KEY };
+ * ```
+ *
+ * For OAuth flows, pass an {@linkcode OAuthClientProvider} directly — transports
+ * accept either shape and adapt OAuth providers automatically via {@linkcode adaptOAuthProvider}.
+ */
+export interface AuthProvider {
+    /**
+     * Returns the current bearer token, or `undefined` if no token is available.
+     * Called before every request.
+     */
+    token(): Promise<string | undefined>;
+
+    /**
+     * Called when the server responds with 401. If provided, the transport will
+     * await this, then retry the request once. If the retry also gets 401, or if
+     * this method is not provided, the transport throws {@linkcode UnauthorizedError}.
+     *
+     * Implementations should refresh tokens, re-authenticate, etc. — whatever is
+     * needed so the next `token()` call returns a valid token.
+     */
+    onUnauthorized?(ctx: UnauthorizedContext): Promise<void>;
+}
+
+/**
+ * Type guard distinguishing `OAuthClientProvider` from a minimal `AuthProvider`.
+ * Transports use this at construction time to classify the `authProvider` option.
+ *
+ * Checks for `tokens()` + `clientInformation()` — two required `OAuthClientProvider`
+ * methods that a minimal `AuthProvider` `{ token: ... }` would never have.
+ */
+export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvider | undefined): provider is OAuthClientProvider {
+    if (provider == null) return false;
+    const p = provider as OAuthClientProvider;
+    return typeof p.tokens === 'function' && typeof p.clientInformation === 'function';
+}
+
+/**
+ * Standard `onUnauthorized` behavior for OAuth providers: extracts
+ * `WWW-Authenticate` parameters from the 401 response and runs {@linkcode auth}.
+ * Used by {@linkcode adaptOAuthProvider} to bridge `OAuthClientProvider` to `AuthProvider`.
+ */
+export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx: UnauthorizedContext): Promise<void> {
+    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+    const result = await auth(provider, {
+        serverUrl: ctx.serverUrl,
+        resourceMetadataUrl,
+        scope,
+        fetchFn: ctx.fetchFn
+    });
+    if (result !== 'AUTHORIZED') {
+        throw new UnauthorizedError();
+    }
+}
+
+/**
+ * Adapts an `OAuthClientProvider` to the minimal `AuthProvider` interface that
+ * transports consume. Called once at transport construction — the transport stores
+ * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
+ * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
+ */
+export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider {
+    return {
+        token: async () => {
+            const tokens = await provider.tokens();
+            return tokens?.access_token;
+        },
+        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
+    };
+}
+
+/**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
+ *
+ * Transports accept `OAuthClientProvider` directly via the `authProvider` option —
+ * they adapt it to {@linkcode AuthProvider} internally via {@linkcode adaptOAuthProvider}.
+ * No changes are needed to existing implementations.
  */
 export interface OAuthClientProvider {
     /**
@@ -381,7 +480,7 @@ export function applyClientAuthentication(
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
-function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
+export function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
     if (!clientSecret) {
         throw new Error('client_secret_basic authentication requires a client_secret');
     }
@@ -393,7 +492,7 @@ function applyBasicAuth(clientId: string, clientSecret: string | undefined, head
 /**
  * Applies POST body authentication (RFC 6749 Section 2.3.1)
  */
-function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
+export function applyPostAuth(clientId: string, clientSecret: string | undefined, params: URLSearchParams): void {
     params.set('client_id', clientId);
     if (clientSecret) {
         params.set('client_secret', clientSecret);
@@ -403,7 +502,7 @@ function applyPostAuth(clientId: string, clientSecret: string | undefined, param
 /**
  * Applies public client authentication (RFC 6749 Section 2.1)
  */
-function applyPublicAuth(clientId: string, params: URLSearchParams): void {
+export function applyPublicAuth(clientId: string, params: URLSearchParams): void {
     params.set('client_id', clientId);
 }
 
@@ -467,6 +566,38 @@ export async function auth(
     }
 }
 
+/**
+ * Selects scopes per the MCP spec and augment for refresh token support.
+ */
+export function determineScope(options: {
+    requestedScope?: string;
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+    authServerMetadata?: AuthorizationServerMetadata;
+    clientMetadata: OAuthClientMetadata;
+}): string | undefined {
+    const { requestedScope, resourceMetadata, authServerMetadata, clientMetadata } = options;
+
+    // Scope selection priority (MCP spec):
+    //   1. WWW-Authenticate header scope
+    //   2. PRM scopes_supported
+    //   3. clientMetadata.scope (SDK fallback)
+    //   4. Omit scope parameter
+    let effectiveScope = requestedScope || resourceMetadata?.scopes_supported?.join(' ') || clientMetadata.scope;
+
+    // SEP-2207: Append offline_access when the AS advertises it
+    // and the client supports the refresh_token grant.
+    if (
+        effectiveScope &&
+        authServerMetadata?.scopes_supported?.includes('offline_access') &&
+        !effectiveScope.split(' ').includes('offline_access') &&
+        clientMetadata.grant_types?.includes('refresh_token')
+    ) {
+        effectiveScope = `${effectiveScope} offline_access`;
+    }
+
+    return effectiveScope;
+}
+
 async function authInternal(
     provider: OAuthClientProvider,
     {
@@ -512,7 +643,12 @@ async function authInternal(
                     { resourceMetadataUrl: effectiveResourceMetadataUrl },
                     fetchFn
                 );
-            } catch {
+            } catch (error) {
+                // Network failures (DNS, connection refused) surface as TypeError — propagate
+                // those rather than masking a transient reachability problem.
+                if (error instanceof TypeError) {
+                    throw error;
+                }
                 // RFC 9728 not available — selectResourceURL will handle undefined
             }
         }
@@ -555,12 +691,13 @@ async function authInternal(
         await provider.saveResourceUrl?.(String(resource));
     }
 
-    // Apply scope selection strategy (SEP-835):
-    // 1. WWW-Authenticate scope (passed via `scope` param)
-    // 2. PRM scopes_supported
-    // 3. Client metadata scope (user-configured fallback)
-    // The resolved scope is used consistently for both DCR and the authorization request.
-    const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
+    // Scope selection used consistently for DCR and the authorization request.
+    const resolvedScope = determineScope({
+        requestedScope: scope,
+        resourceMetadata,
+        authServerMetadata: metadata,
+        clientMetadata: provider.clientMetadata
+    });
 
     // Handle client registration if needed
     let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -614,7 +751,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
-            scope,
+            scope: resolvedScope,
             fetchFn
         });
 
@@ -826,18 +963,45 @@ export async function discoverOAuthProtectedResourceMetadata(
 }
 
 /**
- * Helper function to handle fetch with CORS retry logic
+ * Fetch with a retry heuristic for CORS errors caused by custom headers.
+ *
+ * In browsers, adding a custom header (e.g. `MCP-Protocol-Version`) triggers a CORS preflight.
+ * If the server doesn't allow that header, the browser throws a `TypeError` before any response
+ * is received. Retrying without custom headers often succeeds because the request becomes
+ * "simple" (no preflight). If the server sends no CORS headers at all, the retry also fails
+ * with `TypeError` and we return `undefined` so callers can fall through to an alternate URL.
+ *
+ * However, `fetch()` also throws `TypeError` for non-CORS failures (DNS resolution, connection
+ * refused, invalid URL). Swallowing those and returning `undefined` masks real errors and can
+ * cause callers to silently fall through to a different discovery URL. CORS is a browser-only
+ * concept, so in non-browser runtimes (Node.js, Workers) a `TypeError` from `fetch` is never a
+ * CORS error — there we propagate the error instead of swallowing it.
+ *
+ * In browsers, we cannot reliably distinguish CORS `TypeError` from network `TypeError` from the
+ * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
     try {
         return await fetchFn(url, { headers });
     } catch (error) {
-        if (error instanceof TypeError) {
-            // CORS errors come back as TypeError, retry without headers
-            // We're getting CORS errors on retry too, return undefined
-            return headers ? fetchWithCorsRetry(url, undefined, fetchFn) : undefined;
+        if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
+            throw error;
         }
-        throw error;
+        if (headers) {
+            // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
+            // request: if that succeeds, we've sidestepped the preflight.
+            try {
+                return await fetchFn(url, {});
+            } catch (retryError) {
+                if (!(retryError instanceof TypeError)) {
+                    throw retryError;
+                }
+                // Retry also got CORS-blocked (server sends no CORS headers at all).
+                // Return undefined so the caller tries the next discovery URL.
+                return undefined;
+            }
+        }
+        return undefined;
     }
 }
 
@@ -871,7 +1035,9 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-    return !response || (response.status >= 400 && response.status < 500 && pathname !== '/');
+    if (!response) return true; // CORS error — always try fallback
+    if (pathname === '/') return false; // Already at root
+    return (response.status >= 400 && response.status < 500) || response.status === 502;
 }
 
 /**
@@ -898,7 +1064,7 @@ async function discoverMetadataWithFallback(
 
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
-    // If path-aware discovery fails with 404 and we're not already at root, try fallback to root discovery
+    // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery
     if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
         const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
@@ -1066,9 +1232,8 @@ export async function discoverAuthorizationServerMetadata(
 
         if (!response.ok) {
             await response.text?.().catch(() => {});
-            // Continue looking for any 4xx response code.
-            if (response.status >= 400 && response.status < 500) {
-                continue; // Try next URL
+            if ((response.status >= 400 && response.status < 500) || response.status === 502) {
+                continue; // Try next URL for 4xx or 502 (Bad Gateway)
             }
             throw new Error(
                 `HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`
@@ -1146,7 +1311,13 @@ export async function discoverOAuthServerInfo(
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
         }
-    } catch {
+    } catch (error) {
+        // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
+        // transient reachability problems, not "server doesn't support PRM" — propagate so the
+        // caller sees the real error instead of silently falling back to a different auth server.
+        if (error instanceof TypeError) {
+            throw error;
+        }
         // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
     }
 
@@ -1223,7 +1394,7 @@ export async function startAuthorization(
         authorizationUrl.searchParams.set('scope', scope);
     }
 
-    if (scope?.includes('offline_access')) {
+    if (scope?.split(' ').includes('offline_access')) {
         // if the request includes the OIDC-only "offline_access" scope,
         // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
         // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
@@ -1265,7 +1436,7 @@ export function prepareAuthorizationCodeRequest(
  * Internal helper to execute a token request with the given parameters.
  * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
-async function executeTokenRequest(
+export async function executeTokenRequest(
     authorizationServerUrl: string | URL,
     {
         metadata,
