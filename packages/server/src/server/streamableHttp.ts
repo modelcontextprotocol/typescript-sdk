@@ -552,6 +552,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 },
                 cancel: () => {
                     // Stream was cancelled by client
+                    this._clearKeepAliveTimer();
                     // Cleanup will be handled by the mapping
                 }
             });
@@ -582,6 +583,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
                 }
             });
+
+            // Start keepalive timer for the replayed stream so reconnecting
+            // clients remain protected from proxy idle timeouts
+            if (this._keepAliveInterval !== undefined) {
+                this._keepAliveTimer = setInterval(() => {
+                    try {
+                        streamController!.enqueue(encoder.encode(': keepalive\n\n'));
+                    } catch {
+                        this._clearKeepAliveTimer();
+                    }
+                }, this._keepAliveInterval);
+            }
 
             return new Response(readable, { headers });
         } catch (error) {
