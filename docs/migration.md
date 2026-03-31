@@ -174,8 +174,12 @@ const transport = new StreamableHTTPClientTransport(url, {
     }
 });
 
-// Reading headers in a request handler
+// Reading headers in a request handler (ctx.http.req is the standard Web Request object)
 const sessionId = ctx.http?.req?.headers.get('mcp-session-id');
+
+// Reading query parameters
+const url = new URL(ctx.http!.req!.url);
+const debug = url.searchParams.get('debug');
 ```
 
 ### `McpServer.tool()`, `.prompt()`, `.resource()` removed
@@ -512,7 +516,7 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
 | `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
 | `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
-| `extra.requestInfo`                      | `ctx.http?.req` (only on `ServerContext`)                              |
+| `extra.requestInfo`                      | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)     |
 | `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
 | `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
 | `extra.sessionId`                        | `ctx.sessionId`                                                        |
@@ -535,7 +539,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
-    const headers = ctx.http?.req?.headers;
+    const headers = ctx.http?.req?.headers; // standard Web Request object
     const taskStore = ctx.task?.store;
     await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
     return { content: [{ type: 'text', text: 'result' }] };
