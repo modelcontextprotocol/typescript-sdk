@@ -214,7 +214,7 @@ export function getParseErrorMessage(error: unknown): string {
         if ('issues' in error && Array.isArray(error.issues) && error.issues.length > 0) {
             return error.issues
                 .map((i: { message: string; path?: (string | number)[] }) => {
-                    if (!i.path) {
+                    if (!i.path?.length) {
                         return i.message;
                     }
                     return `${i.message} at ${getDotPath(i.path)}`;
