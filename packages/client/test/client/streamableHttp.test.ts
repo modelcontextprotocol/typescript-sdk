@@ -104,18 +104,7 @@ describe('StreamableHTTPClientTransport', () => {
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
         });
 
-        // Mock the SSE stream GET request that happens after receiving session ID
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: false,
-            status: 405,
-            headers: new Headers(),
-            body: { cancel: vi.fn() }
-        });
-
         await transport.send(message);
-
-        // Allow the async SSE connection attempt to complete
-        await new Promise(resolve => setTimeout(resolve, 10));
 
         // Send a second message that should include the session ID
         (globalThis.fetch as Mock).mockResolvedValueOnce({
@@ -178,18 +167,7 @@ describe('StreamableHTTPClientTransport', () => {
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
         });
 
-        // Mock the SSE stream GET request that happens after receiving session ID
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: false,
-            status: 405,
-            headers: new Headers(),
-            body: { cancel: vi.fn() }
-        });
-
         await transport.send(message);
-
-        // Allow the async SSE connection attempt to complete
-        await new Promise(resolve => setTimeout(resolve, 10));
 
         expect(transport.sessionId).toBe('test-session-id');
 
@@ -230,18 +208,7 @@ describe('StreamableHTTPClientTransport', () => {
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
         });
 
-        // Mock the SSE stream GET request that happens after receiving session ID
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: false,
-            status: 405,
-            headers: new Headers(),
-            body: { cancel: vi.fn() }
-        });
-
         await transport.send(message);
-
-        // Allow the async SSE connection attempt to complete
-        await new Promise(resolve => setTimeout(resolve, 10));
 
         // Now terminate the session, but server responds with 405
         (globalThis.fetch as Mock).mockResolvedValueOnce({
