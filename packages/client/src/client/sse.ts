@@ -241,7 +241,10 @@ export class SSEClientTransport implements Transport {
 
     async close(): Promise<void> {
         this._abortController?.abort();
+        this._abortController = undefined;
         this._eventSource?.close();
+        this._eventSource = undefined;
+        this._endpoint = undefined;
         this.onclose?.();
     }
 

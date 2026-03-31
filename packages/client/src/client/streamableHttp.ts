@@ -474,7 +474,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     async start() {
-        if (this._abortController) {
+        if (this._abortController && !this._abortController.signal.aborted) {
             throw new Error(
                 'StreamableHTTPClientTransport already started! If using Client class, note that connect() calls start() automatically.'
             );
@@ -509,6 +509,7 @@ export class StreamableHTTPClientTransport implements Transport {
         } finally {
             this._cancelReconnection = undefined;
             this._abortController?.abort();
+            this._sessionId = undefined;
             this.onclose?.();
         }
     }
