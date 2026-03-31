@@ -1164,12 +1164,9 @@ describe('StreamableHTTPClientTransport', () => {
             // Let the fire-and-forget _startOrAuthSse().catch() settle
             await vi.runAllTimersAsync();
 
-            // Before the fix: 2 calls (internal catch at :296 + caller's .catch at :642)
-            // After the fix: 1 call (caller's .catch only)
             expect(errorSpy).toHaveBeenCalledTimes(1);
             expect(errorSpy.mock.calls[0]![0].message).toContain('Failed to open SSE stream');
         });
-
 
         it('should not throw JSON parse error on priming events with empty data', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
