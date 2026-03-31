@@ -11,6 +11,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     CreateMessageRequest,
@@ -33,18 +35,7 @@ import type {
     TextContent,
     Tool
 } from '@modelcontextprotocol/server';
-import {
-    CallToolRequestSchema,
-    createMcpExpressApp,
-    GetTaskPayloadRequestSchema,
-    GetTaskRequestSchema,
-    InMemoryTaskStore,
-    isTerminal,
-    ListToolsRequestSchema,
-    RELATED_TASK_META_KEY,
-    Server,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+import { InMemoryTaskStore, isTerminal, RELATED_TASK_META_KEY, Server } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
 // ============================================================================
@@ -249,7 +240,7 @@ class TaskResultHandler {
                 return {
                     ...result,
                     _meta: {
-                        ...(result._meta || {}),
+                        ...result._meta,
                         [RELATED_TASK_META_KEY]: { taskId }
                     }
                 };
@@ -452,7 +443,7 @@ class TaskSession {
 // Server Setup
 // ============================================================================
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8000;
+const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 8000;
 
 // Create shared stores
 const taskStore = new TaskStoreWithNotifications();
@@ -486,7 +477,7 @@ const createServer = (): Server => {
     );
 
     // Register tools
-    server.setRequestHandler(ListToolsRequestSchema, async (): Promise<{ tools: Tool[] }> => {
+    server.setRequestHandler('tools/list', async (): Promise<{ tools: Tool[] }> => {
         return {
             tools: [
                 {
@@ -516,7 +507,7 @@ const createServer = (): Server => {
     });
 
     // Handle tool calls
-    server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
+    server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
         const { name, arguments: args } = request.params;
         const taskParams = (request.params._meta?.task || request.params.task) as { ttl?: number; pollInterval?: number } | undefined;
 
@@ -531,7 +522,7 @@ const createServer = (): Server => {
             pollInterval: taskParams.pollInterval ?? 1000
         };
 
-        const task = await taskStore.createTask(taskOptions, extra.requestId, request, extra.sessionId);
+        const task = await taskStore.createTask(taskOptions, ctx.mcpReq.id, request, ctx.sessionId);
 
         console.log(`\n[Server] ${name} called, task created: ${task.taskId}`);
 
@@ -589,7 +580,7 @@ const createServer = (): Server => {
                         haiku = (result.content as TextContent).text;
                     }
 
-                    console.log(`[Server] Received sampling response: ${haiku.substring(0, 50)}...`);
+                    console.log(`[Server] Received sampling response: ${haiku.slice(0, 50)}...`);
                     console.log('[Server] Completing task with haiku');
                     await taskStore.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: `Haiku:\n${haiku}` }]
@@ -609,14 +600,14 @@ const createServer = (): Server => {
         activeTaskExecutions.set(task.taskId, {
             promise: taskExecution,
             server,
-            sessionId: extra.sessionId ?? ''
+            sessionId: ctx.sessionId ?? ''
         });
 
         return { task };
     });
 
     // Handle tasks/get
-    server.setRequestHandler(GetTaskRequestSchema, async (request): Promise<GetTaskResult> => {
+    server.setRequestHandler('tasks/get', async (request): Promise<GetTaskResult> => {
         const { taskId } = request.params;
         const task = await taskStore.getTask(taskId);
         if (!task) {
@@ -626,10 +617,10 @@ const createServer = (): Server => {
     });
 
     // Handle tasks/result
-    server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra): Promise<GetTaskPayloadResult> => {
+    server.setRequestHandler('tasks/result', async (request, ctx): Promise<GetTaskPayloadResult> => {
         const { taskId } = request.params;
         console.log(`[Server] tasks/result called for task ${taskId}`);
-        return taskResultHandler.handle(taskId, server, extra.sessionId ?? '');
+        return taskResultHandler.handle(taskId, server, ctx.sessionId ?? '');
     });
 
     return server;
@@ -642,7 +633,7 @@ const createServer = (): Server => {
 const app = createMcpExpressApp();
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 // Helper to check if request is initialize
 const isInitializeRequest = (body: unknown): boolean => {
@@ -654,12 +645,12 @@ app.post('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: sid => {
                     console.log(`Session initialized: ${sid}`);
@@ -679,10 +670,17 @@ app.post('/mcp', async (req: Request, res: Response) => {
             await server.connect(transport);
             await transport.handleRequest(req, res, req.body);
             return;
+        } else if (sessionId) {
+            res.status(404).json({
+                jsonrpc: '2.0',
+                error: { code: -32_001, message: 'Session not found' },
+                id: null
+            });
+            return;
         } else {
             res.status(400).json({
                 jsonrpc: '2.0',
-                error: { code: -32000, message: 'Bad Request: No valid session ID' },
+                error: { code: -32_000, message: 'Bad Request: Session ID required' },
                 id: null
             });
             return;
@@ -694,7 +692,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
         if (!res.headersSent) {
             res.status(500).json({
                 jsonrpc: '2.0',
-                error: { code: -32603, message: 'Internal server error' },
+                error: { code: -32_603, message: 'Internal server error' },
                 id: null
             });
         }
@@ -704,8 +702,12 @@ app.post('/mcp', async (req: Request, res: Response) => {
 // Handle GET requests for SSE streams
 app.get('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+    if (!transports[sessionId]) {
+        res.status(404).send('Session not found');
         return;
     }
 
@@ -716,8 +718,12 @@ app.get('/mcp', async (req: Request, res: Response) => {
 // Handle DELETE requests for session termination
 app.delete('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+    if (!transports[sessionId]) {
+        res.status(404).send('Session not found');
         return;
     }
 

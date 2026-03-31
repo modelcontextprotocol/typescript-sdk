@@ -1,7 +1,7 @@
 import * as z from 'zod/v4';
 
 /**
- * Reusable URL validation that disallows javascript: scheme
+ * Reusable URL validation that disallows `javascript:` scheme
  */
 export const SafeUrlSchema = z
     .url()
@@ -71,7 +71,8 @@ export const OAuthMetadataSchema = z.looseObject({
 
 /**
  * OpenID Connect Discovery 1.0 Provider Metadata
- * see: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
+ *
+ * @see https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
  */
 export const OpenIdProviderMetadataSchema = z.looseObject({
     issuer: z.string(),
@@ -139,6 +140,25 @@ export const OAuthTokensSchema = z
     .strip();
 
 /**
+ * RFC 8693 §2.2.1 Token Exchange response for ID-JAG tokens.
+ *
+ * `token_type` is intentionally optional: per RFC 8693 §2.2.1 it is informational when
+ * the issued token is not an access token, and per RFC 6749 §5.1 it is case-insensitive,
+ * so strict checking rejects conformant IdPs.
+ */
+export const IdJagTokenExchangeResponseSchema = z
+    .object({
+        issued_token_type: z.literal('urn:ietf:params:oauth:token-type:id-jag'),
+        access_token: z.string(),
+        token_type: z.string().optional(),
+        expires_in: z.number().optional(),
+        scope: z.string().optional()
+    })
+    .strip();
+
+export type IdJagTokenExchangeResponse = z.infer<typeof IdJagTokenExchangeResponseSchema>;
+
+/**
  * OAuth 2.1 error response
  */
 export const OAuthErrorResponseSchema = z.object({
@@ -148,8 +168,9 @@ export const OAuthErrorResponseSchema = z.object({
 });
 
 /**
- * Optional version of SafeUrlSchema that allows empty string for retrocompatibility on tos_uri and logo_uri
+ * Optional version of {@linkcode SafeUrlSchema} that allows empty string for backward compatibility on `tos_uri` and `logo_uri`
  */
+// eslint-disable-next-line unicorn/no-useless-undefined
 export const OptionalSafeUrlSchema = SafeUrlSchema.optional().or(z.literal('').transform(() => undefined));
 
 /**

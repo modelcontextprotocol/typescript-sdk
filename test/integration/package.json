@@ -29,18 +29,27 @@
         "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "client": "tsx scripts/cli.ts client",
+        "test:integration:bun": "bun test test/server/bun.test.ts",
+        "test:integration:deno": "deno test --no-check --allow-net --allow-read --allow-env test/server/deno.test.ts"
     },
     "devDependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@cfworker/json-schema": "catalog:runtimeShared",
         "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/express": "workspace:^",
+        "@modelcontextprotocol/node": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
-        "zod": "catalog:runtimeShared",
-        "vitest": "catalog:devTools",
-        "supertest": "catalog:devTools",
+        "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@modelcontextprotocol/test-helpers": "workspace:^"
+        "@valibot/to-json-schema": "catalog:devTools",
+        "arktype": "catalog:devTools",
+        "supertest": "catalog:devTools",
+        "valibot": "catalog:devTools",
+        "vitest": "catalog:devTools",
+        "wrangler": "catalog:devTools",
+        "zod": "catalog:runtimeShared"
     }
 }

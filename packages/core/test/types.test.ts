@@ -15,7 +15,7 @@ import {
     ToolResultContentSchema,
     ToolSchema,
     ToolUseContentSchema
-} from '../src/types/types.js';
+} from '../src/types/index.js';
 
 describe('Types', () => {
     test('should have correct latest protocol version', () => {
@@ -912,7 +912,7 @@ describe('Types', () => {
         test('should validate all new stop reasons', () => {
             const stopReasons = ['endTurn', 'stopSequence', 'maxTokens', 'toolUse', 'refusal', 'other'];
 
-            stopReasons.forEach(stopReason => {
+            for (const stopReason of stopReasons) {
                 const result = {
                     model: 'test',
                     role: 'assistant',
@@ -922,7 +922,7 @@ describe('Types', () => {
 
                 const parseResult = CreateMessageResultSchema.safeParse(result);
                 expect(parseResult.success).toBe(true);
-            });
+            }
         });
 
         test('should allow custom stop reason string', () => {

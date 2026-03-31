@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -24,9 +26,9 @@ const getServer = () => {
         'greet',
         {
             description: 'A simple greeting tool',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            }
+            })
         },
         async ({ name }): Promise<CallToolResult> => {
             return {
@@ -45,40 +47,22 @@ const getServer = () => {
         'multi-greet',
         {
             description: 'A tool that sends different greetings with delays between them',
-            inputSchema: {
+            inputSchema: z.object({
                 name: z.string().describe('Name to greet')
-            }
+            })
         },
-        async ({ name }, extra): Promise<CallToolResult> => {
+        async ({ name }, ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'debug',
-                    data: `Starting multi-greet for ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('debug', `Starting multi-greet for ${name}`);
 
             await sleep(1000); // Wait 1 second before first greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending first greeting to ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending first greeting to ${name}`);
 
             await sleep(1000); // Wait another second before second greeting
 
-            await server.sendLoggingMessage(
-                {
-                    level: 'info',
-                    data: `Sending second greeting to ${name}`
-                },
-                extra.sessionId
-            );
+            await ctx.mcpReq.log('info', `Sending second greeting to ${name}`);
 
             return {
                 content: [
@@ -96,21 +80,21 @@ const getServer = () => {
 const app = createMcpExpressApp();
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 app.post('/mcp', async (req: Request, res: Response) => {
     console.log('Received MCP request:', req.body);
     try {
         // Check for existing session ID
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request - use JSON response mode
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 enableJsonResponse: true, // Enable JSON response mode
                 onsessioninitialized: sessionId => {
@@ -126,14 +110,17 @@ app.post('/mcp', async (req: Request, res: Response) => {
             await server.connect(transport);
             await transport.handleRequest(req, res, req.body);
             return; // Already handled
+        } else if (sessionId) {
+            res.status(404).json({
+                jsonrpc: '2.0',
+                error: { code: -32_001, message: 'Session not found' },
+                id: null
+            });
+            return;
         } else {
-            // Invalid request - no session ID or not initialization request
             res.status(400).json({
                 jsonrpc: '2.0',
-                error: {
-                    code: -32000,
-                    message: 'Bad Request: No valid session ID provided'
-                },
+                error: { code: -32_000, message: 'Bad Request: Session ID required' },
                 id: null
             });
             return;
@@ -147,7 +134,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -168,6 +155,7 @@ const PORT = 3000;
 app.listen(PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);

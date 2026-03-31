@@ -31,8 +31,6 @@
     },
     "devDependencies": {
         "@modelcontextprotocol/core": "workspace:^",
-        "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/server": "workspace:^",
         "zod": "catalog:runtimeShared",
         "vitest": "catalog:devTools",
         "@modelcontextprotocol/tsconfig": "workspace:^",

@@ -12,7 +12,7 @@ export class InMemoryEventStore implements EventStore {
      * Generates a unique event ID for a given stream ID
      */
     private generateEventId(streamId: string): string {
-        return `${streamId}_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+        return `${streamId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     }
 
     /**
@@ -54,7 +54,7 @@ export class InMemoryEventStore implements EventStore {
         let foundLastEvent = false;
 
         // Sort events by eventId for chronological ordering
-        const sortedEvents = [...this.events.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const sortedEvents = [...this.events.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
 
         for (const [eventId, { streamId: eventStreamId, message }] of sortedEvents) {
             // Only include events from the same stream

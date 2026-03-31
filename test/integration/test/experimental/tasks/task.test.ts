@@ -1,5 +1,5 @@
-import { isTerminal } from '@modelcontextprotocol/core';
-import type { Task } from '@modelcontextprotocol/server';
+import type { Task } from '@modelcontextprotocol/core';
+import { isTerminal, TaskCreationParamsSchema } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
 
 describe('Task utility functions', () => {
@@ -32,13 +32,13 @@ describe('Task Schema Validation', () => {
         const task: Task = {
             taskId: 'test-123',
             status: 'working',
-            ttl: 60000,
+            ttl: 60_000,
             createdAt,
             lastUpdatedAt: createdAt,
             pollInterval: 1000
         };
 
-        expect(task.ttl).toBe(60000);
+        expect(task.ttl).toBe(60_000);
         expect(task.createdAt).toBeDefined();
         expect(typeof task.createdAt).toBe('string');
     });
@@ -76,7 +76,7 @@ describe('Task Schema Validation', () => {
         const task: Task = {
             taskId: 'test-iso',
             status: 'working',
-            ttl: 30000,
+            ttl: 30_000,
             createdAt,
             lastUpdatedAt: createdAt
         };
@@ -91,7 +91,7 @@ describe('Task Schema Validation', () => {
         const task: Task = {
             taskId: 'test-iso',
             status: 'working',
-            ttl: 30000,
+            ttl: 30_000,
             createdAt,
             lastUpdatedAt: createdAt
         };
@@ -103,7 +103,7 @@ describe('Task Schema Validation', () => {
         const statuses: Task['status'][] = ['working', 'input_required', 'completed', 'failed', 'cancelled'];
 
         const createdAt = new Date().toISOString();
-        statuses.forEach(status => {
+        for (const status of statuses) {
             const task: Task = {
                 taskId: `test-${status}`,
                 status,
@@ -112,6 +112,33 @@ describe('Task Schema Validation', () => {
                 lastUpdatedAt: createdAt
             };
             expect(task.status).toBe(status);
-        });
+        }
+    });
+});
+
+describe('TaskCreationParams Schema Validation', () => {
+    it('should accept ttl as a number', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60_000 });
+        expect(result.success).toBe(true);
+    });
+
+    it('should accept missing ttl (optional)', () => {
+        const result = TaskCreationParamsSchema.safeParse({});
+        expect(result.success).toBe(true);
+    });
+
+    it('should reject null ttl (not allowed in request, only response)', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: null });
+        expect(result.success).toBe(false);
+    });
+
+    it('should accept pollInterval as a number', () => {
+        const result = TaskCreationParamsSchema.safeParse({ pollInterval: 1000 });
+        expect(result.success).toBe(true);
+    });
+
+    it('should accept both ttl and pollInterval', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60_000, pollInterval: 1000 });
+        expect(result.success).toBe(true);
     });
 });

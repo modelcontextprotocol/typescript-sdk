@@ -1,12 +1,5 @@
-import type { CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    Client,
-    ListToolsResultSchema,
-    LoggingMessageNotificationSchema,
-    SSEClientTransport,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import type { ListToolsRequest } from '@modelcontextprotocol/client';
+import { Client, SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 /**
  * Simplified Backwards Compatible MCP Client
@@ -39,7 +32,7 @@ async function main(): Promise<void> {
         transport = connection.transport;
 
         // Set up notification handler
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.setNotificationHandler('notifications/message', notification => {
             console.log(`Notification: ${notification.params.level} - ${notification.params.data}`);
         });
 
@@ -62,6 +55,7 @@ async function main(): Promise<void> {
         console.log('Disconnected from MCP server');
     } catch (error) {
         console.error('Error running client:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
 }
@@ -135,7 +129,7 @@ async function listTools(client: Client): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest, ListToolsResultSchema);
+        const toolsResult = await client.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -155,36 +149,33 @@ async function listTools(client: Client): Promise<void> {
  */
 async function startNotificationTool(client: Client): Promise<void> {
     try {
-        // Call the notification tool using reasonable defaults
-        const request: CallToolRequest = {
-            method: 'tools/call',
-            params: {
-                name: 'start-notification-stream',
-                arguments: {
-                    interval: 1000, // 1 second between notifications
-                    count: 5 // Send 5 notifications
-                }
-            }
-        };
-
         console.log('Calling notification tool...');
-        const result = await client.request(request, CallToolResultSchema);
+        const result = await client.callTool({
+            name: 'start-notification-stream',
+            arguments: {
+                interval: 1000, // 1 second between notifications
+                count: 5 // Send 5 notifications
+            }
+        });
 
         console.log('Tool result:');
-        result.content.forEach(item => {
+        for (const item of result.content) {
             if (item.type === 'text') {
                 console.log(`  ${item.text}`);
             } else {
                 console.log(`  ${item.type} content:`, item);
             }
-        });
+        }
     } catch (error) {
         console.log(`Error calling notification tool: ${error}`);
     }
 }
 
 // Start the client
-main().catch((error: unknown) => {
+try {
+    await main();
+} catch (error) {
     console.error('Error running MCP client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
     process.exit(1);
-});
+}

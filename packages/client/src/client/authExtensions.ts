@@ -1,0 +1,691 @@
+/**
+ * OAuth provider extensions for specialized authentication flows.
+ *
+ * This module provides ready-to-use {@linkcode OAuthClientProvider} implementations
+ * for common machine-to-machine authentication scenarios.
+ */
+
+import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
+import type { CryptoKey, JWK } from 'jose';
+
+import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
+
+/**
+ * Helper to produce a `private_key_jwt` client authentication function.
+ *
+ * @example
+ * ```ts source="./authExtensions.examples.ts#createPrivateKeyJwtAuth_basicUsage"
+ * const addClientAuth = createPrivateKeyJwtAuth({
+ *     issuer: 'my-client',
+ *     subject: 'my-client',
+ *     privateKey: pemEncodedPrivateKey,
+ *     alg: 'RS256'
+ * });
+ * // pass addClientAuth as provider.addClientAuthentication implementation
+ * ```
+ */
+export function createPrivateKeyJwtAuth(options: {
+    issuer: string;
+    subject: string;
+    privateKey: string | Uint8Array | Record<string, unknown>;
+    alg: string;
+    audience?: string | URL;
+    lifetimeSeconds?: number;
+    claims?: Record<string, unknown>;
+}): AddClientAuthentication {
+    return async (_headers, params, url, metadata) => {
+        // Lazy import to avoid heavy dependency unless used
+        if (globalThis.crypto === undefined) {
+            throw new TypeError(
+                'crypto is not available, please ensure you have Web Crypto API support for older Node.js versions (see https://github.com/modelcontextprotocol/typescript-sdk#nodejs-web-crypto-globalthiscrypto-compatibility)'
+            );
+        }
+
+        const jose = await import('jose');
+
+        const audience = String(options.audience ?? metadata?.issuer ?? url);
+        const lifetimeSeconds = options.lifetimeSeconds ?? 300;
+
+        const now = Math.floor(Date.now() / 1000);
+        const jti = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        const baseClaims = {
+            iss: options.issuer,
+            sub: options.subject,
+            aud: audience,
+            exp: now + lifetimeSeconds,
+            iat: now,
+            jti
+        };
+        const claims = options.claims ? { ...baseClaims, ...options.claims } : baseClaims;
+
+        // Import key for the requested algorithm
+        const alg = options.alg;
+        let key: unknown;
+        if (typeof options.privateKey === 'string') {
+            if (alg.startsWith('RS') || alg.startsWith('ES') || alg.startsWith('PS')) {
+                key = await jose.importPKCS8(options.privateKey, alg);
+            } else if (alg.startsWith('HS')) {
+                key = new TextEncoder().encode(options.privateKey);
+            } else {
+                throw new Error(`Unsupported algorithm ${alg}`);
+            }
+        } else if (options.privateKey instanceof Uint8Array) {
+            // Assume PKCS#8 DER in Uint8Array for asymmetric algorithms
+            key = alg.startsWith('HS') ? options.privateKey : await jose.importPKCS8(new TextDecoder().decode(options.privateKey), alg);
+        } else {
+            // Treat as JWK
+            key = await jose.importJWK(options.privateKey as JWK, alg);
+        }
+
+        // Sign JWT
+        const assertion = await new jose.SignJWT(claims)
+            .setProtectedHeader({ alg, typ: 'JWT' })
+            .setIssuer(options.issuer)
+            .setSubject(options.subject)
+            .setAudience(audience)
+            .setIssuedAt(now)
+            .setExpirationTime(now + lifetimeSeconds)
+            .setJti(jti)
+            .sign(key as unknown as Uint8Array | CryptoKey);
+
+        params.set('client_assertion', assertion);
+        params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+    };
+}
+
+/**
+ * Options for creating a {@linkcode ClientCredentialsProvider}.
+ */
+export interface ClientCredentialsProviderOptions {
+    /**
+     * The `client_id` for this OAuth client.
+     */
+    clientId: string;
+
+    /**
+     * The `client_secret` for `client_secret_basic` authentication.
+     */
+    clientSecret: string;
+
+    /**
+     * Optional client name for metadata.
+     */
+    clientName?: string;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
+}
+
+/**
+ * OAuth provider for `client_credentials` grant with `client_secret_basic` authentication.
+ *
+ * This provider is designed for machine-to-machine authentication where
+ * the client authenticates using a `client_id` and `client_secret`.
+ *
+ * @example
+ * ```ts source="./authExtensions.examples.ts#ClientCredentialsProvider_basicUsage"
+ * const provider = new ClientCredentialsProvider({
+ *     clientId: 'my-client',
+ *     clientSecret: 'my-secret'
+ * });
+ *
+ * const transport = new StreamableHTTPClientTransport(serverUrl, {
+ *     authProvider: provider
+ * });
+ * ```
+ */
+export class ClientCredentialsProvider implements OAuthClientProvider {
+    private _tokens?: OAuthTokens;
+    private _clientInfo: OAuthClientInformation;
+    private _clientMetadata: OAuthClientMetadata;
+
+    constructor(options: ClientCredentialsProviderOptions) {
+        this._clientInfo = {
+            client_id: options.clientId,
+            client_secret: options.clientSecret
+        };
+        this._clientMetadata = {
+            client_name: options.clientName ?? 'client-credentials-client',
+            redirect_uris: [],
+            grant_types: ['client_credentials'],
+            token_endpoint_auth_method: 'client_secret_basic',
+            scope: options.scope
+        };
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): OAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    saveClientInformation(info: OAuthClientInformation): void {
+        this._clientInfo = info;
+    }
+
+    tokens(): OAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: OAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error('redirectToAuthorization is not used for client_credentials flow');
+    }
+
+    saveCodeVerifier(): void {
+        // Not used for client_credentials
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for client_credentials flow');
+    }
+
+    prepareTokenRequest(scope?: string): URLSearchParams {
+        const params = new URLSearchParams({ grant_type: 'client_credentials' });
+        if (scope) params.set('scope', scope);
+        return params;
+    }
+}
+
+/**
+ * Options for creating a {@linkcode PrivateKeyJwtProvider}.
+ */
+export interface PrivateKeyJwtProviderOptions {
+    /**
+     * The `client_id` for this OAuth client.
+     */
+    clientId: string;
+
+    /**
+     * The private key for signing JWT assertions.
+     * Can be a PEM string, Uint8Array, or JWK object.
+     */
+    privateKey: string | Uint8Array | Record<string, unknown>;
+
+    /**
+     * The algorithm to use for signing (e.g., 'RS256', 'ES256').
+     */
+    algorithm: string;
+
+    /**
+     * Optional client name for metadata.
+     */
+    clientName?: string;
+
+    /**
+     * Optional JWT lifetime in seconds (default: 300).
+     */
+    jwtLifetimeSeconds?: number;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
+}
+
+/**
+ * OAuth provider for `client_credentials` grant with `private_key_jwt` authentication.
+ *
+ * This provider is designed for machine-to-machine authentication where
+ * the client authenticates using a signed JWT assertion
+ * ({@link https://datatracker.ietf.org/doc/html/rfc7523#section-2.2 | RFC 7523 Section 2.2}).
+ *
+ * @example
+ * ```ts source="./authExtensions.examples.ts#PrivateKeyJwtProvider_basicUsage"
+ * const provider = new PrivateKeyJwtProvider({
+ *     clientId: 'my-client',
+ *     privateKey: pemEncodedPrivateKey,
+ *     algorithm: 'RS256'
+ * });
+ *
+ * const transport = new StreamableHTTPClientTransport(serverUrl, {
+ *     authProvider: provider
+ * });
+ * ```
+ */
+export class PrivateKeyJwtProvider implements OAuthClientProvider {
+    private _tokens?: OAuthTokens;
+    private _clientInfo: OAuthClientInformation;
+    private _clientMetadata: OAuthClientMetadata;
+    addClientAuthentication: AddClientAuthentication;
+
+    constructor(options: PrivateKeyJwtProviderOptions) {
+        this._clientInfo = {
+            client_id: options.clientId
+        };
+        this._clientMetadata = {
+            client_name: options.clientName ?? 'private-key-jwt-client',
+            redirect_uris: [],
+            grant_types: ['client_credentials'],
+            token_endpoint_auth_method: 'private_key_jwt',
+            scope: options.scope
+        };
+        this.addClientAuthentication = createPrivateKeyJwtAuth({
+            issuer: options.clientId,
+            subject: options.clientId,
+            privateKey: options.privateKey,
+            alg: options.algorithm,
+            lifetimeSeconds: options.jwtLifetimeSeconds
+        });
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): OAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    saveClientInformation(info: OAuthClientInformation): void {
+        this._clientInfo = info;
+    }
+
+    tokens(): OAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: OAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error('redirectToAuthorization is not used for client_credentials flow');
+    }
+
+    saveCodeVerifier(): void {
+        // Not used for client_credentials
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for client_credentials flow');
+    }
+
+    prepareTokenRequest(scope?: string): URLSearchParams {
+        const params = new URLSearchParams({ grant_type: 'client_credentials' });
+        if (scope) params.set('scope', scope);
+        return params;
+    }
+}
+
+/**
+ * Options for creating a {@linkcode StaticPrivateKeyJwtProvider}.
+ */
+export interface StaticPrivateKeyJwtProviderOptions {
+    /**
+     * The `client_id` for this OAuth client.
+     */
+    clientId: string;
+
+    /**
+     * A pre-built JWT client assertion to use for authentication.
+     *
+     * This token should already contain the appropriate claims
+     * (`iss`, `sub`, `aud`, `exp`, etc.) and be signed by the client's key.
+     */
+    jwtBearerAssertion: string;
+
+    /**
+     * Optional client name for metadata.
+     */
+    clientName?: string;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
+}
+
+/**
+ * OAuth provider for `client_credentials` grant with a static `private_key_jwt` assertion.
+ *
+ * This provider mirrors {@linkcode PrivateKeyJwtProvider} but instead of constructing and
+ * signing a JWT on each request, it accepts a pre-built JWT assertion string and
+ * uses it directly for authentication.
+ */
+export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
+    private _tokens?: OAuthTokens;
+    private _clientInfo: OAuthClientInformation;
+    private _clientMetadata: OAuthClientMetadata;
+    addClientAuthentication: AddClientAuthentication;
+
+    constructor(options: StaticPrivateKeyJwtProviderOptions) {
+        this._clientInfo = {
+            client_id: options.clientId
+        };
+        this._clientMetadata = {
+            client_name: options.clientName ?? 'static-private-key-jwt-client',
+            redirect_uris: [],
+            grant_types: ['client_credentials'],
+            token_endpoint_auth_method: 'private_key_jwt',
+            scope: options.scope
+        };
+
+        const assertion = options.jwtBearerAssertion;
+        this.addClientAuthentication = async (_headers, params) => {
+            params.set('client_assertion', assertion);
+            params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+        };
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): OAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    saveClientInformation(info: OAuthClientInformation): void {
+        this._clientInfo = info;
+    }
+
+    tokens(): OAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: OAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error('redirectToAuthorization is not used for client_credentials flow');
+    }
+
+    saveCodeVerifier(): void {
+        // Not used for client_credentials
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for client_credentials flow');
+    }
+
+    prepareTokenRequest(scope?: string): URLSearchParams {
+        const params = new URLSearchParams({ grant_type: 'client_credentials' });
+        if (scope) params.set('scope', scope);
+        return params;
+    }
+}
+
+/**
+ * Context provided to the assertion callback in {@linkcode CrossAppAccessProvider}.
+ * Contains orchestrator-discovered information needed for JWT Authorization Grant requests.
+ */
+export interface CrossAppAccessContext {
+    /**
+     * The authorization server URL of the target MCP server.
+     * Discovered via RFC 9728 protected resource metadata.
+     */
+    authorizationServerUrl: string;
+
+    /**
+     * The resource URL of the target MCP server.
+     * Discovered via RFC 9728 protected resource metadata.
+     */
+    resourceUrl: string;
+
+    /**
+     * Optional scope being requested for the MCP server.
+     */
+    scope?: string;
+
+    /**
+     * Fetch function to use for HTTP requests (e.g., for IdP token exchange).
+     */
+    fetchFn: FetchLike;
+}
+
+/**
+ * Callback function type that provides a JWT Authorization Grant (ID-JAG).
+ *
+ * The callback receives context about the target MCP server (authorization server URL,
+ * resource URL, scope) and should return a JWT Authorization Grant that will be used
+ * to obtain an access token from the MCP server.
+ */
+export type AssertionCallback = (context: CrossAppAccessContext) => string | Promise<string>;
+
+/**
+ * Options for creating a {@linkcode CrossAppAccessProvider}.
+ */
+export interface CrossAppAccessProviderOptions {
+    /**
+     * Callback function that provides a JWT Authorization Grant (ID-JAG).
+     *
+     * The callback receives the MCP server's authorization server URL, resource URL,
+     * and requested scope, and should return a JWT Authorization Grant obtained from
+     * the enterprise IdP via RFC 8693 token exchange.
+     *
+     * You can use the utility functions from the `crossAppAccess` module
+     * for standard flows, or implement custom logic.
+     *
+     * @example
+     * ```ts
+     * assertion: async (ctx) => {
+     *     const result = await discoverAndRequestJwtAuthGrant({
+     *         idpUrl: 'https://idp.example.com',
+     *         audience: ctx.authorizationServerUrl,
+     *         resource: ctx.resourceUrl,
+     *         idToken: await getIdToken(),
+     *         clientId: 'my-idp-client',
+     *         clientSecret: 'my-idp-secret',
+     *         scope: ctx.scope,
+     *         fetchFn: ctx.fetchFn
+     *     });
+     *     return result.jwtAuthGrant;
+     * }
+     * ```
+     */
+    assertion: AssertionCallback;
+
+    /**
+     * The `client_id` registered with the MCP server's authorization server.
+     */
+    clientId: string;
+
+    /**
+     * The `client_secret` for authenticating with the MCP server's authorization server.
+     */
+    clientSecret: string;
+
+    /**
+     * Optional client name for metadata.
+     */
+    clientName?: string;
+
+    /**
+     * Custom fetch implementation. Defaults to global fetch.
+     */
+    fetchFn?: FetchLike;
+}
+
+/**
+ * OAuth provider for Cross-App Access (Enterprise Managed Authorization) using JWT Authorization Grant.
+ *
+ * This provider implements the Enterprise Managed Authorization flow (SEP-990) where:
+ * 1. User authenticates with an enterprise IdP and the client obtains an ID Token
+ * 2. Client exchanges the ID Token for a JWT Authorization Grant (ID-JAG) via RFC 8693 token exchange
+ * 3. Client uses the JAG to obtain an access token from the MCP server via RFC 7523 JWT bearer grant
+ *
+ * The provider handles steps 2-3 automatically, with the JAG acquisition delegated to
+ * a callback function that you provide. This allows flexibility in how you obtain and
+ * cache ID Tokens from the IdP.
+ *
+ * @see https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/draft/enterprise-managed-authorization.mdx
+ *
+ * @example
+ * ```ts
+ * const provider = new CrossAppAccessProvider({
+ *     assertion: async (ctx) => {
+ *         const result = await discoverAndRequestJwtAuthGrant({
+ *             idpUrl: 'https://idp.example.com',
+ *             audience: ctx.authorizationServerUrl,
+ *             resource: ctx.resourceUrl,
+ *             idToken: await getIdToken(), // Your function to get ID token
+ *             clientId: 'my-idp-client',
+ *             clientSecret: 'my-idp-secret',
+ *             scope: ctx.scope,
+ *             fetchFn: ctx.fetchFn
+ *         });
+ *         return result.jwtAuthGrant;
+ *     },
+ *     clientId: 'my-mcp-client',
+ *     clientSecret: 'my-mcp-secret'
+ * });
+ *
+ * const transport = new StreamableHTTPClientTransport(serverUrl, {
+ *     authProvider: provider
+ * });
+ * ```
+ */
+export class CrossAppAccessProvider implements OAuthClientProvider {
+    private _tokens?: OAuthTokens;
+    private _clientInfo: OAuthClientInformation;
+    private _clientMetadata: OAuthClientMetadata;
+    private _assertionCallback: AssertionCallback;
+    private _fetchFn: FetchLike;
+    private _authorizationServerUrl?: string;
+    private _resourceUrl?: string;
+    private _scope?: string;
+
+    constructor(options: CrossAppAccessProviderOptions) {
+        this._clientInfo = {
+            client_id: options.clientId,
+            client_secret: options.clientSecret
+        };
+        this._clientMetadata = {
+            client_name: options.clientName ?? 'cross-app-access-client',
+            redirect_uris: [],
+            grant_types: ['urn:ietf:params:oauth:grant-type:jwt-bearer'],
+            token_endpoint_auth_method: 'client_secret_basic'
+        };
+        this._assertionCallback = options.assertion;
+        this._fetchFn = options.fetchFn ?? fetch;
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): OAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    saveClientInformation(info: OAuthClientInformation): void {
+        this._clientInfo = info;
+    }
+
+    tokens(): OAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: OAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error('redirectToAuthorization is not used for jwt-bearer flow');
+    }
+
+    saveCodeVerifier(): void {
+        // Not used for jwt-bearer
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for jwt-bearer flow');
+    }
+
+    /**
+     * Saves the authorization server URL discovered during OAuth flow.
+     * This is called by the auth() function after RFC 9728 discovery.
+     */
+    saveAuthorizationServerUrl?(authorizationServerUrl: string): void {
+        this._authorizationServerUrl = authorizationServerUrl;
+    }
+
+    /**
+     * Returns the cached authorization server URL if available.
+     */
+    authorizationServerUrl?(): string | undefined {
+        return this._authorizationServerUrl;
+    }
+
+    /**
+     * Saves the resource URL discovered during OAuth flow.
+     * This is called by the auth() function after RFC 9728 discovery.
+     */
+    saveResourceUrl?(resourceUrl: string): void {
+        this._resourceUrl = resourceUrl;
+    }
+
+    /**
+     * Returns the cached resource URL if available.
+     */
+    resourceUrl?(): string | undefined {
+        return this._resourceUrl;
+    }
+
+    async prepareTokenRequest(scope?: string): Promise<URLSearchParams> {
+        // Get the authorization server URL and resource URL from cached state
+        const authServerUrl = this._authorizationServerUrl;
+        const resourceUrl = this._resourceUrl;
+
+        if (!authServerUrl) {
+            throw new Error('Authorization server URL not available. Ensure auth() has been called first.');
+        }
+
+        if (!resourceUrl) {
+            throw new Error(
+                'Resource URL not available — server may not implement RFC 9728 ' +
+                    'Protected Resource Metadata (required for Cross-App Access), or ' +
+                    'auth() has not been called'
+            );
+        }
+
+        // Store scope for assertion callback
+        this._scope = scope;
+
+        // Call the assertion callback to get the JWT Authorization Grant
+        const jwtAuthGrant = await this._assertionCallback({
+            authorizationServerUrl: authServerUrl,
+            resourceUrl: resourceUrl,
+            scope: this._scope,
+            fetchFn: this._fetchFn
+        });
+
+        // Return params for JWT bearer grant per RFC 7523
+        const params = new URLSearchParams({
+            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            assertion: jwtAuthGrant
+        });
+
+        if (scope) {
+            params.set('scope', scope);
+        }
+
+        return params;
+    }
+}

@@ -1,95 +1,90 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    LATEST_PROTOCOL_VERSION,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListToolsResultSchema,
-    McpServer,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
-import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import * as z from 'zod/v4';
 
-describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
-    const { z } = entry;
+async function setupServer(withSessionManagement: boolean) {
+    const server: Server = createServer();
+    const mcpServer = new McpServer(
+        { name: 'test-server', version: '1.0.0' },
+        {
+            capabilities: {
+                logging: {},
+                tools: {},
+                resources: {},
+                prompts: {}
+            }
+        }
+    );
+
+    // Add a simple resource
+    mcpServer.registerResource('test-resource', '/test', { description: 'A test resource' }, async () => ({
+        contents: [
+            {
+                uri: '/test',
+                text: 'This is a test resource content'
+            }
+        ]
+    }));
+
+    mcpServer.registerPrompt('test-prompt', { description: 'A test prompt' }, async () => ({
+        messages: [
+            {
+                role: 'user',
+                content: {
+                    type: 'text',
+                    text: 'This is a test prompt'
+                }
+            }
+        ]
+    }));
+
+    mcpServer.registerTool(
+        'greet',
+        {
+            description: 'A simple greeting tool',
+            inputSchema: z.object({
+                name: z.string().describe('Name to greet').default('World')
+            })
+        },
+        async ({ name }) => {
+            return {
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            };
+        }
+    );
+
+    // Create transport with or without session management
+    const serverTransport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: withSessionManagement
+            ? () => randomUUID() // With session management, generate UUID
+            : undefined // Without session management, return undefined
+    });
+
+    await mcpServer.connect(serverTransport);
+
+    server.on('request', async (req, res) => {
+        await serverTransport.handleRequest(req, res);
+    });
+
+    // Start the server on a random port
+    const baseUrl = await listenOnRandomPort(server);
+
+    return { server, mcpServer, serverTransport, baseUrl };
+}
+
+describe('Zod v4', () => {
     describe('Streamable HTTP Transport Session Management', () => {
         // Function to set up the server with optional session management
-        async function setupServer(withSessionManagement: boolean) {
-            const server: Server = createServer();
-            const mcpServer = new McpServer(
-                { name: 'test-server', version: '1.0.0' },
-                {
-                    capabilities: {
-                        logging: {},
-                        tools: {},
-                        resources: {},
-                        prompts: {}
-                    }
-                }
-            );
-
-            // Add a simple resource
-            mcpServer.resource('test-resource', '/test', { description: 'A test resource' }, async () => ({
-                contents: [
-                    {
-                        uri: '/test',
-                        text: 'This is a test resource content'
-                    }
-                ]
-            }));
-
-            mcpServer.prompt('test-prompt', 'A test prompt', async () => ({
-                messages: [
-                    {
-                        role: 'user',
-                        content: {
-                            type: 'text',
-                            text: 'This is a test prompt'
-                        }
-                    }
-                ]
-            }));
-
-            mcpServer.tool(
-                'greet',
-                'A simple greeting tool',
-                {
-                    name: z.string().describe('Name to greet').default('World')
-                },
-                async ({ name }) => {
-                    return {
-                        content: [{ type: 'text', text: `Hello, ${name}!` }]
-                    };
-                }
-            );
-
-            // Create transport with or without session management
-            const serverTransport = new StreamableHTTPServerTransport({
-                sessionIdGenerator: withSessionManagement
-                    ? () => randomUUID() // With session management, generate UUID
-                    : undefined // Without session management, return undefined
-            });
-
-            await mcpServer.connect(serverTransport);
-
-            server.on('request', async (req, res) => {
-                await serverTransport.handleRequest(req, res);
-            });
-
-            // Start the server on a random port
-            const baseUrl = await listenOnRandomPort(server);
-
-            return { server, mcpServer, serverTransport, baseUrl };
-        }
-
         describe('Stateless Mode', () => {
             let server: Server;
             let mcpServer: McpServer;
-            let serverTransport: StreamableHTTPServerTransport;
+            let serverTransport: NodeStreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {
@@ -121,13 +116,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 expect(transport1.sessionId).toBeUndefined();
 
                 // List available tools
-                await client1.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                await client1.request({
+                    method: 'tools/list',
+                    params: {}
+                });
 
                 const client2 = new Client({
                     name: 'test-client',
@@ -141,13 +133,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 expect(transport2.sessionId).toBeUndefined();
 
                 // List available tools
-                await client2.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                await client2.request({
+                    method: 'tools/list',
+                    params: {}
+                });
             });
             it('should operate without session management', async () => {
                 // Create and connect a client
@@ -163,13 +152,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 expect(transport.sessionId).toBeUndefined();
 
                 // List available tools
-                const toolsResult = await client.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                const toolsResult = await client.request({
+                    method: 'tools/list',
+                    params: {}
+                });
 
                 // Verify tools are accessible
                 expect(toolsResult.tools).toContainEqual(
@@ -179,25 +165,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 );
 
                 // List available resources
-                const resourcesResult = await client.request(
-                    {
-                        method: 'resources/list',
-                        params: {}
-                    },
-                    ListResourcesResultSchema
-                );
+                const resourcesResult = await client.request({
+                    method: 'resources/list',
+                    params: {}
+                });
 
                 // Verify resources result structure
                 expect(resourcesResult).toHaveProperty('resources');
 
                 // List available prompts
-                const promptsResult = await client.request(
-                    {
-                        method: 'prompts/list',
-                        params: {}
-                    },
-                    ListPromptsResultSchema
-                );
+                const promptsResult = await client.request({
+                    method: 'prompts/list',
+                    params: {}
+                });
 
                 // Verify prompts result structure
                 expect(promptsResult).toHaveProperty('prompts');
@@ -208,18 +188,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 );
 
                 // Call the greeting tool
-                const greetingResult = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: {
-                            name: 'greet',
-                            arguments: {
-                                name: 'Stateless Transport'
-                            }
+                const greetingResult = await client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'greet',
+                        arguments: {
+                            name: 'Stateless Transport'
                         }
-                    },
-                    CallToolResultSchema
-                );
+                    }
+                });
 
                 // Verify tool result
                 expect(greetingResult.content).toEqual([{ type: 'text', text: 'Hello, Stateless Transport!' }]);
@@ -253,7 +230,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         describe('Stateful Mode', () => {
             let server: Server;
             let mcpServer: McpServer;
-            let serverTransport: StreamableHTTPServerTransport;
+            let serverTransport: NodeStreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {
@@ -286,13 +263,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 expect(typeof transport.sessionId).toBe('string');
 
                 // List available tools
-                const toolsResult = await client.request(
-                    {
-                        method: 'tools/list',
-                        params: {}
-                    },
-                    ListToolsResultSchema
-                );
+                const toolsResult = await client.request({
+                    method: 'tools/list',
+                    params: {}
+                });
 
                 // Verify tools are accessible
                 expect(toolsResult.tools).toContainEqual(
@@ -302,25 +276,19 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 );
 
                 // List available resources
-                const resourcesResult = await client.request(
-                    {
-                        method: 'resources/list',
-                        params: {}
-                    },
-                    ListResourcesResultSchema
-                );
+                const resourcesResult = await client.request({
+                    method: 'resources/list',
+                    params: {}
+                });
 
                 // Verify resources result structure
                 expect(resourcesResult).toHaveProperty('resources');
 
                 // List available prompts
-                const promptsResult = await client.request(
-                    {
-                        method: 'prompts/list',
-                        params: {}
-                    },
-                    ListPromptsResultSchema
-                );
+                const promptsResult = await client.request({
+                    method: 'prompts/list',
+                    params: {}
+                });
 
                 // Verify prompts result structure
                 expect(promptsResult).toHaveProperty('prompts');
@@ -331,18 +299,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 );
 
                 // Call the greeting tool
-                const greetingResult = await client.request(
-                    {
-                        method: 'tools/call',
-                        params: {
-                            name: 'greet',
-                            arguments: {
-                                name: 'Stateful Transport'
-                            }
+                const greetingResult = await client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'greet',
+                        arguments: {
+                            name: 'Stateful Transport'
                         }
-                    },
-                    CallToolResultSchema
-                );
+                    }
+                });
 
                 // Verify tool result
                 expect(greetingResult.content).toEqual([{ type: 'text', text: 'Hello, Stateful Transport!' }]);
