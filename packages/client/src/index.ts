@@ -69,7 +69,6 @@ export type {
     StreamableHTTPReconnectionOptions
 } from './client/streamableHttp.js';
 export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
-export { WebSocketClientTransport } from './client/websocket.js';
 
 // experimental exports
 export { ExperimentalClientTasks } from './experimental/tasks/client.js';
