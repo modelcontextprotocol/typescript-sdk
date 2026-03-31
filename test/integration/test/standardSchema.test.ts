@@ -430,9 +430,11 @@ describe('Standard Schema Support', () => {
 
     describe('fromJsonSchema with default validator (server wrapper)', () => {
         test('should use runtime-appropriate default validator when none is provided', async () => {
-            const inputSchema = serverFromJsonSchema<{ name: string }>(
-                { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
-            );
+            const inputSchema = serverFromJsonSchema<{ name: string }>({
+                type: 'object',
+                properties: { name: { type: 'string' } },
+                required: ['name']
+            });
 
             mcpServer.registerTool('greet-default', { inputSchema }, async ({ name }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
@@ -445,9 +447,7 @@ describe('Standard Schema Support', () => {
         });
 
         test('should reject invalid input with default validator', async () => {
-            const inputSchema = serverFromJsonSchema(
-                { type: 'object', properties: { count: { type: 'number' } }, required: ['count'] }
-            );
+            const inputSchema = serverFromJsonSchema({ type: 'object', properties: { count: { type: 'number' } }, required: ['count'] });
 
             mcpServer.registerTool('double-default', { inputSchema }, async args => {
                 const { count } = args as { count: number };
@@ -456,7 +456,10 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({ method: 'tools/call', params: { name: 'double-default', arguments: { count: 'not a number' } } });
+            const result = await client.request({
+                method: 'tools/call',
+                params: { name: 'double-default', arguments: { count: 'not a number' } }
+            });
             expect(result.isError).toBe(true);
             const errorText = (result.content[0] as TextContent).text;
             expect(errorText).toContain('Input validation error');
