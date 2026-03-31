@@ -110,9 +110,9 @@ export interface Transport {
     /**
      * Callback for when a message (request or response) is received over the connection.
      *
-     * Includes the {@linkcode MessageExtraInfo.requestInfo | requestInfo} and {@linkcode MessageExtraInfo.authInfo | authInfo} if the transport is authenticated.
+     * Includes the {@linkcode MessageExtraInfo.request | request} and {@linkcode MessageExtraInfo.authInfo | authInfo} if the transport is authenticated.
      *
-     * The {@linkcode MessageExtraInfo.requestInfo | requestInfo} can be used to get the original request information (headers, etc.)
+     * The {@linkcode MessageExtraInfo.request | request} can be used to get the original request information (headers, etc.)
      */
     onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
 
