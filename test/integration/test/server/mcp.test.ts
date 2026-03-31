@@ -1426,7 +1426,10 @@ describe('Zod v4', () => {
                         input: 'hello'
                     }
                 })
-            ).rejects.toThrow('Output validation error: Tool test has an output schema but no structured content was provided');
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InternalError,
+                message: expect.stringContaining('has an output schema but no structured content')
+            });
         });
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
@@ -1548,7 +1551,10 @@ describe('Zod v4', () => {
                         input: 'hello'
                     }
                 })
-            ).rejects.toThrow(/Output validation error: Invalid structured content for tool test/);
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InternalError,
+                message: expect.stringMatching(/Invalid structured content for tool test/)
+            });
         });
 
         /***
@@ -6522,7 +6528,10 @@ describe('Zod v4', () => {
                     name: 'long-running-task',
                     arguments: { input: 'test data' }
                 })
-            ).rejects.toThrow(/requires task augmentation/);
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringMatching(/requires task augmentation/)
+            });
 
             taskStore.cleanup();
         });

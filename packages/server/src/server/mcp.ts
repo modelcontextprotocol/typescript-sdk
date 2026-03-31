@@ -310,7 +310,7 @@ export class McpServer {
         ctx: ServerContext
     ): Promise<CallToolResult> {
         if (!ctx.task?.store) {
-            throw new Error('No task store provided for task-capable tool.');
+            throw new ProtocolError(ProtocolErrorCode.InternalError, 'No task store provided for task-capable tool.');
         }
 
         // Validate input and create task using the executor
@@ -324,7 +324,21 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await ctx.task.store.getTask(taskId);
+            let updatedTask;
+            try {
+                updatedTask = await ctx.task.store.getTask(taskId);
+            } catch (error) {
+                // RequestTaskStore.getTask throws InvalidParams when the task is
+                // missing, but a task vanishing mid-poll is a server-side issue
+                // (the client didn't even ask for a task) — surface as InternalError.
+                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.InvalidParams) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        `Task ${taskId} vanished during automatic polling`
+                    );
+                }
+                throw error;
+            }
             if (!updatedTask) {
                 throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} not found during polling`);
             }
