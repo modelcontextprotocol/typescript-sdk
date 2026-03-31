@@ -8,7 +8,7 @@ import {
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, ToolError } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -1799,7 +1799,112 @@ describe('Zod v4', () => {
             expect(result.content).toEqual([
                 {
                     type: 'text',
-                    text: 'Tool execution failed'
+                    text: 'Internal error'
+                }
+            ]);
+        });
+
+        test('should pass through ToolError message to client', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('toolerror-test', {}, async () => {
+                throw new ToolError('Invalid input: country not supported');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'toolerror-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Invalid input: country not supported'
+                }
+            ]);
+        });
+
+        test('should sanitize generic Error to Internal error', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('internal-error-test', {}, async () => {
+                throw new Error('Connection failed at 10.0.0.5:5432');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'internal-error-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
+                }
+            ]);
+        });
+
+        test('should sanitize non-Error throws to Internal error', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('string-throw-test', {}, async () => {
+                throw 'some raw string error';
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'string-throw-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
                 }
             ]);
         });
@@ -6972,7 +7077,7 @@ describe('Zod v4', () => {
 
             // Should receive an error since cancelled tasks don't have results
             expect(result).toHaveProperty('content');
-            expect(result.content).toEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
+            expect(result.content).toEqual([{ type: 'text' as const, text: 'Internal error' }]);
 
             // Wait for async operations to complete
             await waitForLatch();
