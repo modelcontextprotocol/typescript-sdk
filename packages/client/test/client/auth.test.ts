@@ -338,17 +338,36 @@ describe('OAuth Authorization', () => {
             expect(calls.length).toBe(2);
         });
 
-        it('throws error on 500 status and does not fallback', async () => {
-            // First call (path-aware) returns 500
+        it('throws on 500 status without fallback', async () => {
+            // First call (path-aware) returns 500 (overloaded server)
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 500
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow();
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow('HTTP 500');
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1); // Should not attempt fallback
+        });
+
+        it('falls back to root on 502 status for path URL', async () => {
+            // First call (path-aware) returns 502 (reverse proxy routing error)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 502
+            });
+
+            // Root fallback also returns 502
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 502
+            });
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow('HTTP 502');
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(2); // Should attempt root fallback for 502
         });
 
         it('does not fallback when the original URL is already at root path', async () => {
@@ -704,10 +723,52 @@ describe('OAuth Authorization', () => {
             expect(metadata).toBeUndefined();
         });
 
-        it('throws on non-404 errors', async () => {
+        it('throws on non-404 errors for root URL', async () => {
             mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
 
             await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
+        });
+
+        it('falls back to root URL on 502 for path-aware discovery', async () => {
+            // Path-aware URL returns 502 (reverse proxy has no route for well-known path)
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 502 }));
+
+            // Root fallback URL succeeds
+            mockFetch.mockResolvedValueOnce(Response.json(validMetadata, { status: 200 }));
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/tenant1', {
+                authorizationServerUrl: 'https://auth.example.com/tenant1'
+            });
+
+            expect(metadata).toEqual(validMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('does not fall back on non-502 5xx for path-aware discovery', async () => {
+            // Path-aware URL returns 500 (overloaded server — should not retry)
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+            await expect(
+                discoverOAuthMetadata('https://auth.example.com/tenant1', {
+                    authorizationServerUrl: 'https://auth.example.com/tenant1'
+                })
+            ).rejects.toThrow('HTTP 500');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('throws when root fallback also returns error for path-aware discovery', async () => {
+            // Path-aware URL returns 502 (gateway error — triggers fallback)
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 502 }));
+
+            // Root fallback also returns 503
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
+
+            await expect(
+                discoverOAuthMetadata('https://auth.example.com/tenant1', {
+                    authorizationServerUrl: 'https://auth.example.com/tenant1'
+                })
+            ).rejects.toThrow('HTTP 503');
+            expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
         it('validates metadata schema', async () => {
@@ -862,13 +923,49 @@ describe('OAuth Authorization', () => {
             expect(metadata).toEqual(validOpenIdMetadata);
         });
 
-        it('throws on non-4xx errors', async () => {
+        it('continues on 502 and tries next URL', async () => {
+            // First URL (OAuth) returns 502 (reverse proxy with no route)
             mockFetch.mockResolvedValueOnce({
                 ok: false,
-                status: 500
+                status: 502,
+                text: async () => ''
             });
 
-            await expect(discoverAuthorizationServerMetadata('https://mcp.example.com')).rejects.toThrow('HTTP 500');
+            // Second URL (OIDC) succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validOpenIdMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(validOpenIdMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('throws on non-502 5xx errors', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 500,
+                text: async () => ''
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('returns undefined when all URLs fail with 502', async () => {
+            // All URLs return 502
+            mockFetch.mockResolvedValue({
+                ok: false,
+                status: 502,
+                text: async () => ''
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+
+            expect(metadata).toBeUndefined();
         });
 
         it('handles CORS errors with retry (browser)', async () => {
