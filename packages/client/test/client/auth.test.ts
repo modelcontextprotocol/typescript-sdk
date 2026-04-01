@@ -3907,6 +3907,7 @@ describe('OAuth Authorization', () => {
             }
         });
     });
+
     describe('determineScope', () => {
         const baseClientMetadata = {
             redirect_uris: ['http://localhost:3000/callback'],
