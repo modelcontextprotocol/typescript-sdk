@@ -24,6 +24,10 @@
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
         },
+        "./validators/cf-worker": {
+            "types": "./dist/validators/cfWorker.d.mts",
+            "import": "./dist/validators/cfWorker.mjs"
+        },
         "./_shims": {
             "workerd": {
                 "types": "./dist/shimsWorkerd.d.mts",
@@ -61,14 +65,6 @@
     },
     "dependencies": {
         "zod": "catalog:runtimeShared"
-    },
-    "peerDependencies": {
-        "@cfworker/json-schema": "catalog:runtimeShared"
-    },
-    "peerDependenciesMeta": {
-        "@cfworker/json-schema": {
-            "optional": true
-        }
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
