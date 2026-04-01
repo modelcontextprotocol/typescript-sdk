@@ -1014,12 +1014,8 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
  * `https://example.com/admin/authorize` (path preserved).
  */
 function buildFallbackUrl(authorizationServerUrl: string | URL, endpoint: string): URL {
-    const url = typeof authorizationServerUrl === 'string'
-        ? new URL(authorizationServerUrl)
-        : new URL(authorizationServerUrl.href);
-    const basePath = url.pathname.endsWith('/')
-        ? url.pathname.slice(0, -1)
-        : url.pathname;
+    const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : new URL(authorizationServerUrl.href);
+    const basePath = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname;
     url.pathname = `${basePath}${endpoint}`;
     return url;
 }
