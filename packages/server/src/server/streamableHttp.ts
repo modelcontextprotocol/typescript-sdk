@@ -587,6 +587,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Start keepalive timer for the replayed stream so reconnecting
             // clients remain protected from proxy idle timeouts
             if (this._keepAliveInterval !== undefined) {
+                this._clearKeepAliveTimer();
                 this._keepAliveTimer = setInterval(() => {
                     try {
                         streamController!.enqueue(encoder.encode(': keepalive\n\n'));
