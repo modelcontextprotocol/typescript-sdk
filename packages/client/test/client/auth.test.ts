@@ -1659,7 +1659,7 @@ describe('OAuth Authorization', () => {
                 fetchFn: mockFetch,
             });
 
-            const fetchUrl = new URL(mockFetch.mock.calls[0][0]);
+            const fetchUrl = new URL(mockFetch.mock.calls[0]![0] as string);
             expect(fetchUrl.pathname).toBe('/admin/token');
         });
 
