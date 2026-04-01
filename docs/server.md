@@ -506,6 +506,80 @@ const app = createMcpExpressApp({
 
 If you use `NodeStreamableHTTPServerTransport` directly with your own HTTP framework, you must implement Host header validation yourself. See the [`hostHeaderValidation`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/middleware/express/src/express.ts) middleware source for reference.
 
+## Testing
+
+Unit-testing MCP servers does not require a running HTTP server or a subprocess. Use `InMemoryTransport` from `@modelcontextprotocol/core` to wire a client and server together in-process.
+
+### Basic setup
+
+```ts
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { McpServer } from '@modelcontextprotocol/server';
+
+function createTestPair() {
+    const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    return { server, client, clientTransport, serverTransport };
+}
+```
+
+`InMemoryTransport.createLinkedPair()` returns two linked transports: messages written to one are read by the other, with no networking involved.
+
+### Example: testing a tool
+
+```ts
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'; // or jest
+import * as z from 'zod';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { McpServer } from '@modelcontextprotocol/server';
+
+describe('my-tool', () => {
+    let server: McpServer;
+    let client: Client;
+
+    beforeEach(async () => {
+        server = new McpServer({ name: 'test-server', version: '1.0.0' });
+        client = new Client({ name: 'test-client', version: '1.0.0' });
+
+        server.registerTool(
+            'add',
+            { description: 'Add two numbers', inputSchema: { a: z.number(), b: z.number() } },
+            async ({ a, b }) => ({
+                content: [{ type: 'text', text: String(a + b) }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    });
+
+    afterEach(async () => {
+        await client.close();
+    });
+
+    it('returns the sum', async () => {
+        const result = await client.callTool({ name: 'add', arguments: { a: 2, b: 3 } });
+        expect(result.content[0].text).toBe('5');
+    });
+});
+```
+
+### What this tests
+
+An `InMemoryTransport` integration test exercises:
+
+- Tool/resource/prompt registration and dispatch
+- Input validation and output serialization (catches unexpected `JSON.stringify` / schema issues)
+- The full MCP protocol message exchange
+
+It does **not** test HTTP framing, network errors, or transport-level concerns — use real HTTP integration tests (e.g. with `supertest`) for those.
+
+> [!TIP]
+> For tests that also need tasks or a task store, see `test/integration/test/helpers/mcp.ts` in the SDK repository for a reusable `createInMemoryTaskEnvironment` helper.
+
 ## More server features
 
 The sections above cover the essentials. The table below links to additional capabilities demonstrated in the runnable examples.
