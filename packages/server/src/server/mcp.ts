@@ -332,10 +332,7 @@ export class McpServer {
                 // missing, but a task vanishing mid-poll is a server-side issue
                 // (the client didn't even ask for a task) — surface as InternalError.
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.InvalidParams) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InternalError,
-                        `Task ${taskId} vanished during automatic polling`
-                    );
+                    throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} vanished during automatic polling`);
                 }
                 throw error;
             }
