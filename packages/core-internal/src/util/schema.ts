@@ -102,14 +102,15 @@ export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<st
 
             // Merge sibling keywords onto the resolved schema
             if (hasSiblings && resolved !== null && typeof resolved === 'object' && !Array.isArray(resolved)) {
-                return { ...(resolved as Record<string, unknown>), ...siblings };
+                const resolvedSiblings = Object.fromEntries(Object.entries(siblings).map(([k, v]) => [k, resolve(v, stack)]));
+                return { ...(resolved as Record<string, unknown>), ...resolvedSiblings };
             }
             return resolved;
         }
 
         const result: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(obj)) {
-            if (key === '$defs' || key === 'definitions') continue;
+            if (obj === schema && (key === '$defs' || key === 'definitions')) continue;
             result[key] = resolve(value, stack);
         }
         return result;
