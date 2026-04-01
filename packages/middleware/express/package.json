@@ -30,6 +30,9 @@
     "files": [
         "dist"
     ],
+    "publishConfig": {
+        "access": "public"
+    },
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
         "build": "tsdown",
