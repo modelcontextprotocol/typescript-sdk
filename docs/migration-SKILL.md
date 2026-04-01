@@ -86,7 +86,7 @@ Notes:
 | `JSONRPCError`                           | `JSONRPCErrorResponse`                                   |
 | `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                             |
 | `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                 |
-| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                                |
+| `isJSONRPCResponse` (deprecated in v1)   | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error) |
 | `ResourceReference`                      | `ResourceTemplateReference`                              |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                        |
 | `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                     |
@@ -98,7 +98,7 @@ Notes:
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`) |
 
-All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
+All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use type guard functions like `isCallToolResult` instead of `CallToolResultSchema.safeParse()`.
 
 ### Error class changes
 
@@ -434,6 +434,13 @@ const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 | `client.callTool(params, schema, options)`                   | `client.callTool(params, options)` |
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
+
+If `CallToolResultSchema` was used for **runtime validation** (not just as a `request()` argument), replace with the `isCallToolResult` type guard:
+
+| v1 pattern                                          | v2 replacement             |
+| --------------------------------------------------- | -------------------------- |
+| `CallToolResultSchema.safeParse(value).success`     | `isCallToolResult(value)`  |
+| `CallToolResultSchema.parse(value)`                 | Use `isCallToolResult(value)` then cast, or use `CallToolResult` type |
 
 ## 12. Experimental: `TaskCreationParams.ttl` no longer accepts `null`
 
