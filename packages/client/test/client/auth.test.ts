@@ -1656,7 +1656,7 @@ describe('OAuth Authorization', () => {
                 authorizationCode: 'code123',
                 codeVerifier: 'verifier123',
                 redirectUri: 'http://localhost:3000/callback',
-                fetchFn: mockFetch,
+                fetchFn: mockFetch
             });
 
             const fetchUrl = new URL(mockFetch.mock.calls[0]![0] as string);
