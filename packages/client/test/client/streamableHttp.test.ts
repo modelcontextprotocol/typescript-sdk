@@ -248,7 +248,7 @@ describe('StreamableHTTPClientTransport', () => {
         expect(errorSpy).toHaveBeenCalled();
     });
 
-    it('should clear session ID and mark 404 as recoverable for session-bound POST requests', async () => {
+    it('should clear session ID on 404 for session-bound POST requests', async () => {
         const initializeMessage: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'initialize',
@@ -291,11 +291,9 @@ describe('StreamableHTTPClientTransport', () => {
 
         await expect(transport.send(message)).rejects.toMatchObject({
             code: SdkErrorCode.ClientHttpNotImplemented,
-            message: 'Session expired (HTTP 404). Cleared session ID; reconnect and re-initialize.',
             data: expect.objectContaining({
                 status: 404,
-                text: 'Session not found',
-                sessionExpired: true
+                text: 'Session not found'
             })
         });
         expect(transport.sessionId).toBeUndefined();
@@ -383,11 +381,10 @@ describe('StreamableHTTPClientTransport', () => {
         await expect(
             (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({})
         ).rejects.toMatchObject({
-            code: SdkErrorCode.ClientHttpNotImplemented,
+            code: SdkErrorCode.ClientHttpFailedToOpenStream,
             data: expect.objectContaining({
                 status: 404,
-                text: 'Session not found',
-                sessionExpired: true
+                statusText: 'Not Found'
             })
         });
 
