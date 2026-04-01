@@ -1006,6 +1006,25 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
 }
 
 /**
+ * Builds a fallback endpoint URL by appending the endpoint path to the
+ * authorization server's existing pathname, instead of replacing it.
+ *
+ * `new URL('/authorize', 'https://example.com/admin')` produces
+ * `https://example.com/authorize` (path lost). This helper produces
+ * `https://example.com/admin/authorize` (path preserved).
+ */
+function buildFallbackUrl(authorizationServerUrl: string | URL, endpoint: string): URL {
+    const url = typeof authorizationServerUrl === 'string'
+        ? new URL(authorizationServerUrl)
+        : new URL(authorizationServerUrl.href);
+    const basePath = url.pathname.endsWith('/')
+        ? url.pathname.slice(0, -1)
+        : url.pathname;
+    url.pathname = `${basePath}${endpoint}`;
+    return url;
+}
+
+/**
  * Constructs the well-known path for auth-related metadata discovery
  */
 function buildWellKnownPath(
@@ -1372,7 +1391,7 @@ export async function startAuthorization(
             throw new Error(`Incompatible auth server: does not support code challenge method ${AUTHORIZATION_CODE_CHALLENGE_METHOD}`);
         }
     } else {
-        authorizationUrl = new URL('/authorize', authorizationServerUrl);
+        authorizationUrl = buildFallbackUrl(authorizationServerUrl, '/authorize');
     }
 
     // Generate PKCE challenge
@@ -1454,7 +1473,7 @@ export async function executeTokenRequest(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
+    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : buildFallbackUrl(authorizationServerUrl, '/token');
 
     const headers = new Headers({
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -1701,7 +1720,7 @@ export async function registerClient(
 
         registrationUrl = new URL(metadata.registration_endpoint);
     } else {
-        registrationUrl = new URL('/register', authorizationServerUrl);
+        registrationUrl = buildFallbackUrl(authorizationServerUrl, '/register');
     }
 
     const response = await (fetchFn ?? fetch)(registrationUrl, {

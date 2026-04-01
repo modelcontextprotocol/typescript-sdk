@@ -1621,6 +1621,59 @@ describe('OAuth Authorization', () => {
         );
     });
 
+    describe('fallback URL subpath preservation', () => {
+        const validClientInfo = {
+            client_id: 'client123',
+            client_secret: 'secret123',
+            redirect_uris: ['http://localhost:3000/callback'],
+            client_name: 'Test Client'
+        };
+
+        it('preserves authorization server subpath in fallback authorize URL', async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com/admin', {
+                metadata: undefined,
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback'
+            });
+
+            expect(authorizationUrl.pathname).toBe('/admin/authorize');
+        });
+
+        it('preserves subpath in fallback token URL', async () => {
+            const mockFetch = vi.fn();
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'access123',
+                    token_type: 'Bearer'
+                })
+            });
+
+            await exchangeAuthorization('https://auth.example.com/admin', {
+                metadata: undefined,
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback',
+                fetchFn: mockFetch,
+            });
+
+            const fetchUrl = new URL(mockFetch.mock.calls[0][0]);
+            expect(fetchUrl.pathname).toBe('/admin/token');
+        });
+
+        it('still works for root-path authorization servers', async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                metadata: undefined,
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback'
+            });
+
+            expect(authorizationUrl.pathname).toBe('/authorize');
+        });
+    });
+
     describe('exchangeAuthorization', () => {
         const validTokens: OAuthTokens = {
             access_token: 'access123',
