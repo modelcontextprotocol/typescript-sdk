@@ -38,7 +38,7 @@ jobs:
               id: changesets
               uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1
               with:
-                  publish: pnpm run build:all && pnpm changeset publish
+                  publish: pnpm run release:publish
               env:
                   GITHUB_TOKEN: ${{ github.token }}
                   NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
