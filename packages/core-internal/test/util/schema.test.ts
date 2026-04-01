@@ -128,4 +128,72 @@ describe('dereferenceLocalRefs', () => {
         };
         expect(() => dereferenceLocalRefs(schema)).toThrow(/Recursive schema detected/);
     });
+
+    // The following tests cover real Zod v4 output patterns where $ref appears
+    // with sibling keywords. Zod only produces metadata siblings (description,
+    // title, default, etc.) — never schema nodes containing nested $ref.
+    // These prove the sibling merge path handles all real-world scenarios.
+
+    test('$ref with multiple metadata siblings (Zod .meta() on registered type)', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                home: { $ref: '#/$defs/Address', title: 'Home', deprecated: true }
+            },
+            $defs: {
+                Address: { type: 'object', properties: { street: { type: 'string' } } }
+            }
+        };
+        const result = dereferenceLocalRefs(schema);
+        const home = (result['properties'] as Record<string, Record<string, unknown>>)['home']!;
+        expect(home['type']).toBe('object');
+        expect(home['title']).toBe('Home');
+        expect(home['deprecated']).toBe(true);
+        expect(JSON.stringify(result)).not.toContain('$ref');
+    });
+
+    test('$ref with default value sibling (Zod .default() on registered type)', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                home: { $ref: '#/$defs/Address', default: { street: '123 Main' } }
+            },
+            $defs: {
+                Address: { type: 'object', properties: { street: { type: 'string' } } }
+            }
+        };
+        const result = dereferenceLocalRefs(schema);
+        const home = (result['properties'] as Record<string, Record<string, unknown>>)['home']!;
+        expect(home['type']).toBe('object');
+        expect(home['default']).toEqual({ street: '123 Main' });
+        expect(JSON.stringify(result)).not.toContain('$ref');
+    });
+
+    test('$def referencing another $def (nested registered types)', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                employer: { $ref: '#/$defs/Company', description: 'The company' }
+            },
+            $defs: {
+                Address: { type: 'object', properties: { street: { type: 'string' } } },
+                Company: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        hq: { $ref: '#/$defs/Address' }
+                    }
+                }
+            }
+        };
+        const result = dereferenceLocalRefs(schema);
+        expect(JSON.stringify(result)).not.toContain('$ref');
+        expect(JSON.stringify(result)).not.toContain('$defs');
+        const employer = (result['properties'] as Record<string, Record<string, unknown>>)['employer']!;
+        expect(employer['description']).toBe('The company');
+        expect(employer['type']).toBe('object');
+        const hq = (employer['properties'] as Record<string, Record<string, unknown>>)['hq']!;
+        expect(hq['type']).toBe('object');
+        expect(hq['properties']).toEqual({ street: { type: 'string' } });
+    });
 });
