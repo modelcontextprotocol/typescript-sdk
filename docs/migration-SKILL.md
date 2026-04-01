@@ -210,7 +210,7 @@ Zod schemas, all callback return types. Note: `callTool()` and `request()` signa
 
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
-**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema, validator)` from `@modelcontextprotocol/server`. Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
 
 ### Tools
 
@@ -298,16 +298,17 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ## 7. Headers API
 
-Transport constructors and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain objects.
+Transport constructors now use the Web Standard `Headers` object instead of plain objects. The custom `RequestInfo` type has been replaced with the standard Web `Request` object, giving access to headers, URL, query parameters, and method.
 
 ```typescript
-// v1: plain object, bracket access
+// v1: plain object, bracket access, custom RequestInfo
 headers: { 'Authorization': 'Bearer token' }
 extra.requestInfo?.headers['mcp-session-id']
 
-// v2: Headers object, .get() access
+// v2: Headers object, .get() access, standard Web Request
 headers: new Headers({ 'Authorization': 'Bearer token' })
 ctx.http?.req?.headers.get('mcp-session-id')
+new URL(ctx.http?.req?.url).searchParams.get('debug')
 ```
 
 ## 8. Removed Server Features
@@ -391,7 +392,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.sendNotification(...)`    | `ctx.mcpReq.notify(...)`                                                   |
 | `extra.authInfo`                 | `ctx.http?.authInfo`                                                       |
 | `extra.sessionId`                | `ctx.sessionId`                                                            |
-| `extra.requestInfo`              | `ctx.http?.req` (only `ServerContext`)                                     |
+| `extra.requestInfo`              | `ctx.http?.req` (standard Web `Request`, only `ServerContext`)             |
 | `extra.closeSSEStream`           | `ctx.http?.closeSSE` (only `ServerContext`)                                |
 | `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
 | `extra.taskStore`                | `ctx.task?.store`                                                          |

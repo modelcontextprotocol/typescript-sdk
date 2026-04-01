@@ -73,5 +73,8 @@ export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
 // experimental exports
 export { ExperimentalClientTasks } from './experimental/tasks/client.js';
 
+// runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
+export { fromJsonSchema } from './fromJsonSchema.js';
+
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';
