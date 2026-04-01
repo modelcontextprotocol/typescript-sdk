@@ -1,0 +1,25 @@
+{
+  "mode": "pre",
+  "tag": "alpha",
+  "initialVersions": {
+    "@modelcontextprotocol/eslint-config": "2.0.0",
+    "@modelcontextprotocol/tsconfig": "2.0.0",
+    "@modelcontextprotocol/vitest-config": "2.0.0",
+    "@modelcontextprotocol/examples-client": "2.0.0-alpha.0",
+    "@modelcontextprotocol/examples-client-quickstart": "2.0.0-alpha.0",
+    "@modelcontextprotocol/examples-server": "2.0.0-alpha.0",
+    "@modelcontextprotocol/examples-server-quickstart": "2.0.0-alpha.0",
+    "@modelcontextprotocol/examples-shared": "2.0.0-alpha.0",
+    "@modelcontextprotocol/client": "2.0.0-alpha.0",
+    "@modelcontextprotocol/core": "2.0.0-alpha.0",
+    "@modelcontextprotocol/express": "2.0.0-alpha.0",
+    "@modelcontextprotocol/fastify": "2.0.0-alpha.0",
+    "@modelcontextprotocol/hono": "2.0.0-alpha.0",
+    "@modelcontextprotocol/node": "2.0.0-alpha.0",
+    "@modelcontextprotocol/server": "2.0.0-alpha.0",
+    "@modelcontextprotocol/test-conformance": "2.0.0-alpha.0",
+    "@modelcontextprotocol/test-helpers": "2.0.0-alpha.0",
+    "@modelcontextprotocol/test-integration": "2.0.0-alpha.0"
+  },
+  "changesets": []
+}
