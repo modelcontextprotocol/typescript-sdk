@@ -1,5 +1,12 @@
 # @modelcontextprotocol/server
 
+## 2.0.0-alpha.2
+
+### Patch Changes
+
+- [#1840](https://github.com/modelcontextprotocol/typescript-sdk/pull/1840) [`424cbae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/424cbaeee13b7fe18d38048295135395b9ad81bb) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - tsdown exports resolution
+  fix
+
 ## 2.0.0-alpha.1
 
 ### Major Changes

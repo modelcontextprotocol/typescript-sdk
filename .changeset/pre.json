@@ -33,6 +33,7 @@
     "drop-zod-peer-dep",
     "expose-auth-server-discovery",
     "extract-task-manager",
+    "fast-dragons-lead",
     "finish-sdkerror-capability",
     "fix-abort-listener-leak",
     "fix-oauth-5xx-discovery",
