@@ -723,21 +723,23 @@ describe('StreamableHTTPClientTransport', () => {
         const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
-        await transport.send(message);
+        try {
+            await transport.send(message);
 
-        // Verify fetch was called twice
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+            // Verify fetch was called twice
+            expect(fetchMock).toHaveBeenCalledTimes(2);
 
-        // Verify auth was called with the new scope
-        expect(authSpy).toHaveBeenCalledWith(
-            mockAuthProvider,
-            expect.objectContaining({
-                scope: 'new_scope',
-                resourceMetadataUrl: new URL('http://example.com/resource')
-            })
-        );
-
-        authSpy.mockRestore();
+            // Verify auth was called with the new scope
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'new_scope',
+                    resourceMetadataUrl: new URL('http://example.com/resource')
+                })
+            );
+        } finally {
+            authSpy.mockRestore();
+        }
     });
 
     it('prevents infinite upscoping on repeated 403', async () => {
@@ -765,21 +767,23 @@ describe('StreamableHTTPClientTransport', () => {
         const authSpy = vi.spyOn(authModule as typeof import('../../src/client/auth.js'), 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
-        // First send: should trigger upscoping
-        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+        try {
+            // First send: should trigger upscoping
+            await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
 
-        expect(fetchMock).toHaveBeenCalledTimes(2); // Initial call + one retry after auth
-        expect(authSpy).toHaveBeenCalledTimes(1); // Auth called once
+            expect(fetchMock).toHaveBeenCalledTimes(2); // Initial call + one retry after auth
+            expect(authSpy).toHaveBeenCalledTimes(1); // Auth called once
 
-        // Second send: should fail immediately without re-calling auth
-        fetchMock.mockClear();
-        authSpy.mockClear();
-        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+            // Second send: should fail immediately without re-calling auth
+            fetchMock.mockClear();
+            authSpy.mockClear();
+            await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
 
-        expect(fetchMock).toHaveBeenCalledTimes(1); // Only one fetch call
-        expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
-
-        authSpy.mockRestore();
+            expect(fetchMock).toHaveBeenCalledTimes(1); // Only one fetch call
+            expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
+        } finally {
+            authSpy.mockRestore();
+        }
     });
 
     describe('mergeScopes behavior (via transport)', () => {
@@ -965,17 +969,60 @@ describe('StreamableHTTPClientTransport', () => {
         const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
-        await expect(
-            transport.send({
-                jsonrpc: '2.0',
-                method: 'test',
-                params: {},
-                id: 'test-id'
-            })
-        ).rejects.toThrow('Server returned 403 after trying upscoping');
+        try {
+            await expect(
+                transport.send({
+                    jsonrpc: '2.0',
+                    method: 'test',
+                    params: {},
+                    id: 'test-id'
+                })
+            ).rejects.toThrow('Server returned 403 after trying upscoping');
 
-        expect(authSpy).toHaveBeenCalledTimes(1);
-        authSpy.mockRestore();
+            expect(authSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            authSpy.mockRestore();
+        }
+    });
+
+    it('preserves resource metadata URL across 401 responses without resource_metadata', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const resourceMetadataUrl = 'http://example.com/.well-known/oauth-protected-resource';
+        (globalThis.fetch as Mock)
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({
+                    'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl}", scope="read:op1"`
+                }),
+                text: () => Promise.resolve('Unauthorized')
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer scope="read:op2"'
+                }),
+                text: () => Promise.resolve('Unauthorized')
+            });
+
+        await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        expect((transport as unknown as { _resourceMetadataUrl: URL | undefined })._resourceMetadataUrl).toEqual(
+            new URL(resourceMetadataUrl)
+        );
+
+        await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        expect((transport as unknown as { _resourceMetadataUrl: URL | undefined })._resourceMetadataUrl).toEqual(
+            new URL(resourceMetadataUrl)
+        );
     });
 
     describe('Reconnection Logic', () => {

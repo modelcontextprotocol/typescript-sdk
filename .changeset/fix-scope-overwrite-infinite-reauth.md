@@ -1,5 +1,6 @@
 ---
 '@modelcontextprotocol/client': patch
+'@modelcontextprotocol/core': patch
 ---
 
 Fix: accumulate OAuth scopes on 401/403 instead of overwriting

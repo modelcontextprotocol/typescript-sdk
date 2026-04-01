@@ -222,7 +222,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
                         this._scope = mergeScopes(this._scope, scope);
                     }
 
@@ -515,7 +517,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
                         this._scope = mergeScopes(this._scope, scope);
                     }
 
