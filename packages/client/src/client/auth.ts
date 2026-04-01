@@ -1200,7 +1200,7 @@ export async function startAuthorization(
         ) {
             throw new Error(`Incompatible auth server: does not support code challenge method ${AUTHORIZATION_CODE_CHALLENGE_METHOD}`);
         }
-    } else if (authorizationServerUrl.pathname !== '/') {
+    } else if (new URL(authorizationServerUrl).pathname !== '/') {
         throw new Error(
           `Authorization server metadata discovery failed and the server URL (${authorizationServerUrl}) has a non-root path. ` +
           `Cannot determine the authorization endpoint. Please ensure the authorization server is reachable and supports metadata discovery.`
@@ -1290,7 +1290,7 @@ async function executeTokenRequest(
 ): Promise<OAuthTokens> {
     const tokenUrl = metadata?.token_endpoint
       ? new URL(metadata.token_endpoint)
-      : authorizationServerUrl.pathname !== '/'
+      : new URL(authorizationServerUrl).pathname !== '/'
         ? (() => { throw new Error(
             `Authorization server metadata discovery failed and the server URL (${authorizationServerUrl}) has a non-root path. ` +
             `Cannot determine the token endpoint.`
@@ -1542,7 +1542,7 @@ export async function registerClient(
 
         registrationUrl = new URL(metadata.registration_endpoint);
     } else {
-        if (authorizationServerUrl.pathname !== '/') {
+        if (new URL(authorizationServerUrl).pathname !== '/') {
             throw new Error(
               `Authorization server metadata discovery failed and the server URL (${authorizationServerUrl}) has a non-root path. ` +
               `Cannot determine the registration endpoint.`
