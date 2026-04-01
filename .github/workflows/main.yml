@@ -59,7 +59,6 @@ jobs:
               with:
                   node-version: 24
                   cache: npm
-                  registry-url: 'https://registry.npmjs.org'
 
             - run: npm ci
 
@@ -85,5 +84,3 @@ jobs:
                   fi
 
             - run: npm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
