@@ -196,4 +196,55 @@ describe('dereferenceLocalRefs', () => {
         expect(hq['type']).toBe('object');
         expect(hq['properties']).toEqual({ street: { type: 'string' } });
     });
+
+    // Defensive: hand-crafted synthetic schema — no known schema generator (Zod v4,
+    // ArkType, Valibot) produces $ref with a sibling containing nested $ref.
+    // Generators put $ref inside allOf/anyOf/oneOf array elements (resolved by
+    // array recursion), not as siblings of $ref on the same node.
+    // See: https://github.com/modelcontextprotocol/typescript-sdk/pull/1563#discussion_r3022304127
+    test('$ref siblings containing nested $ref are resolved (defensive)', () => {
+        const schema = {
+            type: 'object',
+            properties: { x: { $ref: '#/$defs/Outer' } },
+            $defs: {
+                Outer: { $ref: '#/$defs/Inner', allOf: [{ $ref: '#/$defs/Mixin' }] },
+                Inner: { type: 'object' },
+                Mixin: { title: 'mixin' }
+            }
+        };
+        const result = dereferenceLocalRefs(schema);
+        expect(JSON.stringify(result)).not.toContain('$ref');
+        expect(JSON.stringify(result)).not.toContain('$defs');
+        const x = (result['properties'] as Record<string, Record<string, unknown>>)['x']!;
+        expect(x['type']).toBe('object');
+        expect(x['allOf']).toEqual([{ title: 'mixin' }]);
+    });
+
+    test('property named "definitions" is not stripped from nested objects', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                items: { type: 'array', items: { type: 'string' } },
+                definitions: { type: 'array', items: { type: 'string' } }
+            },
+            required: ['items', 'definitions']
+        };
+        const result = dereferenceLocalRefs(schema);
+        const props = result['properties'] as Record<string, unknown>;
+        expect(props['definitions']).toEqual({ type: 'array', items: { type: 'string' } });
+        expect(props['items']).toEqual({ type: 'array', items: { type: 'string' } });
+    });
+
+    test('property named "$defs" is not stripped from nested objects', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                $defs: { type: 'object', properties: { x: { type: 'number' } } }
+            }
+        };
+        const result = dereferenceLocalRefs(schema);
+        const props = result['properties'] as Record<string, unknown>;
+        expect(props['$defs']).toEqual({ type: 'object', properties: { x: { type: 'number' } } });
+    });
 });
