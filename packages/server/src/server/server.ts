@@ -433,6 +433,8 @@ export class Server extends Protocol<ServerContext> {
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
+        this.transport?.setProtocolVersion?.(protocolVersion);
+
         return {
             protocolVersion,
             capabilities: this.getCapabilities(),
