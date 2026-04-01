@@ -252,6 +252,10 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
+                if (response.status === 404 && this._sessionId !== undefined) {
+                    this._sessionId = undefined;
+                }
+
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -557,6 +561,10 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
+                if (response.status === 404 && this._sessionId !== undefined) {
+                    this._sessionId = undefined;
+                }
+
                 if (response.status === 401 && this._authProvider) {
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {

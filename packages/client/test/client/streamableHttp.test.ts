@@ -220,7 +220,7 @@ describe('StreamableHTTPClientTransport', () => {
         await expect(transport.terminateSession()).resolves.not.toThrow();
     });
 
-    it('should handle 404 response when session expires', async () => {
+    it('should preserve existing 404 behavior when request is not session-bound', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -246,6 +246,63 @@ describe('StreamableHTTPClientTransport', () => {
             })
         );
         expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('should clear session ID and mark 404 as recoverable for session-bound POST requests', async () => {
+        const initializeMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/list',
+            params: {},
+            id: 'test-id'
+        };
+
+        (globalThis.fetch as Mock)
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers({ 'mcp-session-id': 'stale-session-id' }),
+                text: () => Promise.resolve('')
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                text: () => Promise.resolve('Session not found'),
+                headers: new Headers()
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers(),
+                text: () => Promise.resolve('')
+            });
+
+        await transport.send(initializeMessage);
+        expect(transport.sessionId).toBe('stale-session-id');
+
+        await expect(transport.send(message)).rejects.toMatchObject({
+            code: SdkErrorCode.ClientHttpNotImplemented,
+            message: 'Session expired (HTTP 404). Cleared session ID; reconnect and re-initialize.',
+            data: expect.objectContaining({
+                status: 404,
+                text: 'Session not found',
+                sessionExpired: true
+            })
+        });
+        expect(transport.sessionId).toBeUndefined();
+
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/ping' } as JSONRPCMessage);
+        const lastCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+        expect(lastCall[1].headers.get('mcp-session-id')).toBeNull();
     });
 
     it('should handle non-streaming JSON response', async () => {
@@ -307,6 +364,38 @@ describe('StreamableHTTPClientTransport', () => {
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should clear session ID when GET SSE stream returns 404 for a session-bound request', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-id'
+        });
+        await transport.start();
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            text: () => Promise.resolve('Session not found'),
+            headers: new Headers()
+        });
+
+        await expect(
+            (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({})
+        ).rejects.toMatchObject({
+            code: SdkErrorCode.ClientHttpNotImplemented,
+            data: expect.objectContaining({
+                status: 404,
+                text: 'Session not found',
+                sessionExpired: true
+            })
+        });
+
+        expect(transport.sessionId).toBeUndefined();
+
+        const getCall = (globalThis.fetch as Mock).mock.calls[0]!;
+        expect(getCall[1].method).toBe('GET');
+        expect(getCall[1].headers.get('mcp-session-id')).toBe('stale-session-id');
     });
 
     it('should handle successful initial GET connection for SSE', async () => {
