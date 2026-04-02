@@ -548,35 +548,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Create a ReadableStream with controller for SSE
             const encoder = new TextEncoder();
             let streamController!: ReadableStreamDefaultController<Uint8Array>;
-            let replayedStreamId!: string;
-
-            const mapping: StreamMapping = {
-                encoder,
-                cleanup: () => {
-                    if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
-                    this._streamMapping.delete(replayedStreamId);
-                    try {
-                        streamController.close();
-                    } catch {
-                        // Controller might already be closed
-                    }
-                }
-            };
+            let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
-                    mapping.controller = controller;
                 },
                 cancel: () => {
                     // Stream was cancelled by client
-                    if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
+                    if (keepAliveTimer) clearInterval(keepAliveTimer);
                     // Cleanup will be handled by the mapping
                 }
             });
 
             // Replay events - returns the streamId for backwards compatibility
-            replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
+            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     const success = this.writeSSEEvent(streamController, encoder, message, eventId);
                     if (!success) {
@@ -589,18 +575,32 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
+            const mapping: StreamMapping = {
+                controller: streamController,
+                encoder,
+                cleanup: () => {
+                    if (keepAliveTimer) clearInterval(keepAliveTimer);
+                    this._streamMapping.delete(replayedStreamId);
+                    try {
+                        streamController.close();
+                    } catch {
+                        // Controller might already be closed
+                    }
+                }
+            };
             this._streamMapping.set(replayedStreamId, mapping);
 
             // Start keepalive timer for the replayed stream so reconnecting
             // clients remain protected from proxy idle timeouts
             if (this._keepAliveInterval !== undefined) {
-                mapping.keepAliveTimer = setInterval(() => {
+                keepAliveTimer = setInterval(() => {
                     try {
                         streamController.enqueue(encoder.encode(': keepalive\n\n'));
                     } catch {
-                        if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
+                        if (keepAliveTimer) clearInterval(keepAliveTimer);
                     }
                 }, this._keepAliveInterval);
+                mapping.keepAliveTimer = keepAliveTimer;
             }
 
             return new Response(readable, { headers });
