@@ -324,9 +324,8 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            let updatedTask;
             try {
-                updatedTask = await ctx.task.store.getTask(taskId);
+                task = await ctx.task.store.getTask(taskId);
             } catch (error) {
                 // RequestTaskStore.getTask throws InvalidParams when the task is
                 // missing, but a task vanishing mid-poll is a server-side issue
@@ -336,10 +335,6 @@ export class McpServer {
                 }
                 throw error;
             }
-            if (!updatedTask) {
-                throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} not found during polling`);
-            }
-            task = updatedTask;
         }
 
         // Return the final result

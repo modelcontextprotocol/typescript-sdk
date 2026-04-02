@@ -641,6 +641,7 @@ This aligns error surfaces with the MCP spec's classification:
 - **Output validation failure** — now throws `ProtocolError` with `InternalError` code (was `{ isError: true }`)
 - **Task-required tool called without task** — now throws `ProtocolError` with `InvalidParams` code (was `{ isError: true }`)
 - **Handler throws `ProtocolError`** — now re-thrown as a JSON-RPC error (was `{ isError: true }`)
+- **No task store configured for `taskSupport: 'optional'` tool** — now throws `ProtocolError` with `InternalError` code (was `{ isError: true }`)
 - **Handler throws plain `Error`** — unchanged, still returns `{ isError: true }`
 
 **Before (v1):**

@@ -174,6 +174,7 @@ Behavior changes in `callTool` results:
 - Output validation failure: `{ isError: true }` → throws `ProtocolError` (`InternalError`)
 - Task-required without task: `{ isError: true }` → throws `ProtocolError` (`InvalidParams`)
 - Handler throws `ProtocolError`: `{ isError: true }` → re-thrown as JSON-RPC error
+- No task store configured for `taskSupport: 'optional'` tool: `{ isError: true }` → throws `ProtocolError` (`InternalError`)
 - Handler throws plain `Error`: `{ isError: true }` → `{ isError: true }` (unchanged)
 
 Migration: if code checks `result.isError` to detect output-schema violations or deliberate `ProtocolError` throws, add a `try/catch` around `callTool`. If a handler throws `ProtocolError` expecting tool-level wrapping, change it to throw a plain `Error`.

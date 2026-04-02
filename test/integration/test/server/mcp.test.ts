@@ -6642,6 +6642,108 @@ describe('Zod v4', () => {
             taskStore.cleanup();
         });
 
+        test('should validate output schema for taskSupport "optional" tool result returned via automatic polling', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            },
+
+                            taskStore
+                        }
+                    }
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            mcpServer.experimental.tasks.registerToolTask(
+                'optional-task-with-output-schema',
+                {
+                    description: 'An optional task with an output schema',
+                    inputSchema: z.object({
+                        value: z.number()
+                    }),
+                    outputSchema: z.object({
+                        count: z.number()
+                    }),
+                    execution: {
+                        taskSupport: 'optional'
+                    }
+                },
+                {
+                    createTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        const store = ctx.task.store;
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: 'done' }],
+                                structuredContent: { count: 'not-a-number' }
+                            });
+                            releaseLatch();
+                        }, 150);
+                        return { task };
+                    },
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async (_args, ctx) => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            await expect(
+                client.callTool({
+                    name: 'optional-task-with-output-schema',
+                    arguments: { value: 1 }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InternalError,
+                message: expect.stringMatching(/Invalid structured content/)
+            });
+
+            await waitForLatch();
+            taskStore.cleanup();
+        });
+
         test('should return CreateTaskResult when tool with taskSupport "required" is called WITH task augmentation', async () => {
             const taskStore = new InMemoryTaskStore();
             const { releaseLatch, waitForLatch } = createLatch();
