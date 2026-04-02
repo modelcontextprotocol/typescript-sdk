@@ -238,7 +238,9 @@ export class StreamableHTTPClientTransport implements Transport {
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
             const sentWithSession = headers.has('mcp-session-id');
-            headers.set('Accept', 'text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             // Include Last-Event-ID header for resumable streams if provided
             if (resumptionToken) {
@@ -544,7 +546,9 @@ export class StreamableHTTPClientTransport implements Transport {
             const headers = await this._commonHeaders();
             const sentWithSession = headers.has('mcp-session-id');
             headers.set('content-type', 'application/json');
-            headers.set('accept', 'application/json, text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             const init = {
                 ...this._requestInit,
