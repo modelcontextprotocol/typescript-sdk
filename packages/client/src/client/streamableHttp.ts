@@ -237,6 +237,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
+            const sentWithSession = headers.has('mcp-session-id');
             headers.set('Accept', 'text/event-stream');
 
             // Include Last-Event-ID header for resumable streams if provided
@@ -252,7 +253,7 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
-                if (response.status === 404 && this._sessionId !== undefined) {
+                if (response.status === 404 && sentWithSession) {
                     this._sessionId = undefined;
                 }
 
@@ -541,6 +542,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const headers = await this._commonHeaders();
+            const sentWithSession = headers.has('mcp-session-id');
             headers.set('content-type', 'application/json');
             headers.set('accept', 'application/json, text/event-stream');
 
@@ -561,7 +563,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                if (response.status === 404 && this._sessionId !== undefined) {
+                if (response.status === 404 && sentWithSession) {
                     this._sessionId = undefined;
                 }
 
