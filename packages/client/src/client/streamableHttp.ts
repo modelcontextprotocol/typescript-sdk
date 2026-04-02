@@ -341,10 +341,16 @@ export class StreamableHTTPClientTransport implements Transport {
         // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
 
+        // Capture the signal active when this reconnection was scheduled. close() + start()
+        // replaces this._abortController, so re-reading it later would see the new session's
+        // controller and allow a stale reconnect to fire into the restarted transport.
+        const signal = this._abortController?.signal;
+
         const reconnect = (): void => {
             this._cancelReconnection = undefined;
-            if (this._abortController?.signal.aborted) return;
+            if (signal?.aborted) return;
             this._startOrAuthSse(options).catch(error => {
+                if (signal?.aborted) return;
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
@@ -368,6 +374,9 @@ export class StreamableHTTPClientTransport implements Transport {
             return;
         }
         const { onresumptiontoken, replayMessageId } = options;
+
+        // Capture the signal this stream is bound to so we don't reconnect into a restarted transport.
+        const signal = this._abortController?.signal;
 
         let lastEventId: string | undefined;
         // Track whether we've received a priming event (event with ID)
@@ -436,7 +445,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
-                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+                if (needsReconnect && signal && !signal.aborted) {
                     this._scheduleReconnection(
                         {
                             resumptionToken: lastEventId,
@@ -455,7 +464,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
-                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+                if (needsReconnect && signal && !signal.aborted) {
                     // Use the exponential backoff reconnection strategy
                     try {
                         this._scheduleReconnection(
@@ -512,6 +521,8 @@ export class StreamableHTTPClientTransport implements Transport {
             this._cancelReconnection = undefined;
             this._abortController?.abort();
             this._sessionId = undefined;
+            this._lastUpscopingHeader = undefined;
+            this._serverRetryMs = undefined;
             this.onclose?.();
         }
     }
