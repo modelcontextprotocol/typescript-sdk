@@ -69,7 +69,7 @@ jobs:
 
             # pnpm@10 delegates `pnpm publish` to the npm CLI; OIDC trusted publishing
             # requires npm >=11.5.1, which Node 24's bundled npm only satisfies from
-            # ~24.6 onward. Pin explicitly so we don't depend on the resolved Node patch.
+            # ~24.6 onward. Install a recent-enough npm so we don't depend on which Node patch resolves.
             - name: Ensure npm CLI supports OIDC trusted publishing
               run: npm install -g npm@^11.5.1
 
