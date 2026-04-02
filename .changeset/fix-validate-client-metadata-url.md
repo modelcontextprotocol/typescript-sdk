@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/client': patch
+'@modelcontextprotocol/client': minor
 ---
 
 Add `validateClientMetadataUrl()` utility for early validation of `clientMetadataUrl`
