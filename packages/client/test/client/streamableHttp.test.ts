@@ -628,6 +628,99 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
+    it('should append custom Accept header to required types on POST requests', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/vnd.example.v1+json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe(
+            'application/vnd.example.v1+json, application/json, text/event-stream'
+        );
+    });
+
+    it('should append custom Accept header to required types on GET SSE requests', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
+    it('should set default Accept header when none provided', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
+    it('should not duplicate Accept media types when user-provided value overlaps required types', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
     it('should have exponential backoff with configurable maxRetries', () => {
         // This test verifies the maxRetries and backoff calculation directly
 
@@ -1006,6 +1099,78 @@ describe('StreamableHTTPClientTransport', () => {
             // The response was received, so no need to reconnect.
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
+        });
+
+        it('should NOT reconnect a POST stream when error response was received', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            // Create a stream that sends:
+            // 1. Priming event with ID (enables potential reconnection)
+            // 2. An error response (should also prevent reconnection, just like success)
+            // 3. Then closes
+            const streamWithErrorResponse = new ReadableStream({
+                start(controller) {
+                    // Priming event with ID
+                    controller.enqueue(new TextEncoder().encode('id: priming-123\ndata: \n\n'));
+                    // An error response to the request (tool not found, for example)
+                    controller.enqueue(
+                        new TextEncoder().encode(
+                            'id: error-456\ndata: {"jsonrpc":"2.0","error":{"code":-32602,"message":"Tool not found"},"id":"request-1"}\n\n'
+                        )
+                    );
+                    // Stream closes normally
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithErrorResponse
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                id: 'request-1',
+                params: { name: 'nonexistent-tool' }
+            };
+
+            // ACT
+            await transport.start();
+            await transport.send(requestMessage);
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT
+            // THE KEY ASSERTION: Fetch was called ONCE only - no reconnection!
+            // The error response was received, so no need to reconnect.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
+
+            // Verify the error response was delivered to the message handler
+            expect(messageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    error: expect.objectContaining({
+                        code: -32602,
+                        message: 'Tool not found'
+                    }),
+                    id: 'request-1'
+                })
+            );
         });
 
         it('should not attempt reconnection after close() is called', async () => {

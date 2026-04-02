@@ -24,7 +24,6 @@ import type {
     RelatedTaskMetadata,
     Request,
     RequestId,
-    RequestInfo,
     RequestMeta,
     RequestMethod,
     RequestTypeMap,
@@ -257,9 +256,9 @@ export type ServerContext = BaseContext & {
 
     http?: {
         /**
-         * The original HTTP request information.
+         * The original HTTP request.
          */
-        req?: RequestInfo;
+        req?: globalThis.Request;
 
         /**
          * Closes the SSE stream for this request, triggering client reconnection.
@@ -392,7 +391,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Builds the context object for request handlers. Subclasses must override
-     * to return the appropriate context type (e.g., ServerContext adds requestInfo).
+     * to return the appropriate context type (e.g., ServerContext adds HTTP request info).
      */
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 

@@ -4,6 +4,7 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     createFetchWithInit,
     isInitializedNotification,
+    isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
@@ -236,7 +237,9 @@ export class StreamableHTTPClientTransport implements Transport {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
-            headers.set('Accept', 'text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             // Include Last-Event-ID header for resumable streams if provided
             if (resumptionToken) {
@@ -412,7 +415,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            if (isJSONRPCResultResponse(message)) {
+                            // Handle both success AND error responses for completion detection and ID remapping
+                            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                                 // Mark that we received a response - no need to reconnect for this request
                                 receivedResponse = true;
                                 if (replayMessageId !== undefined) {
@@ -536,7 +540,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
-            headers.set('accept', 'application/json, text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             const init = {
                 ...this._requestInit,
