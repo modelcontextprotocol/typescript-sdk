@@ -163,14 +163,14 @@ export class SSEClientTransport implements Transport {
                         this._authProvider
                             .onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit, accumulatedScope: this._scope })
                             .then(
-                            // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
-                            () => this._startOrAuth().then(resolve, reject),
-                            // onUnauthorized failed → not yet reported.
-                            error => {
-                                this.onerror?.(error);
-                                reject(error);
-                            }
-                        );
+                                // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
+                                () => this._startOrAuth().then(resolve, reject),
+                                // onUnauthorized failed → not yet reported.
+                                error => {
+                                    this.onerror?.(error);
+                                    reject(error);
+                                }
+                            );
                         return;
                     }
                     const error = new UnauthorizedError();
