@@ -1215,7 +1215,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 }
 
 function isSchemaBundle(value: AnySchema | { params: AnySchema; result: AnySchema }): value is { params: AnySchema; result: AnySchema } {
-    return 'params' in value && 'result' in value;
+    return !('~standard' in value) && 'params' in value && 'result' in value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
