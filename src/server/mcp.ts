@@ -109,7 +109,10 @@ export class McpServer {
                 return result;
             }
         };
-        this.server = new Server(serverInfo, { ...options, taskHandlerHooks });
+        this.server = new Server(serverInfo, {
+            ...options,
+            taskHandlerHooks: { ...options?.taskHandlerHooks, ...taskHandlerHooks }
+        });
     }
 
     private _getTaskHandler(taskId: string): ToolTaskHandler<ZodRawShapeCompat | undefined> | null {
@@ -1597,7 +1600,7 @@ function toolTaskHandlerByArgs<Args extends AnySchema | ZodRawShapeCompat | unde
 ): ToolTaskHandler<undefined> {
     return {
         createTask: extra =>
-            args // undefined only if tool.inputSchema is undefined
+            args !== undefined // undefined only if tool.inputSchema is undefined
                 ? Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, extra))
                 : Promise.resolve((handler as ToolTaskHandler<undefined>).createTask(extra)),
         getTask: handler.getTask,
