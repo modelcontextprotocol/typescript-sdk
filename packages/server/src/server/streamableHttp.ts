@@ -491,6 +491,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         // Start keepalive timer to send periodic SSE comments that prevent
         // reverse proxies from closing the connection due to idle timeouts
         if (this._keepAliveInterval !== undefined) {
+            this._clearKeepAliveTimer();
             this._keepAliveTimer = setInterval(() => {
                 try {
                     streamController!.enqueue(encoder.encode(': keepalive\n\n'));
@@ -982,9 +983,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Use this to implement polling behavior for server-initiated notifications.
      */
     closeStandaloneSSEStream(): void {
-        this._clearKeepAliveTimer();
         const stream = this._streamMapping.get(this._standaloneSseStreamId);
         if (stream) {
+            this._clearKeepAliveTimer();
             stream.cleanup();
         }
     }
