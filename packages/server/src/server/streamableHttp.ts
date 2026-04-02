@@ -225,6 +225,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
+    private _closed: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
@@ -898,8 +899,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
         return undefined;
     }
-
-    private _closed = false;
 
     async close(): Promise<void> {
         if (this._closed) {
