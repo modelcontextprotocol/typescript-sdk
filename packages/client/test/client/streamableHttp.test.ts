@@ -1783,6 +1783,32 @@ describe('StreamableHTTPClientTransport', () => {
             expect(transport['_cancelReconnection']).toBeUndefined();
         });
 
+        it('should surface the triggering error when maxRetries is 0', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const triggeringError = new Error('socket hang up');
+            transport['_scheduleReconnection']({}, 0, triggeringError);
+
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (0) exceeded: socket hang up',
+                    cause: triggeringError
+                })
+            );
+            expect(transport['_cancelReconnection']).toBeUndefined();
+        });
+
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
