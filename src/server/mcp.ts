@@ -98,16 +98,15 @@ export class McpServer {
             getTaskResult: async (taskId: string, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
                 const taskStore = extra.taskStore!;
                 const handler = this._getTaskHandler(taskId);
-                try {
-                    if (handler) {
-                        return await handler.getTaskResult({ ...extra, taskId, taskStore });
-                    }
-                    return await taskStore.getTaskResult(taskId);
-                } finally {
-                    // Once the result has been retrieved the task is complete;
-                    // drop the taskId → toolName mapping to avoid unbounded growth.
-                    this._taskToolMap.delete(taskId);
-                }
+                const result = handler
+                    ? await handler.getTaskResult({ ...extra, taskId, taskStore })
+                    : await taskStore.getTaskResult(taskId);
+                // Once the result has been retrieved the task is complete;
+                // drop the taskId → toolName mapping to avoid unbounded growth.
+                // Cleanup on tasks/cancel would require a protocol-level hook and is
+                // intentionally left out here.
+                this._taskToolMap.delete(taskId);
+                return result;
             }
         };
         this.server = new Server(serverInfo, { ...options, taskHandlerHooks });

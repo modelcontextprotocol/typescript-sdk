@@ -108,7 +108,7 @@ export type ProtocolOptions = {
          */
         getTask?: (taskId: string, extra: RequestHandlerExtra<Request, Notification>) => Promise<GetTaskResult>;
         /**
-         * Called when tasks/payload needs to retrieve the final result. If provided, must return the result.
+         * Called when tasks/result needs to retrieve the final result. If provided, must return the result.
          */
         getTaskResult?: (taskId: string, extra: RequestHandlerExtra<Request, Notification>) => Promise<Result>;
     };

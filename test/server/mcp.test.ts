@@ -6818,6 +6818,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         test('should call custom getTask and getTaskResult handlers when client polls task directly', async () => {
+            vi.useFakeTimers();
             const taskStore = new InMemoryTaskStore();
 
             const getTaskSpy = vi.fn();
@@ -6910,7 +6911,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const taskId = createResult.task.taskId;
 
             // Wait for task to be ready to complete
-            await new Promise(resolve => setTimeout(resolve, 60));
+            vi.advanceTimersByTime(60);
 
             // Client directly calls tasks/get - should invoke custom handler which completes the task
             const getResult = await client.request({ method: 'tasks/get', params: { taskId } }, GetTaskResultSchema);
@@ -6922,6 +6923,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(payloadResult.content).toBeDefined();
             expect(getTaskResultSpy).toHaveBeenCalledWith(taskId);
 
+            vi.useRealTimers();
             taskStore.cleanup();
         });
     });
