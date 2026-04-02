@@ -2,7 +2,7 @@ import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core'
 import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { Mock, Mocked, MockInstance } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import type { StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
@@ -688,6 +688,42 @@ describe('StreamableHTTPClientTransport', () => {
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+    });
+
+    it('passes accumulated scope to onUnauthorized for 401 retries', async () => {
+        const onUnauthorized = vi.fn().mockResolvedValue(undefined);
+        const authProvider: AuthProvider = {
+            token: vi.fn().mockResolvedValue(undefined),
+            onUnauthorized
+        };
+
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider
+        });
+
+        Reflect.set(transport, '_scope', 'read:op1');
+
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock
+            .mockResolvedValueOnce(
+                new Response('Unauthorized', {
+                    status: 401,
+                    headers: {
+                        'WWW-Authenticate': 'Bearer scope="read:op2"'
+                    }
+                })
+            )
+            .mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        });
+
+        const ctx = vi.mocked(onUnauthorized).mock.calls[0]?.[0];
+        expect(ctx?.accumulatedScope?.split(' ').toSorted()).toEqual(['read:op1', 'read:op2']);
     });
 
     it('attempts upscoping on 403 with WWW-Authenticate header', async () => {

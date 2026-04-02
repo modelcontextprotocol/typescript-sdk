@@ -160,7 +160,9 @@ export class SSEClientTransport implements Transport {
                         const response = this._last401Response;
                         this._last401Response = undefined;
                         this._eventSource?.close();
-                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
+                        this._authProvider
+                            .onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit, accumulatedScope: this._scope })
+                            .then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
                             () => this._startOrAuth().then(resolve, reject),
                             // onUnauthorized failed → not yet reported.
@@ -289,7 +291,8 @@ export class SSEClientTransport implements Transport {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
+                            fetchFn: this._fetchWithInit,
+                            accumulatedScope: this._scope
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice

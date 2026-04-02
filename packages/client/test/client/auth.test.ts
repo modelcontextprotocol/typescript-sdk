@@ -13,6 +13,7 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    handleOAuthUnauthorized,
     isHttpsUrl,
     refreshAuthorization,
     registerClient,
@@ -2057,6 +2058,66 @@ describe('OAuth Authorization', () => {
 
         beforeEach(() => {
             vi.clearAllMocks();
+        });
+
+        it('prefers accumulated scope when handling interactive 401 re-authorization', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString === 'https://api.example.com/.well-known/oauth-protected-resource') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString === 'https://auth.example.com/.well-known/oauth-authorization-server') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            vi.mocked(mockProvider.clientInformation).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            vi.mocked(mockProvider.tokens).mockResolvedValue(undefined);
+            vi.mocked(mockProvider.saveCodeVerifier).mockResolvedValue(undefined);
+            vi.mocked(mockProvider.redirectToAuthorization).mockResolvedValue(undefined);
+
+            await expect(
+                handleOAuthUnauthorized(mockProvider, {
+                    response: new Response(null, {
+                        status: 401,
+                        headers: {
+                            'WWW-Authenticate':
+                                'Bearer scope="read:op2", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+                        }
+                    }),
+                    serverUrl: new URL('https://api.example.com/mcp-server'),
+                    fetchFn: mockFetch,
+                    accumulatedScope: 'read:op1 read:op2'
+                })
+            ).rejects.toThrow('Unauthorized');
+
+            const redirectCall = vi.mocked(mockProvider.redirectToAuthorization).mock.calls[0]?.[0];
+            expect(redirectCall).toBeInstanceOf(URL);
+            expect(redirectCall?.searchParams.get('scope')?.split(' ').toSorted()).toEqual(['read:op1', 'read:op2']);
         });
 
         it('performs client_credentials with private_key_jwt when provider has addClientAuthentication', async () => {
