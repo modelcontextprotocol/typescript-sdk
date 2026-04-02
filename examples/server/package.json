@@ -34,6 +34,8 @@
     "dependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/examples-shared": "workspace:^",
+        "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",

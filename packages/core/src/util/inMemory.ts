@@ -8,7 +8,11 @@ interface QueuedMessage {
 }
 
 /**
- * In-memory transport for creating clients and servers that talk to each other within the same process.
+ * In-memory transport for development and testing. Links a client and server
+ * in the same process without networking.
+ *
+ * For production and integration tests that should exercise HTTP framing,
+ * use {@link StreamableHTTPClientTransport} against a real server.
  */
 export class InMemoryTransport implements Transport {
     private _otherTransport?: InMemoryTransport;

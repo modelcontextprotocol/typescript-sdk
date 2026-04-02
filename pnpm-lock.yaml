@@ -336,6 +336,12 @@ importers:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
         version: 1.19.9(hono@4.11.4)
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../../packages/client
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../../packages/core
       '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared

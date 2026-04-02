@@ -5,6 +5,7 @@
     "compilerOptions": {
         "paths": {
             "*": ["./*"],
+            "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
             "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],

@@ -9,6 +9,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
@@ -372,7 +374,47 @@ function dnsRebinding_allowedHosts() {
     return app;
 }
 
+// ---------------------------------------------------------------------------
+// Testing
+// ---------------------------------------------------------------------------
+
+/** Example: Creating a linked client/server pair for in-memory testing. */
+function testing_setup() {
+    //#region testing_setup
+    const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    //#endregion testing_setup
+    return { server, client, clientTransport, serverTransport };
+}
+
+/** Example: Registering a tool and connecting via InMemoryTransport. */
+async function testing_tool() {
+    //#region testing_tool
+    const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+    server.registerTool(
+        'add',
+        { description: 'Add two numbers', inputSchema: z.object({ a: z.number(), b: z.number() }) },
+        async ({ a, b }) => ({
+            content: [{ type: 'text', text: String(a + b) }]
+        })
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const result = await client.callTool({ name: 'add', arguments: { a: 2, b: 3 } });
+    console.log(result.content); // [{ type: 'text', text: '5' }]
+
+    await client.close();
+    //#endregion testing_tool
+}
+
 // Suppress unused-function warnings (functions exist solely for type-checking)
+void testing_setup;
+void testing_tool;
 void registerTool_basic;
 void registerTool_resourceLink;
 void registerTool_logging;

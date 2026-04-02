@@ -8,5 +8,5 @@ export * from './server/streamableHttp.js';
 // experimental exports
 export * from './experimental/index.js';
 
-// re-export shared types
+// re-export shared types (includes InMemoryTransport)
 export * from '@modelcontextprotocol/core';

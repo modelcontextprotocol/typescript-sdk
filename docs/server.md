@@ -478,64 +478,42 @@ If you use `NodeStreamableHTTPServerTransport` directly with your own HTTP frame
 
 ## Testing
 
-Unit-testing MCP servers does not require a running HTTP server or a subprocess. Use `InMemoryTransport` from `@modelcontextprotocol/core` to wire a client and server together in-process.
+Unit-testing MCP servers does not require a running HTTP server or a subprocess. Use `InMemoryTransport` to wire a client and server together in-process — it is exported from both `@modelcontextprotocol/server` and `@modelcontextprotocol/client`.
 
 ### Basic setup
 
-```ts
-import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
-import { McpServer } from '@modelcontextprotocol/server';
-
-function createTestPair() {
-    const server = new McpServer({ name: 'test-server', version: '1.0.0' });
-    const client = new Client({ name: 'test-client', version: '1.0.0' });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    return { server, client, clientTransport, serverTransport };
-}
+```ts source="../examples/server/src/serverGuide.examples.ts#testing_setup"
+const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+const client = new Client({ name: 'test-client', version: '1.0.0' });
+const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 ```
 
 `InMemoryTransport.createLinkedPair()` returns two linked transports: messages written to one are read by the other, with no networking involved.
 
 ### Example: testing a tool
 
-```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'; // or jest
-import * as z from 'zod';
-import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
-import { McpServer } from '@modelcontextprotocol/server';
+```ts source="../examples/server/src/serverGuide.examples.ts#testing_tool"
+const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-describe('my-tool', () => {
-    let server: McpServer;
-    let client: Client;
+server.registerTool(
+    'add',
+    { description: 'Add two numbers', inputSchema: z.object({ a: z.number(), b: z.number() }) },
+    async ({ a, b }) => ({
+        content: [{ type: 'text', text: String(a + b) }]
+    })
+);
 
-    beforeEach(async () => {
-        server = new McpServer({ name: 'test-server', version: '1.0.0' });
-        client = new Client({ name: 'test-client', version: '1.0.0' });
+const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        server.registerTool(
-            'add',
-            { description: 'Add two numbers', inputSchema: { a: z.number(), b: z.number() } },
-            async ({ a, b }) => ({
-                content: [{ type: 'text', text: String(a + b) }]
-            })
-        );
+const result = await client.callTool({ name: 'add', arguments: { a: 2, b: 3 } });
+console.log(result.content); // [{ type: 'text', text: '5' }]
 
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-    });
-
-    afterEach(async () => {
-        await client.close();
-    });
-
-    it('returns the sum', async () => {
-        const result = await client.callTool({ name: 'add', arguments: { a: 2, b: 3 } });
-        expect(result.content[0].text).toBe('5');
-    });
-});
+await client.close();
 ```
+
+Wrap the above in your test framework of choice (`vitest`, `jest`, etc.) — the setup and assertions work identically in any runner.
 
 ### What this tests
 
