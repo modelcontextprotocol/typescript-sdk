@@ -173,6 +173,24 @@ describe('sendCustomRequest', () => {
         server.setCustomRequestHandler('acme/badresult', z.object({}), () => ({ hits: 'not-an-array', total: 0 }));
         await expect(client.sendCustomRequest('acme/badresult', {}, SearchResult)).rejects.toThrow();
     });
+
+    test('schema bundle overload: typed params and result', async () => {
+        const [client, server] = await linkedPair();
+        server.setCustomRequestHandler('acme/search', SearchParams, p => ({ hits: [p.query], total: 1 }));
+        const result = await client.sendCustomRequest('acme/search', { query: 'q' }, { params: SearchParams, result: SearchResult });
+        expect(result.hits).toEqual(['q']);
+    });
+
+    test('schema bundle overload: invalid params rejects InvalidParams before transport', async () => {
+        const proto = new TestProtocol(); // not connected
+        // InvalidParams (pre-send validation) — proves it does NOT reach the NotConnected path
+        await expect(
+            proto.sendCustomRequest('acme/search', { query: 123 } as unknown as z.output<typeof SearchParams>, {
+                params: SearchParams,
+                result: SearchResult
+            })
+        ).rejects.toSatisfy((e: unknown) => e instanceof ProtocolError && e.code === ProtocolErrorCode.InvalidParams);
+    });
 });
 
 describe('sendCustomNotification', () => {
@@ -188,5 +206,43 @@ describe('sendCustomNotification', () => {
         const errors: Error[] = [];
         client.onerror = e => errors.push(e);
         await expect(server.sendCustomNotification('acme/unhandled', { x: 1 })).resolves.toBeUndefined();
+    });
+
+    test('schema bundle overload: invalid params throws InvalidParams before transport', async () => {
+        const proto = new TestProtocol(); // not connected
+        await expect(
+            proto.sendCustomNotification('acme/status', { status: 'bad' } as unknown as z.output<typeof StatusParams>, {
+                params: StatusParams
+            })
+        ).rejects.toSatisfy((e: unknown) => e instanceof ProtocolError && e.code === ProtocolErrorCode.InvalidParams);
+    });
+
+    test('schema bundle overload: valid params delivered, options as 4th arg', async () => {
+        const [client, server] = await linkedPair();
+        const received: string[] = [];
+        client.setCustomNotificationHandler('acme/status', StatusParams, p => {
+            received.push(p.status);
+        });
+        await server.sendCustomNotification('acme/status', { status: 'busy' }, { params: StatusParams }, {});
+        await vi.waitFor(() => expect(received).toEqual(['busy']));
+    });
+
+    test('routes through notification(): debouncing applies to custom methods', async () => {
+        const a = new TestProtocol({ debouncedNotificationMethods: ['acme/tick'] });
+        const b = new TestProtocol();
+        const [ta, tb] = InMemoryTransport.createLinkedPair();
+        await Promise.all([a.connect(ta), b.connect(tb)]);
+
+        let count = 0;
+        b.setCustomNotificationHandler('acme/tick', z.undefined().or(z.object({})), () => {
+            count++;
+        });
+
+        // Three synchronous sends should coalesce to one delivery.
+        void a.sendCustomNotification('acme/tick');
+        void a.sendCustomNotification('acme/tick');
+        void a.sendCustomNotification('acme/tick');
+        await new Promise(r => setTimeout(r, 10));
+        expect(count).toBe(1);
     });
 });

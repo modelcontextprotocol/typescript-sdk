@@ -1136,31 +1136,86 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * the provided schema.
      *
      * Unlike {@linkcode Protocol.request | request}, this accepts any method string. Capability
-     * checks are bypassed when {@linkcode ProtocolOptions.enforceStrictCapabilities} is disabled
-     * (the default).
+     * checks do not apply to custom methods regardless of
+     * {@linkcode ProtocolOptions.enforceStrictCapabilities}, since
+     * {@linkcode Protocol.assertCapabilityForMethod | assertCapabilityForMethod} only covers
+     * standard MCP methods.
+     *
+     * Pass a `{ params, result }` schema bundle as the third argument to get typed `params` and
+     * pre-send validation; pass a bare result schema for loose, unvalidated params.
      */
-    sendCustomRequest<T extends AnySchema>(
+    sendCustomRequest<P extends AnySchema, R extends AnySchema>(
+        method: string,
+        params: SchemaOutput<P>,
+        schemas: { params: P; result: R },
+        options?: RequestOptions
+    ): Promise<SchemaOutput<R>>;
+    sendCustomRequest<R extends AnySchema>(
         method: string,
         params: Record<string, unknown> | undefined,
-        resultSchema: T,
+        resultSchema: R,
         options?: RequestOptions
-    ): Promise<SchemaOutput<T>> {
+    ): Promise<SchemaOutput<R>>;
+    async sendCustomRequest(
+        method: string,
+        params: Record<string, unknown> | undefined,
+        schemaOrBundle: AnySchema | { params: AnySchema; result: AnySchema },
+        options?: RequestOptions
+    ): Promise<unknown> {
+        let resultSchema: AnySchema;
+        if (isSchemaBundle(schemaOrBundle)) {
+            const parsed = parseSchema(schemaOrBundle.params, params);
+            if (!parsed.success) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
+            }
+            resultSchema = schemaOrBundle.result;
+        } else {
+            resultSchema = schemaOrBundle;
+        }
         return this._requestWithSchema({ method, params } as Request, resultSchema, options);
     }
 
     /**
      * Sends a custom (non-standard) notification.
      *
-     * Unlike {@linkcode Protocol.notification | notification}, this accepts any method string and
-     * bypasses capability checks by sending directly via the transport.
+     * Unlike {@linkcode Protocol.notification | notification}, this accepts any method string. It
+     * routes through {@linkcode Protocol.notification | notification}, so debouncing and task-queued
+     * delivery apply. Capability checks are a no-op for custom methods since
+     * {@linkcode Protocol.assertNotificationCapability | assertNotificationCapability} only covers
+     * standard MCP notifications.
+     *
+     * Pass a `{ params }` schema bundle as the third argument to get typed `params` and pre-send
+     * validation.
      */
-    async sendCustomNotification(method: string, params?: Record<string, unknown>, options?: NotificationOptions): Promise<void> {
-        if (!this._transport) {
-            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+    sendCustomNotification<P extends AnySchema>(
+        method: string,
+        params: SchemaOutput<P>,
+        schemas: { params: P },
+        options?: NotificationOptions
+    ): Promise<void>;
+    sendCustomNotification(method: string, params?: Record<string, unknown>, options?: NotificationOptions): Promise<void>;
+    async sendCustomNotification(
+        method: string,
+        params?: Record<string, unknown>,
+        schemasOrOptions?: { params: AnySchema } | NotificationOptions,
+        maybeOptions?: NotificationOptions
+    ): Promise<void> {
+        let options: NotificationOptions | undefined;
+        if (schemasOrOptions && 'params' in schemasOrOptions) {
+            const parsed = parseSchema(schemasOrOptions.params, params);
+            if (!parsed.success) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
+            }
+            options = maybeOptions;
+        } else {
+            options = schemasOrOptions;
         }
-        const jsonrpcNotification: JSONRPCNotification = { jsonrpc: '2.0', method, params };
-        await this._transport.send(jsonrpcNotification, options);
+        return this.notification({ method, params } as Notification, options);
     }
+}
+
+function isSchemaBundle(value: AnySchema | { params: AnySchema; result: AnySchema }): value is { params: AnySchema; result: AnySchema } {
+    return 'params' in value && 'result' in value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
