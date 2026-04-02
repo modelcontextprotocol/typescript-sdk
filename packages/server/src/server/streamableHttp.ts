@@ -580,24 +580,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // replayEventsAfter resolves) — must be `let`.
             // eslint-disable-next-line prefer-const
             let replayedStreamId: string | undefined;
-
-            const mapping: StreamMapping = {
-                encoder,
-                cleanup: () => {
-                    if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
-                    this._streamMapping.delete(replayedStreamId!);
-                    try {
-                        streamController!.close();
-                    } catch {
-                        // Controller might already be closed
-                    }
-                }
-            };
+            let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
-                    mapping.controller = controller;
                 },
                 cancel: () => {
                     // Stream was cancelled by client — drop the mapping so a
@@ -607,7 +594,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     // a stale cancel from an earlier resume must not delete a
                     // successor resumed stream a re-poll has since registered.
                     if (replayedStreamId !== undefined && this._streamMapping.get(replayedStreamId)?.controller === streamController) {
-                        if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
+                        if (keepAliveTimer) clearInterval(keepAliveTimer);
                         this._streamMapping.delete(replayedStreamId);
                     }
                 }
@@ -629,7 +616,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            mapping.replayedEventIds = replayedEventIds;
+            const mapping: StreamMapping = {
+                controller: streamController!,
+                encoder,
+                replayedEventIds,
+                cleanup: () => {
+                    if (keepAliveTimer) clearInterval(keepAliveTimer);
+                    this._streamMapping.delete(replayedStreamId!);
+                    try {
+                        streamController!.close();
+                    } catch {
+                        // Controller might already be closed
+                    }
+                }
+            };
             this._streamMapping.set(replayedStreamId!, mapping);
 
             // If this is a per-request stream and no in-flight request still
@@ -654,13 +654,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Start keepalive timer for the replayed stream so reconnecting
             // clients remain protected from proxy idle timeouts
             if (this._keepAliveInterval !== undefined) {
-                mapping.keepAliveTimer = setInterval(() => {
+                keepAliveTimer = setInterval(() => {
                     try {
-                        streamController.enqueue(encoder.encode(': keepalive\n\n'));
+                        streamController!.enqueue(encoder.encode(': keepalive\n\n'));
                     } catch {
-                        if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
+                        if (keepAliveTimer) clearInterval(keepAliveTimer);
                     }
                 }, this._keepAliveInterval);
+                mapping.keepAliveTimer = keepAliveTimer;
             }
 
             return new Response(readable, { headers });
