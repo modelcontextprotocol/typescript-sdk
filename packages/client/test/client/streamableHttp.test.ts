@@ -303,6 +303,49 @@ describe('StreamableHTTPClientTransport', () => {
         expect(lastCall[1].headers.get('mcp-session-id')).toBeNull();
     });
 
+    it('should not clear a newer session ID when a stale session-bound POST request returns 404', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-A'
+        });
+
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/list',
+            params: {},
+            id: 'test-id'
+        };
+
+        let resolveFetch!: (value: unknown) => void;
+        const deferredFetch = new Promise(resolve => {
+            resolveFetch = resolve;
+        });
+
+        (globalThis.fetch as Mock).mockImplementationOnce(() => {
+            // Simulate another in-flight request establishing a fresh session while this request is pending.
+            (transport as unknown as { _sessionId?: string })._sessionId = 'fresh-session-B';
+            return deferredFetch;
+        });
+
+        const sendPromise = transport.send(message);
+
+        resolveFetch({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            text: () => Promise.resolve('Session not found'),
+            headers: new Headers()
+        });
+
+        await expect(sendPromise).rejects.toMatchObject({
+            code: SdkErrorCode.ClientHttpNotImplemented,
+            data: expect.objectContaining({
+                status: 404
+            })
+        });
+
+        expect(transport.sessionId).toBe('fresh-session-B');
+    });
+
     it('should handle non-streaming JSON response', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
@@ -393,6 +436,46 @@ describe('StreamableHTTPClientTransport', () => {
         const getCall = (globalThis.fetch as Mock).mock.calls[0]!;
         expect(getCall[1].method).toBe('GET');
         expect(getCall[1].headers.get('mcp-session-id')).toBe('stale-session-id');
+    });
+
+    it('should not clear a newer session ID when a stale session-bound GET request returns 404', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-A'
+        });
+        await transport.start();
+
+        let resolveFetch!: (value: unknown) => void;
+        const deferredFetch = new Promise(resolve => {
+            resolveFetch = resolve;
+        });
+
+        (globalThis.fetch as Mock).mockImplementationOnce(() => {
+            // Simulate another in-flight request establishing a fresh session while this request is pending.
+            (transport as unknown as { _sessionId?: string })._sessionId = 'fresh-session-B';
+            return deferredFetch;
+        });
+
+        const startPromise = (
+            transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> }
+        )._startOrAuthSse({});
+
+        resolveFetch({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            text: () => Promise.resolve('Session not found'),
+            headers: new Headers()
+        });
+
+        await expect(startPromise).rejects.toMatchObject({
+            code: SdkErrorCode.ClientHttpFailedToOpenStream,
+            data: expect.objectContaining({
+                status: 404,
+                statusText: 'Not Found'
+            })
+        });
+
+        expect(transport.sessionId).toBe('fresh-session-B');
     });
 
     it('should handle successful initial GET connection for SSE', async () => {
@@ -1020,6 +1103,40 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(2);
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
             expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
+        });
+
+        it('should stop retrying GET reconnection after a session-bound 404 clears the stale session', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'stale-session-id',
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 3,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            await transport.start();
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValue({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                headers: new Headers(),
+                text: () => Promise.resolve('Session not found')
+            });
+
+            (
+                transport as unknown as {
+                    _scheduleReconnection: (opts: StartSSEOptions, attemptCount?: number) => void;
+                }
+            )._scheduleReconnection({}, 0);
+
+            await vi.advanceTimersByTimeAsync(20);
+            await vi.advanceTimersByTimeAsync(100);
+
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(transport.sessionId).toBeUndefined();
         });
 
         it('should NOT reconnect a POST-initiated stream that fails', async () => {

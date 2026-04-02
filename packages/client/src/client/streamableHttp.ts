@@ -25,6 +25,23 @@ const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOp
     maxRetries: 2
 };
 
+const SESSION_BOUND_404_ERROR = Symbol('sessionBound404Error');
+
+type SessionBound404Error = Error & { [SESSION_BOUND_404_ERROR]?: true };
+
+function markSessionBound404Error(error: Error): Error {
+    (error as SessionBound404Error)[SESSION_BOUND_404_ERROR] = true;
+    return error;
+}
+
+function isSessionBound404Error(error: unknown): boolean {
+    return Boolean(
+        error &&
+            typeof error === 'object' &&
+            (error as SessionBound404Error)[SESSION_BOUND_404_ERROR] === true
+    );
+}
+
 /**
  * Options for starting or authenticating an SSE connection
  */
@@ -237,7 +254,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
-            const sentWithSession = headers.has('mcp-session-id');
+            const sentSessionId = headers.get('mcp-session-id');
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
@@ -255,7 +272,9 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
-                if (response.status === 404 && sentWithSession) {
+                const shouldClearSessionFor404 =
+                    response.status === 404 && sentSessionId !== null && this._sessionId === sentSessionId;
+                if (shouldClearSessionFor404) {
                     this._sessionId = undefined;
                 }
 
@@ -293,10 +312,15 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                const error = new SdkError(
+                    SdkErrorCode.ClientHttpFailedToOpenStream,
+                    `Failed to open SSE stream: ${response.statusText}`,
+                    {
                     status: response.status,
                     statusText: response.statusText
-                });
+                    }
+                );
+                throw shouldClearSessionFor404 ? markSessionBound404Error(error) : error;
             }
 
             this._handleSseStream(response.body, options, true);
@@ -350,7 +374,11 @@ export class StreamableHTTPClientTransport implements Transport {
             this._cancelReconnection = undefined;
             if (this._abortController?.signal.aborted) return;
             this._startOrAuthSse(options).catch(error => {
-                this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
+                const reconnectError = error instanceof Error ? error : new Error(String(error));
+                this.onerror?.(new Error(`Failed to reconnect SSE stream: ${reconnectError.message}`));
+                if (isSessionBound404Error(reconnectError)) {
+                    return;
+                }
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
                 } catch (scheduleError) {
@@ -544,7 +572,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const headers = await this._commonHeaders();
-            const sentWithSession = headers.has('mcp-session-id');
+            const sentSessionId = headers.get('mcp-session-id');
             headers.set('content-type', 'application/json');
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
@@ -567,7 +595,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                if (response.status === 404 && sentWithSession) {
+                if (response.status === 404 && sentSessionId !== null && this._sessionId === sentSessionId) {
                     this._sessionId = undefined;
                 }
 
