@@ -1063,7 +1063,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Registers a handler for a custom (non-standard) request method.
      *
-     * Unlike {@linkcode Protocol.setRequestHandler | setRequestHandler}, this accepts any method
+     * Unlike {@linkcode setRequestHandler}, this accepts any method
      * string and validates incoming params against a user-provided schema instead of an SDK-defined
      * one. Capability checks are skipped. The handler receives the same {@linkcode BaseContext | context}
      * as standard handlers, including cancellation, task support, and bidirectional send/notify.
@@ -1138,7 +1138,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Unlike {@linkcode Protocol.request | request}, this accepts any method string. Capability
      * checks do not apply to custom methods regardless of
      * {@linkcode ProtocolOptions.enforceStrictCapabilities}, since
-     * {@linkcode Protocol.assertCapabilityForMethod | assertCapabilityForMethod} only covers
+     * `assertCapabilityForMethod` only covers
      * standard MCP methods.
      *
      * Pass a `{ params, result }` schema bundle as the third argument to get typed `params` and
@@ -1181,7 +1181,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Unlike {@linkcode Protocol.notification | notification}, this accepts any method string. It
      * routes through {@linkcode Protocol.notification | notification}, so debouncing and task-queued
      * delivery apply. Capability checks are a no-op for custom methods since
-     * {@linkcode Protocol.assertNotificationCapability | assertNotificationCapability} only covers
+     * `assertNotificationCapability` only covers
      * standard MCP notifications.
      *
      * Pass a `{ params }` schema bundle as the third argument to get typed `params` and pre-send
