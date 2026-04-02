@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as prettier from 'prettier';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -72,9 +73,12 @@ async function main() {
         // Combine header and content
         const fullContent = header + specContent;
 
-        // Write to file
+        // Format with prettier using the project's config so the output passes lint
         const outputPath = join(PROJECT_ROOT, 'packages', 'core', 'src', 'types', 'spec.types.ts');
-        writeFileSync(outputPath, fullContent, 'utf-8');
+        const prettierConfig = await prettier.resolveConfig(outputPath);
+        const formatted = await prettier.format(fullContent, { ...prettierConfig, filepath: outputPath });
+
+        writeFileSync(outputPath, formatted, 'utf-8');
 
         console.log('Successfully updated packages/core/src/types/spec.types.ts');
     } catch (error) {

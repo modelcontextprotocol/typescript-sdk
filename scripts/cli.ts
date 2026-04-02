@@ -1,13 +1,7 @@
-import WebSocket from 'ws';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(global as any).WebSocket = WebSocket;
-
 import express from 'express';
 import { Client } from '../src/client/index.js';
 import { SSEClientTransport } from '../src/client/sse.js';
 import { StdioClientTransport } from '../src/client/stdio.js';
-import { WebSocketClientTransport } from '../src/client/websocket.js';
 import { Server } from '../src/server/index.js';
 import { SSEServerTransport } from '../src/server/sse.js';
 import { StdioServerTransport } from '../src/server/stdio.js';
@@ -38,7 +32,7 @@ async function runClient(url_or_command: string, args: string[]) {
     if (url?.protocol === 'http:' || url?.protocol === 'https:') {
         clientTransport = new SSEClientTransport(new URL(url_or_command));
     } else if (url?.protocol === 'ws:' || url?.protocol === 'wss:') {
-        clientTransport = new WebSocketClientTransport(new URL(url_or_command));
+        throw new Error('WebSocket URLs are no longer supported. Use http(s) or stdio instead.');
     } else {
         clientTransport = new StdioClientTransport({
             command: url_or_command,

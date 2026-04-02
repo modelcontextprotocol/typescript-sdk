@@ -338,6 +338,60 @@ describe('Zod v4', () => {
                 message: 'Completed step 3 of 3'
             });
         });
+
+        /***
+         * Test: Extensions capability registration
+         */
+        test('should register and advertise server extensions capability', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.server.registerCapabilities({
+                extensions: {
+                    'io.modelcontextprotocol/test-extension': { listChanged: true }
+                }
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.extensions).toBeDefined();
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ listChanged: true });
+        });
+
+        test('should advertise client extensions capability to server', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        extensions: {
+                            'io.modelcontextprotocol/test-extension': { streaming: true }
+                        }
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = mcpServer.server.getClientCapabilities();
+            expect(capabilities?.extensions).toBeDefined();
+            expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ streaming: true });
+        });
     });
 
     describe('ResourceTemplate', () => {
@@ -1981,10 +2035,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -2050,10 +2105,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -4197,6 +4253,99 @@ describe('Zod v4', () => {
                 }
             ]);
         });
+
+        /***
+         * Test: Prompt Registration with _meta field
+         */
+        test('should register prompt with _meta field and include it in list response', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const metaData = {
+                author: 'test-author',
+                version: '1.2.3',
+                category: 'utility',
+                tags: ['test', 'example']
+            };
+
+            mcpServer.registerPrompt(
+                'test-with-meta',
+                {
+                    description: 'A prompt with _meta field',
+                    _meta: metaData
+                },
+                async () => ({
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: {
+                                type: 'text',
+                                text: 'Test response'
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'prompts/list' });
+
+            expect(result.prompts).toHaveLength(1);
+            expect(result.prompts[0]!.name).toBe('test-with-meta');
+            expect(result.prompts[0]!.description).toBe('A prompt with _meta field');
+            expect(result.prompts[0]!._meta).toEqual(metaData);
+        });
+
+        /***
+         * Test: Prompt Registration without _meta field should have undefined _meta
+         */
+        test('should register prompt without _meta field and have undefined _meta in response', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'test-without-meta',
+                {
+                    description: 'A prompt without _meta field'
+                },
+                async () => ({
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: {
+                                type: 'text',
+                                text: 'Test response'
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'prompts/list' });
+
+            expect(result.prompts).toHaveLength(1);
+            expect(result.prompts[0]!.name).toBe('test-without-meta');
+            expect(result.prompts[0]!._meta).toBeUndefined();
+        });
     });
 
     describe('Tool title precedence', () => {
@@ -6313,10 +6462,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6415,10 +6565,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6520,10 +6671,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6640,10 +6792,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6743,10 +6896,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 
@@ -6841,10 +6995,11 @@ describe('Zod v4', () => {
                                 tools: {
                                     call: {}
                                 }
-                            }
+                            },
+
+                            taskStore
                         }
-                    },
-                    taskStore
+                    }
                 }
             );
 

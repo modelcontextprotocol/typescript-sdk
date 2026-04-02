@@ -364,14 +364,17 @@ async function main() {
 
                 await transport.handleRequest(req, res, req.body);
                 return;
+            } else if (sessionId) {
+                res.status(404).json({
+                    jsonrpc: '2.0',
+                    error: { code: -32_001, message: 'Session not found' },
+                    id: null
+                });
+                return;
             } else {
-                // Invalid request - no session ID or not initialization request
                 res.status(400).json({
                     jsonrpc: '2.0',
-                    error: {
-                        code: -32_000,
-                        message: 'Bad Request: No valid session ID provided'
-                    },
+                    error: { code: -32_000, message: 'Bad Request: Session ID required' },
                     id: null
                 });
                 return;
@@ -399,8 +402,12 @@ async function main() {
     // Handle GET requests for SSE streams
     const mcpGetHandler = async (req: Request, res: Response) => {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        if (!sessionId || !transports[sessionId]) {
-            res.status(400).send('Invalid or missing session ID');
+        if (!sessionId) {
+            res.status(400).send('Missing session ID');
+            return;
+        }
+        if (!transports[sessionId]) {
+            res.status(404).send('Session not found');
             return;
         }
 
@@ -414,8 +421,12 @@ async function main() {
     // Handle DELETE requests for session termination
     const mcpDeleteHandler = async (req: Request, res: Response) => {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        if (!sessionId || !transports[sessionId]) {
-            res.status(400).send('Invalid or missing session ID');
+        if (!sessionId) {
+            res.status(400).send('Missing session ID');
+            return;
+        }
+        if (!transports[sessionId]) {
+            res.status(404).send('Session not found');
             return;
         }
 

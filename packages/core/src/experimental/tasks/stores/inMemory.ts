@@ -3,7 +3,7 @@
  * @experimental
  */
 
-import type { Request, RequestId, Result, Task } from '../../../types/types.js';
+import type { Request, RequestId, Result, Task } from '../../../types/index.js';
 import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../interfaces.js';
 import { isTerminal } from '../interfaces.js';
 

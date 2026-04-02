@@ -265,14 +265,14 @@ async function connect(url?: string): Promise<void> {
                         form: {}
                     },
                     tasks: {
+                        taskStore: clientTaskStore,
                         requests: {
                             elicitation: {
                                 create: {}
                             }
                         }
                     }
-                },
-                taskStore: clientTaskStore
+                }
             }
         );
         client.onerror = error => {

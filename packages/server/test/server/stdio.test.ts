@@ -102,3 +102,80 @@ test('should read multiple messages', async () => {
     await finished;
     expect(readMessages).toEqual(messages);
 });
+
+test('should close and fire onerror when stdout errors', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let receivedError: Error | undefined;
+    server.onerror = err => {
+        receivedError = err;
+    };
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+    output.emit('error', new Error('EPIPE'));
+
+    expect(receivedError?.message).toBe('EPIPE');
+    expect(closeCount).toBe(1);
+});
+
+test('should not fire onclose twice when close() is called after stdout error', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = () => {};
+
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+    output.emit('error', new Error('EPIPE'));
+    await server.close();
+
+    expect(closeCount).toBe(1);
+});
+
+test('should reject send() when stdout errors before drain', async () => {
+    let completeWrite: ((error?: Error | null) => void) | undefined;
+    const slowOutput = new Writable({
+        highWaterMark: 0,
+        write(_chunk, _encoding, callback) {
+            completeWrite = callback;
+        }
+    });
+
+    const server = new StdioServerTransport(input, slowOutput);
+    server.onerror = () => {};
+    await server.start();
+
+    const sendPromise = server.send({ jsonrpc: '2.0', id: 1, method: 'ping' });
+    completeWrite!(new Error('write EPIPE'));
+
+    await expect(sendPromise).rejects.toThrow('write EPIPE');
+    expect(slowOutput.listenerCount('drain')).toBe(0);
+    expect(slowOutput.listenerCount('error')).toBe(0);
+});
+
+test('should reject send() after transport is closed', async () => {
+    const server = new StdioServerTransport(input, output);
+    await server.start();
+    await server.close();
+
+    await expect(server.send({ jsonrpc: '2.0', id: 1, method: 'ping' })).rejects.toThrow('closed');
+});
+
+test('should fire onerror before onclose on stdout error', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    const events: string[] = [];
+    server.onerror = () => events.push('error');
+    server.onclose = () => events.push('close');
+
+    await server.start();
+    output.emit('error', new Error('EPIPE'));
+
+    expect(events).toEqual(['error', 'close']);
+});

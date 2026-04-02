@@ -1,4 +1,4 @@
-import type { Result, Task } from '../types/types.js';
+import type { Result, Task } from '../types/index.js';
 
 /**
  * Base message type for the response stream.

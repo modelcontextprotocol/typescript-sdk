@@ -1,4 +1,4 @@
-import type { BaseMetadata } from '../types/types.js';
+import type { BaseMetadata } from '../types/index.js';
 
 /**
  * Utilities for working with {@linkcode BaseMetadata} objects.

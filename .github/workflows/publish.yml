@@ -19,7 +19,7 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
                   run_install: false
 
@@ -40,4 +40,4 @@ jobs:
             - name: Publish preview packages
               run:
                   pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/client'
-                  './packages/middleware/express' './packages/middleware/hono' './packages/middleware/node'
+                  './packages/middleware/express' './packages/middleware/fastify' './packages/middleware/hono' './packages/middleware/node'
