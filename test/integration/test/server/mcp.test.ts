@@ -7076,6 +7076,7 @@ describe('Zod v4', () => {
             });
 
             // Should receive an error since cancelled tasks don't have results
+            expect(result.isError).toBe(true);
             expect(result).toHaveProperty('content');
             expect(result.content).toEqual([{ type: 'text' as const, text: 'Internal error' }]);
 

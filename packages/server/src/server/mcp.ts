@@ -46,20 +46,6 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
- * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
- * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
- * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
- *
- * @example
- * ```ts source="./mcp.examples.ts#McpServer_basicUsage"
- * const server = new McpServer({
- *     name: 'my-server',
- *     version: '1.0.0'
- * });
- * ```
- */
-
-/**
  * Error class for tool handlers to throw when they want to send a
  * user-visible error message to the client. Unlike regular errors,
  * ToolError messages are passed through to the client as-is.
@@ -74,6 +60,19 @@ export class ToolError extends Error {
     }
 }
 
+/**
+ * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
+ * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
+ * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
+ *
+ * @example
+ * ```ts source="./mcp.examples.ts#McpServer_basicUsage"
+ * const server = new McpServer({
+ *     name: 'my-server',
+ *     version: '1.0.0'
+ * });
+ * ```
+ */
 export class McpServer {
     /**
      * The underlying {@linkcode Server} instance, useful for advanced operations like sending notifications.
