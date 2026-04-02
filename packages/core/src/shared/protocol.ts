@@ -40,6 +40,8 @@ import {
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isNotificationMethod,
+    isRequestMethod,
     ProtocolError,
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
@@ -1071,6 +1073,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         paramsSchema: P,
         handler: (params: SchemaOutput<P>, ctx: ContextT) => Result | Promise<Result>
     ): void {
+        if (isRequestMethod(method)) {
+            throw new Error(`"${method}" is a standard MCP request method. Use setRequestHandler() instead.`);
+        }
         this._requestHandlers.set(method, (request, ctx) => {
             const parsed = parseSchema(paramsSchema, request.params);
             if (!parsed.success) {
@@ -1085,6 +1090,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * {@linkcode Protocol.setCustomRequestHandler | setCustomRequestHandler}.
      */
     removeCustomRequestHandler(method: string): void {
+        if (isRequestMethod(method)) {
+            throw new Error(`"${method}" is a standard MCP request method. Use removeRequestHandler() instead.`);
+        }
         this._requestHandlers.delete(method);
     }
 
@@ -1100,6 +1108,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         paramsSchema: P,
         handler: (params: SchemaOutput<P>) => void | Promise<void>
     ): void {
+        if (isNotificationMethod(method)) {
+            throw new Error(`"${method}" is a standard MCP notification method. Use setNotificationHandler() instead.`);
+        }
         this._notificationHandlers.set(method, notification => {
             const parsed = parseSchema(paramsSchema, notification.params);
             if (!parsed.success) {
@@ -1114,6 +1125,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * {@linkcode Protocol.setCustomNotificationHandler | setCustomNotificationHandler}.
      */
     removeCustomNotificationHandler(method: string): void {
+        if (isNotificationMethod(method)) {
+            throw new Error(`"${method}" is a standard MCP notification method. Use removeNotificationHandler() instead.`);
+        }
         this._notificationHandlers.delete(method);
     }
 

@@ -2210,6 +2210,20 @@ const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options,
 >;
 
 /**
+ * Type predicate: returns true if `method` is a standard MCP request method.
+ */
+export function isRequestMethod(method: string): method is RequestMethod {
+    return method in requestSchemas;
+}
+
+/**
+ * Type predicate: returns true if `method` is a standard MCP notification method.
+ */
+export function isNotificationMethod(method: string): method is NotificationMethod {
+    return method in notificationSchemas;
+}
+
+/**
  * Gets the Zod schema for a given request method.
  * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
  * to use schema.parse() without needing additional type assertions.
