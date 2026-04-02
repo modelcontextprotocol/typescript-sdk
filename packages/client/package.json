@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/client",
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0-alpha.2",
     "description": "Model Context Protocol implementation for TypeScript - Client package",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -30,8 +30,8 @@
                 "import": "./dist/shimsWorkerd.mjs"
             },
             "browser": {
-                "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
+                "types": "./dist/shimsBrowser.d.mts",
+                "import": "./dist/shimsBrowser.mjs"
             },
             "node": {
                 "types": "./dist/shimsNode.d.mts",
@@ -68,15 +68,11 @@
         "zod": "catalog:runtimeShared"
     },
     "peerDependencies": {
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared"
+        "@cfworker/json-schema": "catalog:runtimeShared"
     },
     "peerDependenciesMeta": {
         "@cfworker/json-schema": {
             "optional": true
-        },
-        "zod": {
-            "optional": false
         }
     },
     "devDependencies": {

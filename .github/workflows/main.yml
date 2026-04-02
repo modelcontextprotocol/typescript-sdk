@@ -4,8 +4,6 @@ on:
             - main
     pull_request:
     workflow_dispatch:
-    release:
-        types: [published]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,7 +17,7 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               id: pnpm-install
               with:
                   run_install: false
@@ -44,7 +42,7 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               id: pnpm-install
               with:
                   run_install: false
@@ -71,7 +69,7 @@ jobs:
         steps:
             - uses: actions/checkout@v6
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
                   run_install: false
             - uses: actions/setup-node@v6
@@ -81,12 +79,12 @@ jobs:
                   cache-dependency-path: pnpm-lock.yaml
             - name: Set up Bun
               if: matrix.runtime == 'bun'
-              uses: oven-sh/setup-bun@v2
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
               with:
                   bun-version: ${{ matrix.version }}
             - name: Set up Deno
               if: matrix.runtime == 'deno'
-              uses: denoland/setup-deno@v2
+              uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2
               with:
                   deno-version: ${{ matrix.version }}
             - run: pnpm install
@@ -94,53 +92,3 @@ jobs:
             - name: Run ${{ matrix.runtime }} integration tests
               run: pnpm --filter @modelcontextprotocol/test-integration test:integration:${{ matrix.runtime }}
 
-    publish:
-        runs-on: ubuntu-latest
-        if: github.event_name == 'release'
-        environment: release
-        needs: [build, test, test-runtimes]
-
-        permissions:
-            contents: read
-            id-token: write
-
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
-              id: pnpm-install
-              with:
-                  run_install: false
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
-                  registry-url: 'https://registry.npmjs.org'
-            - run: pnpm install
-
-            - name: Determine npm tag
-              id: npm-tag
-              run: |
-                  VERSION=$(node -p "require('./package.json').version")
-                  # Check if this is a beta release
-                  if [[ "$VERSION" == *"-beta"* ]]; then
-                    echo "tag=--tag beta" >> $GITHUB_OUTPUT
-                  # Check if this release is from a non-primary branch (patch/maintenance release)
-                  elif [[ "${{ github.event.release.target_commitish }}" != "main" && "${{ github.event.release.target_commitish }}" != "v1.x" ]]; then
-                    # Use "release-X.Y" as tag for old branch releases (e.g., "release-1.23" for 1.23.x)
-                    # npm tags are mutable pointers to versions (like "latest" pointing to 1.24.3).
-                    # Using "release-1.23" means users can `npm install @modelcontextprotocol/sdk@release-1.23`
-                    # to get the latest patch on that minor version, and the tag updates if we
-                    # release 1.23.2, 1.23.3, etc.
-                    # Note: Can't use "v1.23" because npm rejects tags that look like semver ranges.
-                    MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
-                    echo "tag=--tag release-${MAJOR_MINOR}" >> $GITHUB_OUTPUT
-                  else
-                    echo "tag=" >> $GITHUB_OUTPUT
-                  fi
-
-            - run: pnpm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

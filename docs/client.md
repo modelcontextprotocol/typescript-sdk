@@ -13,7 +13,7 @@ A client connects to a server, discovers what it offers — tools, resources, pr
 The examples below use these imports. Adjust based on which features and transport you need:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#imports"
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/client';
+import type { AuthProvider, Prompt, Resource, Tool } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
@@ -113,7 +113,19 @@ console.log(systemPrompt);
 
 ## Authentication
 
-MCP servers can require OAuth 2.0 authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an `authProvider` to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport} to enable this — the SDK provides built-in providers for common machine-to-machine flows, or you can implement the full {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface for user-facing OAuth.
+MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an {@linkcode @modelcontextprotocol/client!client/auth.AuthProvider | AuthProvider} to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport}. The transport calls `token()` before every request and `onUnauthorized()` (if provided) on 401, then retries once.
+
+### Bearer tokens
+
+For servers that accept bearer tokens managed outside the SDK — API keys, tokens from a gateway or proxy, service-account credentials — implement only `token()`. With no `onUnauthorized()`, a 401 throws {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} immediately:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#auth_tokenProvider"
+const authProvider: AuthProvider = { token: async () => getStoredToken() };
+
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
+```
+
+See [`simpleTokenProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTokenProvider.ts) for a complete runnable example.
 
 ### Client credentials
 

@@ -29,6 +29,7 @@ import type {
     ServerCapabilities,
     ServerContext,
     ServerResult,
+    TaskManagerOptions,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core';
@@ -42,6 +43,7 @@ import {
     CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    extractTaskManagerOptions,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -57,11 +59,19 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims'
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
+/**
+ * Extended tasks capability that includes runtime configuration (store, messageQueue).
+ * The runtime-only fields are stripped before advertising capabilities to clients.
+ */
+export type ServerTasksCapabilityWithRuntime = NonNullable<ServerCapabilities['tasks']> & TaskManagerOptions;
+
 export type ServerOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
      */
-    capabilities?: ServerCapabilities;
+    capabilities?: Omit<ServerCapabilities, 'tasks'> & {
+        tasks?: ServerTasksCapabilityWithRuntime;
+    };
 
     /**
      * Optional instructions describing how to use the server and its features.
@@ -106,10 +116,21 @@ export class Server extends Protocol<ServerContext> {
         private _serverInfo: Implementation,
         options?: ServerOptions
     ) {
-        super(options);
-        this._capabilities = options?.capabilities ?? {};
+        super({
+            ...options,
+            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
+        });
+        this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
+
+        // Strip runtime-only fields from advertised capabilities
+        if (options?.capabilities?.tasks) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
+                options.capabilities.tasks;
+            this._capabilities.tasks = wireCapabilities;
+        }
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
@@ -134,8 +155,7 @@ export class Server extends Protocol<ServerContext> {
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
-        const hasHttpInfo =
-            ctx.http || transportInfo?.requestInfo || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
         return {
             ...ctx,
             mcpReq: {
@@ -147,7 +167,7 @@ export class Server extends Protocol<ServerContext> {
             http: hasHttpInfo
                 ? {
                       ...ctx.http,
-                      req: transportInfo?.requestInfo,
+                      req: transportInfo?.request,
                       closeSSE: transportInfo?.closeSSEStream,
                       closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
                   }
@@ -347,12 +367,6 @@ export class Server extends Protocol<ServerContext> {
     }
 
     protected assertRequestHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
         switch (method) {
             case 'completion/complete': {
                 if (!this._capabilities.completions) {
@@ -393,19 +407,6 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
 
-            case 'tasks/get':
-            case 'tasks/list':
-            case 'tasks/result':
-            case 'tasks/cancel': {
-                if (!this._capabilities.tasks) {
-                    throw new SdkError(
-                        SdkErrorCode.CapabilityNotSupported,
-                        `Server does not support tasks capability (required for ${method})`
-                    );
-                }
-                break;
-            }
-
             case 'ping':
             case 'initialize': {
                 // No specific capability required for these methods
@@ -419,13 +420,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     protected assertTaskHandlerCapability(method: string): void {
-        // Task handlers are registered in Protocol constructor before _capabilities is initialized
-        // Skip capability check for task methods during initialization
-        if (!this._capabilities) {
-            return;
-        }
-
-        assertToolsCallTaskCapability(this._capabilities.tasks?.requests, method, 'Server');
+        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {
@@ -437,6 +432,8 @@ export class Server extends Protocol<ServerContext> {
         const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+
+        this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
             protocolVersion,
