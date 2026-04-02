@@ -32,10 +32,9 @@ export const CursorSchema = z.string();
  */
 export const TaskCreationParamsSchema = z.looseObject({
     /**
-     * Time in milliseconds to keep task results available after completion.
-     * If `null`, the task has unlimited lifetime until manually cleaned up.
+     * Requested duration in milliseconds to retain task from creation.
      */
-    ttl: z.union([z.number(), z.null()]).optional(),
+    ttl: z.number().optional(),
 
     /**
      * Time in milliseconds to wait between task status requests.
@@ -1862,11 +1861,13 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
      * A restricted subset of JSON Schema.
      * Only top-level properties are allowed, without nesting.
      */
-    requestedSchema: z.object({
-        type: z.literal('object'),
-        properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
-        required: z.array(z.string()).optional()
-    })
+    requestedSchema: z
+        .object({
+            type: z.literal('object'),
+            properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
+            required: z.array(z.string()).optional()
+        })
+        .catchall(z.unknown())
 });
 
 /**

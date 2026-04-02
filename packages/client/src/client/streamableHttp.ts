@@ -4,6 +4,7 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     createFetchWithInit,
     isInitializedNotification,
+    isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
@@ -79,6 +80,31 @@ export interface StreamableHTTPReconnectionOptions {
 }
 
 /**
+ * Custom scheduler for SSE stream reconnection attempts.
+ *
+ * Called instead of `setTimeout` when the transport needs to schedule a reconnection.
+ * Useful in environments where `setTimeout` is unsuitable (serverless functions that
+ * terminate before the timer fires, mobile apps that need platform background scheduling,
+ * desktop apps handling sleep/wake).
+ *
+ * @param reconnect - Call this to perform the reconnection attempt.
+ * @param delay - Suggested delay in milliseconds (from backoff calculation).
+ * @param attemptCount - Zero-indexed retry attempt number.
+ * @returns An optional cancel function. If returned, it will be called on
+ * {@linkcode StreamableHTTPClientTransport.close | transport.close()} to abort the
+ * pending reconnection.
+ *
+ * @example
+ * ```ts source="./streamableHttp.examples.ts#ReconnectionScheduler_basicUsage"
+ * const scheduler: ReconnectionScheduler = (reconnect, delay) => {
+ *     const id = platformBackgroundTask.schedule(reconnect, delay);
+ *     return () => platformBackgroundTask.cancel(id);
+ * };
+ * ```
+ */
+export type ReconnectionScheduler = (reconnect: () => void, delay: number, attemptCount: number) => (() => void) | void;
+
+/**
  * Configuration options for the {@linkcode StreamableHTTPClientTransport}.
  */
 export type StreamableHTTPClientTransportOptions = {
@@ -117,6 +143,12 @@ export type StreamableHTTPClientTransportOptions = {
     reconnectionOptions?: StreamableHTTPReconnectionOptions;
 
     /**
+     * Custom scheduler for reconnection attempts. If not provided, `setTimeout` is used.
+     * See {@linkcode ReconnectionScheduler}.
+     */
+    reconnectionScheduler?: ReconnectionScheduler;
+
+    /**
      * Session ID for the connection. This is used to identify the session on the server.
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
@@ -150,7 +182,8 @@ export class StreamableHTTPClientTransport implements Transport {
     private _protocolVersion?: string;
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
-    private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
+    private readonly _reconnectionScheduler?: ReconnectionScheduler;
+    private _cancelReconnection?: () => void;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -172,6 +205,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+        this._reconnectionScheduler = opts?.reconnectionScheduler;
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -203,7 +237,9 @@ export class StreamableHTTPClientTransport implements Transport {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
-            headers.set('Accept', 'text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             // Include Last-Event-ID header for resumable streams if provided
             if (resumptionToken) {
@@ -305,15 +341,26 @@ export class StreamableHTTPClientTransport implements Transport {
         // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
 
-        // Schedule the reconnection
-        this._reconnectionTimeout = setTimeout(() => {
-            // Use the last event ID to resume where we left off
+        const reconnect = (): void => {
+            this._cancelReconnection = undefined;
+            if (this._abortController?.signal.aborted) return;
             this._startOrAuthSse(options).catch(error => {
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
-                // Schedule another attempt if this one failed, incrementing the attempt counter
-                this._scheduleReconnection(options, attemptCount + 1);
+                try {
+                    this._scheduleReconnection(options, attemptCount + 1);
+                } catch (scheduleError) {
+                    this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
+                }
             });
-        }, delay);
+        };
+
+        if (this._reconnectionScheduler) {
+            const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
+            this._cancelReconnection = typeof cancel === 'function' ? cancel : undefined;
+        } else {
+            const handle = setTimeout(reconnect, delay);
+            this._cancelReconnection = () => clearTimeout(handle);
+        }
     }
 
     private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
@@ -368,7 +415,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            if (isJSONRPCResultResponse(message)) {
+                            // Handle both success AND error responses for completion detection and ID remapping
+                            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                                 // Mark that we received a response - no need to reconnect for this request
                                 receivedResponse = true;
                                 if (replayMessageId !== undefined) {
@@ -458,12 +506,13 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        if (this._reconnectionTimeout) {
-            clearTimeout(this._reconnectionTimeout);
-            this._reconnectionTimeout = undefined;
+        try {
+            this._cancelReconnection?.();
+        } finally {
+            this._cancelReconnection = undefined;
+            this._abortController?.abort();
+            this.onclose?.();
         }
-        this._abortController?.abort();
-        this.onclose?.();
     }
 
     async send(
@@ -491,7 +540,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
-            headers.set('accept', 'application/json, text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             const init = {
                 ...this._requestInit,

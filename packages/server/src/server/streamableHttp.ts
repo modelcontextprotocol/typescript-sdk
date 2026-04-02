@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -635,10 +635,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
             }
 
-            // Build request info from headers
-            const requestInfo: RequestInfo = {
-                headers: req.headers
-            };
+            const request = req;
 
             let rawMessage;
             if (options?.parsedBody === undefined) {
@@ -708,7 +705,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (!hasRequests) {
                 // if it only contains notifications or responses, return 202
                 for (const message of messages) {
-                    this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
+                    this.onmessage?.(message, { authInfo: options?.authInfo, request });
                 }
                 return new Response(null, { status: 202 });
             }
@@ -742,7 +739,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     for (const message of messages) {
-                        this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
+                        this.onmessage?.(message, { authInfo: options?.authInfo, request });
                     }
                 });
             }
@@ -812,7 +809,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     };
                 }
 
-                this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
+                this.onmessage?.(message, { authInfo: options?.authInfo, request, closeSSEStream, closeStandaloneSSEStream });
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
