@@ -455,9 +455,7 @@ describe('StreamableHTTPClientTransport', () => {
             return deferredFetch;
         });
 
-        const startPromise = (
-            transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> }
-        )._startOrAuthSse({});
+        const startPromise = (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({});
 
         resolveFetch({
             ok: false,

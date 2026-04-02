@@ -35,11 +35,7 @@ function markSessionBound404Error(error: Error): Error {
 }
 
 function isSessionBound404Error(error: unknown): boolean {
-    return Boolean(
-        error &&
-            typeof error === 'object' &&
-            (error as SessionBound404Error)[SESSION_BOUND_404_ERROR] === true
-    );
+    return Boolean(error && typeof error === 'object' && (error as SessionBound404Error)[SESSION_BOUND_404_ERROR] === true);
 }
 
 /**
@@ -272,8 +268,7 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
-                const shouldClearSessionFor404 =
-                    response.status === 404 && sentSessionId !== null && this._sessionId === sentSessionId;
+                const shouldClearSessionFor404 = response.status === 404 && sentSessionId !== null && this._sessionId === sentSessionId;
                 if (shouldClearSessionFor404) {
                     this._sessionId = undefined;
                 }
@@ -312,14 +307,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                const error = new SdkError(
-                    SdkErrorCode.ClientHttpFailedToOpenStream,
-                    `Failed to open SSE stream: ${response.statusText}`,
-                    {
+                const error = new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
-                    }
-                );
+                });
                 throw shouldClearSessionFor404 ? markSessionBound404Error(error) : error;
             }
 
