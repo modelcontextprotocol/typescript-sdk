@@ -97,6 +97,7 @@ export class StdioClientTransport implements Transport {
     private _stderrStream: PassThrough | null = null;
     private _onServerDataHandler?: (chunk: Buffer) => void;
     private _onServerErrorHandler?: (error: Error) => void;
+    private _onProcessErrorHandler?: (error: Error) => void;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -144,10 +145,11 @@ export class StdioClientTransport implements Transport {
             this._process.stdout?.on('error', this._onServerErrorHandler);
             this._process.stdin?.on('error', this._onServerErrorHandler);
 
-            this._process.on('error', error => {
+            this._onProcessErrorHandler = error => {
                 reject(error);
                 this.onerror?.(error);
-            });
+            };
+            this._process.on('error', this._onProcessErrorHandler);
             this._process.once('spawn', () => resolve());
             this._process.once('close', _code => {
                 if (this._process) {
@@ -209,6 +211,9 @@ export class StdioClientTransport implements Transport {
         if (this._onServerErrorHandler) {
             process.stdout?.off('error', this._onServerErrorHandler);
             process.stdin?.off('error', this._onServerErrorHandler);
+        }
+        if (this._onProcessErrorHandler) {
+            process.off('error', this._onProcessErrorHandler);
         }
     }
 

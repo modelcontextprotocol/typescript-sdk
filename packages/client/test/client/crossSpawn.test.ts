@@ -200,6 +200,7 @@ describe('StdioClientTransport using cross-spawn', () => {
         expect(stdout.listenerCount('data')).toBe(1);
         expect(stdout.listenerCount('error')).toBe(1);
         expect(stdin.listenerCount('error')).toBe(1);
+        expect(proc.listenerCount('error')).toBe(1);
 
         const closed = transport.close();
         proc.exitCode = 0;
@@ -209,6 +210,7 @@ describe('StdioClientTransport using cross-spawn', () => {
         expect(stdout.listenerCount('data')).toBe(0);
         expect(stdout.listenerCount('error')).toBe(0);
         expect(stdin.listenerCount('error')).toBe(0);
+        expect(proc.listenerCount('error')).toBe(0);
     });
 
     describe('windowsHide', () => {
