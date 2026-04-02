@@ -498,6 +498,8 @@ export class Client extends Protocol<ClientContext> {
             if (this._negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
                 transport.setProtocolVersion(this._negotiatedProtocolVersion);
             }
+            // Restart periodic ping since _onclose() clears the timer on disconnect
+            this.startPeriodicPing();
             return;
         }
         try {
