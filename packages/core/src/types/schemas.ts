@@ -2213,14 +2213,14 @@ const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options,
  * Type predicate: returns true if `method` is a standard MCP request method.
  */
 export function isRequestMethod(method: string): method is RequestMethod {
-    return method in requestSchemas;
+    return Object.hasOwn(requestSchemas, method);
 }
 
 /**
  * Type predicate: returns true if `method` is a standard MCP notification method.
  */
 export function isNotificationMethod(method: string): method is NotificationMethod {
-    return method in notificationSchemas;
+    return Object.hasOwn(notificationSchemas, method);
 }
 
 /**

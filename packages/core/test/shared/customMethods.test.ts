@@ -76,6 +76,13 @@ describe('custom request handlers', () => {
         expect(() => server.removeCustomRequestHandler('tools/list')).toThrow(/standard MCP request method/);
     });
 
+    test('collision guard: does NOT trigger on Object.prototype keys', () => {
+        for (const m of ['toString', 'constructor', 'hasOwnProperty', '__proto__']) {
+            expect(() => server.setCustomRequestHandler(m, z.object({}), () => ({}))).not.toThrow();
+            expect(() => server.setCustomNotificationHandler(m, z.object({}), () => {})).not.toThrow();
+        }
+    });
+
     test('removeCustomRequestHandler -> subsequent request fails MethodNotFound', async () => {
         server.setCustomRequestHandler('acme/search', SearchParams, () => ({ hits: [], total: 0 }));
         await client.sendCustomRequest('acme/search', { query: 'x' }, SearchResult);
