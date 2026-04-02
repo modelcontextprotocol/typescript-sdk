@@ -1239,7 +1239,7 @@ export type RegisteredPrompt = {
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<Args extends StandardSchemaWithJSON>(updates: {
+    update<Args extends StandardSchemaWithJSON | undefined = undefined>(updates: {
         name?: string | null;
         title?: string;
         description?: string;

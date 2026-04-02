@@ -5,6 +5,7 @@
  * no-argsSchema and with-argsSchema overloads of registerPrompt.
  */
 import type { GetPromptResult, ServerContext } from '@modelcontextprotocol/core';
+import { describe, it } from 'vitest';
 import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
@@ -32,3 +33,10 @@ function registerPrompt_withArgs() {
         (args: { code: string }, ctx: ServerContext) => result
     );
 }
+
+describe('registerPrompt types', () => {
+    it('compiles', () => {
+        // The functions above are compile-time type assertions; this suite
+        // exists so vitest detects the file as containing tests.
+    });
+});
