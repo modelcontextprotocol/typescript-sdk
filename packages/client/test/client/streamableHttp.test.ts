@@ -1261,6 +1261,28 @@ describe('StreamableHTTPClientTransport', () => {
             expect(errorSpy.mock.calls[0]![0].message).toContain('Failed to open SSE stream');
         });
 
+        it('should fire onerror and reject when resumeStream fails', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 500,
+                statusText: 'Internal Server Error',
+                headers: new Headers(),
+                text: async () => 'server error'
+            });
+
+            await transport.start();
+            await expect(transport.resumeStream('event-123')).rejects.toThrow('Failed to open SSE stream');
+
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy.mock.calls[0]![0].message).toContain('Failed to open SSE stream');
+        });
+
         it('should not throw JSON parse error on priming events with empty data', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
