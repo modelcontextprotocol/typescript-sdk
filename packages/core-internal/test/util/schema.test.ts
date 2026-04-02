@@ -27,12 +27,12 @@ describe('dereferenceLocalRefs', () => {
                 Tag: { type: 'object', properties: { label: { type: 'string' } } }
             }
         };
-        const result = dereferenceLocalRefs(schema);
-        expect(JSON.stringify(result)).not.toContain('$ref');
-        expect(JSON.stringify(result)).not.toContain('$defs');
-        expect(result['properties']).toMatchObject({
-            primary: { type: 'object', properties: { label: { type: 'string' } } },
-            secondary: { type: 'object', properties: { label: { type: 'string' } } }
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: {
+                primary: { type: 'object', properties: { label: { type: 'string' } } },
+                secondary: { type: 'object', properties: { label: { type: 'string' } } }
+            }
         });
     });
 
@@ -47,126 +47,109 @@ describe('dereferenceLocalRefs', () => {
                 Shared: { type: 'object', properties: { x: { type: 'number' } } }
             }
         };
-        const result = dereferenceLocalRefs(schema);
-        expect(JSON.stringify(result)).not.toContain('$ref');
-        const props = result['properties'] as Record<string, Record<string, unknown>>;
-        const bInner = (props['b']!['properties'] as Record<string, unknown>)['inner'];
-        const cInner = (props['c']!['properties'] as Record<string, unknown>)['inner'];
-        expect(bInner).toMatchObject({ type: 'object', properties: { x: { type: 'number' } } });
-        expect(cInner).toMatchObject({ type: 'object', properties: { x: { type: 'number' } } });
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: {
+                b: { type: 'object', properties: { inner: { type: 'object', properties: { x: { type: 'number' } } } } },
+                c: { type: 'object', properties: { inner: { type: 'object', properties: { x: { type: 'number' } } } } }
+            }
+        });
     });
 
     test('non-existent $def reference is left as-is', () => {
         const schema = {
             type: 'object',
-            properties: {
-                broken: { $ref: '#/$defs/DoesNotExist' }
-            },
+            properties: { broken: { $ref: '#/$defs/DoesNotExist' } },
             $defs: {}
         };
-        const result = dereferenceLocalRefs(schema);
-        expect((result['properties'] as Record<string, unknown>)['broken']).toEqual({ $ref: '#/$defs/DoesNotExist' });
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: { broken: { $ref: '#/$defs/DoesNotExist' } }
+        });
     });
 
-    test('external $ref is left as-is', () => {
+    test('external $ref and root self-reference are left as-is', () => {
         const schema = {
             type: 'object',
             properties: {
-                ext: { $ref: 'https://example.com/schemas/Foo.json' }
+                ext: { $ref: 'https://example.com/schemas/Foo.json' },
+                self: { $ref: '#' }
             }
         };
         const result = dereferenceLocalRefs(schema);
-        expect((result['properties'] as Record<string, unknown>)['ext']).toEqual({
-            $ref: 'https://example.com/schemas/Foo.json'
-        });
+        expect(result).toEqual(schema);
     });
 
     test('sibling keywords alongside $ref are preserved', () => {
         const schema = {
             type: 'object',
             properties: {
-                addr: { $ref: '#/$defs/Address', description: 'Home address' }
+                addr: { $ref: '#/$defs/Address', description: 'Home address', title: 'Home', default: { street: '123 Main' } }
             },
             $defs: {
                 Address: { type: 'object', properties: { street: { type: 'string' } } }
             }
         };
-        const result = dereferenceLocalRefs(schema);
-        const addr = (result['properties'] as Record<string, unknown>)['addr'] as Record<string, unknown>;
-        expect(addr['type']).toBe('object');
-        expect(addr['properties']).toEqual({ street: { type: 'string' } });
-        expect(addr['description']).toBe('Home address');
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: {
+                addr: {
+                    type: 'object',
+                    properties: { street: { type: 'string' } },
+                    description: 'Home address',
+                    title: 'Home',
+                    default: { street: '123 Main' }
+                }
+            }
+        });
     });
 
-    test('recursive $ref through $defs throws', () => {
+    test('mixed cyclic and non-cyclic refs: non-cyclic inlined, cyclic preserved', () => {
         const schema = {
             type: 'object',
             properties: {
-                value: { type: 'string' },
-                children: { type: 'array', items: { $ref: '#/$defs/TreeNode' } }
+                tag: { $ref: '#/$defs/Tag' },
+                tree: { $ref: '#/$defs/TreeNode' }
             },
             $defs: {
+                Tag: { type: 'object', properties: { label: { type: 'string' } } },
                 TreeNode: {
                     type: 'object',
                     properties: {
                         value: { type: 'string' },
+                        tag: { $ref: '#/$defs/Tag' },
                         children: { type: 'array', items: { $ref: '#/$defs/TreeNode' } }
                     }
                 }
             }
         };
-        expect(() => dereferenceLocalRefs(schema)).toThrow(/Recursive schema detected/);
-    });
-
-    test('$ref: "#" root self-reference throws', () => {
-        const schema = {
+        expect(dereferenceLocalRefs(schema)).toEqual({
             type: 'object',
             properties: {
-                name: { type: 'string' },
-                child: { $ref: '#' }
-            }
-        };
-        expect(() => dereferenceLocalRefs(schema)).toThrow(/Recursive schema detected/);
-    });
-
-    // The following tests cover real Zod v4 output patterns where $ref appears
-    // with sibling keywords. Zod only produces metadata siblings (description,
-    // title, default, etc.) — never schema nodes containing nested $ref.
-    // These prove the sibling merge path handles all real-world scenarios.
-
-    test('$ref with multiple metadata siblings (Zod .meta() on registered type)', () => {
-        const schema = {
-            type: 'object',
-            properties: {
-                home: { $ref: '#/$defs/Address', title: 'Home', deprecated: true }
+                // Tag fully inlined
+                tag: { type: 'object', properties: { label: { type: 'string' } } },
+                // TreeNode resolved one level: Tag inlined, self-ref stays
+                tree: {
+                    type: 'object',
+                    properties: {
+                        value: { type: 'string' },
+                        tag: { type: 'object', properties: { label: { type: 'string' } } },
+                        children: { type: 'array', items: { $ref: '#/$defs/TreeNode' } }
+                    }
+                }
             },
+            // Only cyclic def preserved, with Tag inlined inside it
             $defs: {
-                Address: { type: 'object', properties: { street: { type: 'string' } } }
+                TreeNode: {
+                    type: 'object',
+                    properties: {
+                        value: { type: 'string' },
+                        tag: { type: 'object', properties: { label: { type: 'string' } } },
+                        children: { type: 'array', items: { $ref: '#/$defs/TreeNode' } }
+                    }
+                }
             }
-        };
-        const result = dereferenceLocalRefs(schema);
-        const home = (result['properties'] as Record<string, Record<string, unknown>>)['home']!;
-        expect(home['type']).toBe('object');
-        expect(home['title']).toBe('Home');
-        expect(home['deprecated']).toBe(true);
-        expect(JSON.stringify(result)).not.toContain('$ref');
-    });
-
-    test('$ref with default value sibling (Zod .default() on registered type)', () => {
-        const schema = {
-            type: 'object',
-            properties: {
-                home: { $ref: '#/$defs/Address', default: { street: '123 Main' } }
-            },
-            $defs: {
-                Address: { type: 'object', properties: { street: { type: 'string' } } }
-            }
-        };
-        const result = dereferenceLocalRefs(schema);
-        const home = (result['properties'] as Record<string, Record<string, unknown>>)['home']!;
-        expect(home['type']).toBe('object');
-        expect(home['default']).toEqual({ street: '123 Main' });
-        expect(JSON.stringify(result)).not.toContain('$ref');
+        });
     });
 
     test('$def referencing another $def (nested registered types)', () => {
@@ -186,21 +169,23 @@ describe('dereferenceLocalRefs', () => {
                 }
             }
         };
-        const result = dereferenceLocalRefs(schema);
-        expect(JSON.stringify(result)).not.toContain('$ref');
-        expect(JSON.stringify(result)).not.toContain('$defs');
-        const employer = (result['properties'] as Record<string, Record<string, unknown>>)['employer']!;
-        expect(employer['description']).toBe('The company');
-        expect(employer['type']).toBe('object');
-        const hq = (employer['properties'] as Record<string, Record<string, unknown>>)['hq']!;
-        expect(hq['type']).toBe('object');
-        expect(hq['properties']).toEqual({ street: { type: 'string' } });
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: {
+                employer: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        hq: { type: 'object', properties: { street: { type: 'string' } } }
+                    },
+                    description: 'The company'
+                }
+            }
+        });
     });
 
     // Defensive: hand-crafted synthetic schema — no known schema generator (Zod v4,
     // ArkType, Valibot) produces $ref with a sibling containing nested $ref.
-    // Generators put $ref inside allOf/anyOf/oneOf array elements (resolved by
-    // array recursion), not as siblings of $ref on the same node.
     // See: https://github.com/modelcontextprotocol/typescript-sdk/pull/1563#discussion_r3022304127
     test('$ref siblings containing nested $ref are resolved (defensive)', () => {
         const schema = {
@@ -212,39 +197,99 @@ describe('dereferenceLocalRefs', () => {
                 Mixin: { title: 'mixin' }
             }
         };
-        const result = dereferenceLocalRefs(schema);
-        expect(JSON.stringify(result)).not.toContain('$ref');
-        expect(JSON.stringify(result)).not.toContain('$defs');
-        const x = (result['properties'] as Record<string, Record<string, unknown>>)['x']!;
-        expect(x['type']).toBe('object');
-        expect(x['allOf']).toEqual([{ title: 'mixin' }]);
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: { x: { type: 'object', allOf: [{ title: 'mixin' }] } }
+        });
     });
 
-    test('property named "definitions" is not stripped from nested objects', () => {
+    test('multi-hop cycle (A → B → C → A) with non-cyclic sibling: cycle detected, all non-cyclic parts inlined', () => {
+        // Company → Employee → Department → Company (cycle)
+        // Department also → Location (non-cyclic sibling)
         const schema = {
             type: 'object',
-            properties: {
-                items: { type: 'array', items: { type: 'string' } },
-                definitions: { type: 'array', items: { type: 'string' } }
-            },
-            required: ['items', 'definitions']
+            properties: { company: { $ref: '#/$defs/Company' } },
+            $defs: {
+                // Intentionally unordered — function follows $ref pointers, not declaration order
+                Location: {
+                    type: 'object',
+                    properties: { city: { type: 'string' } }
+                },
+                Employee: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        department: { $ref: '#/$defs/Department' }
+                    }
+                },
+                Department: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        company: { $ref: '#/$defs/Company' },
+                        location: { $ref: '#/$defs/Location' }
+                    }
+                },
+                Company: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        employee: { $ref: '#/$defs/Employee' }
+                    }
+                }
+            }
         };
-        const result = dereferenceLocalRefs(schema);
-        const props = result['properties'] as Record<string, unknown>;
-        expect(props['definitions']).toEqual({ type: 'array', items: { type: 'string' } });
-        expect(props['items']).toEqual({ type: 'array', items: { type: 'string' } });
-    });
-
-    test('property named "$defs" is not stripped from nested objects', () => {
-        const schema = {
+        const inlinedDepartment = {
             type: 'object',
             properties: {
                 name: { type: 'string' },
-                $defs: { type: 'object', properties: { x: { type: 'number' } } }
+                company: { $ref: '#/$defs/Company' },
+                location: { type: 'object', properties: { city: { type: 'string' } } }
             }
         };
-        const result = dereferenceLocalRefs(schema);
-        const props = result['properties'] as Record<string, unknown>;
-        expect(props['$defs']).toEqual({ type: 'object', properties: { x: { type: 'number' } } });
+        const inlinedEmployee = {
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                department: inlinedDepartment
+            }
+        };
+        const inlinedCompany = {
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                employee: inlinedEmployee
+            }
+        };
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: { company: inlinedCompany },
+            // Only Company preserved — Location fully inlined everywhere including inside $defs
+            $defs: { Company: inlinedCompany }
+        });
+    });
+
+    test('$ref inlined from real $defs while properties named "$defs" and "definitions" are preserved', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                definitions: { type: 'array', items: { type: 'string' } },
+                $defs: { type: 'object', properties: { x: { type: 'number' } } },
+                tag: { $ref: '#/$defs/Tag' }
+            },
+            required: ['definitions', '$defs'],
+            $defs: {
+                Tag: { type: 'object', properties: { label: { type: 'string' } } }
+            }
+        };
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: {
+                definitions: { type: 'array', items: { type: 'string' } },
+                $defs: { type: 'object', properties: { x: { type: 'number' } } },
+                tag: { type: 'object', properties: { label: { type: 'string' } } }
+            },
+            required: ['definitions', '$defs']
+        });
     });
 });
