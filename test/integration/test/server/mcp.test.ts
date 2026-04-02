@@ -5359,7 +5359,7 @@ describe('Zod v4', () => {
             expect(result.content).toEqual([{ type: 'text', text: 'created' }]);
         });
 
-        test('recursive types should throw on tools/list', async () => {
+        test('recursive types should preserve $ref and $defs on tools/list', async () => {
             const server = new McpServer({ name: 'test', version: '1.0.0' });
             const client = new Client({ name: 'test-client', version: '1.0.0' });
 
@@ -5376,9 +5376,12 @@ describe('Zod v4', () => {
             await server.connect(serverTransport);
             await client.connect(clientTransport);
 
-            // Recursive schemas should fail at tools/list time so the developer
-            // knows immediately that the schema needs restructuring
-            await expect(client.request({ method: 'tools/list' })).rejects.toThrow();
+            // Recursive schemas should NOT throw — cyclic $ref stays in place
+            const { tools } = await client.request({ method: 'tools/list' });
+            const schema = tools[0]!.inputSchema;
+            // Cyclic $ref is preserved (same as pre-PR behavior — no regression)
+            expect(JSON.stringify(schema)).toContain('$ref');
+            expect(schema.$defs || schema.definitions).toBeDefined();
         });
     });
 

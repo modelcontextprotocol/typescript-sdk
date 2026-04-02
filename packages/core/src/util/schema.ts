@@ -22,101 +22,115 @@ export type SchemaOutput<T extends AnySchema> = z.output<T>;
 
 /**
  * Resolves all local `$ref` pointers in a JSON Schema by inlining the
- * referenced definitions. Removes `$defs`/`definitions` from the output.
+ * referenced definitions.
  *
  * - Caches resolved defs to avoid redundant work with diamond references
  *   (A→B→D, A→C→D — D is resolved once and reused).
- * - Throws on cycles — recursive schemas cannot be represented without `$ref`
- *   and LLMs cannot handle them. Fail loud so the developer knows to
- *   restructure their schema.
+ * - Gracefully handles cycles — cyclic `$ref` are left in place with their
+ *   `$defs` entries preserved. Non-cyclic refs in the same schema are still
+ *   fully inlined. This avoids breaking existing servers that have recursive
+ *   schemas which work (degraded) today.
  * - Preserves sibling keywords alongside `$ref` per JSON Schema 2020-12
  *   (e.g. `{ "$ref": "...", "description": "override" }`).
  *
  * @internal Exported for testing only.
  */
 export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<string, unknown> {
-    const defs: Record<string, unknown> =
-        (schema['$defs'] as Record<string, unknown>) ?? (schema['definitions'] as Record<string, unknown>) ?? {};
+    // "$defs" is the standard keyword since JSON Schema 2019-09.
+    // See: https://json-schema.org/draft/2020-12/json-schema-core#section-8.2.4
+    // "definitions" is the legacy equivalent from drafts 04–07.
+    // See: https://json-schema.org/draft-07/json-schema-validation#section-9
+    // If both exist (malformed schema), "$defs" takes precedence.
+    const defsKey = '$defs' in schema ? '$defs' : 'definitions' in schema ? 'definitions' : undefined;
+    const defs: Record<string, unknown> = defsKey ? (schema[defsKey] as Record<string, unknown>) : {};
 
-    // Cache resolved defs to avoid redundant traversal on diamond references.
-    // Note: cached values are shared by reference. This is safe because schemas
-    // are treated as immutable after generation. If a consumer mutates a schema,
-    // they'd need to deep-clone it first regardless.
-    const cache = new Map<string, unknown>();
+    // No definitions container — nothing to inline.
+    // Note: $ref: "#" (root self-reference) is intentionally not handled — no schema
+    // library produces it, no other MCP SDK handles it, and it's always cyclic.
+    if (!defsKey) return schema;
 
-    function resolve(node: unknown, stack: Set<string>): unknown {
+    // Cache resolved defs to avoid redundant traversal on diamond references
+    // (A→B→D, A→C→D — D is resolved once and reused). Cached values are shared
+    // by reference, which is safe because schemas are immutable after generation.
+    const resolvedDefs = new Map<string, unknown>();
+    // Def names where a cycle was detected — these $ref are left in place
+    // and their $defs entries must be preserved in the output.
+    const cyclicDefs = new Set<string>();
+
+    /**
+     * Recursively inlines `$ref` pointers in a JSON Schema node by replacing
+     * them with the referenced definition content.
+     *
+     * @param node - The current schema node being traversed.
+     * @param stack - Def names currently being inlined (ancestor chain). If a
+     *   def is encountered while already on the stack, it's a cycle — the
+     *   `$ref` is left in place and the def name is added to `cyclicDefs`.
+     */
+    function inlineRefs(node: unknown, stack: Set<string>): unknown {
         if (node === null || typeof node !== 'object') return node;
-        if (Array.isArray(node)) return node.map(item => resolve(item, stack));
+        if (Array.isArray(node)) return node.map(item => inlineRefs(item, stack));
 
         const obj = node as Record<string, unknown>;
 
-        if (typeof obj['$ref'] === 'string') {
-            const ref = obj['$ref'] as string;
-
-            // Collect sibling keywords (JSON Schema 2020-12 allows keywords alongside $ref)
-            const { $ref: _ref, ...siblings } = obj;
-            void _ref;
+        // JSON Schema 2020-12 allows keywords alongside $ref (e.g. description, default).
+        // Destructure to get the ref target and any sibling keywords to merge later.
+        const { $ref: ref, ...siblings } = obj;
+        if (typeof ref === 'string') {
             const hasSiblings = Object.keys(siblings).length > 0;
 
             let resolved: unknown;
 
-            if (ref === '#') {
-                // Self-referencing root
-                if (stack.has(ref)) {
-                    throw new Error(
-                        'Recursive schema detected: the root schema references itself. ' +
-                            'MCP tool schemas cannot contain cycles because LLMs cannot resolve $ref pointers.'
-                    );
-                }
-                const { $defs: _defs, definitions: _definitions, ...rest } = schema;
-                void _defs;
-                void _definitions;
-                stack.add(ref);
-                resolved = resolve(rest, stack);
-                stack.delete(ref);
-            } else {
-                // Local definition: #/$defs/Name or #/definitions/Name
-                const match = ref.match(/^#\/(?:\$defs|definitions)\/(.+)$/);
-                if (!match) return obj; // Non-local $ref — leave as-is
+            // Local definition reference: #/$defs/Name or #/definitions/Name
+            const prefix = `#/${defsKey}/`;
+            if (!ref.startsWith(prefix)) return obj; // Non-local $ref (external URL, etc.) — leave as-is
 
-                const defName = match[1]!;
-                const def = defs[defName];
-                if (def === undefined) return obj; // Unknown def — leave as-is
-
-                if (stack.has(defName)) {
-                    throw new Error(
-                        `Recursive schema detected: cycle through definition "${defName}". ` +
-                            'MCP tool schemas cannot contain cycles because LLMs cannot resolve $ref pointers.'
-                    );
-                }
-
-                if (cache.has(defName)) {
-                    resolved = cache.get(defName);
-                } else {
-                    stack.add(defName);
-                    resolved = resolve(def, stack);
-                    stack.delete(defName);
-                    cache.set(defName, resolved);
-                }
+            const defName = ref.slice(prefix.length);
+            const def = defs[defName];
+            if (def === undefined) return obj; // Unknown def — leave as-is
+            if (stack.has(defName)) {
+                cyclicDefs.add(defName);
+                return obj; // Cycle — leave $ref in place
             }
 
-            // Merge sibling keywords onto the resolved schema
+            if (resolvedDefs.has(defName)) {
+                resolved = resolvedDefs.get(defName);
+            } else {
+                stack.add(defName);
+                resolved = inlineRefs(def, stack);
+                stack.delete(defName);
+                resolvedDefs.set(defName, resolved);
+            }
+
+            // Merge sibling keywords onto the resolved definition
             if (hasSiblings && resolved !== null && typeof resolved === 'object' && !Array.isArray(resolved)) {
-                const resolvedSiblings = Object.fromEntries(Object.entries(siblings).map(([k, v]) => [k, resolve(v, stack)]));
+                const resolvedSiblings = Object.fromEntries(Object.entries(siblings).map(([k, v]) => [k, inlineRefs(v, stack)]));
                 return { ...(resolved as Record<string, unknown>), ...resolvedSiblings };
             }
             return resolved;
         }
 
+        // Regular object — recurse into values, skipping root-level $defs container
         const result: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(obj)) {
             if (obj === schema && (key === '$defs' || key === 'definitions')) continue;
-            result[key] = resolve(value, stack);
+            result[key] = inlineRefs(value, stack);
         }
         return result;
     }
 
-    return resolve(schema, new Set()) as Record<string, unknown>;
+    const resolved = inlineRefs(schema, new Set()) as Record<string, unknown>;
+
+    // Re-attach $defs only for cyclic definitions, using their resolved/cached
+    // versions so that any non-cyclic refs inside them are already inlined.
+    if (defsKey && cyclicDefs.size > 0) {
+        const prunedDefs: Record<string, unknown> = {};
+        for (const name of cyclicDefs) {
+            prunedDefs[name] = resolvedDefs.get(name) ?? defs[name];
+        }
+        resolved[defsKey] = prunedDefs;
+    }
+
+    return resolved;
 }
 
 /**
