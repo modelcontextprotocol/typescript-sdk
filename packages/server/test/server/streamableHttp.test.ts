@@ -1081,5 +1081,57 @@ describe('Zod v4', () => {
 
             expect(vi.getTimerCount()).toBe(0);
         });
+
+        it('should maintain independent keepalive timers per concurrent stream', async () => {
+            // Minimal event store so a GET with last-event-id triggers replayEvents()
+            // and creates a second StreamMapping entry concurrently with the standalone GET.
+            const eventStore: EventStore = {
+                async storeEvent(streamId) {
+                    return `${streamId}_evt`;
+                },
+                async getStreamIdForEventId() {
+                    return 'replay-stream';
+                },
+                async replayEventsAfter() {
+                    return 'replay-stream';
+                }
+            };
+
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                keepAliveInterval: 50,
+                eventStore
+            });
+            await mcpServer.connect(transport);
+            const initRes = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            const sessionId = initRes.headers.get('mcp-session-id') as string;
+
+            // Stream A: standalone GET
+            const resA = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+            expect(resA.status).toBe(200);
+            const readerA = resA.body!.getReader();
+            expect(vi.getTimerCount()).toBe(1);
+
+            // Stream B: GET with last-event-id -> replayEvents path, separate mapping key
+            const resB = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'last-event-id': 'evt-1' } })
+            );
+            expect(resB.status).toBe(200);
+            const readerB = resB.body!.getReader();
+            expect(vi.getTimerCount()).toBe(2);
+
+            // Cancel stream B; its keepalive timer must be cleared without affecting A's
+            await readerB.cancel();
+            expect(vi.getTimerCount()).toBe(1);
+
+            // Stream A still receives keepalives after B is cancelled
+            vi.advanceTimersByTime(60);
+            const { value } = await readerA.read();
+            expect(new TextDecoder().decode(value)).toContain(': keepalive');
+
+            await readerA.cancel();
+            expect(vi.getTimerCount()).toBe(0);
+        });
     });
 });
