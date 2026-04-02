@@ -71,7 +71,7 @@ jobs:
             # requires npm >=11.5.1, which Node 24's bundled npm only satisfies from
             # ~24.6 onward. Install a recent-enough npm so we don't depend on which Node patch resolves.
             - name: Ensure npm CLI supports OIDC trusted publishing
-              run: npm install -g npm@^11.5.1
+              run: npm install -g npm@11.5.1
 
             - name: Publish to npm
               uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1
