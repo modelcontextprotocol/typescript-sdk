@@ -1,6 +1,7 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
+    failOnWarn: 'ci-only',
     // 1. Entry Points
     //    Directly matches package.json include/exclude globs
     entry: ['src/index.ts'],
