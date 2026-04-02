@@ -1057,6 +1057,96 @@ export abstract class Protocol<ContextT extends BaseContext> {
     removeNotificationHandler(method: NotificationMethod): void {
         this._notificationHandlers.delete(method);
     }
+
+    /**
+     * Registers a handler for a custom (non-standard) request method.
+     *
+     * Unlike {@linkcode Protocol.setRequestHandler | setRequestHandler}, this accepts any method
+     * string and validates incoming params against a user-provided schema instead of an SDK-defined
+     * one. Capability checks are skipped. The handler receives the same {@linkcode BaseContext | context}
+     * as standard handlers, including cancellation, task support, and bidirectional send/notify.
+     */
+    setCustomRequestHandler<P extends AnySchema>(
+        method: string,
+        paramsSchema: P,
+        handler: (params: SchemaOutput<P>, ctx: ContextT) => Result | Promise<Result>
+    ): void {
+        this._requestHandlers.set(method, (request, ctx) => {
+            const parsed = parseSchema(paramsSchema, request.params);
+            if (!parsed.success) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
+            }
+            return Promise.resolve(handler(parsed.data, ctx));
+        });
+    }
+
+    /**
+     * Removes a custom request handler previously registered with
+     * {@linkcode Protocol.setCustomRequestHandler | setCustomRequestHandler}.
+     */
+    removeCustomRequestHandler(method: string): void {
+        this._requestHandlers.delete(method);
+    }
+
+    /**
+     * Registers a handler for a custom (non-standard) notification method.
+     *
+     * Unlike {@linkcode Protocol.setNotificationHandler | setNotificationHandler}, this accepts any
+     * method string and validates incoming params against a user-provided schema instead of an
+     * SDK-defined one.
+     */
+    setCustomNotificationHandler<P extends AnySchema>(
+        method: string,
+        paramsSchema: P,
+        handler: (params: SchemaOutput<P>) => void | Promise<void>
+    ): void {
+        this._notificationHandlers.set(method, notification => {
+            const parsed = parseSchema(paramsSchema, notification.params);
+            if (!parsed.success) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
+            }
+            return Promise.resolve(handler(parsed.data));
+        });
+    }
+
+    /**
+     * Removes a custom notification handler previously registered with
+     * {@linkcode Protocol.setCustomNotificationHandler | setCustomNotificationHandler}.
+     */
+    removeCustomNotificationHandler(method: string): void {
+        this._notificationHandlers.delete(method);
+    }
+
+    /**
+     * Sends a custom (non-standard) request and waits for a response, validating the result against
+     * the provided schema.
+     *
+     * Unlike {@linkcode Protocol.request | request}, this accepts any method string. Capability
+     * checks are bypassed when {@linkcode ProtocolOptions.enforceStrictCapabilities} is disabled
+     * (the default).
+     */
+    sendCustomRequest<T extends AnySchema>(
+        method: string,
+        params: Record<string, unknown> | undefined,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<SchemaOutput<T>> {
+        return this._requestWithSchema({ method, params } as Request, resultSchema, options);
+    }
+
+    /**
+     * Sends a custom (non-standard) notification.
+     *
+     * Unlike {@linkcode Protocol.notification | notification}, this accepts any method string and
+     * bypasses capability checks by sending directly via the transport.
+     */
+    async sendCustomNotification(method: string, params?: Record<string, unknown>, options?: NotificationOptions): Promise<void> {
+        if (!this._transport) {
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        }
+        const jsonrpcNotification: JSONRPCNotification = { jsonrpc: '2.0', method, params };
+        await this._transport.send(jsonrpcNotification, options);
+    }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
