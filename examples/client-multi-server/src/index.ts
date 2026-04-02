@@ -19,7 +19,7 @@ interface ServersConfig {
 
 class MultiServerClient {
   private servers: Map<string, Client> = new Map();
-  private toolToServer: Map<string, string> = new Map();
+  private toolToServer: Map<string, { serverName: string; originalName: string }> = new Map();
   private _anthropic: Anthropic | null = null;
   private tools: Anthropic.Tool[] = [];
 
@@ -43,19 +43,24 @@ class MultiServerClient {
         });
         const client = new Client({ name: `multi-server-client-${name}`, version: '1.0.0' });
         await client.connect(transport);
+        this.servers.set(name, client);
 
         // Discover tools from this server
         const toolsResult = await client.listTools();
         for (const tool of toolsResult.tools) {
-          this.toolToServer.set(tool.name, name);
+          const prefixedName = `${name}__${tool.name}`;
+          if (this.toolToServer.has(prefixedName)) {
+            console.warn(
+              `  Warning: tool "${tool.name}" from server "${name}" collides with an existing tool.`
+            );
+          }
+          this.toolToServer.set(prefixedName, { serverName: name, originalName: tool.name });
           this.tools.push({
-            name: tool.name,
-            description: tool.description ?? '',
+            name: prefixedName,
+            description: `[${name}] ${tool.description ?? ''}`,
             input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
           });
         }
-
-        this.servers.set(name, client);
         console.log(
           `  Connected to ${name} with tools: ${toolsResult.tools.map((t) => t.name).join(', ')}`
         );
@@ -91,8 +96,8 @@ class MultiServerClient {
         if (block.type === 'text') {
           finalText.push(block.text);
         } else if (block.type === 'tool_use') {
-          const serverName = this.toolToServer.get(block.name);
-          if (!serverName) {
+          const mapping = this.toolToServer.get(block.name);
+          if (!mapping) {
             toolResults.push({
               type: 'tool_result',
               tool_use_id: block.id,
@@ -102,17 +107,18 @@ class MultiServerClient {
             continue;
           }
 
+          const { serverName, originalName } = mapping;
           const client = this.servers.get(serverName)!;
-          console.log(`  [Calling ${block.name} on server "${serverName}"]`);
+          console.log(`  [Calling ${originalName} on server "${serverName}"]`);
 
           try {
             const result = await client.callTool({
-              name: block.name,
+              name: originalName,
               arguments: block.input as Record<string, unknown> | undefined,
             });
 
             const resultText = result.content
-              .filter((c): c is Anthropic.TextBlock => c.type === 'text')
+              .filter((c) => c.type === 'text')
               .map((c) => c.text)
               .join('\n');
 
