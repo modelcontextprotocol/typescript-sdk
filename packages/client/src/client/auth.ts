@@ -1200,13 +1200,13 @@ export async function startAuthorization(
         ) {
             throw new Error(`Incompatible auth server: does not support code challenge method ${AUTHORIZATION_CODE_CHALLENGE_METHOD}`);
         }
-    } else if (new URL(authorizationServerUrl).pathname !== '/') {
+    } else if (new URL(authorizationServerUrl).pathname === '/') {
+        authorizationUrl = new URL('/authorize', authorizationServerUrl);
+    } else {
         throw new Error(
           `Authorization server metadata discovery failed and the server URL (${authorizationServerUrl}) has a non-root path. ` +
           `Cannot determine the authorization endpoint. Please ensure the authorization server is reachable and supports metadata discovery.`
         );
-    } else {
-        authorizationUrl = new URL('/authorize', authorizationServerUrl);
     }
 
     // Generate PKCE challenge
@@ -1288,14 +1288,17 @@ async function executeTokenRequest(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const tokenUrl = metadata?.token_endpoint
-      ? new URL(metadata.token_endpoint)
-      : new URL(authorizationServerUrl).pathname !== '/'
-        ? (() => { throw new Error(
+    let tokenUrl: URL;
+    if (metadata?.token_endpoint) {
+        tokenUrl = new URL(metadata.token_endpoint);
+    } else if (new URL(authorizationServerUrl).pathname === '/') {
+        tokenUrl = new URL('/token', authorizationServerUrl);
+    } else {
+        throw new Error(
             `Authorization server metadata discovery failed and the server URL (${authorizationServerUrl}) has a non-root path. ` +
             `Cannot determine the token endpoint.`
-          ); })()
-        : new URL('/token', authorizationServerUrl);
+        );
+    }
 
     const headers = new Headers({
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -1542,13 +1545,14 @@ export async function registerClient(
 
         registrationUrl = new URL(metadata.registration_endpoint);
     } else {
-        if (new URL(authorizationServerUrl).pathname !== '/') {
+        if (new URL(authorizationServerUrl).pathname === '/') {
+            registrationUrl = new URL('/register', authorizationServerUrl);
+        } else {
             throw new Error(
               `Authorization server metadata discovery failed and the server URL (${authorizationServerUrl}) has a non-root path. ` +
               `Cannot determine the registration endpoint.`
             );
         }
-        registrationUrl = new URL('/register', authorizationServerUrl);
     }
 
     const response = await (fetchFn ?? fetch)(registrationUrl, {

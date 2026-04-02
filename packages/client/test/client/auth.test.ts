@@ -2885,8 +2885,9 @@ describe('OAuth Authorization', () => {
                             authorization_servers: ['https://auth.example.com/oauth']
                         })
                     });
-                } else if (urlString === 'https://auth.example.com/.well-known/oauth-authorization-server/path/name') {
-                    // Path-aware discovery on AS with path from serverUrl
+                } else if (urlString === 'https://auth.example.com/.well-known/oauth-authorization-server/path/name' ||
+                           urlString === 'https://auth.example.com/.well-known/oauth-authorization-server/oauth') {
+                    // Path-aware discovery on AS with path from serverUrl or AS path
                     return Promise.resolve({
                         ok: true,
                         status: 200,
