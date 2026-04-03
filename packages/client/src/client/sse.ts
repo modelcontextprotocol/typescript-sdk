@@ -78,6 +78,8 @@ export class SSEClientTransport implements Transport {
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
 
+    private static readonly _INTERACTIVE_AUTH_STATE_PREFIX = 'mcp:oauth:interactive:sse:';
+
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
@@ -96,6 +98,64 @@ export class SSEClientTransport implements Transport {
         }
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+
+        this._loadInteractiveAuthState();
+    }
+
+    private _interactiveAuthStateKey(): string {
+        return `${SSEClientTransport._INTERACTIVE_AUTH_STATE_PREFIX}${this._url.toString()}`;
+    }
+
+    private _saveInteractiveAuthState(): void {
+        if (typeof sessionStorage === 'undefined') {
+            return;
+        }
+
+        const state = {
+            resourceMetadataUrl: this._resourceMetadataUrl?.toString(),
+            scope: this._scope
+        };
+
+        try {
+            sessionStorage.setItem(this._interactiveAuthStateKey(), JSON.stringify(state));
+        } catch {
+            // Ignore storage failures (e.g. quota exceeded)
+        }
+    }
+
+    private _loadInteractiveAuthState(): void {
+        if (typeof sessionStorage === 'undefined') {
+            return;
+        }
+
+        try {
+            const raw = sessionStorage.getItem(this._interactiveAuthStateKey());
+            if (!raw) {
+                return;
+            }
+
+            const parsed = JSON.parse(raw) as { resourceMetadataUrl?: string; scope?: string };
+            if (parsed.resourceMetadataUrl) {
+                this._resourceMetadataUrl = new URL(parsed.resourceMetadataUrl);
+            }
+            if (parsed.scope) {
+                this._scope = parsed.scope;
+            }
+        } catch {
+            // Ignore malformed persisted state
+        }
+    }
+
+    private _clearInteractiveAuthState(): void {
+        if (typeof sessionStorage === 'undefined') {
+            return;
+        }
+
+        try {
+            sessionStorage.removeItem(this._interactiveAuthStateKey());
+        } catch {
+            // Ignore storage failures
+        }
     }
 
     private _last401Response?: Response;
@@ -137,6 +197,7 @@ export class SSEClientTransport implements Transport {
                             const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                             this._resourceMetadataUrl = resourceMetadataUrl;
                             this._scope = scope;
+                            this._saveInteractiveAuthState();
                         }
                     }
 
@@ -237,6 +298,8 @@ export class SSEClientTransport implements Transport {
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
         }
+
+        this._clearInteractiveAuthState();
     }
 
     async close(): Promise<void> {
@@ -272,6 +335,7 @@ export class SSEClientTransport implements Transport {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
                         this._scope = scope;
+                        this._saveInteractiveAuthState();
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {

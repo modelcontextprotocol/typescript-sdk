@@ -2,7 +2,7 @@ import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core'
 import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
@@ -12,6 +12,20 @@ describe('StreamableHTTPClientTransport', () => {
     let mockAuthProvider: Mocked<OAuthClientProvider>;
 
     beforeEach(() => {
+        const sessionStorageStore = new Map<string, string>();
+        Object.defineProperty(globalThis, 'sessionStorage', {
+            configurable: true,
+            value: {
+                getItem: (key: string) => sessionStorageStore.get(key) ?? null,
+                setItem: (key: string, value: string) => {
+                    sessionStorageStore.set(key, value);
+                },
+                removeItem: (key: string) => {
+                    sessionStorageStore.delete(key);
+                }
+            }
+        });
+
         mockAuthProvider = {
             get redirectUrl() {
                 return 'http://localhost/callback';
@@ -34,6 +48,7 @@ describe('StreamableHTTPClientTransport', () => {
     afterEach(async () => {
         await transport.close().catch(() => {});
         vi.clearAllMocks();
+        delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
     });
 
     it('should send JSON-RPC messages via POST', async () => {
@@ -1605,6 +1620,80 @@ describe('StreamableHTTPClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalThis.fetch).not.toHaveBeenCalled();
+        });
+
+        it('persists interactive auth metadata across transport recreation before finishAuth', async () => {
+            const customFetch = vi
+                .fn()
+                // First transport send -> 401 with auth metadata
+                .mockResolvedValueOnce(
+                    new Response(null, {
+                        status: 401,
+                        headers: {
+                            'WWW-Authenticate':
+                                'Bearer resource_metadata="http://localhost:1234/.well-known/oauth-protected-resource", scope="calendar.read"'
+                        }
+                    })
+                )
+                // Second transport finishAuth -> resource metadata discovery
+                .mockResolvedValueOnce(
+                    Response.json({
+                        authorization_servers: ['http://localhost:1234'],
+                        resource: 'http://localhost:1234/mcp'
+                    })
+                )
+                // auth server metadata discovery
+                .mockResolvedValueOnce(
+                    Response.json({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    })
+                )
+                // authorization code exchange
+                .mockResolvedValueOnce(
+                    Response.json({
+                        access_token: 'new-access-token',
+                        refresh_token: 'new-refresh-token',
+                        token_type: 'Bearer',
+                        expires_in: 3600
+                    })
+                );
+
+            const firstAuthProvider: AuthProvider = {
+                token: vi.fn(async () => undefined)
+            };
+
+            const firstTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: firstAuthProvider,
+                fetch: customFetch
+            });
+
+            await firstTransport.start();
+
+            await expect(firstTransport.send({ jsonrpc: '2.0', method: 'ping', params: {}, id: '1' } as JSONRPCMessage)).rejects.toThrow(
+                UnauthorizedError
+            );
+
+            await firstTransport.close();
+
+            const secondTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: customFetch
+            });
+
+            await secondTransport.finishAuth('auth-code-after-redirect');
+
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
+                access_token: 'new-access-token',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                refresh_token: 'new-refresh-token'
+            });
+
+            await secondTransport.close();
         });
     });
 
