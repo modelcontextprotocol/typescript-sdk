@@ -1722,7 +1722,7 @@ export const BooleanSchemaSchema = z.object({
     title: z.string().optional(),
     description: z.string().optional(),
     default: z.boolean().optional()
-});
+}).passthrough();
 
 /**
  * Primitive schema definition for string fields.
@@ -1735,7 +1735,7 @@ export const StringSchemaSchema = z.object({
     maxLength: z.number().optional(),
     format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
     default: z.string().optional()
-});
+}).passthrough();
 
 /**
  * Primitive schema definition for number fields.
@@ -1747,7 +1747,7 @@ export const NumberSchemaSchema = z.object({
     minimum: z.number().optional(),
     maximum: z.number().optional(),
     default: z.number().optional()
-});
+}).passthrough();
 
 /**
  * Schema for single-selection enumeration without display titles for options.
@@ -1758,7 +1758,7 @@ export const UntitledSingleSelectEnumSchemaSchema = z.object({
     description: z.string().optional(),
     enum: z.array(z.string()),
     default: z.string().optional()
-});
+}).passthrough();
 
 /**
  * Schema for single-selection enumeration with display titles for each option.
@@ -1774,7 +1774,7 @@ export const TitledSingleSelectEnumSchemaSchema = z.object({
         })
     ),
     default: z.string().optional()
-});
+}).passthrough();
 
 /**
  * Use {@linkcode TitledSingleSelectEnumSchema} instead.
@@ -1787,7 +1787,7 @@ export const LegacyTitledEnumSchemaSchema = z.object({
     enum: z.array(z.string()),
     enumNames: z.array(z.string()).optional(),
     default: z.string().optional()
-});
+}).passthrough();
 
 // Combined single selection enumeration
 export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
@@ -1806,7 +1806,7 @@ export const UntitledMultiSelectEnumSchemaSchema = z.object({
         enum: z.array(z.string())
     }),
     default: z.array(z.string()).optional()
-});
+}).passthrough();
 
 /**
  * Schema for multiple-selection enumeration with display titles for each option.
@@ -1826,7 +1826,7 @@ export const TitledMultiSelectEnumSchemaSchema = z.object({
         )
     }),
     default: z.array(z.string()).optional()
-});
+}).passthrough();
 
 /**
  * Combined schema for multiple-selection enumeration
