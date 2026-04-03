@@ -320,7 +320,7 @@ export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 
 /* Streams */
-export type StreamId = Infer<typeof StreamIdSchema>;
+export type ProtocolStreamId = Infer<typeof StreamIdSchema>;
 export type StreamDescriptor = Infer<typeof StreamDescriptorSchema>;
 export type StreamPacket = Infer<typeof StreamPacketSchema>;
 export type StreamOpenRequestParams = Infer<typeof StreamOpenRequestParamsSchema>;
