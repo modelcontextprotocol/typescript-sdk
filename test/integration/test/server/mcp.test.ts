@@ -8,7 +8,7 @@ import {
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, getRequestPrivacy, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -1175,6 +1175,280 @@ describe('Zod v4', () => {
                 readOnlyHint: true,
                 openWorldHint: false
             });
+        });
+
+        /***
+         * Test: Privacy Annotations
+         */
+        test('should register tool with privacyHint in annotations', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool(
+                'get_patient_record',
+                {
+                    description: 'Retrieve a patient record',
+                    inputSchema: z.object({ patient_id: z.string() }),
+                    annotations: {
+                        title: 'Get Patient Record',
+                        readOnlyHint: true,
+                        privacyHint: {
+                            dataCategories: ['personal', 'health', 'genetic'],
+                            countries: ['US'],
+                            subdivisions: ['US-CA']
+                        }
+                    }
+                },
+                async ({ patient_id }) => ({
+                    content: [{ type: 'text', text: `Record for ${patient_id}` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.annotations).toEqual({
+                title: 'Get Patient Record',
+                readOnlyHint: true,
+                privacyHint: {
+                    dataCategories: ['personal', 'health', 'genetic'],
+                    countries: ['US'],
+                    subdivisions: ['US-CA']
+                }
+            });
+        });
+
+        test('should pass RequestPrivacy through _meta on tool call', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            let receivedPrivacy: unknown;
+
+            mcpServer.registerTool(
+                'test_tool',
+                {
+                    inputSchema: z.object({ query: z.string() })
+                },
+                async ({ query }, ctx) => {
+                    receivedPrivacy = getRequestPrivacy(ctx);
+                    return { content: [{ type: 'text', text: query }] };
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await client.callTool({
+                name: 'test_tool',
+                arguments: { query: 'test' },
+                _meta: {
+                    privacy: {
+                        purpose: 'treatment',
+                        justifications: ['contract'],
+                        minor: false,
+                        country: 'US',
+                        subdivision: 'US-CA'
+                    }
+                }
+            });
+
+            expect(receivedPrivacy).toEqual({
+                purpose: 'treatment',
+                justifications: ['contract'],
+                minor: false,
+                country: 'US',
+                subdivision: 'US-CA'
+            });
+        });
+
+        test('should return ResponsePrivacy in tool call result _meta', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool(
+                'test_tool',
+                {
+                    inputSchema: z.object({ query: z.string() })
+                },
+                async ({ query }) => ({
+                    content: [{ type: 'text', text: query }],
+                    _meta: {
+                        privacy: {
+                            dataCategories: ['personal', 'health'],
+                            countries: ['US'],
+                            subdivisions: ['US-CA'],
+                            minor: false
+                        }
+                    }
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.callTool({
+                name: 'test_tool',
+                arguments: { query: 'test' }
+            });
+
+            expect(result._meta?.privacy).toEqual({
+                dataCategories: ['personal', 'health'],
+                countries: ['US'],
+                subdivisions: ['US-CA'],
+                minor: false
+            });
+        });
+
+        test('should handle full privacy round-trip: hint + request + response', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            let receivedPrivacy: unknown;
+
+            mcpServer.registerTool(
+                'get_patient_record',
+                {
+                    inputSchema: z.object({ patient_id: z.string() }),
+                    annotations: {
+                        readOnlyHint: true,
+                        privacyHint: {
+                            dataCategories: ['personal', 'health'],
+                            countries: ['US'],
+                            subdivisions: ['US-CA']
+                        }
+                    }
+                },
+                async ({ patient_id }, ctx) => {
+                    receivedPrivacy = getRequestPrivacy(ctx);
+                    return {
+                        content: [{ type: 'text', text: `Record for ${patient_id}` }],
+                        _meta: {
+                            privacy: {
+                                dataCategories: ['personal', 'health'],
+                                countries: ['US'],
+                                subdivisions: ['US-CA']
+                            }
+                        }
+                    };
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Verify privacy hint on tool listing
+            const tools = await client.request({ method: 'tools/list' });
+            expect(tools.tools[0]!.annotations?.privacyHint).toEqual({
+                dataCategories: ['personal', 'health'],
+                countries: ['US'],
+                subdivisions: ['US-CA']
+            });
+
+            // Call tool with request privacy
+            const result = await client.callTool({
+                name: 'get_patient_record',
+                arguments: { patient_id: 'P-123' },
+                _meta: {
+                    privacy: {
+                        purpose: 'treatment',
+                        justifications: ['contract'],
+                        country: 'DE',
+                        subdivision: 'DE-BY'
+                    }
+                }
+            });
+
+            // Verify request privacy was received by handler
+            expect(receivedPrivacy).toEqual({
+                purpose: 'treatment',
+                justifications: ['contract'],
+                country: 'DE',
+                subdivision: 'DE-BY'
+            });
+
+            // Verify response privacy
+            expect(result._meta?.privacy).toEqual({
+                dataCategories: ['personal', 'health'],
+                countries: ['US'],
+                subdivisions: ['US-CA']
+            });
+        });
+
+        test('should work without privacy annotations (backward compatibility)', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool(
+                'simple_tool',
+                {
+                    annotations: { readOnlyHint: true }
+                },
+                async () => ({
+                    content: [{ type: 'text', text: 'result' }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const tools = await client.request({ method: 'tools/list' });
+            expect(tools.tools[0]!.annotations?.privacyHint).toBeUndefined();
+
+            const result = await client.callTool({ name: 'simple_tool' });
+            expect(result._meta?.privacy).toBeUndefined();
+        });
+
+        test('should handle partial privacy objects', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            let receivedPrivacy: unknown;
+
+            mcpServer.registerTool(
+                'test_tool',
+                {
+                    inputSchema: z.object({ q: z.string() }),
+                    annotations: {
+                        privacyHint: {
+                            dataCategories: ['financial']
+                        }
+                    }
+                },
+                async ({ q }, ctx) => {
+                    receivedPrivacy = getRequestPrivacy(ctx);
+                    return {
+                        content: [{ type: 'text', text: q }],
+                        _meta: {
+                            privacy: {
+                                dataCategories: ['financial']
+                            }
+                        }
+                    };
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const tools = await client.request({ method: 'tools/list' });
+            expect(tools.tools[0]!.annotations?.privacyHint).toEqual({
+                dataCategories: ['financial']
+            });
+
+            const result = await client.callTool({
+                name: 'test_tool',
+                arguments: { q: 'test' },
+                _meta: {
+                    privacy: {
+                        purpose: 'payment_processing'
+                    }
+                }
+            });
+
+            expect(receivedPrivacy).toEqual({ purpose: 'payment_processing' });
+            expect(result._meta?.privacy).toEqual({ dataCategories: ['financial'] });
         });
 
         /***

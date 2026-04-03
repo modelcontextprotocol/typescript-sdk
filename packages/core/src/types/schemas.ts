@@ -1227,6 +1227,165 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
     params: NotificationsParamsSchema.optional()
 });
 
+/* Privacy vocabulary */
+
+/**
+ * Data categories describing what kind of data a tool handles.
+ * Each category represents a grouping that receives distinct regulatory
+ * treatment in at least one major global privacy framework.
+ */
+export const DataCategorySchema = z.enum([
+    'personal',
+    'health',
+    'financial',
+    'biometric',
+    'genetic',
+    'demographic',
+    'political',
+    'religious',
+    'sexual',
+    'criminal',
+    'education',
+    'location',
+    'communications',
+    'authentication',
+    'behavioral'
+]);
+
+/**
+ * Processing purpose describing why data is being accessed.
+ * Values are drawn from processing purposes recognized across
+ * major global privacy frameworks.
+ */
+export const PurposeSchema = z.enum([
+    'service_delivery',
+    'treatment',
+    'payment_processing',
+    'fraud_prevention',
+    'identity_verification',
+    'legal_compliance',
+    'research',
+    'analytics',
+    'marketing',
+    'advertising',
+    'personalization',
+    'third_party_sharing',
+    'model_training',
+    'audit',
+    'support',
+    'employment',
+    'deletion',
+    'data_portability'
+]);
+
+/**
+ * Legal justification for data processing. Rooted in the legal bases
+ * recognized by major privacy frameworks, particularly GDPR Article 6(1).
+ */
+export const LegalJustificationSchema = z.enum([
+    'consent',
+    'explicit_consent',
+    'contract',
+    'legal_obligation',
+    'vital_interest',
+    'public_interest',
+    'legitimate_interest',
+    'employment',
+    'regulatory_mandate'
+]);
+
+/* Privacy annotation types */
+
+/**
+ * Privacy hint declared by a server on a tool definition.
+ * Describes the data categories this tool may handle and the
+ * server's data residency location(s).
+ */
+export const PrivacyHintSchema = z.object({
+    /**
+     * Data categories that this tool's responses may contain.
+     * Additive: multiple categories apply simultaneously.
+     */
+    dataCategories: z.array(DataCategorySchema).optional(),
+
+    /**
+     * The geographic location(s) where this server processes and/or
+     * stores data. Uses ISO 3166-1 alpha-2 country codes.
+     * Use ["global"] when the server cannot guarantee a specific location.
+     */
+    countries: z.array(z.string()).optional(),
+
+    /**
+     * The sub-national subdivision(s) where this server processes
+     * and/or stores data, using ISO 3166-2 codes.
+     */
+    subdivisions: z.array(z.string()).optional()
+});
+
+/**
+ * Privacy metadata declared by the client in a tools/call request.
+ * Communicates the caller's processing context — purpose, legal
+ * justification, and location.
+ */
+export const RequestPrivacySchema = z.object({
+    /**
+     * The purpose for which the data is being accessed or processed.
+     */
+    purpose: PurposeSchema.optional(),
+
+    /**
+     * The legal justification(s) under which processing is claimed.
+     * An array because a single activity may be justified under
+     * multiple bases simultaneously.
+     */
+    justifications: z.array(LegalJustificationSchema).optional(),
+
+    /**
+     * Indicates the data subject is known or believed to be a minor.
+     */
+    minor: z.boolean().optional(),
+
+    /**
+     * The country where the client (or end user) is located,
+     * using ISO 3166-1 alpha-2 codes.
+     */
+    country: z.string().optional(),
+
+    /**
+     * The sub-national subdivision where the client is located,
+     * using ISO 3166-2 codes.
+     */
+    subdivision: z.string().optional()
+});
+
+/**
+ * Privacy metadata returned by the server in a CallToolResult.
+ * Reports the actual privacy characteristics of a specific response.
+ */
+export const ResponsePrivacySchema = z.object({
+    /**
+     * Data categories actually present in this response.
+     */
+    dataCategories: z.array(DataCategorySchema).optional(),
+
+    /**
+     * The country where the server actually processed this request,
+     * using ISO 3166-1 alpha-2 codes.
+     */
+    countries: z.array(z.string()).optional(),
+
+    /**
+     * The sub-national subdivision where the server processed this
+     * request, using ISO 3166-2 codes.
+     */
+    subdivisions: z.array(z.string()).optional(),
+
+    /**
+     * Indicates that data in this response relates to a minor.
+     */
+    minor: z.boolean().optional()
+});
+
 /* Tools */
 /**
  * Additional properties describing a `Tool` to clients.
@@ -1279,7 +1438,19 @@ export const ToolAnnotationsSchema = z.object({
      *
      * Default: `true`
      */
-    openWorldHint: z.boolean().optional()
+    openWorldHint: z.boolean().optional(),
+
+    /**
+     * Privacy metadata describing the data categories this tool may
+     * handle and the server's data residency location(s).
+     *
+     * Like other ToolAnnotation fields, this is a hint. It is not
+     * guaranteed to provide a faithful description of data handling
+     * behavior. Clients SHOULD NOT rely on privacyHint from untrusted
+     * servers for security-critical decisions without independent
+     * verification.
+     */
+    privacyHint: PrivacyHintSchema.optional()
 });
 
 /**
@@ -1362,9 +1533,20 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
 });
 
 /**
+ * Extended response metadata for tool call results, adding privacy fields.
+ */
+export const CallToolResultMetaSchema = RequestMetaSchema.extend({
+    /**
+     * Privacy metadata for this tool call result, declared by the server.
+     */
+    privacy: ResponsePrivacySchema.optional()
+});
+
+/**
  * The server's response to a tool call.
  */
 export const CallToolResultSchema = ResultSchema.extend({
+    _meta: CallToolResultMetaSchema.optional(),
     /**
      * A list of content objects that represent the result of the tool call.
      *
@@ -1407,9 +1589,20 @@ export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
 );
 
 /**
+ * Extended request metadata for tool call requests, adding privacy fields.
+ */
+export const CallToolRequestMetaSchema = RequestMetaSchema.extend({
+    /**
+     * Privacy metadata for this tool call, declared by the client.
+     */
+    privacy: RequestPrivacySchema.optional()
+});
+
+/**
  * Parameters for a `tools/call` request.
  */
 export const CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+    _meta: CallToolRequestMetaSchema.optional(),
     /**
      * The name of the tool to call.
      */

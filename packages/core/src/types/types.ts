@@ -12,8 +12,10 @@ import type {
     BaseRequestParamsSchema,
     BlobResourceContentsSchema,
     BooleanSchemaSchema,
+    CallToolRequestMetaSchema,
     CallToolRequestParamsSchema,
     CallToolRequestSchema,
+    CallToolResultMetaSchema,
     CallToolResultSchema,
     CancelledNotificationParamsSchema,
     CancelledNotificationSchema,
@@ -34,6 +36,7 @@ import type {
     CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
     CursorSchema,
+    DataCategorySchema,
     ElicitationCompleteNotificationParamsSchema,
     ElicitationCompleteNotificationSchema,
     ElicitRequestFormParamsSchema,
@@ -65,6 +68,7 @@ import type {
     JSONRPCRequestSchema,
     JSONRPCResponseSchema,
     JSONRPCResultResponseSchema,
+    LegalJustificationSchema,
     LegacyTitledEnumSchemaSchema,
     ListPromptsRequestSchema,
     ListPromptsResultSchema,
@@ -91,6 +95,7 @@ import type {
     PaginatedRequestSchema,
     PaginatedResultSchema,
     PingRequestSchema,
+    PrivacyHintSchema,
     PrimitiveSchemaDefinitionSchema,
     ProgressNotificationParamsSchema,
     ProgressNotificationSchema,
@@ -101,12 +106,14 @@ import type {
     PromptMessageSchema,
     PromptReferenceSchema,
     PromptSchema,
+    PurposeSchema,
     ReadResourceRequestParamsSchema,
     ReadResourceRequestSchema,
     ReadResourceResultSchema,
     RelatedTaskMetadataSchema,
     RequestIdSchema,
     RequestMetaSchema,
+    RequestPrivacySchema,
     RequestSchema,
     ResourceContentsSchema,
     ResourceLinkSchema,
@@ -117,6 +124,7 @@ import type {
     ResourceTemplateSchema,
     ResourceUpdatedNotificationParamsSchema,
     ResourceUpdatedNotificationSchema,
+    ResponsePrivacySchema,
     ResultSchema,
     RoleSchema,
     RootSchema,
@@ -296,6 +304,16 @@ export type ContentBlock = Infer<typeof ContentBlockSchema>;
 export type PromptMessage = Infer<typeof PromptMessageSchema>;
 export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
 export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
+
+/* Privacy */
+export type DataCategory = Infer<typeof DataCategorySchema>;
+export type Purpose = Infer<typeof PurposeSchema>;
+export type LegalJustification = Infer<typeof LegalJustificationSchema>;
+export type PrivacyHint = Infer<typeof PrivacyHintSchema>;
+export type RequestPrivacy = Infer<typeof RequestPrivacySchema>;
+export type ResponsePrivacy = Infer<typeof ResponsePrivacySchema>;
+export type CallToolRequestMeta = Infer<typeof CallToolRequestMetaSchema>;
+export type CallToolResultMeta = Infer<typeof CallToolResultMetaSchema>;
 
 /* Tools */
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;

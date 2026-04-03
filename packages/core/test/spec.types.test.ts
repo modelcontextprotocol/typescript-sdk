@@ -845,6 +845,7 @@ type _K_Notification = Assert<AssertExactKeys<SDKTypes.Notification, SpecTypes.N
 type _K_ResourceTemplateReference = Assert<AssertExactKeys<SDKTypes.ResourceTemplateReference, SpecTypes.ResourceTemplateReference>>;
 // @ts-expect-error Genuine mismatch: SDK PromptReference is missing 'title' from spec
 type _K_PromptReference = Assert<AssertExactKeys<SDKTypes.PromptReference, SpecTypes.PromptReference>>;
+// @ts-expect-error SEP-0000: SDK ToolAnnotations adds 'privacyHint' (not yet in spec)
 type _K_ToolAnnotations = Assert<AssertExactKeys<SDKTypes.ToolAnnotations, SpecTypes.ToolAnnotations>>;
 type _K_Tool = Assert<AssertExactKeys<SDKTypes.Tool, SpecTypes.Tool>>;
 type _K_ListToolsResult = Assert<AssertExactKeys<SDKTypes.ListToolsResult, SpecTypes.ListToolsResult>>;

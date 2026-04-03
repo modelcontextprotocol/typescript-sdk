@@ -1,6 +1,7 @@
 import type {
     BaseMetadata,
     CallToolRequest,
+    CallToolRequestMeta,
     CallToolResult,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
@@ -16,6 +17,7 @@ import type {
     Prompt,
     PromptReference,
     ReadResourceResult,
+    RequestPrivacy,
     Resource,
     ResourceTemplateReference,
     Result,
@@ -44,6 +46,19 @@ import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
+
+/**
+ * Extract the {@link RequestPrivacy} from a tool handler's context.
+ *
+ * Tool handler callbacks receive a generic `ServerContext` whose `mcpReq._meta`
+ * is typed as `RequestMeta`. This helper provides typed access to the `privacy`
+ * field that clients may include in `tools/call` requests.
+ *
+ * @returns The client-declared privacy metadata, or `undefined` if not present.
+ */
+export function getRequestPrivacy(ctx: ServerContext): RequestPrivacy | undefined {
+    return (ctx.mcpReq._meta as CallToolRequestMeta | undefined)?.privacy;
+}
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
