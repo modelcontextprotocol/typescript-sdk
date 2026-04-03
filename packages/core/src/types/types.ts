@@ -145,6 +145,16 @@ import type {
     TextResourceContentsSchema,
     TitledMultiSelectEnumSchemaSchema,
     TitledSingleSelectEnumSchemaSchema,
+    StreamCloseNotificationParamsSchema,
+    StreamCloseNotificationSchema,
+    StreamDataNotificationParamsSchema,
+    StreamDataNotificationSchema,
+    StreamDescriptorSchema,
+    StreamIdSchema,
+    StreamOpenRequestParamsSchema,
+    StreamOpenRequestSchema,
+    StreamOpenResultSchema,
+    StreamPacketSchema,
     ToolAnnotationsSchema,
     ToolChoiceSchema,
     ToolExecutionSchema,
@@ -309,6 +319,18 @@ export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResu
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 
+/* Streams */
+export type StreamId = Infer<typeof StreamIdSchema>;
+export type StreamDescriptor = Infer<typeof StreamDescriptorSchema>;
+export type StreamPacket = Infer<typeof StreamPacketSchema>;
+export type StreamOpenRequestParams = Infer<typeof StreamOpenRequestParamsSchema>;
+export type StreamOpenRequest = Infer<typeof StreamOpenRequestSchema>;
+export type StreamOpenResult = Infer<typeof StreamOpenResultSchema>;
+export type StreamDataNotificationParams = Infer<typeof StreamDataNotificationParamsSchema>;
+export type StreamDataNotification = Infer<typeof StreamDataNotificationSchema>;
+export type StreamCloseNotificationParams = Infer<typeof StreamCloseNotificationParamsSchema>;
+export type StreamCloseNotification = Infer<typeof StreamCloseNotificationSchema>;
+
 /* Logging */
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
 export type SetLevelRequestParams = Infer<typeof SetLevelRequestParamsSchema>;
@@ -394,6 +416,7 @@ export type ResultTypeMap = {
     'resources/unsubscribe': EmptyResult;
     'tools/call': CallToolResult | CreateTaskResult;
     'tools/list': ListToolsResult;
+    'streams/open': StreamOpenResult;
     'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
     'elicitation/create': ElicitResult | CreateTaskResult;
     'roots/list': ListRootsResult;

@@ -543,6 +543,11 @@ export interface ClientCapabilities {
     };
 
     /**
+     * Present if the client supports streams.
+     */
+    streams?: JSONObject;
+
+    /**
      * Present if the client supports task-augmented requests.
      */
     tasks?: {
@@ -668,6 +673,11 @@ export interface ServerCapabilities {
          */
         listChanged?: boolean;
     };
+    /**
+     * Present if the server supports streams.
+     */
+    streams?: JSONObject;
+
     /**
      * Present if the server supports task-augmented requests.
      */
@@ -1768,7 +1778,121 @@ export interface Tool extends BaseMetadata, Icons {
      */
     annotations?: ToolAnnotations;
 
+    /**
+     * Declares named input stream channels that the tool accepts.
+     */
+    inputStreams?: StreamDescriptor[];
+
+    /**
+     * Declares named output stream channels that the tool produces.
+     */
+    outputStreams?: StreamDescriptor[];
+
     _meta?: MetaObject;
+}
+
+/* Streams */
+
+/**
+ * An opaque identifier for a stream.
+ *
+ * @category Streams
+ */
+export type StreamId = string;
+
+/**
+ * Describes a named stream channel that a tool can declare.
+ *
+ * @category Streams
+ */
+export interface StreamDescriptor {
+    name: string;
+    mimeType?: string;
+    description?: string;
+}
+
+/**
+ * A single packet of data within a stream.
+ *
+ * @category Streams
+ */
+export interface StreamPacket {
+    data: string;
+    encoding?: 'base64';
+}
+
+/**
+ * Parameters for a `streams/open` request.
+ *
+ * @category `streams/open`
+ */
+export interface StreamOpenRequestParams extends RequestParams {
+    streamId: StreamId;
+    mimeType?: string;
+    label?: string;
+    toolName?: string;
+    channelName?: string;
+}
+
+/**
+ * A request to open a new stream.
+ *
+ * @category `streams/open`
+ */
+export interface StreamOpenRequest extends JSONRPCRequest {
+    method: 'streams/open';
+    params: StreamOpenRequestParams;
+}
+
+/**
+ * The result of a `streams/open` request.
+ *
+ * @category `streams/open`
+ */
+export interface StreamOpenResult extends Result {
+    streamId: StreamId;
+}
+
+/**
+ * Parameters for a `notifications/streams/data` notification.
+ *
+ * @category `notifications/streams/data`
+ */
+export interface StreamDataNotificationParams extends NotificationParams {
+    streamId: StreamId;
+    offset: number;
+    packets: StreamPacket[];
+}
+
+/**
+ * A notification carrying stream data.
+ *
+ * @category `notifications/streams/data`
+ */
+export interface StreamDataNotification extends JSONRPCNotification {
+    method: 'notifications/streams/data';
+    params: StreamDataNotificationParams;
+}
+
+/**
+ * Parameters for a `notifications/streams/close` notification.
+ *
+ * @category `notifications/streams/close`
+ */
+export interface StreamCloseNotificationParams extends NotificationParams {
+    streamId: StreamId;
+    reason?: 'complete' | 'error' | 'cancelled';
+    message?: string;
+}
+
+/**
+ * A notification signalling that a stream has been closed.
+ *
+ * @category `notifications/streams/close`
+ */
+export interface StreamCloseNotification extends JSONRPCNotification {
+    method: 'notifications/streams/close';
+    params: StreamCloseNotificationParams;
 }
 
 /* Tasks */

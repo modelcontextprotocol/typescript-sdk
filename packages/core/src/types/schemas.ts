@@ -437,6 +437,12 @@ export const ClientCapabilitiesSchema = z.object({
         })
         .optional(),
     /**
+     * Present if the client supports streams.
+     * When declared, the client can open input streams and receive output streams
+     * during tool execution.
+     */
+    streams: JSONObjectSchema.optional(),
+    /**
      * Present if the client supports task creation.
      */
     tasks: ClientTasksCapabilitySchema.optional(),
@@ -516,6 +522,12 @@ export const ServerCapabilitiesSchema = z.object({
             listChanged: z.boolean().optional()
         })
         .optional(),
+    /**
+     * Present if the server supports streams.
+     * When declared, the server can open output streams and accept input streams
+     * during tool execution.
+     */
+    streams: JSONObjectSchema.optional(),
     /**
      * Present if the server supports task creation.
      */
@@ -1228,6 +1240,29 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
 });
 
 /* Tools */
+
+/**
+ * Describes a named stream channel that a tool can declare as part of its
+ * input or output interface.
+ *
+ * NOTE: Defined here (before ToolSchema) because ToolSchema references it.
+ * The full Streams section with request/notification schemas follows later.
+ */
+export const StreamDescriptorSchema = z.object({
+    /**
+     * The logical name of this stream channel.
+     */
+    name: z.string(),
+    /**
+     * The expected MIME type of the data carried on this stream.
+     */
+    mimeType: z.string().optional(),
+    /**
+     * A human-readable description of what this stream channel carries.
+     */
+    description: z.string().optional()
+});
+
 /**
  * Additional properties describing a `Tool` to clients.
  *
@@ -1339,6 +1374,20 @@ export const ToolSchema = z.object({
      * Execution-related properties for this tool.
      */
     execution: ToolExecutionSchema.optional(),
+
+    /**
+     * Declares named input stream channels that the tool accepts.
+     * When present, the client SHOULD open the declared streams (via `streams/open`)
+     * after invoking the tool and send data with `notifications/streams/data`.
+     */
+    inputStreams: z.array(StreamDescriptorSchema).optional(),
+
+    /**
+     * Declares named output stream channels that the tool produces.
+     * When present, the server will open these streams (via `streams/open`)
+     * during tool execution and push data to the client.
+     */
+    outputStreams: z.array(StreamDescriptorSchema).optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1459,6 +1508,133 @@ export const ListChangedOptionsBaseSchema = z.object({
      * @default 300
      */
     debounceMs: z.number().int().nonnegative().default(300)
+});
+
+/* Streams */
+
+/**
+ * An opaque identifier for a stream.
+ * Stream IDs are assigned by the party that opens the stream (the sender).
+ * They MUST be unique within the scope of a single MCP session.
+ */
+export const StreamIdSchema = z.string();
+
+// StreamDescriptorSchema is defined above (before ToolSchema) to avoid forward-reference errors.
+
+/**
+ * A single packet of data within a stream.
+ */
+export const StreamPacketSchema = z.object({
+    /**
+     * The payload of the packet, encoded as a UTF-8 string.
+     * For binary data, the sender SHOULD base64-encode the bytes and set
+     * `encoding` to `"base64"`.
+     */
+    data: z.string(),
+    /**
+     * The encoding of `data`. If omitted the data is plain UTF-8 text.
+     */
+    encoding: z.enum(['base64']).optional()
+});
+
+/**
+ * Parameters for a `streams/open` request.
+ */
+export const StreamOpenRequestParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * A unique identifier for the stream being opened.
+     */
+    streamId: StreamIdSchema,
+    /**
+     * The MIME type of the data that will be sent on this stream.
+     */
+    mimeType: z.string().optional(),
+    /**
+     * An optional human-readable label for the stream.
+     */
+    label: z.string().optional(),
+    /**
+     * If the stream is associated with a tool call, the name of the tool.
+     */
+    toolName: z.string().optional(),
+    /**
+     * If the stream is associated with a tool call, the name of the stream
+     * channel on that tool (matching a `StreamDescriptor.name`).
+     */
+    channelName: z.string().optional()
+});
+
+/**
+ * A request to open a new stream.
+ */
+export const StreamOpenRequestSchema = RequestSchema.extend({
+    method: z.literal('streams/open'),
+    params: StreamOpenRequestParamsSchema
+});
+
+/**
+ * The result of a `streams/open` request.
+ */
+export const StreamOpenResultSchema = ResultSchema.extend({
+    /**
+     * The stream identifier, echoed back for confirmation.
+     */
+    streamId: StreamIdSchema
+});
+
+/**
+ * Parameters for a `notifications/streams/data` notification.
+ * Carries an ordered batch of packets for a previously-opened stream.
+ */
+export const StreamDataNotificationParamsSchema = z.object({
+    ...NotificationsParamsSchema.shape,
+    /**
+     * The identifier of the stream this data belongs to.
+     */
+    streamId: StreamIdSchema,
+    /**
+     * The zero-based byte (or packet) offset of the first packet in this batch.
+     */
+    offset: z.number().int().nonnegative(),
+    /**
+     * An ordered array of packets.
+     */
+    packets: z.array(StreamPacketSchema)
+});
+
+/**
+ * A notification carrying stream data.
+ */
+export const StreamDataNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/streams/data'),
+    params: StreamDataNotificationParamsSchema
+});
+
+/**
+ * Parameters for a `notifications/streams/close` notification.
+ */
+export const StreamCloseNotificationParamsSchema = z.object({
+    ...NotificationsParamsSchema.shape,
+    /**
+     * The identifier of the stream that is being closed.
+     */
+    streamId: StreamIdSchema,
+    /**
+     * An optional reason for closing the stream.
+     */
+    reason: z.enum(['complete', 'error', 'cancelled']).optional(),
+    /**
+     * An optional human-readable message providing more detail about the close.
+     */
+    message: z.string().optional()
+});
+
+/**
+ * A notification signalling that a stream has been closed.
+ */
+export const StreamCloseNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/streams/close'),
+    params: StreamCloseNotificationParamsSchema
 });
 
 /* Logging */
@@ -2090,6 +2266,7 @@ export const ClientRequestSchema = z.union([
     UnsubscribeRequestSchema,
     CallToolRequestSchema,
     ListToolsRequestSchema,
+    StreamOpenRequestSchema,
     GetTaskRequestSchema,
     GetTaskPayloadRequestSchema,
     ListTasksRequestSchema,
@@ -2101,6 +2278,8 @@ export const ClientNotificationSchema = z.union([
     ProgressNotificationSchema,
     InitializedNotificationSchema,
     RootsListChangedNotificationSchema,
+    StreamDataNotificationSchema,
+    StreamCloseNotificationSchema,
     TaskStatusNotificationSchema
 ]);
 
@@ -2109,6 +2288,7 @@ export const ClientResultSchema = z.union([
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
+    StreamOpenResultSchema,
     ListRootsResultSchema,
     GetTaskResultSchema,
     ListTasksResultSchema,
@@ -2121,6 +2301,7 @@ export const ServerRequestSchema = z.union([
     CreateMessageRequestSchema,
     ElicitRequestSchema,
     ListRootsRequestSchema,
+    StreamOpenRequestSchema,
     GetTaskRequestSchema,
     GetTaskPayloadRequestSchema,
     ListTasksRequestSchema,
@@ -2135,6 +2316,8 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
+    StreamDataNotificationSchema,
+    StreamCloseNotificationSchema,
     TaskStatusNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
@@ -2150,6 +2333,7 @@ export const ServerResultSchema = z.union([
     ReadResourceResultSchema,
     CallToolResultSchema,
     ListToolsResultSchema,
+    StreamOpenResultSchema,
     GetTaskResultSchema,
     ListTasksResultSchema,
     CreateTaskResultSchema
@@ -2170,6 +2354,7 @@ const resultSchemas: Record<string, z.core.$ZodType> = {
     'resources/unsubscribe': EmptyResultSchema,
     'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
     'tools/list': ListToolsResultSchema,
+    'streams/open': StreamOpenResultSchema,
     'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
     'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
     'roots/list': ListRootsResultSchema,
