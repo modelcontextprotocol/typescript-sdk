@@ -8,7 +8,7 @@ import {
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, ToolError } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -1799,9 +1799,93 @@ describe('Zod v4', () => {
             expect(result.content).toEqual([
                 {
                     type: 'text',
-                    text: 'Tool execution failed'
+                    text: 'Internal error'
                 }
             ]);
+        });
+
+        test('should expose ToolError messages to the client', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('tool-error-test', {}, async () => {
+                throw new ToolError('Invalid input: location is required');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'tool-error-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Invalid input: location is required'
+                }
+            ]);
+        });
+
+        test('should call onToolError callback for non-ToolError exceptions', async () => {
+            let capturedError: unknown = null;
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    onToolError: error => {
+                        capturedError = error;
+                    }
+                }
+            );
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('internal-error-test', {}, async () => {
+                throw new Error('Database connection string: postgres://admin:secret@internal-host:5432');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'internal-error-test'
+                }
+            });
+
+            // Client should NOT see the internal error details
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
+                }
+            ]);
+
+            // But the onToolError callback should have received the real error
+            expect(capturedError).toBeInstanceOf(Error);
+            expect((capturedError as Error).message).toBe('Database connection string: postgres://admin:secret@internal-host:5432');
         });
 
         /***
@@ -6970,9 +7054,10 @@ describe('Zod v4', () => {
                 arguments: {}
             });
 
-            // Should receive an error since cancelled tasks don't have results
+            // Should receive an error since cancelled tasks don't have results.
+            // Internal error details are not exposed to the client.
             expect(result).toHaveProperty('content');
-            expect(result.content).toEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
+            expect(result.content).toEqual([{ type: 'text' as const, text: 'Internal error' }]);
 
             // Wait for async operations to complete
             await waitForLatch();

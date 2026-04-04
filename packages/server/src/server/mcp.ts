@@ -46,6 +46,39 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * An error that tool authors can throw to return a client-visible error message.
+ *
+ * When a tool handler throws a `ToolError`, the error message is returned to the
+ * client as a `CallToolResult` with `isError: true`. All other thrown errors are
+ * treated as internal errors and their messages are not exposed to the client.
+ *
+ * @example
+ * ```ts
+ * server.registerTool('my-tool', {}, async () => {
+ *     throw new ToolError('Invalid input: location is required');
+ * });
+ * ```
+ */
+export class ToolError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ToolError';
+    }
+}
+
+/**
+ * Options for creating an {@linkcode McpServer}.
+ */
+export interface McpServerOptions extends ServerOptions {
+    /**
+     * Optional callback invoked when a tool handler throws an error that is not
+     * a {@linkcode ToolError}. Use this to log internal errors without exposing
+     * them to the client.
+     */
+    onToolError?: (error: unknown) => void;
+}
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
@@ -71,9 +104,12 @@ export class McpServer {
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    private _onToolError?: (error: unknown) => void;
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this.server = new Server(serverInfo, options);
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
+        const { onToolError, ...serverOptions } = options ?? {};
+        this.server = new Server(serverInfo, serverOptions);
+        this._onToolError = onToolError;
     }
 
     /**
@@ -209,7 +245,20 @@ export class McpServer {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
-                return this.createToolError(error instanceof Error ? error.message : String(error));
+                if (error instanceof ToolError) {
+                    // Developer intentionally wants this message shown to the client
+                    return this.createToolError(error.message);
+                }
+                if (error instanceof ProtocolError) {
+                    // SDK-internal errors (validation, invalid params) are safe to expose
+                    return this.createToolError(error.message);
+                }
+                // SECURITY: Do not expose internal error details to the client.
+                // Use ToolError for intentional client-visible errors.
+                if (this._onToolError) {
+                    this._onToolError(error);
+                }
+                return this.createToolError('Internal error');
             }
         });
 
