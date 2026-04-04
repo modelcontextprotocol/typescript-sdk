@@ -849,7 +849,8 @@ This means Cloudflare Workers users no longer need to explicitly pass the valida
 **Before (v1) - Cloudflare Workers required explicit configuration:**
 
 ```typescript
-import { McpServer, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
 
 const server = new McpServer(
     { name: 'my-server', version: '1.0.0' },
@@ -872,12 +873,15 @@ const server = new McpServer(
 );
 ```
 
-You can still explicitly override the validator if needed. The validators are available via the `_shims` export:
+You can still explicitly override the validator if needed:
 
 ```typescript
+// Runtime-aware default (auto-selects AjvJsonSchemaValidator or CfWorkerJsonSchemaValidator)
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
-// or
-import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server';
+
+// Specific validators
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
 ```
 
 ## Unchanged APIs

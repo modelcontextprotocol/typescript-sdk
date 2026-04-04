@@ -487,7 +487,10 @@ new McpServer(
 new McpServer({ name: 'server', version: '1.0.0' }, {});
 ```
 
-Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
+Access validators explicitly:
+- Runtime-aware default: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
+- AJV (Node.js): `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';`
+- CF Worker: `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';`
 
 ## 15. Migration Steps (apply in this order)
 

@@ -956,4 +956,41 @@ describe('Zod v4', () => {
             expect(error?.message).toContain('Unsupported protocol version');
         });
     });
+
+    describe('close() re-entrancy guard', () => {
+        it('should not recurse when onclose triggers a second close()', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
+
+            let closeCallCount = 0;
+            transport.onclose = () => {
+                closeCallCount++;
+                // Simulate the Protocol layer calling close() again from within onclose —
+                // the re-entrancy guard should prevent infinite recursion / stack overflow.
+                void transport.close();
+            };
+
+            // Should resolve without throwing RangeError: Maximum call stack size exceeded
+            await expect(transport.close()).resolves.toBeUndefined();
+            expect(closeCallCount).toBe(1);
+        });
+
+        it('should clean up all streams exactly once even when close() is called concurrently', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
+
+            const cleanupCalls: string[] = [];
+
+            // Inject a fake stream entry to verify cleanup runs exactly once
+            // @ts-expect-error accessing private map for test purposes
+            transport._streamMapping.set('stream-1', {
+                cleanup: () => {
+                    cleanupCalls.push('stream-1');
+                }
+            });
+
+            // Fire two concurrent close() calls — only the first should proceed
+            await Promise.all([transport.close(), transport.close()]);
+
+            expect(cleanupCalls).toEqual(['stream-1']);
+        });
+    });
 });
