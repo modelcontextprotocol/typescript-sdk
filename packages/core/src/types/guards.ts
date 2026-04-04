@@ -76,7 +76,10 @@ export const isJSONRPCResponse = (value: unknown): value is JSONRPCResponse => J
  *
  * @returns True if the value is a valid {@linkcode CallToolResult}, false otherwise.
  */
-export const isCallToolResult = (value: unknown): value is CallToolResult => CallToolResultSchema.safeParse(value).success;
+export const isCallToolResult = (value: unknown): value is CallToolResult => {
+    if (typeof value !== 'object' || value === null || !('content' in value)) return false;
+    return CallToolResultSchema.safeParse(value).success;
+};
 
 /**
  * Checks if a value is a valid {@linkcode TaskAugmentedRequestParams}.

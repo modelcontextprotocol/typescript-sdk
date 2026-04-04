@@ -450,7 +450,7 @@ import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 if (CallToolResultSchema.safeParse(value).success) { /* ... */ }
 
 // v2: use the type guard
-import { isCallToolResult } from '@modelcontextprotocol/server';
+import { isCallToolResult } from '@modelcontextprotocol/client';
 if (isCallToolResult(value)) { /* ... */ }
 ```
 

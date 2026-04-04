@@ -77,8 +77,8 @@ describe('isJSONRPCResponse', () => {
 });
 
 describe('isCallToolResult', () => {
-    it('returns true for a minimal valid result', () => {
-        expect(isCallToolResult({})).toBe(true);
+    it('returns false for an empty object (content is required)', () => {
+        expect(isCallToolResult({})).toBe(false);
     });
 
     it('returns true for a result with content', () => {
