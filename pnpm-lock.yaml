@@ -320,16 +320,13 @@ importers:
 
   examples/client-multi-server:
     dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.74.0
-        version: 0.74.0(zod@4.3.5)
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../../packages/client
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
-        version: 24.10.4
+        version: 24.12.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
