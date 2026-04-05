@@ -96,8 +96,9 @@ export type ProtocolOptions = {
 
     /**
      * Interval (in milliseconds) between periodic ping requests sent to the remote side
-     * to verify connection health. If set, pings will begin after {@linkcode Protocol.connect | connect()}
-     * completes and stop automatically when the connection closes.
+     * to verify connection health. When set, pings begin after initialization completes
+     * ({@linkcode Client} starts them after the MCP handshake; {@linkcode Server} starts
+     * them on `notifications/initialized`) and stop automatically when the connection closes.
      *
      * Per the MCP specification, implementations SHOULD periodically issue pings to
      * detect connection health, with configurable frequency.
@@ -105,7 +106,7 @@ export type ProtocolOptions = {
      * Disabled by default (no periodic pings). Typical values: 15000-60000 (15s-60s).
      *
      * Ping failures are reported via the {@linkcode Protocol.onerror | onerror} callback
-     * and do not stop the periodic timer.
+     * and do not stop the periodic loop.
      */
     pingIntervalMs?: number;
 };
@@ -324,8 +325,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     private _taskManager: TaskManager;
 
-    private _pingTimer?: ReturnType<typeof setInterval>;
+    private _pingTimer?: ReturnType<typeof setTimeout>;
     private _pingIntervalMs?: number;
+    private _closing = false;
 
     protected _supportedProtocolVersions: string[];
 
@@ -474,6 +476,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
+        this._closing = false;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
             try {
@@ -754,12 +757,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Starts sending periodic ping requests at the configured interval.
      * Pings are used to verify that the remote side is still responsive.
      * Failures are reported via the {@linkcode onerror} callback but do not
-     * stop the timer; pings continue until the connection is closed.
+     * stop the loop; pings continue until the connection is closed.
      *
-     * This is called automatically at the end of {@linkcode connect} when
-     * `pingIntervalMs` is set. Subclasses that override `connect()` and
-     * perform additional initialization (e.g., the MCP handshake) may call
-     * this method after their initialization is complete instead.
+     * This is not called automatically by the base {@linkcode Protocol.connect | connect()}
+     * method. {@linkcode Client} calls it after the MCP initialization handshake
+     * (and on reconnection), and {@linkcode Server} calls it when the
+     * `notifications/initialized` notification is received. Custom `Protocol`
+     * subclasses must call this explicitly after their own initialization.
      *
      * Has no effect if periodic ping is already running or if no interval
      * is configured.
@@ -769,20 +773,32 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
-        this._pingTimer = setInterval(async () => {
-            try {
-                await this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, {
-                    timeout: this._pingIntervalMs
-                });
-            } catch (error) {
-                this._onerror(error instanceof Error ? error : new Error(`Periodic ping failed: ${String(error)}`));
-            }
-        }, this._pingIntervalMs);
+        const schedulePing = (): void => {
+            this._pingTimer = setTimeout(async () => {
+                try {
+                    await this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, {
+                        timeout: this._pingIntervalMs
+                    });
+                } catch (error) {
+                    // Suppress errors caused by intentional shutdown
+                    if (!this._closing) {
+                        this._onerror(error instanceof Error ? error : new Error(`Periodic ping failed: ${String(error)}`));
+                    }
+                } finally {
+                    // Schedule the next ping only if we have not been stopped
+                    if (this._pingTimer) {
+                        schedulePing();
+                    }
+                }
+            }, this._pingIntervalMs);
 
-        // Allow the process to exit even if the timer is still running
-        if (typeof this._pingTimer === 'object' && 'unref' in this._pingTimer) {
-            this._pingTimer.unref();
-        }
+            // Allow the process to exit even if the timer is still running
+            if (typeof this._pingTimer === 'object' && 'unref' in this._pingTimer) {
+                this._pingTimer.unref();
+            }
+        };
+
+        schedulePing();
     }
 
     /**
@@ -790,7 +806,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     protected stopPeriodicPing(): void {
         if (this._pingTimer) {
-            clearInterval(this._pingTimer);
+            clearTimeout(this._pingTimer);
             this._pingTimer = undefined;
         }
     }
@@ -799,6 +815,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Closes the connection.
      */
     async close(): Promise<void> {
+        this._closing = true;
         this.stopPeriodicPing();
         await this._transport?.close();
     }

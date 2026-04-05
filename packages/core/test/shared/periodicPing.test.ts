@@ -37,6 +37,28 @@ function createProtocol(options?: { pingIntervalMs?: number }) {
     })(options);
 }
 
+/** Configure the spy to auto-respond to pings with a success result. */
+function autoRespondPings(transport: MockTransport, sendSpy: ReturnType<typeof vi.spyOn>): void {
+    sendSpy.mockImplementation(async (message: JSONRPCMessage) => {
+        const msg = message as { id?: number; method?: string };
+        if (msg.method === 'ping' && msg.id !== undefined) {
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: msg.id,
+                result: {}
+            });
+        }
+    });
+}
+
+/** Count ping messages in spy call history. */
+function countPings(sendSpy: ReturnType<typeof vi.spyOn>): number {
+    return sendSpy.mock.calls.filter((call: unknown[]) => {
+        const msg = call[0] as { method?: string };
+        return msg.method === 'ping';
+    }).length;
+}
+
 describe('Periodic Ping', () => {
     let transport: MockTransport;
 
@@ -58,12 +80,7 @@ describe('Periodic Ping', () => {
         // Advance time well past any reasonable interval
         await vi.advanceTimersByTimeAsync(120_000);
 
-        // No ping requests should have been sent (only no messages at all)
-        const pingMessages = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
-        });
-        expect(pingMessages).toHaveLength(0);
+        expect(countPings(sendSpy)).toBe(0);
     });
 
     test('should send periodic pings when pingIntervalMs is set and startPeriodicPing is called', async () => {
@@ -71,47 +88,21 @@ describe('Periodic Ping', () => {
         const sendSpy = vi.spyOn(transport, 'send');
 
         await protocol.connect(transport);
-
-        // Respond to each ping with a success result
-        sendSpy.mockImplementation(async (message: JSONRPCMessage) => {
-            const msg = message as { id?: number; method?: string };
-            if (msg.method === 'ping' && msg.id !== undefined) {
-                // Simulate the server responding with a pong
-                transport.onmessage?.({
-                    jsonrpc: '2.0',
-                    id: msg.id,
-                    result: {}
-                });
-            }
-        });
+        autoRespondPings(transport, sendSpy);
 
         // Start periodic ping (in real usage, Client.connect() calls this after init)
         protocol.testStartPeriodicPing();
 
         // No ping yet (first fires after one interval)
-        const pingsBeforeAdvance = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
-        });
-        expect(pingsBeforeAdvance).toHaveLength(0);
+        expect(countPings(sendSpy)).toBe(0);
 
         // Advance past one interval
         await vi.advanceTimersByTimeAsync(10_000);
-
-        const pingsAfterOne = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
-        });
-        expect(pingsAfterOne).toHaveLength(1);
+        expect(countPings(sendSpy)).toBe(1);
 
         // Advance past another interval
         await vi.advanceTimersByTimeAsync(10_000);
-
-        const pingsAfterTwo = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
-        });
-        expect(pingsAfterTwo).toHaveLength(2);
+        expect(countPings(sendSpy)).toBe(2);
     });
 
     test('should stop periodic pings on close', async () => {
@@ -119,27 +110,13 @@ describe('Periodic Ping', () => {
         const sendSpy = vi.spyOn(transport, 'send');
 
         await protocol.connect(transport);
-
-        sendSpy.mockImplementation(async (message: JSONRPCMessage) => {
-            const msg = message as { id?: number; method?: string };
-            if (msg.method === 'ping' && msg.id !== undefined) {
-                transport.onmessage?.({
-                    jsonrpc: '2.0',
-                    id: msg.id,
-                    result: {}
-                });
-            }
-        });
+        autoRespondPings(transport, sendSpy);
 
         protocol.testStartPeriodicPing();
 
         // One ping fires
         await vi.advanceTimersByTimeAsync(5_000);
-        const pingsBeforeClose = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
-        });
-        expect(pingsBeforeClose).toHaveLength(1);
+        expect(countPings(sendSpy)).toBe(1);
 
         // Close the connection
         await protocol.close();
@@ -148,14 +125,10 @@ describe('Periodic Ping', () => {
         sendSpy.mockClear();
         await vi.advanceTimersByTimeAsync(20_000);
 
-        const pingsAfterClose = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
-        });
-        expect(pingsAfterClose).toHaveLength(0);
+        expect(countPings(sendSpy)).toBe(0);
     });
 
-    test('should report ping errors via onerror without stopping the timer', async () => {
+    test('should report ping errors via onerror without stopping the loop', async () => {
         const protocol = createProtocol({ pingIntervalMs: 5_000 });
         const errors: Error[] = [];
         protocol.onerror = error => {
@@ -164,7 +137,7 @@ describe('Periodic Ping', () => {
 
         await protocol.connect(transport);
 
-        // Make send reject to simulate a failed ping
+        // Respond with an error to simulate a failed ping
         const sendSpy = vi.spyOn(transport, 'send');
         sendSpy.mockImplementation(async (message: JSONRPCMessage) => {
             const msg = message as { id?: number; method?: string };
@@ -186,7 +159,7 @@ describe('Periodic Ping', () => {
         await vi.advanceTimersByTimeAsync(5_000);
         expect(errors).toHaveLength(1);
 
-        // Second ping also fails, proving the timer was not stopped
+        // Second ping also fails, proving the loop was not stopped
         await vi.advanceTimersByTimeAsync(5_000);
         expect(errors).toHaveLength(2);
     });
@@ -196,17 +169,7 @@ describe('Periodic Ping', () => {
         const sendSpy = vi.spyOn(transport, 'send');
 
         await protocol.connect(transport);
-
-        sendSpy.mockImplementation(async (message: JSONRPCMessage) => {
-            const msg = message as { id?: number; method?: string };
-            if (msg.method === 'ping' && msg.id !== undefined) {
-                transport.onmessage?.({
-                    jsonrpc: '2.0',
-                    id: msg.id,
-                    result: {}
-                });
-            }
-        });
+        autoRespondPings(transport, sendSpy);
 
         // Call startPeriodicPing multiple times
         protocol.testStartPeriodicPing();
@@ -216,11 +179,7 @@ describe('Periodic Ping', () => {
         await vi.advanceTimersByTimeAsync(5_000);
 
         // Should only have one ping, not three
-        const pings = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
-        });
-        expect(pings).toHaveLength(1);
+        expect(countPings(sendSpy)).toBe(1);
     });
 
     test('should stop periodic pings when transport closes unexpectedly', async () => {
@@ -228,17 +187,7 @@ describe('Periodic Ping', () => {
         const sendSpy = vi.spyOn(transport, 'send');
 
         await protocol.connect(transport);
-
-        sendSpy.mockImplementation(async (message: JSONRPCMessage) => {
-            const msg = message as { id?: number; method?: string };
-            if (msg.method === 'ping' && msg.id !== undefined) {
-                transport.onmessage?.({
-                    jsonrpc: '2.0',
-                    id: msg.id,
-                    result: {}
-                });
-            }
-        });
+        autoRespondPings(transport, sendSpy);
 
         protocol.testStartPeriodicPing();
 
@@ -251,10 +200,72 @@ describe('Periodic Ping', () => {
         sendSpy.mockClear();
         await vi.advanceTimersByTimeAsync(20_000);
 
-        const pingsAfterTransportClose = sendSpy.mock.calls.filter(call => {
-            const msg = call[0] as { method?: string };
-            return msg.method === 'ping';
+        expect(countPings(sendSpy)).toBe(0);
+    });
+
+    test('should not fire onerror when close() races with an in-flight ping', async () => {
+        const protocol = createProtocol({ pingIntervalMs: 5_000 });
+        const errors: Error[] = [];
+        protocol.onerror = error => {
+            errors.push(error);
+        };
+
+        await protocol.connect(transport);
+
+        // Do NOT auto-respond: the ping will remain in-flight so close() races with it
+        protocol.testStartPeriodicPing();
+
+        // Advance to fire the first ping (it is now awaiting a response)
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        // Close while the ping is in-flight; this should NOT produce an onerror
+        await protocol.close();
+
+        // Drain any pending microtasks
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(errors).toHaveLength(0);
+    });
+
+    test('pings are strictly sequential (no concurrent overlap)', async () => {
+        const protocol = createProtocol({ pingIntervalMs: 5_000 });
+        const sendSpy = vi.spyOn(transport, 'send');
+        let inFlightPings = 0;
+        let maxConcurrent = 0;
+
+        await protocol.connect(transport);
+
+        sendSpy.mockImplementation(async (message: JSONRPCMessage) => {
+            const msg = message as { id?: number; method?: string };
+            if (msg.method === 'ping' && msg.id !== undefined) {
+                inFlightPings++;
+                if (inFlightPings > maxConcurrent) {
+                    maxConcurrent = inFlightPings;
+                }
+                // Simulate a slow response: resolve after a short delay
+                setTimeout(() => {
+                    inFlightPings--;
+                    transport.onmessage?.({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: {}
+                    });
+                }, 2_000);
+            }
         });
-        expect(pingsAfterTransportClose).toHaveLength(0);
+
+        protocol.testStartPeriodicPing();
+
+        // Advance enough for multiple ping cycles
+        for (let i = 0; i < 5; i++) {
+            await vi.advanceTimersByTimeAsync(5_000);
+            // Let the delayed response resolve
+            await vi.advanceTimersByTimeAsync(2_000);
+        }
+
+        // With setTimeout-based scheduling, pings are strictly sequential
+        expect(maxConcurrent).toBe(1);
+        // Verify pings were actually sent
+        expect(countPings(sendSpy)).toBeGreaterThanOrEqual(3);
     });
 });
