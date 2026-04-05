@@ -238,12 +238,6 @@ describe('protocol tests', () => {
 
         // Track unhandled rejections
         const unhandledRejections: unknown[] = [];
-        const handler = (event: PromiseRejectionEvent) => {
-            unhandledRejections.push(event.reason);
-            event.preventDefault();
-        };
-
-        // In Node.js, listen on process instead of globalThis
         const processHandler = (reason: unknown) => {
             unhandledRejections.push(reason);
         };
