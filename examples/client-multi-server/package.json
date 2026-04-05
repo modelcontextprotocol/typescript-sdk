@@ -3,15 +3,11 @@
     "private": true,
     "version": "2.0.0-alpha.0",
     "type": "module",
-    "bin": {
-        "mcp-multi-server-client": "./build/index.js"
-    },
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
-        "@anthropic-ai/sdk": "^0.74.0",
         "@modelcontextprotocol/client": "workspace:^"
     },
     "devDependencies": {
