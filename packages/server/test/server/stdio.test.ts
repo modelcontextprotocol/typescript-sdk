@@ -179,3 +179,78 @@ test('should fire onerror before onclose on stdout error', async () => {
 
     expect(events).toEqual(['error', 'close']);
 });
+
+test('should close transport when stdin emits end (EOF)', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+    expect(didClose).toBeFalsy();
+
+    // Simulate client disconnecting (stdin EOF)
+    input.push(null);
+
+    // Wait for the async close() to complete
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(didClose).toBeTruthy();
+});
+
+test('should not fire onclose twice when stdin EOF followed by explicit close()', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+
+    // stdin EOF triggers close
+    input.push(null);
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Explicit close should be idempotent
+    await server.close();
+
+    expect(closeCount).toBe(1);
+});
+
+test('should process remaining messages before closing on stdin EOF', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    const messages: JSONRPCMessage[] = [];
+    server.onmessage = message => {
+        messages.push(message);
+    };
+
+    await server.start();
+
+    const message: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'ping'
+    };
+
+    // Push a message followed by EOF
+    input.push(serializeMessage(message));
+    input.push(null);
+
+    // Wait for processing
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // The message should have been processed before close
+    expect(messages).toEqual([message]);
+});

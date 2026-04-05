@@ -511,8 +511,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
         try {
             this.onclose?.();
         } finally {
+            // Reject pending response handlers on the next microtask to allow
+            // callers time to attach .catch() handlers and prevent unhandled
+            // promise rejections (see #1049, #392).
             for (const handler of responseHandlers.values()) {
-                handler(error);
+                void Promise.resolve().then(() => {
+                    try {
+                        handler(error);
+                    } catch (handlerError) {
+                        this._onerror(handlerError instanceof Error ? handlerError : new Error(String(handlerError)));
+                    }
+                });
             }
 
             for (const controller of requestHandlerAbortControllers.values()) {

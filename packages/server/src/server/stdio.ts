@@ -44,6 +44,14 @@ export class StdioServerTransport implements Transport {
             // Ignore errors during close — we're already in an error path
         });
     };
+    _onend = () => {
+        // stdin EOF means the client process has disconnected.
+        // Trigger a clean close so pending requests are properly rejected
+        // and the server can shut down gracefully (see #1049).
+        this.close().catch(() => {
+            // Ignore errors during close — we're already in a shutdown path
+        });
+    };
 
     /**
      * Starts listening for messages on `stdin`.
@@ -57,6 +65,7 @@ export class StdioServerTransport implements Transport {
 
         this._started = true;
         this._stdin.on('data', this._ondata);
+        this._stdin.on('end', this._onend);
         this._stdin.on('error', this._onerror);
         this._stdout.on('error', this._onstdouterror);
     }
@@ -84,6 +93,7 @@ export class StdioServerTransport implements Transport {
 
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
+        this._stdin.off('end', this._onend);
         this._stdin.off('error', this._onerror);
         this._stdout.off('error', this._onstdouterror);
 

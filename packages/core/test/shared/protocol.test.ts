@@ -217,6 +217,59 @@ describe('protocol tests', () => {
         expect(oncloseMock).toHaveBeenCalled();
     });
 
+    test('should reject pending requests with ConnectionClosed when transport closes', async () => {
+        await protocol.connect(transport);
+        const mockSchema = z.object({ result: z.string() });
+        const requestPromise = testRequest(protocol, { method: 'example', params: {} }, mockSchema);
+
+        // Close transport while request is pending
+        await transport.close();
+
+        // The pending request should reject with ConnectionClosed
+        await expect(requestPromise).rejects.toThrow('Connection closed');
+        await expect(requestPromise).rejects.toMatchObject({
+            code: SdkErrorCode.ConnectionClosed
+        });
+    });
+
+    test('should not cause unhandled promise rejections when transport closes with pending requests', async () => {
+        await protocol.connect(transport);
+        const mockSchema = z.object({ result: z.string() });
+
+        // Track unhandled rejections
+        const unhandledRejections: unknown[] = [];
+        const handler = (event: PromiseRejectionEvent) => {
+            unhandledRejections.push(event.reason);
+            event.preventDefault();
+        };
+
+        // In Node.js, listen on process instead of globalThis
+        const processHandler = (reason: unknown) => {
+            unhandledRejections.push(reason);
+        };
+        process.on('unhandledRejection', processHandler);
+
+        try {
+            // Create a pending request and attach .catch() to prevent the expected rejection
+            // from triggering the handler
+            const requestPromise = testRequest(protocol, { method: 'example', params: {} }, mockSchema);
+            requestPromise.catch(() => {
+                // Expected — the request was rejected due to connection close
+            });
+
+            // Close transport
+            await transport.close();
+
+            // Wait for microtasks to flush
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // No unhandled rejections should have occurred
+            expect(unhandledRejections).toHaveLength(0);
+        } finally {
+            process.off('unhandledRejection', processHandler);
+        }
+    });
+
     test('should abort in-flight request handlers when the connection is closed', async () => {
         await protocol.connect(transport);
 
