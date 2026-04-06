@@ -201,6 +201,27 @@ server.registerTool(
 
 If a handler throws instead of returning `isError`, the SDK catches the exception and converts it to `{ isError: true }` automatically — so an explicit try/catch is optional but gives you control over the error message. When `isError` is true, output schema validation is skipped.
 
+### List changed notifications
+
+When the set of available tools changes at runtime, the server should notify connected clients so they can refresh their tool list (see [List Changed Notification](https://spec.modelcontextprotocol.io/specification/2025-06-18/server/tools/#list-changed-notification) in the MCP specification).
+
+{@linkcode @modelcontextprotocol/server!server/mcp.McpServer#registerTool | registerTool} sends this notification automatically when called after the client is already connected. To notify manually — for example, after removing a tool or toggling tool availability — call {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#sendToolListChanged | sendToolListChanged}:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#sendToolListChanged_basic"
+// Automatic: registering a tool at runtime sends the notification
+server.registerTool(
+    'new-tool',
+    { description: 'A dynamically added tool' },
+    async () => ({ content: [{ type: 'text', text: 'done' }] })
+);
+
+// Manual: notify clients explicitly (e.g. after removing a tool)
+server.sendToolListChanged();
+```
+
+> [!NOTE]
+> On the client side, use the {@linkcode @modelcontextprotocol/client!client/client.ClientOptions | listChanged} option to automatically re-fetch tool lists when this notification arrives — see [Automatic list-change tracking](./client.md#automatic-list-change-tracking) in the client guide.
+
 ## Resources
 
 Resources expose read-only data — files, database schemas, configuration — that the host application can retrieve and attach as context for the model (see [Resources](https://modelcontextprotocol.io/docs/learn/server-concepts#resources) in the MCP overview). Unlike [tools](#tools), which the LLM invokes on its own, resources are application-controlled: the host decides which resources to fetch and how to present them.
