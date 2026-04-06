@@ -1717,77 +1717,89 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
 /**
  * Primitive schema definition for boolean fields.
  */
-export const BooleanSchemaSchema = z.object({
-    type: z.literal('boolean'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    default: z.boolean().optional()
-});
+export const BooleanSchemaSchema = z
+    .object({
+        type: z.literal('boolean'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        default: z.boolean().optional()
+    })
+    .passthrough();
 
 /**
  * Primitive schema definition for string fields.
  */
-export const StringSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minLength: z.number().optional(),
-    maxLength: z.number().optional(),
-    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
-    default: z.string().optional()
-});
+export const StringSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        minLength: z.number().optional(),
+        maxLength: z.number().optional(),
+        format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
+        default: z.string().optional()
+    })
+    .passthrough();
 
 /**
  * Primitive schema definition for number fields.
  */
-export const NumberSchemaSchema = z.object({
-    type: z.enum(['number', 'integer']),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minimum: z.number().optional(),
-    maximum: z.number().optional(),
-    default: z.number().optional()
-});
+export const NumberSchemaSchema = z
+    .object({
+        type: z.enum(['number', 'integer']),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        minimum: z.number().optional(),
+        maximum: z.number().optional(),
+        default: z.number().optional()
+    })
+    .passthrough();
 
 /**
  * Schema for single-selection enumeration without display titles for options.
  */
-export const UntitledSingleSelectEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    enum: z.array(z.string()),
-    default: z.string().optional()
-});
+export const UntitledSingleSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        enum: z.array(z.string()),
+        default: z.string().optional()
+    })
+    .passthrough();
 
 /**
  * Schema for single-selection enumeration with display titles for each option.
  */
-export const TitledSingleSelectEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    oneOf: z.array(
-        z.object({
-            const: z.string(),
-            title: z.string()
-        })
-    ),
-    default: z.string().optional()
-});
+export const TitledSingleSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        oneOf: z.array(
+            z.object({
+                const: z.string(),
+                title: z.string()
+            })
+        ),
+        default: z.string().optional()
+    })
+    .passthrough();
 
 /**
  * Use {@linkcode TitledSingleSelectEnumSchema} instead.
  * This interface will be removed in a future version.
  */
-export const LegacyTitledEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    enum: z.array(z.string()),
-    enumNames: z.array(z.string()).optional(),
-    default: z.string().optional()
-});
+export const LegacyTitledEnumSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        enum: z.array(z.string()),
+        enumNames: z.array(z.string()).optional(),
+        default: z.string().optional()
+    })
+    .passthrough();
 
 // Combined single selection enumeration
 export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
@@ -1795,38 +1807,46 @@ export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSch
 /**
  * Schema for multiple-selection enumeration without display titles for options.
  */
-export const UntitledMultiSelectEnumSchemaSchema = z.object({
-    type: z.literal('array'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minItems: z.number().optional(),
-    maxItems: z.number().optional(),
-    items: z.object({
-        type: z.literal('string'),
-        enum: z.array(z.string())
-    }),
-    default: z.array(z.string()).optional()
-});
+export const UntitledMultiSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('array'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        minItems: z.number().optional(),
+        maxItems: z.number().optional(),
+        items: z
+            .object({
+                type: z.literal('string'),
+                enum: z.array(z.string())
+            })
+            .passthrough(),
+        default: z.array(z.string()).optional()
+    })
+    .passthrough();
 
 /**
  * Schema for multiple-selection enumeration with display titles for each option.
  */
-export const TitledMultiSelectEnumSchemaSchema = z.object({
-    type: z.literal('array'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minItems: z.number().optional(),
-    maxItems: z.number().optional(),
-    items: z.object({
-        anyOf: z.array(
-            z.object({
-                const: z.string(),
-                title: z.string()
+export const TitledMultiSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('array'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        minItems: z.number().optional(),
+        maxItems: z.number().optional(),
+        items: z
+            .object({
+                anyOf: z.array(
+                    z.object({
+                        const: z.string(),
+                        title: z.string()
+                    })
+                )
             })
-        )
-    }),
-    default: z.array(z.string()).optional()
-});
+            .passthrough(),
+        default: z.array(z.string()).optional()
+    })
+    .passthrough();
 
 /**
  * Combined schema for multiple-selection enumeration

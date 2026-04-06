@@ -2879,6 +2879,7 @@ export interface StringSchema {
     maxLength?: number;
     format?: 'email' | 'uri' | 'date' | 'date-time';
     default?: string;
+    [key: string]: unknown;
 }
 
 /**
@@ -2894,6 +2895,7 @@ export interface NumberSchema {
     minimum?: number;
     maximum?: number;
     default?: number;
+    [key: string]: unknown;
 }
 
 /**
@@ -2907,6 +2909,7 @@ export interface BooleanSchema {
     title?: string;
     description?: string;
     default?: boolean;
+    [key: string]: unknown;
 }
 
 /**
@@ -2935,6 +2938,7 @@ export interface UntitledSingleSelectEnumSchema {
      * Optional default value.
      */
     default?: string;
+    [key: string]: unknown;
 }
 
 /**
@@ -2972,6 +2976,7 @@ export interface TitledSingleSelectEnumSchema {
      * Optional default value.
      */
     default?: string;
+    [key: string]: unknown;
 }
 
 /**
@@ -3020,6 +3025,7 @@ export interface UntitledMultiSelectEnumSchema {
      * Optional default value.
      */
     default?: string[];
+    [key: string]: unknown;
 }
 
 /**
@@ -3070,6 +3076,7 @@ export interface TitledMultiSelectEnumSchema {
      * Optional default value.
      */
     default?: string[];
+    [key: string]: unknown;
 }
 
 /**
@@ -3095,6 +3102,7 @@ export interface LegacyTitledEnumSchema {
      */
     enumNames?: string[];
     default?: string;
+    [key: string]: unknown;
 }
 
 /**
