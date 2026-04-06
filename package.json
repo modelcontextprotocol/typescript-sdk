@@ -29,6 +29,7 @@
         "docs:check": "typedoc",
         "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",
+        "ci:publish": "pnpm run build:all && pnpm changeset publish",
         "prepack:all": "pnpm -r prepack",
         "lint:all": "pnpm sync:snippets --check && pnpm -r lint",
         "lint:fix:all": "pnpm sync:snippets && pnpm -r lint:fix",
