@@ -184,6 +184,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private _sseStreamOpened = false; // Track if SSE stream was successfully opened
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -292,6 +293,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
+            this._sseStreamOpened = true;
             this._handleSseStream(response.body, options, true);
         } catch (error) {
             this.onerror?.(error as Error);
@@ -552,8 +554,17 @@ export class StreamableHTTPClientTransport implements Transport {
 
             // Handle session ID received during initialization
             const sessionId = response.headers.get('mcp-session-id');
+            const hadSessionId = this._sessionId !== undefined;
             if (sessionId) {
                 this._sessionId = sessionId;
+            }
+
+            // If we just received a session ID for the first time and SSE stream is not open,
+            // try to open it now. This handles the case where the initial SSE connection
+            // during start() was rejected because the server wasn't initialized yet.
+            // See: https://github.com/modelcontextprotocol/typescript-sdk/issues/1167
+            if (sessionId && !hadSessionId && !this._sseStreamOpened) {
+                this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
             }
 
             if (!response.ok) {
@@ -639,12 +650,8 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
-                    // Await the SSE stream opening so that connect() does not resolve
-                    // until the GET listener is established.  This prevents a race where
-                    // the server sends a request (e.g. roots/list) before the stream is ready.
-                    // Errors are swallowed here because _startOrAuthSse already reports
-                    // them via onerror, and the SSE stream is optional (server may 405).
-                    await this._startOrAuthSse({ resumptionToken: undefined }).catch(() => {});
+                    // Start without a lastEventId since this is a fresh connection
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
                 }
                 return;
             }
