@@ -151,11 +151,9 @@ function registerTool_annotations(server: McpServer) {
 function sendToolListChanged_basic(server: McpServer) {
     //#region sendToolListChanged_basic
     // Automatic: registering a tool at runtime sends the notification
-    server.registerTool(
-        'new-tool',
-        { description: 'A dynamically added tool' },
-        async () => ({ content: [{ type: 'text', text: 'done' }] })
-    );
+    server.registerTool('new-tool', { description: 'A dynamically added tool' }, async () => ({
+        content: [{ type: 'text', text: 'done' }]
+    }));
 
     // Manual: notify clients explicitly (e.g. after removing a tool)
     server.sendToolListChanged();
