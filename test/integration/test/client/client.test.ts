@@ -218,6 +218,33 @@ test('should reject unsupported protocol version', async () => {
 });
 
 /***
+ * Test: Connection Initialization Failure Cleanup
+ */
+test('should close transport and clean up if connection initialization fails', async () => {
+    const clientTransport: Transport = {
+        start: vi.fn().mockRejectedValue(new Error('Transport start failed')),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    await expect(client.connect(clientTransport)).rejects.toThrow('Transport start failed');
+
+    // The transport.close() method should be called to clean up resources
+    // because the client.connect() method caught the error and called this.close()
+    expect(clientTransport.close).toHaveBeenCalled();
+});
+
+/***
  * Test: Connect New Client to Old Supported Server Version
  */
 test('should connect new client to old, supported server version', async () => {
