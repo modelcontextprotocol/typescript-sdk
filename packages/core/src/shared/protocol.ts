@@ -94,10 +94,28 @@ export type ProtocolOptions = {
     tasks?: TaskManagerOptions;
 };
 
+const MAX_REQUEST_TIMEOUT_MSEC = 43_200_000; // 12 hours
+const DEFAULT_TIMEOUT_FALLBACK = 60_000;
+
+/**
+ * Resolves the request timeout from the environment variable `MCP_REQUEST_TIMEOUT_MSEC`.
+ * Exported for testing; not part of the public API.
+ * @internal
+ */
+export function resolveRequestTimeout(): number {
+    const raw = typeof process !== 'undefined' && process?.env ? process.env.MCP_REQUEST_TIMEOUT_MSEC : undefined;
+    const parsed = Number.parseInt(raw ?? '', 10);
+    return parsed > 0 && parsed <= MAX_REQUEST_TIMEOUT_MSEC ? parsed : DEFAULT_TIMEOUT_FALLBACK;
+}
+
 /**
  * The default request timeout, in milliseconds.
+ *
+ * Can be overridden via the `MCP_REQUEST_TIMEOUT_MSEC` environment variable.
+ * The value is read once at module load time; changes after import have no effect.
+ * Must be a positive integer no greater than 43,200,000 (12 hours).
  */
-export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
+export const DEFAULT_REQUEST_TIMEOUT_MSEC = resolveRequestTimeout();
 
 /**
  * Options that can be given per request.
