@@ -150,12 +150,15 @@ function registerTool_annotations(server: McpServer) {
 /** Example: Notifying clients when the tool list changes at runtime. */
 function sendToolListChanged_basic(server: McpServer) {
     //#region sendToolListChanged_basic
-    // Automatic: registering a tool at runtime sends the notification
-    server.registerTool('new-tool', { description: 'A dynamically added tool' }, async () => ({
+    // Automatic: registerTool, tool.remove(), tool.enable(), and tool.disable()
+    // all send the notification — no manual call required.
+    const tool = server.registerTool('new-tool', { description: 'A dynamically added tool' }, async () => ({
         content: [{ type: 'text', text: 'done' }]
     }));
+    tool.remove(); // notification sent automatically
 
-    // Manual: notify clients explicitly (e.g. after removing a tool)
+    // Manual: notify clients when tool availability changes through external
+    // means the SDK cannot observe (e.g. a feature flag or config reload).
     server.sendToolListChanged();
     //#endregion sendToolListChanged_basic
 }
