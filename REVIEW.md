@@ -33,7 +33,7 @@ review rounds and grows over time.
 
 **Protocol & spec**
 - Types match [`schema.ts`](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) exactly (optional vs required fields)
-- Correct `McpError` codes; HTTP status codes match spec (e.g., 404 vs 410)
+- Correct `ProtocolError` codes (enum `ProtocolErrorCode`); HTTP status codes match spec (e.g., 404 vs 410)
 - Works for both stdio and Streamable HTTP transports — no transport-specific assumptions
 - Cross-SDK consistency: check what `python-sdk` does for the same feature
 
@@ -64,7 +64,7 @@ review rounds and grows over time.
 
 ### Schema Compliance
 
-- When editing Zod protocol schemas in `schemas.ts`, verify unknown-key handling matches the spec `schema.ts`: if the spec type has no `additionalProperties: false`, the SDK schema must use `.passthrough()` / `.catchall(z.unknown())` rather than implicit strict — over-strict Zod (incl. `z.literal('object')` on `type`) rejects spec-valid payloads from other SDKs. Also confirm `spec.types.test.ts` still passes bidirectionally. (#1768, #1849, #1169)
+- When editing Zod protocol schemas in `schemas.ts`, verify unknown-key handling matches the spec `schema.ts`: if the spec type has no `additionalProperties: false`, the SDK schema must use `z.looseObject()` / `.catchall(z.unknown())` rather than implicit strict — over-strict Zod (incl. `z.literal('object')` on `type`) rejects spec-valid payloads from other SDKs. Also confirm `spec.types.test.ts` still passes bidirectionally. (#1768, #1849, #1169)
 
 ### Async / Lifecycle
 
