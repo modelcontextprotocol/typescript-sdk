@@ -333,9 +333,16 @@ export class McpServer {
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5000;
 
-        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
+        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled' && task.status !== 'input_required') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
             task = handler?.getTask ? await handler.getTask(taskCtx) : await ctx.task.store.getTask(taskId);
+        }
+
+        if (task.status === 'input_required') {
+            throw new ProtocolError(
+                ProtocolErrorCode.InternalError,
+                `Task ${taskId} requires input but the client did not request task augmentation; automatic polling cannot deliver elicitation.`
+            );
         }
 
         return handler?.getTaskResult

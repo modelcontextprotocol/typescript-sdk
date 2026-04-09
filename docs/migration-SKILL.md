@@ -96,7 +96,7 @@ Notes:
 | `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
 | `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                          |
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
-1000 1000 1001cat /tmp/1764-resolve.txt | perl -pe "s/([\@\$\/])/\\$1/g")
+| `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`) |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
