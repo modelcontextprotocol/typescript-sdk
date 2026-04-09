@@ -169,9 +169,11 @@ describe('custom notification handlers', () => {
 });
 
 describe('sendCustomRequest', () => {
-    test('not connected -> rejects', async () => {
+    test('not connected -> throws SdkError NotConnected', async () => {
         const proto = new TestProtocol();
-        await expect(proto.sendCustomRequest('acme/x', {}, z.object({}))).rejects.toThrow(/Not connected/);
+        await expect(proto.sendCustomRequest('acme/x', {}, z.object({}))).rejects.toSatisfy(
+            (e: unknown) => e instanceof SdkError && e.code === SdkErrorCode.NotConnected
+        );
     });
 
     test('undefined params accepted', async () => {
