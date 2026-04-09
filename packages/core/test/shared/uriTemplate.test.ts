@@ -256,12 +256,20 @@ describe('UriTemplate', () => {
             expect(template.match('/search?q=%ZZ')).toEqual({ q: '%ZZ' });
         });
 
-        it('should reject templates with literal ? in a string segment', () => {
-            expect(() => new UriTemplate('/path?fixed=1')).toThrow(/literal '\?'/);
-            expect(() => new UriTemplate('/path?static=1{?dynamic}')).toThrow(/literal '\?'/);
-            expect(() => new UriTemplate('/path?static=1{&dynamic}')).toThrow(/literal '\?'/);
-            expect(() => new UriTemplate('/api?v=2{&key,page}')).toThrow(/literal '\?'/);
-            expect(() => new UriTemplate('/api/{version}?format=json{&key}')).toThrow(/literal '\?'/);
+        it('should not throw on literal ? in a string segment (expand-only usage)', () => {
+            expect(() => new UriTemplate('/path?fixed=1')).not.toThrow();
+            expect(() => new UriTemplate('http://e.com/?literal').expand({})).not.toThrow();
+            expect(new UriTemplate('http://e.com/?literal').expand({})).toBe('http://e.com/?literal');
+        });
+
+        it('should let {+var} capture across ? when template has no query operators', () => {
+            const template = new UriTemplate('http://e.com{+rest}');
+            expect(template.match('http://e.com/search?q=hello')).toEqual({ rest: '/search?q=hello' });
+        });
+
+        it('should let {#var} capture the fragment', () => {
+            const template = new UriTemplate('/page{#section}');
+            expect(template.match('/page#intro')).toEqual({ section: '#intro' });
         });
 
         it('should accept templates using {?param} for query parameters', () => {
