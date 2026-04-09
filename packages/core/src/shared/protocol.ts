@@ -1143,6 +1143,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * Pass a `{ params, result }` schema bundle as the third argument to get typed `params` and
      * pre-send validation; pass a bare result schema for loose, unvalidated params.
+     *
+     * The `params` schema is used only for validation — the value you pass is sent as-is.
+     * Transforms (e.g. `.trim()`) and defaults (e.g. `.default(n)`) on the schema are not
+     * applied to outbound data, matching the behavior of {@linkcode Protocol.request | request}.
      */
     sendCustomRequest<P extends AnySchema, R extends AnySchema>(
         method: string,
@@ -1185,7 +1189,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * standard MCP notifications.
      *
      * Pass a `{ params }` schema bundle as the third argument to get typed `params` and pre-send
-     * validation.
+     * validation. The schema validates only — transforms and defaults are not applied to
+     * outbound data; the value you pass is sent as-is.
      */
     sendCustomNotification<P extends AnySchema>(
         method: string,

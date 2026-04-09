@@ -191,6 +191,18 @@ describe('sendCustomRequest', () => {
             })
         ).rejects.toSatisfy((e: unknown) => e instanceof ProtocolError && e.code === ProtocolErrorCode.InvalidParams);
     });
+
+    test('schema bundle overload: params sent as-is (validate-only, no outbound transforms)', async () => {
+        const [client, server] = await linkedPair();
+        const P = z.object({ query: z.string().transform(s => s.trim()), page: z.number() });
+        let received: unknown;
+        server.setCustomRequestHandler('acme/q', z.unknown(), p => {
+            received = p;
+            return {};
+        });
+        await client.sendCustomRequest('acme/q', { query: '  hi  ', page: 1 }, { params: P, result: z.object({}) });
+        expect(received).toEqual({ query: '  hi  ', page: 1 });
+    });
 });
 
 describe('sendCustomNotification', () => {
