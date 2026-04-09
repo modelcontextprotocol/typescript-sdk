@@ -133,9 +133,6 @@ export type {
 export { isTerminal } from '../../experimental/tasks/interfaces.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
-// Transport utilities
-export { InMemoryTransport } from '../../util/inMemory.js';
-
 // Validator types and classes
 export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';

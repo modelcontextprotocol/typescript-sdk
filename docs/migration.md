@@ -432,9 +432,7 @@ class App extends Client {
 Custom handlers share the same dispatch path as standard handlers — context, cancellation, task delivery, and error wrapping all apply. Passing a `{ params, result }` schema bundle to `sendCustomRequest` (or `{ params }` to `sendCustomNotification`) validates outbound params
 before sending and gives typed `params`; passing a bare result schema sends params unvalidated.
 
-For larger sub-protocols where neither side is semantically an MCP client or server, prefer composition: hold a `Client` (or `Server`) instance, register custom handlers on it, and expose typed facade methods. See `examples/server/src/customMethodExtAppsExample.ts` for a worked
-example.
-
+For larger sub-protocols where neither side is semantically an MCP client or server, prefer composition: hold a `Client` (or `Server`) instance, register custom handlers on it, and expose typed facade methods. See `examples/server/src/customMethodExample.ts` and `examples/client/src/customMethodExample.ts` for runnable examples.
 
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
 

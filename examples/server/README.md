@@ -38,6 +38,7 @@ pnpm tsx src/simpleStreamableHttp.ts
 | Task interactive server                   | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                           |
 | Hono Streamable HTTP server               | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)           |
 | SSE polling demo server                   | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                   |
+| Custom (non-standard) methods server      | Registers `acme/*` custom request handlers and sends custom notifications.                      | [`src/customMethodExample.ts`](src/customMethodExample.ts)                               |
 
 ## OAuth demo flags (Streamable HTTP server)
 
