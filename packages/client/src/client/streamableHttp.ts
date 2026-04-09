@@ -474,7 +474,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
                     }
-                } else {
+                } else if (!this._abortController?.signal.aborted) {
                     // Stream disconnected and reconnection will not happen; surface the error
                     this.onerror?.(new Error(`SSE stream disconnected: ${error instanceof Error ? error.message : String(error)}`));
                 }
