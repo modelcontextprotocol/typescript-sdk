@@ -233,10 +233,15 @@ export class StreamableHTTPClientTransport implements Transport {
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
         const { resumptionToken } = options;
 
+        // Capture the signal active when this call started so a close()/start() during the awaits
+        // below doesn't bind this stale GET to the restarted transport's controller.
+        const signal = this._abortController?.signal;
+
         try {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
+            if (signal?.aborted) return;
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
@@ -250,7 +255,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 ...this._requestInit,
                 method: 'GET',
                 headers,
-                signal: this._abortController?.signal
+                signal
             });
 
             if (!response.ok) {
@@ -352,6 +357,7 @@ export class StreamableHTTPClientTransport implements Transport {
             this._startOrAuthSse(options).catch(error => {
                 if (signal?.aborted) return;
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
+                if (signal?.aborted) return;
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
                 } catch (scheduleError) {
