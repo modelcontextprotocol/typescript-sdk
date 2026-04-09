@@ -57,8 +57,7 @@ import { McpServer, StdioServerTransport, WebStandardStreamableHTTPServerTranspo
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 ```
 
-Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly
-— it is an internal package.
+Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
 
 ### Dropped Node.js 18 and CommonJS
 
@@ -295,11 +294,11 @@ This applies to:
 
 **Removed Zod-specific helpers** from `@modelcontextprotocol/core` (use Standard Schema equivalents):
 
-| Removed                                                                              | Replacement                                                       |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `schemaToJson(schema)`                                                               | `standardSchemaToJsonSchema(schema)`                              |
-| `parseSchemaAsync(schema, data)`                                                     | `validateStandardSchema(schema, data)`                            |
-| `SchemaInput<T>`                                                                     | `StandardSchemaWithJSON.InferInput<T>`                            |
+| Removed | Replacement |
+|---|---|
+| `schemaToJson(schema)` | `standardSchemaToJsonSchema(schema)` |
+| `parseSchemaAsync(schema, data)` | `validateStandardSchema(schema, data)` |
+| `SchemaInput<T>` | `StandardSchemaWithJSON.InferInput<T>` |
 | `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema` | No replacement — these are now internal Zod introspection helpers |
 
 ### Host header validation moved
@@ -436,6 +435,7 @@ before sending and gives typed `params`; passing a bare result schema sends para
 For larger sub-protocols where neither side is semantically an MCP client or server, prefer composition: hold a `Client` (or `Server`) instance, register custom handlers on it, and expose typed facade methods. See `examples/server/src/customMethodExtAppsExample.ts` for a worked
 example.
 
+
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
 
 The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
@@ -531,15 +531,15 @@ For **production in-process connections**, use `StreamableHTTPClientTransport` w
 
 The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
 
-| Removed                                  | Replacement                                                                                       |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `JSONRPCError`                           | `JSONRPCErrorResponse`                                                                            |
-| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                                                                      |
-| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                                                          |
-| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                                                                         |
-| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                 |
-| `ResourceReference`                      | `ResourceTemplateReference`                                                                       |
-| `IsomorphicHeaders`                      | Use Web Standard `Headers`                                                                        |
+| Removed                                  | Replacement                                      |
+| ---------------------------------------- | ------------------------------------------------ |
+| `JSONRPCError`                           | `JSONRPCErrorResponse`                           |
+| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                     |
+| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                         |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                        |
+| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
+| `ResourceReference`                      | `ResourceTemplateReference`                      |
+| `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
 All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
@@ -570,7 +570,7 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
 | `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
 | `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
-| `extra.requestInfo`                      | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)      |
+| `extra.requestInfo`                      | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)     |
 | `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
 | `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
 | `extra.sessionId`                        | `ctx.sessionId`                                                        |
@@ -837,8 +837,7 @@ try {
 
 ### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
 
-The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let
-the server decide the lifetime.
+The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let the server decide the lifetime.
 
 This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
 

@@ -36,13 +36,13 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Client imports
 
-| v1 import path                                       | v2 package                                                                     |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `@modelcontextprotocol/sdk/client/index.js`          | `@modelcontextprotocol/client`                                                 |
-| `@modelcontextprotocol/sdk/client/auth.js`           | `@modelcontextprotocol/client`                                                 |
-| `@modelcontextprotocol/sdk/client/streamableHttp.js` | `@modelcontextprotocol/client`                                                 |
-| `@modelcontextprotocol/sdk/client/sse.js`            | `@modelcontextprotocol/client`                                                 |
-| `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client`                                                 |
+| v1 import path                                       | v2 package                     |
+| ---------------------------------------------------- | ------------------------------ |
+| `@modelcontextprotocol/sdk/client/index.js`          | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/auth.js`           | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/streamableHttp.js` | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/sse.js`            | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/websocket.js`      | REMOVED (use Streamable HTTP or stdio; implement `Transport` for custom needs) |
 
 ### Server imports
@@ -59,8 +59,8 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Types / shared imports
 
-| v1 import path                                    | v2 package                                                       |
-| ------------------------------------------------- | ---------------------------------------------------------------- |
+| v1 import path                                    | v2 package                   |
+| ------------------------------------------------- | ---------------------------- |
 | `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
 | `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
 | `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
@@ -81,22 +81,22 @@ Notes:
 
 ## 5. Removed / Renamed Type Aliases and Symbols
 
-| v1 (removed)                             | v2 (replacement)                                                                                  |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `JSONRPCError`                           | `JSONRPCErrorResponse`                                                                            |
-| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                                                                      |
-| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                                                          |
-| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                                                                         |
-| `ResourceReference`                      | `ResourceTemplateReference`                                                                       |
-| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                 |
-| `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                                                              |
+| v1 (removed)                             | v2 (replacement)                                         |
+| ---------------------------------------- | -------------------------------------------------------- |
+| `JSONRPCError`                           | `JSONRPCErrorResponse`                                   |
+| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                             |
+| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                 |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                                |
+| `ResourceReference`                      | `ResourceTemplateReference`                              |
+| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                        |
+| `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                     |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
-| `McpError`                               | `ProtocolError`                                                                                   |
-| `ErrorCode`                              | `ProtocolErrorCode`                                                                               |
-| `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                                                                     |
-| `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                                                                   |
-| `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`)                                          |
-| `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                           |
+| `McpError`                               | `ProtocolError`                                          |
+| `ErrorCode`                              | `ProtocolErrorCode`                                      |
+| `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                            |
+| `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                          |
+| `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
+| `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`) |
 
 All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
 
@@ -210,8 +210,7 @@ Zod schemas, all callback return types. Note: `callTool()` and `request()` signa
 
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
-**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with
-`fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with `fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
 
 ### Tools
 
@@ -281,20 +280,20 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ### Schema Migration Quick Reference
 
-| v1 (raw shape)                     | v2 (Standard Schema object)                  |
-| ---------------------------------- | -------------------------------------------- |
-| `{ name: z.string() }`             | `z.object({ name: z.string() })`             |
+| v1 (raw shape) | v2 (Standard Schema object) |
+|----------------|-----------------|
+| `{ name: z.string() }` | `z.object({ name: z.string() })` |
 | `{ count: z.number().optional() }` | `z.object({ count: z.number().optional() })` |
 | `{}` (empty)                       | `z.object({})`                               |
 | `undefined` (no schema)            | `undefined` or omit the field                |
 
 ### Removed core exports
 
-| Removed from `@modelcontextprotocol/core`                                            | Replacement                               |
-| ------------------------------------------------------------------------------------ | ----------------------------------------- |
-| `schemaToJson(schema)`                                                               | `standardSchemaToJsonSchema(schema)`      |
-| `parseSchemaAsync(schema, data)`                                                     | `validateStandardSchema(schema, data)`    |
-| `SchemaInput<T>`                                                                     | `StandardSchemaWithJSON.InferInput<T>`    |
+| Removed from `@modelcontextprotocol/core` | Replacement |
+|---|---|
+| `schemaToJson(schema)` | `standardSchemaToJsonSchema(schema)` |
+| `parseSchemaAsync(schema, data)` | `validateStandardSchema(schema, data)` |
+| `SchemaInput<T>` | `StandardSchemaWithJSON.InferInput<T>` |
 | `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema` | none (internal Zod introspection helpers) |
 
 ## 7. Headers API
@@ -390,6 +389,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 
 The v1 schema's `.shape.params` becomes the `ParamsSchema` argument; the `method: z.literal('...')` value becomes the string argument.
 
+
 ## 10. Request Handler Context Types
 
 `RequestHandlerExtra` → structured context types with nested groups. Rename `extra` → `ctx` in all handler callbacks.
@@ -452,18 +452,18 @@ Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResu
 
 `TaskCreationParams.ttl` changed from `z.union([z.number(), z.null()]).optional()` to `z.number().optional()`. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Omit `ttl` to let the server decide.
 
-| v1                     | v2                                 |
-| ---------------------- | ---------------------------------- |
-| `task: { ttl: null }`  | `task: {}` (omit ttl)              |
+| v1 | v2 |
+|---|---|
+| `task: { ttl: null }` | `task: {}` (omit ttl) |
 | `task: { ttl: 60000 }` | `task: { ttl: 60000 }` (unchanged) |
 
 Type changes in handler context:
 
-| Type                                        | v1                            | v2                    |
-| ------------------------------------------- | ----------------------------- | --------------------- |
-| `TaskContext.requestedTtl`                  | `number \| null \| undefined` | `number \| undefined` |
+| Type | v1 | v2 |
+|---|---|---|
+| `TaskContext.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
 | `CreateTaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
-| `TaskServerContext.task.requestedTtl`       | `number \| null \| undefined` | `number \| undefined` |
+| `TaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
 
 > These task APIs are `@experimental` and may change without notice.
 
