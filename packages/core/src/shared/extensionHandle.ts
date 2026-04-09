@@ -30,7 +30,8 @@ export interface ExtensionHost<ContextT extends BaseContext> {
 }
 
 /**
- * Options for {@linkcode Client.extension} / {@linkcode Server.extension}.
+ * Options for {@linkcode @modelcontextprotocol/client!client/client.Client#extension | Client.extension} /
+ * {@linkcode @modelcontextprotocol/server!server/server.Server#extension | Server.extension}.
  */
 export interface ExtensionOptions<P extends AnySchema> {
     /**
@@ -45,7 +46,8 @@ export interface ExtensionOptions<P extends AnySchema> {
  * A scoped handle for registering and sending custom JSON-RPC methods belonging to a single
  * SEP-2133 extension.
  *
- * Obtained via {@linkcode Client.extension} or {@linkcode Server.extension}. Creating a handle
+ * Obtained via {@linkcode @modelcontextprotocol/client!client/client.Client#extension | Client.extension} or
+ * {@linkcode @modelcontextprotocol/server!server/server.Server#extension | Server.extension}. Creating a handle
  * declares the extension in `capabilities.extensions[id]` so it is advertised during `initialize`.
  * Handlers registered through the handle are thus structurally guaranteed to belong to a declared
  * extension.
@@ -58,7 +60,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
     private _peerSettingsCache?: { value: Peer | undefined };
 
     /**
-     * @internal Use {@linkcode Client.extension} or {@linkcode Server.extension} to construct.
+     * @internal Use `Client.extension()` or `Server.extension()` to construct.
      */
     constructor(
         private readonly _host: ExtensionHost<ContextT>,
@@ -105,7 +107,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
 
     /**
      * Registers a request handler for a custom method belonging to this extension. Delegates to
-     * {@linkcode Protocol.setCustomRequestHandler | setCustomRequestHandler}; the collision guard
+     * the underlying `setCustomRequestHandler`; the collision guard
      * against standard MCP methods applies.
      */
     setRequestHandler<P extends AnySchema>(
@@ -118,7 +120,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
 
     /**
      * Registers a notification handler for a custom method belonging to this extension. Delegates
-     * to {@linkcode Protocol.setCustomNotificationHandler | setCustomNotificationHandler}.
+     * to the underlying `setCustomNotificationHandler`.
      */
     setNotificationHandler<P extends AnySchema>(
         method: string,
