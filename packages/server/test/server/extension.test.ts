@@ -68,6 +68,13 @@ describe('Server.extension()', () => {
         }
     });
 
+    test('throws on duplicate extension id', () => {
+        const server = new Server({ name: 's', version: '1.0.0' });
+        server.extension('io.example/ui', { v: 1 });
+        expect(() => server.extension('io.example/ui', { v: 2 })).toThrow(/already registered/);
+        expect(() => server.extension('com.other/thing', {})).not.toThrow();
+    });
+
     test("getPeerSettings() reads the client's capabilities.extensions[id] after initialize", async () => {
         const PeerSchema = z.object({ availableDisplayModes: z.array(z.string()) });
         const server = new Server({ name: 's', version: '1.0.0' });

@@ -57,8 +57,6 @@ export interface ExtensionOptions<P extends AnySchema> {
  * {@linkcode getPeerSettings} returns `undefined`.
  */
 export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, ContextT extends BaseContext = BaseContext> {
-    private _peerSettingsCache?: { value: Peer | undefined };
-
     /**
      * @internal Use `Client.extension()` or `Server.extension()` to construct.
      */
@@ -76,33 +74,25 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
     /**
      * Returns the peer's `capabilities.extensions[id]` settings, or `undefined` if the peer did not
      * advertise this extension or (when `peerSchema` was provided) if the peer's blob fails
-     * validation. The result is parsed once and cached.
+     * validation. Reads the current peer capabilities on each call (no caching), so it reflects
+     * reconnects.
      */
     getPeerSettings(): Peer | undefined {
-        if (this._peerSettingsCache) {
-            return this._peerSettingsCache.value;
-        }
         const raw = this._getPeerExtensionSettings();
         if (raw === undefined) {
-            // Don't cache: peer may not have connected yet.
             return undefined;
         }
-        let value: Peer | undefined;
         if (this._peerSchema === undefined) {
-            value = raw as Peer;
-        } else {
-            const parsed = parseSchema(this._peerSchema, raw);
-            if (parsed.success) {
-                value = parsed.data as Peer;
-            } else {
-                console.warn(
-                    `[ExtensionHandle] Peer's capabilities.extensions["${this.id}"] failed schema validation: ${parsed.error.message}`
-                );
-                value = undefined;
-            }
+            return raw as Peer;
         }
-        this._peerSettingsCache = { value };
-        return value;
+        const parsed = parseSchema(this._peerSchema, raw);
+        if (!parsed.success) {
+            console.warn(
+                `[ExtensionHandle] Peer's capabilities.extensions["${this.id}"] failed schema validation: ${parsed.error.message}`
+            );
+            return undefined;
+        }
+        return parsed.data as Peer;
     }
 
     /**
@@ -137,7 +127,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
      * `capabilities.extensions[id]`, throws {@linkcode SdkError} with
      * {@linkcode SdkErrorCode.CapabilityNotSupported}.
      */
-    sendRequest<R extends AnySchema>(
+    async sendRequest<R extends AnySchema>(
         method: string,
         params: Record<string, unknown> | undefined,
         resultSchema: R,
@@ -154,7 +144,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
      * `capabilities.extensions[id]`, throws {@linkcode SdkError} with
      * {@linkcode SdkErrorCode.CapabilityNotSupported}.
      */
-    sendNotification(method: string, params?: Record<string, unknown>, options?: NotificationOptions): Promise<void> {
+    async sendNotification(method: string, params?: Record<string, unknown>, options?: NotificationOptions): Promise<void> {
         this._assertPeerCapability(method);
         return this._host.sendCustomNotification(method, params, options);
     }

@@ -249,6 +249,9 @@ export class Server extends Protocol<ServerContext> {
         if (this.transport) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register extension after connecting to transport');
         }
+        if (this._capabilities.extensions && Object.hasOwn(this._capabilities.extensions, id)) {
+            throw new Error(`Extension "${id}" is already registered`);
+        }
         this._capabilities.extensions = { ...this._capabilities.extensions, [id]: settings };
         return new ExtensionHandle(
             this,

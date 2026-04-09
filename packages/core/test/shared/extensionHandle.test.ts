@@ -66,26 +66,20 @@ describe('ExtensionHandle.getPeerSettings', () => {
         warn.mockRestore();
     });
 
-    test('caches the parsed result once peer has advertised', () => {
-        const getter = vi.fn().mockReturnValue({ a: 1 });
-        const host = makeMockHost() as unknown as ExtensionHost<BaseContext>;
-        const handle = new ExtensionHandle(host, 'io.example/ui', {}, getter, false);
-        handle.getPeerSettings();
-        handle.getPeerSettings();
-        handle.getPeerSettings();
-        expect(getter).toHaveBeenCalledTimes(1);
-    });
-
-    test('does not cache undefined (so a later-connecting peer is observable)', () => {
+    test('reflects current peer settings on each call (no caching across reconnects)', () => {
         let peer: JSONObject | undefined;
         const getter = vi.fn(() => peer);
         const host = makeMockHost() as unknown as ExtensionHost<BaseContext>;
         const handle = new ExtensionHandle(host, 'io.example/ui', {}, getter, false);
+
         expect(handle.getPeerSettings()).toBeUndefined();
-        peer = { now: 'connected' };
-        expect(handle.getPeerSettings()).toEqual({ now: 'connected' });
-        expect(handle.getPeerSettings()).toEqual({ now: 'connected' });
-        expect(getter).toHaveBeenCalledTimes(2);
+        peer = { v: 1 };
+        expect(handle.getPeerSettings()).toEqual({ v: 1 });
+        peer = { v: 2 };
+        expect(handle.getPeerSettings()).toEqual({ v: 2 });
+        peer = undefined;
+        expect(handle.getPeerSettings()).toBeUndefined();
+        expect(getter).toHaveBeenCalledTimes(4);
     });
 });
 
@@ -115,19 +109,17 @@ describe('ExtensionHandle.sendRequest / sendNotification — peer gating', () =>
         expect(host.sendCustomNotification).toHaveBeenCalledWith('ui/ping', {}, undefined);
     });
 
-    test('strict mode: throws CapabilityNotSupported when peer did not advertise', () => {
+    test('strict mode: rejects with CapabilityNotSupported when peer did not advertise', async () => {
         const { host, handle } = makeHandle({ peer: undefined, strict: true });
-        let thrown: unknown;
-        try {
-            void handle.sendRequest('ui/do', {}, Result);
-        } catch (e) {
-            thrown = e;
-        }
-        expect(thrown).toBeInstanceOf(SdkError);
-        expect((thrown as SdkError).code).toBe(SdkErrorCode.CapabilityNotSupported);
-        expect((thrown as SdkError).message).toMatch(/io\.example\/ui.*ui\/do/);
+        await expect(handle.sendRequest('ui/do', {}, Result)).rejects.toSatisfy(
+            (e: unknown) =>
+                e instanceof SdkError && e.code === SdkErrorCode.CapabilityNotSupported && /io\.example\/ui.*ui\/do/.test(e.message)
+        );
         expect(host.sendCustomRequest).not.toHaveBeenCalled();
-        expect(() => handle.sendNotification('ui/ping')).toThrow(SdkError);
+        await expect(handle.sendNotification('ui/ping')).rejects.toSatisfy(
+            (e: unknown) => e instanceof SdkError && e.code === SdkErrorCode.CapabilityNotSupported
+        );
+        expect(host.sendCustomNotification).not.toHaveBeenCalled();
     });
 
     test('strict mode: sends when peer did advertise', async () => {
