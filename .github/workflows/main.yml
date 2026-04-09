@@ -62,6 +62,9 @@ jobs:
 
             - run: npm ci
 
+            - name: Ensure npm CLI supports OIDC trusted publishing
+              run: npm install -g npm@11.5.1
+
             - name: Determine npm tag
               id: npm-tag
               run: |
