@@ -42,7 +42,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/client/auth.js`           | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/streamableHttp.js` | `@modelcontextprotocol/client` |
 | `@modelcontextprotocol/sdk/client/sse.js`            | `@modelcontextprotocol/client` |
-| `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client` |
+| `@modelcontextprotocol/sdk/client/stdio.js`          | `@modelcontextprotocol/client/stdio` |
 | `@modelcontextprotocol/sdk/client/websocket.js`      | REMOVED (use Streamable HTTP or stdio; implement `Transport` for custom needs) |
 
 ### Server imports
@@ -51,7 +51,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
-| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
 | `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
 | `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                |
@@ -66,7 +66,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
 | `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
 | `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client/stdio` or `@modelcontextprotocol/server/stdio` |
 
 Notes:
 

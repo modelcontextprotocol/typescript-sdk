@@ -28,7 +28,8 @@ export type { HostHeaderValidationResult } from './server/middleware/hostHeaderV
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation.js';
 export type { ServerOptions } from './server/server.js';
 export { Server } from './server/server.js';
-export { StdioServerTransport } from './server/stdio.js';
+// StdioServerTransport is exported from the './stdio' subpath to keep the root entry free of process-stdio
+// runtime dependencies (node:stream).
 export type {
     EventId,
     EventStore,

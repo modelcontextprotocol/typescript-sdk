@@ -1,4 +1,5 @@
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 const transport = new StdioServerTransport();
 
