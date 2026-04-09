@@ -62,6 +62,19 @@ describe('custom request handlers', () => {
         expect(received?.mcpReq.method).toBe('acme/ctx');
     });
 
+    test('strict schema: SDK-injected _meta is stripped before validation', async () => {
+        let receivedQ: string | undefined;
+        let receivedMeta: unknown;
+        server.setCustomRequestHandler('acme/strict', z.object({ q: z.string() }).strict(), (params, ctx) => {
+            receivedQ = params.q;
+            receivedMeta = ctx.mcpReq._meta;
+            return {};
+        });
+        await expect(client.sendCustomRequest('acme/strict', { q: 'hi' }, z.object({}), { onprogress: () => {} })).resolves.toEqual({});
+        expect(receivedQ).toBe('hi');
+        expect(receivedMeta).toMatchObject({ progressToken: expect.anything() });
+    });
+
     test('invalid params -> InvalidParams ProtocolError', async () => {
         server.setCustomRequestHandler('acme/search', SearchParams, () => ({ hits: [], total: 0 }));
 

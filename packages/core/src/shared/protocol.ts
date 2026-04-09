@@ -1077,7 +1077,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new Error(`"${method}" is a standard MCP request method. Use setRequestHandler() instead.`);
         }
         this._requestHandlers.set(method, (request, ctx) => {
-            const parsed = parseSchema(paramsSchema, request.params);
+            const { _meta, ...userParams } = (request.params ?? {}) as Record<string, unknown>;
+            void _meta;
+            const parsed = parseSchema(paramsSchema, userParams);
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
             }
@@ -1112,7 +1114,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new Error(`"${method}" is a standard MCP notification method. Use setNotificationHandler() instead.`);
         }
         this._notificationHandlers.set(method, notification => {
-            const parsed = parseSchema(paramsSchema, notification.params);
+            const { _meta, ...userParams } = (notification.params ?? {}) as Record<string, unknown>;
+            void _meta;
+            const parsed = parseSchema(paramsSchema, userParams);
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
             }

@@ -34,8 +34,13 @@ const getServer = () => {
     server.setCustomRequestHandler('acme/search', SearchParamsSchema, async (params, ctx) => {
         console.log(`[server] acme/search query="${params.query}" limit=${params.limit ?? 'unset'} (req ${ctx.mcpReq.id})`);
 
-        // Send a custom server→client notification on the same SSE stream as this response.
-        await server.sendCustomNotification('acme/statusUpdate', { status: 'busy', detail: `searching "${params.query}"` });
+        // Send a custom server→client notification on the same SSE stream as this response
+        // (relatedRequestId routes it to the request's stream rather than the standalone SSE stream).
+        await server.sendCustomNotification(
+            'acme/statusUpdate',
+            { status: 'busy', detail: `searching "${params.query}"` },
+            { relatedRequestId: ctx.mcpReq.id }
+        );
 
         return {
             results: [
