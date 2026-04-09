@@ -1,4 +1,5 @@
 import type {
+    AnySchema,
     BaseContext,
     ClientCapabilities,
     CreateMessageRequest,
@@ -9,9 +10,11 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    ExtensionOptions,
     Implementation,
     InitializeRequest,
     InitializeResult,
+    JSONObject,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
@@ -26,6 +29,7 @@ import type {
     RequestTypeMap,
     ResourceUpdatedNotification,
     ResultTypeMap,
+    SchemaOutput,
     ServerCapabilities,
     ServerContext,
     ServerResult,
@@ -43,6 +47,7 @@ import {
     CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    ExtensionHandle,
     extractTaskManagerOptions,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
@@ -102,6 +107,7 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _enforceStrictCapabilities: boolean;
     private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
@@ -123,6 +129,7 @@ export class Server extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
+        this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
 
         // Strip runtime-only fields from advertised capabilities
         if (options?.capabilities?.tasks) {
@@ -217,6 +224,40 @@ export class Server extends Protocol<ServerContext> {
         if (!hadLogging && this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    /**
+     * Declares an SEP-2133 extension and returns a scoped {@linkcode ExtensionHandle} for
+     * registering and sending its custom JSON-RPC methods.
+     *
+     * Merges `settings` into `capabilities.extensions[id]`, which is advertised to the client
+     * in the `initialize` result. Must be called before {@linkcode connect}. After connecting,
+     * {@linkcode ExtensionHandle.getPeerSettings | handle.getPeerSettings()} returns the client's
+     * `capabilities.extensions[id]` blob (validated against `peerSchema` if provided).
+     */
+    public extension<L extends JSONObject>(id: string, settings: L): ExtensionHandle<L, JSONObject, ServerContext>;
+    public extension<L extends JSONObject, P extends AnySchema>(
+        id: string,
+        settings: L,
+        opts: ExtensionOptions<P>
+    ): ExtensionHandle<L, SchemaOutput<P>, ServerContext>;
+    public extension<L extends JSONObject, P extends AnySchema>(
+        id: string,
+        settings: L,
+        opts?: ExtensionOptions<P>
+    ): ExtensionHandle<L, SchemaOutput<P> | JSONObject, ServerContext> {
+        if (this.transport) {
+            throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register extension after connecting to transport');
+        }
+        this._capabilities.extensions = { ...this._capabilities.extensions, [id]: settings };
+        return new ExtensionHandle(
+            this,
+            id,
+            settings,
+            () => this._clientCapabilities?.extensions?.[id],
+            this._enforceStrictCapabilities,
+            opts?.peerSchema
+        );
     }
 
     /**

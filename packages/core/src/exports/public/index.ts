@@ -35,6 +35,10 @@ export type {
 // Auth utilities
 export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/authUtils.js';
 
+// Extension registrar (SEP-2133 capability-aware custom methods)
+export type { ExtensionOptions } from '../../shared/extensionHandle.js';
+export { ExtensionHandle } from '../../shared/extensionHandle.js';
+
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 

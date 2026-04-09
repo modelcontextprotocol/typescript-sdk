@@ -434,6 +434,36 @@ before sending and gives typed `params`; passing a bare result schema sends para
 
 For larger sub-protocols where neither side is semantically an MCP client or server, prefer composition: hold a `Client` (or `Server`) instance, register custom handlers on it, and expose typed facade methods. See `examples/server/src/customMethodExample.ts` and `examples/client/src/customMethodExample.ts` for runnable examples.
 
+#### Declaring extension capabilities (SEP-2133)
+
+When your custom methods constitute a formal extension with an SEP-2133 identifier (e.g.
+`io.modelcontextprotocol/ui`), use `Client.extension()` / `Server.extension()` instead of the flat
+`*Custom*` methods. This declares the extension in `capabilities.extensions[id]` so it is
+negotiated during `initialize`, and returns a scoped `ExtensionHandle` whose `setRequestHandler` /
+`sendRequest` calls are tied to that declared capability:
+
+```typescript
+import { Client } from '@modelcontextprotocol/client';
+
+const client = new Client({ name: 'app', version: '1.0.0' });
+const ui = client.extension(
+    'io.modelcontextprotocol/ui',
+    { availableDisplayModes: ['inline'] },
+    { peerSchema: HostCapabilitiesSchema }
+);
+
+ui.setRequestHandler('ui/resource-teardown', TeardownParams, p => onTeardown(p));
+
+await client.connect(transport);
+ui.getPeerSettings(); // server's capabilities.extensions['io.modelcontextprotocol/ui'], typed via peerSchema
+await ui.sendRequest('ui/open-link', { url }, OpenLinkResult);
+```
+
+`handle.sendRequest`/`sendNotification` respect `enforceStrictCapabilities`: when strict, sending
+throws if the peer did not advertise the same extension ID. The flat `setCustomRequestHandler` /
+`sendCustomRequest` methods remain available as the ungated escape hatch for one-off vendor
+methods that do not warrant a SEP-2133 entry.
+
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
 
 The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas

@@ -1,5 +1,6 @@
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims';
 import type {
+    AnySchema,
     BaseContext,
     CallToolRequest,
     ClientCapabilities,
@@ -8,8 +9,10 @@ import type {
     ClientRequest,
     ClientResult,
     CompleteRequest,
+    ExtensionOptions,
     GetPromptRequest,
     Implementation,
+    JSONObject,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -28,6 +31,7 @@ import type {
     RequestOptions,
     RequestTypeMap,
     ResultTypeMap,
+    SchemaOutput,
     ServerCapabilities,
     SubscribeRequest,
     TaskManagerOptions,
@@ -47,6 +51,7 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    ExtensionHandle,
     extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
@@ -305,6 +310,40 @@ export class Client extends Protocol<ClientContext> {
         }
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Declares an SEP-2133 extension and returns a scoped {@linkcode ExtensionHandle} for
+     * registering and sending its custom JSON-RPC methods.
+     *
+     * Merges `settings` into `capabilities.extensions[id]`, which is advertised to the server
+     * during `initialize`. Must be called before {@linkcode connect}. After connecting,
+     * {@linkcode ExtensionHandle.getPeerSettings | handle.getPeerSettings()} returns the server's
+     * `capabilities.extensions[id]` blob (validated against `peerSchema` if provided).
+     */
+    public extension<L extends JSONObject>(id: string, settings: L): ExtensionHandle<L, JSONObject, ClientContext>;
+    public extension<L extends JSONObject, P extends AnySchema>(
+        id: string,
+        settings: L,
+        opts: ExtensionOptions<P>
+    ): ExtensionHandle<L, SchemaOutput<P>, ClientContext>;
+    public extension<L extends JSONObject, P extends AnySchema>(
+        id: string,
+        settings: L,
+        opts?: ExtensionOptions<P>
+    ): ExtensionHandle<L, SchemaOutput<P> | JSONObject, ClientContext> {
+        if (this.transport) {
+            throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register extension after connecting to transport');
+        }
+        this._capabilities.extensions = { ...this._capabilities.extensions, [id]: settings };
+        return new ExtensionHandle(
+            this,
+            id,
+            settings,
+            () => this._serverCapabilities?.extensions?.[id],
+            this._enforceStrictCapabilities,
+            opts?.peerSchema
+        );
     }
 
     /**
