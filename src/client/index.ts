@@ -53,15 +53,7 @@ import {
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
-import {
-    AnyObjectSchema,
-    SchemaOutput,
-    getObjectShape,
-    isZ4Schema,
-    safeParse,
-    type ZodV3Internal,
-    type ZodV4Internal
-} from '../server/zod-compat.js';
+import { AnyObjectSchema, SchemaOutput, getLiteralValue, getObjectShape, safeParse } from '../server/zod-compat.js';
 import type { RequestHandlerExtra } from '../shared/protocol.js';
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
@@ -339,18 +331,7 @@ export class Client<
             throw new Error('Schema is missing a method literal');
         }
 
-        // Extract literal value using type-safe property access
-        let methodValue: unknown;
-        if (isZ4Schema(methodSchema)) {
-            const v4Schema = methodSchema as unknown as ZodV4Internal;
-            const v4Def = v4Schema._zod?.def;
-            methodValue = v4Def?.value ?? v4Schema.value;
-        } else {
-            const v3Schema = methodSchema as unknown as ZodV3Internal;
-            const legacyDef = v3Schema._def;
-            methodValue = legacyDef?.value ?? v3Schema.value;
-        }
-
+        const methodValue = getLiteralValue(methodSchema);
         if (typeof methodValue !== 'string') {
             throw new Error('Schema method literal must be a string');
         }
