@@ -11,6 +11,7 @@ import type {
     PollEventsResultEntry,
     SchemaOutput,
     ServerContext,
+    StandardJSONSchemaV1,
     SubscribeEventResult,
     WebhookDeliveryStatus,
     WebhookUrlValidationOptions
@@ -21,10 +22,10 @@ import {
     EVENT_NOT_FOUND,
     INVALID_CALLBACK_URL,
     isSafeWebhookUrl,
-    parseSchemaAsync,
+    parseSchema,
     ProtocolError,
     ProtocolErrorCode,
-    schemaToJson,
+    standardSchemaToJsonSchema,
     SUBSCRIPTION_NOT_FOUND,
     TOO_MANY_SUBSCRIPTIONS,
     WEBHOOK_SIGNATURE_HEADER,
@@ -623,10 +624,10 @@ export class ServerEventManager {
                 description: event.description,
                 delivery,
                 inputSchema: event.inputSchema
-                    ? (schemaToJson(event.inputSchema, { io: 'input' }) as EventDescriptor['inputSchema'])
+                    ? (standardSchemaToJsonSchema(event.inputSchema as unknown as StandardJSONSchemaV1, 'input') as EventDescriptor['inputSchema'])
                     : EMPTY_OBJECT_JSON_SCHEMA,
                 payloadSchema: event.payloadSchema
-                    ? (schemaToJson(event.payloadSchema, { io: 'output' }) as EventDescriptor['payloadSchema'])
+                    ? (standardSchemaToJsonSchema(event.payloadSchema as unknown as StandardJSONSchemaV1, 'output') as EventDescriptor['payloadSchema'])
                     : undefined,
                 _meta: event._meta
             });
@@ -1117,7 +1118,7 @@ export class ServerEventManager {
         if (!event.inputSchema) {
             return { params: params ?? {} };
         }
-        const parsed = await parseSchemaAsync(event.inputSchema, params ?? {});
+        const parsed = parseSchema(event.inputSchema, params ?? {});
         if (!parsed.success) {
             const message = parsed.error.issues.map((i: { message: string }) => i.message).join(', ');
             return { error: { code: ProtocolErrorCode.InvalidParams, message: `Invalid subscription params: ${message}` } };

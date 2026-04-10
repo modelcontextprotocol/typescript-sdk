@@ -35,6 +35,17 @@ export type {
 // Auth utilities
 export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/authUtils.js';
 
+// Event webhook utilities
+export type { WebhookUrlValidationOptions } from '../../shared/eventWebhook.js';
+export {
+    computeWebhookSignature,
+    DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS,
+    isSafeWebhookUrl,
+    verifyWebhookSignature,
+    WEBHOOK_SIGNATURE_HEADER,
+    WEBHOOK_TIMESTAMP_HEADER
+} from '../../shared/eventWebhook.js';
+
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
@@ -82,8 +93,12 @@ export * from '../../types/types.js';
 
 // Constants
 export {
+    CURSOR_EXPIRED,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    EVENT_NOT_FOUND,
+    EVENT_UNAUTHORIZED,
     INTERNAL_ERROR,
+    INVALID_CALLBACK_URL,
     INVALID_PARAMS,
     INVALID_REQUEST,
     JSONRPC_VERSION,
@@ -91,7 +106,9 @@ export {
     METHOD_NOT_FOUND,
     PARSE_ERROR,
     RELATED_TASK_META_KEY,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUBSCRIPTION_NOT_FOUND,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    TOO_MANY_SUBSCRIPTIONS
 } from '../../types/constants.js';
 
 // Enums

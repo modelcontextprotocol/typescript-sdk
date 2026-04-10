@@ -885,7 +885,8 @@ type _K_JSONRPCErrorResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCErrorRespo
 type _K_JSONRPCResultResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCResultResponse, SpecTypes.JSONRPCResultResponse>>;
 type _K_InitializeResult = Assert<AssertExactKeys<SDKTypes.InitializeResult, SpecTypes.InitializeResult>>;
 type _K_ClientCapabilities = Assert<AssertExactKeys<SDKTypes.ClientCapabilities, SpecTypes.ClientCapabilities>>;
-type _K_ServerCapabilities = Assert<AssertExactKeys<SDKTypes.ServerCapabilities, SpecTypes.ServerCapabilities>>;
+// `events` is pre-spec on this branch; omit it until the spec lands.
+type _K_ServerCapabilities = Assert<AssertExactKeys<Omit<SDKTypes.ServerCapabilities, 'events'>, SpecTypes.ServerCapabilities>>;
 type _K_SamplingMessage = Assert<AssertExactKeys<SDKTypes.SamplingMessage, SpecTypes.SamplingMessage>>;
 type _K_Icon = Assert<AssertExactKeys<SDKTypes.Icon, SpecTypes.Icon>>;
 type _K_Icons = Assert<AssertExactKeys<SDKTypes.Icons, SpecTypes.Icons>>;

@@ -1,4 +1,5 @@
 import type {
+    AnySchema,
     BaseMetadata,
     CallToolRequest,
     CallToolResult,
@@ -19,6 +20,7 @@ import type {
     Resource,
     ResourceTemplateReference,
     Result,
+    SchemaOutput,
     ServerContext,
     StandardSchemaWithJSON,
     Tool,
