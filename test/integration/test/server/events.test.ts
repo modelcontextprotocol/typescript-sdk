@@ -669,6 +669,44 @@ describe('Events', () => {
             expect(new Date(result.refreshBefore).getTime()).toBeGreaterThan(Date.now());
         });
 
+        it('mints a webhook secret on create and omits it on refresh', async () => {
+            const { state, check } = makeCounterEvent(0.01);
+            server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
+
+            await connectPair(server, client);
+
+            const first = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: HOOK_URL },
+                cursor: null
+            });
+            expect(first.secret).toBeDefined();
+            expect(first.secret).toMatch(/^whsec_[\da-f]{64}$/);
+
+            const second = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: HOOK_URL },
+                cursor: null
+            });
+            expect(second.secret).toBeUndefined();
+
+            // The minted secret signs deliveries.
+            state.value = 1;
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+            const [, init] = fetchMock.mock.calls[0]!;
+            const verify = await verifyWebhookSignature(
+                first.secret!,
+                init.body as string,
+                (init.headers as Record<string, string>)[WEBHOOK_SIGNATURE_HEADER],
+                (init.headers as Record<string, string>)[WEBHOOK_TIMESTAMP_HEADER]
+            );
+            expect(verify.valid).toBe(true);
+        });
+
         it('delivers events via webhook POST with HMAC signature', async () => {
             const { state, check } = makeCounterEvent(0.01);
             server.registerEvent(
@@ -735,6 +773,9 @@ describe('Events', () => {
 
             expect(second.id).toBe(SUB_ID);
             expect(new Date(second.refreshBefore).getTime()).toBeGreaterThan(new Date(first.refreshBefore).getTime());
+            // First call (re)creates so the secret is echoed; second is a refresh so it is not.
+            expect(first.secret).toBe('a');
+            expect(second.secret).toBeUndefined();
             // Second call is a refresh of an existing sub so deliveryStatus is present.
             expect(second.deliveryStatus).toBeDefined();
             expect(second.deliveryStatus!.active).toBe(true);

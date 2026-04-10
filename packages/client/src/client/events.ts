@@ -20,9 +20,20 @@ export interface WebhookConfig {
      */
     url: string;
     /**
-     * Shared secret for HMAC-SHA256 signature verification of webhook deliveries.
+     * Optional shared secret to override server generation. If omitted, the
+     * server mints a secret and returns it in the subscribe response (see
+     * {@linkcode onSecret}). Supply this only when the secret is provisioned
+     * out-of-band.
      */
-    secret: string;
+    secret?: string;
+    /**
+     * Called whenever the server returns a (new) signing secret — on initial
+     * subscribe, and on any refresh where the server has (re)created the
+     * subscription (restart, TTL expiry). The receiver MUST verify deliveries
+     * with this secret. The current secret is also exposed as
+     * {@linkcode EventSubscription.secret}.
+     */
+    onSecret?: (secret: string, subscriptionId: string) => void | Promise<void>;
     /**
      * Fraction of the server-announced `refreshBefore` interval at which to
      * re-subscribe. `0.5` (the default) means refresh halfway through the TTL.
@@ -117,6 +128,11 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
      * Current cursor position. Updated after each delivered batch.
      */
     cursor: string | null = null;
+    /**
+     * Current webhook signing secret (webhook delivery only). Set from the
+     * server's subscribe response; updated whenever the server (re)mints one.
+     */
+    secret: string | null = null;
 
     /** @internal */
     constructor(
@@ -513,12 +529,20 @@ export class ClientEventManager {
                         id: sub.id,
                         name: sub.name,
                         params: sub.params,
-                        delivery: { mode: 'webhook', url: webhook.url, secret: webhook.secret },
+                        delivery: {
+                            mode: 'webhook',
+                            url: webhook.url,
+                            ...(webhook.secret === undefined ? {} : { secret: webhook.secret })
+                        },
                         cursor: sub.cursor
                     },
                     this._options.requestOptions
                 );
                 sub.cursor = result.cursor;
+                if (result.secret !== undefined) {
+                    sub.secret = result.secret;
+                    await webhook.onSecret?.(result.secret, sub.id);
+                }
 
                 // Surface delivery problems but don't kill the subscription —
                 // the refresh reactivates the server's delivery loop.

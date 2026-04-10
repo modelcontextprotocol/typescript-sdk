@@ -21,6 +21,18 @@ export const WEBHOOK_TIMESTAMP_HEADER = 'X-MCP-Timestamp';
 export const DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
 
 /**
+ * Generates a server-minted webhook signing secret with at least 256 bits of
+ * entropy. The `whsec_` prefix matches the convention used by Stripe and the
+ * Standard Webhooks spec, making the value easy to recognise in logs/config.
+ */
+export function generateWebhookSecret(): string {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+    return `whsec_${hex}`;
+}
+
+/**
  * Computes the HMAC-SHA256 signature for a webhook delivery body.
  *
  * The signature covers `timestamp + "." + body` to prevent replay attacks —

@@ -40,6 +40,7 @@ export type { WebhookUrlValidationOptions } from '../../shared/eventWebhook.js';
 export {
     computeWebhookSignature,
     DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS,
+    generateWebhookSecret,
     isSafeWebhookUrl,
     verifyWebhookSignature,
     WEBHOOK_SIGNATURE_HEADER,

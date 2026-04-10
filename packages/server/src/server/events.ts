@@ -20,6 +20,7 @@ import {
     computeWebhookSignature,
     CURSOR_EXPIRED,
     EVENT_NOT_FOUND,
+    generateWebhookSecret,
     INVALID_CALLBACK_URL,
     isSafeWebhookUrl,
     parseSchema,
@@ -624,10 +625,16 @@ export class ServerEventManager {
                 description: event.description,
                 delivery,
                 inputSchema: event.inputSchema
-                    ? (standardSchemaToJsonSchema(event.inputSchema as unknown as StandardJSONSchemaV1, 'input') as EventDescriptor['inputSchema'])
+                    ? (standardSchemaToJsonSchema(
+                          event.inputSchema as unknown as StandardJSONSchemaV1,
+                          'input'
+                      ) as EventDescriptor['inputSchema'])
                     : EMPTY_OBJECT_JSON_SCHEMA,
                 payloadSchema: event.payloadSchema
-                    ? (standardSchemaToJsonSchema(event.payloadSchema as unknown as StandardJSONSchemaV1, 'output') as EventDescriptor['payloadSchema'])
+                    ? (standardSchemaToJsonSchema(
+                          event.payloadSchema as unknown as StandardJSONSchemaV1,
+                          'output'
+                      ) as EventDescriptor['payloadSchema'])
                     : undefined,
                 _meta: event._meta
             });
@@ -876,7 +883,7 @@ export class ServerEventManager {
             id: string;
             name: string;
             params?: Record<string, unknown>;
-            delivery: { mode: 'webhook'; url: string; secret: string };
+            delivery: { mode: 'webhook'; url: string; secret?: string };
             cursor?: string | null;
         },
         ctx: ServerContext
@@ -941,7 +948,7 @@ export class ServerEventManager {
             cursor,
             ctx,
             url: params.delivery.url,
-            secret: params.delivery.secret,
+            secret: params.delivery.secret ?? generateWebhookSecret(),
             expiresAt,
             deliveryStatus: { active: true, lastDeliveryAt: null, lastError: null }
         };
@@ -952,7 +959,8 @@ export class ServerEventManager {
         sub.cursor = cursor;
         // delivery.url is mutable only in principal scope; in url scope it's part of the key.
         if (principalScoped) sub.url = params.delivery.url;
-        sub.secret = params.delivery.secret;
+        // delivery.secret is server-minted by default; client supplies it only to override or rotate.
+        if (params.delivery.secret !== undefined) sub.secret = params.delivery.secret;
         sub.expiresAt = expiresAt;
         sub.ctx = ctx;
         // A successful refresh reactivates a subscription that had been backed off.
@@ -977,6 +985,7 @@ export class ServerEventManager {
 
         return {
             id: params.id,
+            secret: isNew ? sub.secret : undefined,
             cursor,
             refreshBefore: new Date(expiresAt).toISOString(),
             deliveryStatus: isNew ? undefined : sub.deliveryStatus

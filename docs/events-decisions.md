@@ -296,3 +296,71 @@ review.
 
 **Not updated.** Events is additive — no breaking changes to document in
 `docs/migration.md` or `docs/migration-SKILL.md`.
+
+## Spec alignment 2026-04-10
+
+Compared the implementation against `experimental-ext-triggers-events#1`
+(`docs/design-sketch-proposal.md`, 928 lines). Changes made:
+
+### Webhook secret is server-minted (the substantive change)
+
+**Spec:** §"Secret generation" — server mints the signing secret and returns it
+in the `events/subscribe` response on (re)create only; absent on refresh of an
+existing subscription. Client MAY supply `delivery.secret` to override.
+
+**Was:** client always supplied `delivery.secret` (required); server stored it;
+result never carried `secret`.
+
+**Now:**
+
+- `WebhookDeliverySpecSchema.secret` → optional.
+- `SubscribeEventResultSchema` gains `secret?: string`.
+- Server `_handleSubscribe`: on create, `secret = client-supplied ?? generateWebhookSecret()`;
+  on refresh, replaced only if client supplied. Result includes `secret` iff `isNew`.
+- `generateWebhookSecret()` added to `eventWebhook.ts` (32 random bytes,
+  `whsec_<hex>` prefix per Stripe / Standard Webhooks convention) and exported
+  from `core/public`.
+- Client `WebhookConfig.secret` → optional; new `onSecret(secret, subId)` callback;
+  `EventSubscription.secret` field tracks the current value. `_activateWebhook`
+  now omits `delivery.secret` unless an override is configured, and adopts
+  `result.secret` whenever present.
+- One new integration test; existing override-path tests unchanged.
+
+**Judgment call:** when the client supplies an override on a (re)create, the
+result still includes `secret` (echoing the override). The spec's only purpose
+for the field is "presence ⇒ this was a (re)create", so echoing keeps that
+signal intact and is harmless.
+
+### `EventDescriptor.delivery` JSDoc
+
+**Spec:** "any non-empty subset of poll/push/webhook. No mode is mandatory."
+**Was:** JSDoc said `MUST include "poll"`. Updated JSDoc; schema unchanged.
+
+### Divergences inspected and intentionally NOT changed
+
+- **Error code numbers.** Spec uses `-32001..-32006`; SDK uses `-32011..-32016`.
+  Aligning would collide with the existing `ProtocolErrorCode.ResourceNotFound = -32002`
+  in this SDK. **Spec needs to move** — either to the `-3201x` range or by
+  reassigning `ResourceNotFound`. Left as-is.
+- **`Unauthorized` vs `EventUnauthorized`.** Spec table uses bare `Unauthorized`;
+  SDK enum uses `EventUnauthorized`. Kept the prefixed name —
+  `ProtocolErrorCode.Unauthorized` would read as a generic auth error, not an
+  events-scoped one.
+- **`notifications/event` method name.** Spec is internally inconsistent: the
+  mermaid diagram (line 249) says `notifications/events/event`, the JSON example
+  (line 297) says `notifications/event`. SDK already uses `notifications/event`,
+  matching the JSON example. Left as-is; flag for spec cleanup.
+- **`ServerCapabilities.events.listChanged`.** Spec example shows only
+  `{ subscribe: true }` but defines `notifications/events/list_changed`. Kept
+  `listChanged` in the capability shape for consistency with
+  tools/resources/prompts.
+- **Everything else** (poll/stream/subscribe/unsubscribe request+result shapes,
+  `EventOccurrence`, subscription identity, `deliveryStatus`, HMAC headers and
+  signed-string format, SSRF rules, heartbeat, terminated notification, cursor
+  semantics, `bufferEmits` ring buffer) — already matched the spec.
+
+### Not touched
+
+`examples/client/src/eventsClient.ts` still demonstrates the override path
+(hardcoded `secret: 'example-secret-please-change'`). Left per directive; it
+typechecks and works, just isn't the new default flow.

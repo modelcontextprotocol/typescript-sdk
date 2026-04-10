@@ -2108,7 +2108,8 @@ export const EventDescriptorSchema = z.object({
      */
     description: z.string().optional(),
     /**
-     * Delivery modes this event type supports. MUST include `"poll"`.
+     * Delivery modes this event type supports — any non-empty subset of
+     * `"poll"`, `"push"`, `"webhook"`. No mode is mandatory.
      */
     delivery: z.array(EventDeliveryModeSchema),
     /**
@@ -2328,10 +2329,12 @@ export const WebhookDeliverySpecSchema = z.object({
      */
     url: z.string(),
     /**
-     * Shared secret for HMAC-SHA256 signature verification of webhook deliveries.
-     * The client generates this; the server stores it alongside the subscription.
+     * Optional shared secret for HMAC-SHA256 signature verification. If omitted,
+     * the server generates one and returns it in {@linkcode SubscribeEventResult.secret}.
+     * Supply this only to override server generation (e.g. when the secret is
+     * provisioned out-of-band) or to force rotation on a refresh.
      */
-    secret: z.string()
+    secret: z.string().optional()
 });
 
 /**
@@ -2410,6 +2413,14 @@ export const SubscribeEventResultSchema = ResultSchema.extend({
      * The subscription identifier, echoed from the request.
      */
     id: z.string(),
+    /**
+     * Shared secret for HMAC-SHA256 signature verification of webhook deliveries.
+     * Present when the subscription is (re)created — i.e. on the first subscribe,
+     * or on a refresh after the server has lost the subscription (restart, TTL
+     * expiry). Absent on a refresh of an existing subscription. The client MUST
+     * check for its presence on every refresh and update its verifier accordingly.
+     */
+    secret: z.string().optional(),
     /**
      * The subscription's current cursor position.
      */
@@ -2555,7 +2566,6 @@ export const EventHeartbeatNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/events/heartbeat'),
     params: NotificationsParamsSchema.optional()
 });
-
 
 /* Client messages */
 export const ClientRequestSchema = z.union([
