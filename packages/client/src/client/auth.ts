@@ -351,6 +351,19 @@ export interface OAuthClientProvider {
      * re-discovery in case the authorization server has changed.
      */
     discoveryState?(): OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
+
+    /**
+     * If implemented, provides an initial access token for OAuth 2.0 Dynamic
+     * Client Registration (RFC 7591 Section 3). When the authorization server
+     * requires pre-authorisation for client registration, this token is included
+     * as a Bearer token in the registration request.
+     *
+     * The token is per-authorisation-server, so implementations should return the
+     * appropriate token for the server being registered with.
+     *
+     * When not implemented or returning `undefined`, open registration is assumed.
+     */
+    dcrRegistrationAccessToken?(): string | undefined | Promise<string | undefined>;
 }
 
 /**
@@ -730,10 +743,13 @@ async function authInternal(
                 throw new Error('OAuth client information must be saveable for dynamic registration');
             }
 
+            const initialAccessToken = await provider.dcrRegistrationAccessToken?.();
+
             const fullInformation = await registerClient(authorizationServerUrl, {
                 metadata,
                 clientMetadata: provider.clientMetadata,
                 scope: resolvedScope,
+                initialAccessToken,
                 fetchFn
             });
 
@@ -1684,11 +1700,13 @@ export async function registerClient(
         metadata,
         clientMetadata,
         scope,
+        initialAccessToken,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         clientMetadata: OAuthClientMetadata;
         scope?: string;
+        initialAccessToken?: string;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthClientInformationFull> {
@@ -1704,11 +1722,17 @@ export async function registerClient(
         registrationUrl = new URL('/register', authorizationServerUrl);
     }
 
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+    };
+
+    if (initialAccessToken) {
+        headers['Authorization'] = `Bearer ${initialAccessToken}`;
+    }
+
     const response = await (fetchFn ?? fetch)(registrationUrl, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({
             ...clientMetadata,
             ...(scope === undefined ? {} : { scope })

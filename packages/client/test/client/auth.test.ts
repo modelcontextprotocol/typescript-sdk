@@ -2132,6 +2132,58 @@ describe('OAuth Authorization', () => {
                 })
             ).rejects.toThrow('Dynamic client registration failed');
         });
+
+        it('includes Authorization header when initialAccessToken is provided', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validClientInfo
+            });
+
+            await registerClient('https://auth.example.com', {
+                clientMetadata: validClientMetadata,
+                initialAccessToken: 'my-initial-token'
+            });
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/register'
+                }),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer my-initial-token'
+                    },
+                    body: JSON.stringify(validClientMetadata)
+                })
+            );
+        });
+
+        it('does not include Authorization header when initialAccessToken is not provided', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validClientInfo
+            });
+
+            await registerClient('https://auth.example.com', {
+                clientMetadata: validClientMetadata
+            });
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/register'
+                }),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(validClientMetadata)
+                })
+            );
+        });
     });
 
     describe('auth function', () => {
