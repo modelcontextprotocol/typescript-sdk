@@ -97,7 +97,7 @@ export type ProtocolOptions = {
     /**
      * Interval (in milliseconds) between periodic ping requests sent to the remote side
      * to verify connection health. When set, pings begin after initialization completes
-     * ({@linkcode Client} starts them after the MCP handshake; {@linkcode Server} starts
+     * (`Client` starts them after the MCP handshake; `Server` starts
      * them on `notifications/initialized`) and stop automatically when the connection closes.
      *
      * Per the MCP specification, implementations SHOULD periodically issue pings to
@@ -760,8 +760,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * stop the loop; pings continue until the connection is closed.
      *
      * This is not called automatically by the base {@linkcode Protocol.connect | connect()}
-     * method. {@linkcode Client} calls it after the MCP initialization handshake
-     * (and on reconnection), and {@linkcode Server} calls it when the
+     * method. `Client` calls it after the MCP initialization handshake
+     * (and on reconnection), and `Server` calls it when the
      * `notifications/initialized` notification is received. Custom `Protocol`
      * subclasses must call this explicitly after their own initialization.
      *
