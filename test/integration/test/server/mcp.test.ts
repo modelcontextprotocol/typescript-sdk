@@ -2356,6 +2356,64 @@ describe('Zod v4', () => {
                 }
             });
         });
+
+        /***
+         * Test: tool.update() leaves state consistent when schema conversion throws (#1847)
+         *
+         * If the new schema is invalid (e.g. non-object type), the conversion
+         * throws. State must remain unchanged — no partial mutation.
+         */
+        test('should not mutate tool state when paramsSchema conversion throws', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const originalCb = async () => ({
+                content: [{ type: 'text' as const, text: 'original' }]
+            });
+
+            const tool = mcpServer.registerTool('consistent', { inputSchema: z.object({ name: z.string() }) }, originalCb);
+
+            const originalInputSchema = tool.inputSchema;
+            const originalInputJsonSchema = tool.inputJsonSchema;
+
+            // z.string() is not an object schema, so conversion will throw.
+            expect(() => {
+                tool.update({
+                    paramsSchema: z.string() as never,
+                    callback: async () => ({ content: [{ type: 'text' as const, text: 'new' }] })
+                });
+            }).toThrow();
+
+            // State must be unchanged.
+            expect(tool.inputSchema).toBe(originalInputSchema);
+            expect(tool.inputJsonSchema).toBe(originalInputJsonSchema);
+        });
+
+        test('should not mutate tool state when outputSchema conversion throws', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool('consistent-output', { outputSchema: z.object({ result: z.number() }) }, async () => ({
+                content: [{ type: 'text' as const, text: '' }],
+                structuredContent: { result: 1 }
+            }));
+
+            const originalOutputSchema = tool.outputSchema;
+            const originalOutputJsonSchema = tool.outputJsonSchema;
+
+            expect(() => {
+                tool.update({
+                    outputSchema: z.string() as never
+                });
+            }).toThrow();
+
+            expect(tool.outputSchema).toBe(originalOutputSchema);
+            expect(tool.outputJsonSchema).toBe(originalOutputJsonSchema);
+        });
     });
 
     describe('resource()', () => {
@@ -4563,6 +4621,40 @@ describe('Zod v4', () => {
                 { name: 'name', description: undefined, required: true },
                 { name: 'extra', description: undefined, required: false }
             ]);
+        });
+
+        /***
+         * Test: prompt.update() leaves state consistent when schema conversion throws (#1847)
+         */
+        test('should not mutate prompt state when argsSchema conversion throws', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const prompt = mcpServer.registerPrompt(
+                'consistent-prompt',
+                {
+                    argsSchema: z.object({ name: z.string() })
+                },
+                async () => ({
+                    messages: [{ role: 'user' as const, content: { type: 'text' as const, text: '' } }]
+                })
+            );
+
+            const originalArgsSchema = prompt.argsSchema;
+            const originalCachedArguments = prompt.cachedArguments;
+
+            // z.string() is not an object schema, so conversion will throw.
+            expect(() => {
+                prompt.update({
+                    argsSchema: z.string() as never
+                });
+            }).toThrow();
+
+            // State must be unchanged.
+            expect(prompt.argsSchema).toBe(originalArgsSchema);
+            expect(prompt.cachedArguments).toBe(originalCachedArguments);
         });
     });
 

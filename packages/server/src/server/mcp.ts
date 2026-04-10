@@ -737,9 +737,10 @@ export class McpServer {
                 // Track if we need to regenerate the handler
                 let needsHandlerRegen = false;
                 if (updates.argsSchema !== undefined) {
+                    // Compute before mutating so state stays consistent if conversion throws.
+                    const newCachedArguments = promptArgumentsFromStandardSchema(updates.argsSchema);
                     registeredPrompt.argsSchema = updates.argsSchema;
-                    // Re-cache prompt arguments alongside the schema update.
-                    registeredPrompt.cachedArguments = promptArgumentsFromStandardSchema(updates.argsSchema);
+                    registeredPrompt.cachedArguments = newCachedArguments;
                     currentArgsSchema = updates.argsSchema;
                     needsHandlerRegen = true;
                 }
@@ -827,10 +828,10 @@ export class McpServer {
                 // Track if we need to regenerate the executor
                 let needsExecutorRegen = false;
                 if (updates.paramsSchema !== undefined) {
+                    // Compute before mutating so state stays consistent if conversion throws.
+                    const newInputJsonSchema = standardSchemaToJsonSchema(updates.paramsSchema, 'input') as Tool['inputSchema'];
                     registeredTool.inputSchema = updates.paramsSchema;
-                    // Re-cache the JSON Schema; surfaces conversion errors
-                    // synchronously like the initial registration does.
-                    registeredTool.inputJsonSchema = standardSchemaToJsonSchema(updates.paramsSchema, 'input') as Tool['inputSchema'];
+                    registeredTool.inputJsonSchema = newInputJsonSchema;
                     needsExecutorRegen = true;
                 }
                 if (updates.callback !== undefined) {
@@ -843,8 +844,10 @@ export class McpServer {
                 }
 
                 if (updates.outputSchema !== undefined) {
+                    // Compute before mutating so state stays consistent if conversion throws.
+                    const newOutputJsonSchema = standardSchemaToJsonSchema(updates.outputSchema, 'output') as Tool['outputSchema'];
                     registeredTool.outputSchema = updates.outputSchema;
-                    registeredTool.outputJsonSchema = standardSchemaToJsonSchema(updates.outputSchema, 'output') as Tool['outputSchema'];
+                    registeredTool.outputJsonSchema = newOutputJsonSchema;
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
