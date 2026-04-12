@@ -28,12 +28,11 @@ export * from './validators/fromJsonSchema.js';
  * Choose a validator based on your runtime environment:
  *
  * - {@linkcode AjvJsonSchemaValidator}: Best for Node.js (default, fastest)
- *   Import from: @modelcontextprotocol/sdk/validators/ajv
- *   Requires peer dependencies: ajv, ajv-formats
+ *   Bundled — no additional dependencies required.
  *
  * - {@linkcode CfWorkerJsonSchemaValidator}: Best for edge runtimes
- *   Import from: @modelcontextprotocol/sdk/validators/cfworker
- *   Requires peer dependency: @cfworker/json-schema
+ *   Import from: `@modelcontextprotocol/server/validators/cf-worker` or `@modelcontextprotocol/client/validators/cf-worker`
+ *   Bundled — no additional dependencies required.
  *
  * @example For Node.js with AJV
  * ```ts source="./index.examples.ts#validation_ajv"
