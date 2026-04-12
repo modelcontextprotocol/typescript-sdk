@@ -269,6 +269,25 @@ describe('dereferenceLocalRefs', () => {
         });
     });
 
+    test('boolean $defs entry resolves without sibling merge (SDK excludes boolean schemas by design)', () => {
+        // JSON Schema allows boolean schemas (true = accept all, false = reject all) in $defs.
+        // When a $ref resolves to a boolean, sibling keywords (description, title, etc.) are
+        // dropped because the merge guard requires an object. This test documents that behavior.
+        // No schema library produces boolean $defs — Zod: z.any() → {}, z.never() → {not:{}},
+        // and the SDK's JsonSchemaType explicitly excludes boolean schemas (validators/types.ts).
+        const schema = {
+            type: 'object',
+            properties: {
+                x: { $ref: '#/$defs/AlwaysValid', description: 'Any value' }
+            },
+            $defs: { AlwaysValid: true }
+        };
+        expect(dereferenceLocalRefs(schema)).toEqual({
+            type: 'object',
+            properties: { x: true }
+        });
+    });
+
     test('$ref inlined from real $defs while properties named "$defs" and "definitions" are preserved', () => {
         const schema = {
             type: 'object',
