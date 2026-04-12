@@ -101,7 +101,10 @@ export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<st
                 resolvedDefs.set(defName, resolved);
             }
 
-            // Merge sibling keywords onto the resolved definition
+            // Merge sibling keywords onto the resolved definition.
+            // Note: boolean JSON Schemas (true/false) skip this merge — siblings are dropped.
+            // This is acceptable: the SDK's JsonSchemaType excludes boolean schemas by design,
+            // and no schema library (Zod v4, ArkType, Valibot) produces boolean $defs entries.
             if (hasSiblings && resolved !== null && typeof resolved === 'object' && !Array.isArray(resolved)) {
                 const resolvedSiblings = Object.fromEntries(Object.entries(siblings).map(([k, v]) => [k, inlineRefs(v, stack)]));
                 return { ...(resolved as Record<string, unknown>), ...resolvedSiblings };
