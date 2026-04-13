@@ -43,19 +43,6 @@ export class UriTemplate {
         UriTemplate.validateLength(template, MAX_TEMPLATE_LENGTH, 'Template');
         this.template = template;
         this.parts = this.parse(template);
-
-        // Templates with a literal '?' in a string segment are incompatible
-        // with match()'s split-at-'?' query parsing — the path regex would
-        // include the escaped '?' but the URI is split before matching.
-        // Supporting this requires a fragile two-code-path implementation
-        // that has proven bug-prone, so reject at construction time.
-        const literalQueryPart = this.parts.find(part => typeof part === 'string' && part.includes('?'));
-        if (literalQueryPart !== undefined) {
-            throw new Error(
-                `UriTemplate: literal '?' in template string is not supported. ` +
-                    `Use {?param} to introduce query parameters instead. Template: "${template}"`
-            );
-        }
     }
 
     toString(): string {
@@ -290,14 +277,27 @@ export class UriTemplate {
             }
         }
 
-        // Strip any URI fragment before splitting path/query.
-        const hashIndex = uri.indexOf('#');
-        const uriNoFrag = hashIndex === -1 ? uri : uri.slice(0, hashIndex);
+        // Only strip the URI fragment when the template has no {#var} operator;
+        // otherwise the fragment is part of what the path regex must capture.
+        const hasHashOperator = this.parts.some(p => typeof p !== 'string' && p.operator === '#');
+        let working = uri;
+        if (!hasHashOperator) {
+            const hashIndex = working.indexOf('#');
+            if (hashIndex !== -1) working = working.slice(0, hashIndex);
+        }
 
-        // Split URI into path and query parts at the first '?'
-        const queryIndex = uriNoFrag.indexOf('?');
-        const pathPart = queryIndex === -1 ? uriNoFrag : uriNoFrag.slice(0, queryIndex);
-        const queryPart = queryIndex === -1 ? '' : uriNoFrag.slice(queryIndex + 1);
+        // Only split path/query when the template actually has {?..}/{&..}
+        // operators. Otherwise match the path regex against the full URI so
+        // {+var} can capture across '?' as it did before query-param support.
+        let pathPart = working;
+        let queryPart = '';
+        if (queryParts.length > 0) {
+            const queryIndex = working.indexOf('?');
+            if (queryIndex !== -1) {
+                pathPart = working.slice(0, queryIndex);
+                queryPart = working.slice(queryIndex + 1);
+            }
+        }
 
         pattern += '$';
         UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
