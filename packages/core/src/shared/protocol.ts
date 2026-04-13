@@ -1067,6 +1067,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * string and validates incoming params against a user-provided schema instead of an SDK-defined
      * one. Capability checks are skipped. The handler receives the same {@linkcode BaseContext | context}
      * as standard handlers, including cancellation, task support, and bidirectional send/notify.
+     *
+     * Absent or undefined `params` are normalized to `{}` (after stripping `_meta`) before
+     * validation, so for no-params methods use `z.object({})` rather than `z.undefined()`.
      */
     setCustomRequestHandler<P extends AnySchema>(
         method: string,
@@ -1104,6 +1107,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Unlike {@linkcode Protocol.setNotificationHandler | setNotificationHandler}, this accepts any
      * method string and validates incoming params against a user-provided schema instead of an
      * SDK-defined one.
+     *
+     * Absent or undefined `params` are normalized to `{}` (after stripping `_meta`) before
+     * validation, so for no-params methods use `z.object({})` rather than `z.undefined()`.
      */
     setCustomNotificationHandler<P extends AnySchema>(
         method: string,
