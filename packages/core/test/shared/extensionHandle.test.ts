@@ -23,7 +23,7 @@ function makeMockHost(): MockHost {
     };
 }
 
-function makeHandle(opts: { peer?: JSONObject | undefined; strict?: boolean; peerSchema?: z.core.$ZodType }): {
+function makeHandle(opts: { peer?: JSONObject | undefined; peerPresent?: boolean; strict?: boolean; peerSchema?: z.core.$ZodType }): {
     host: MockHost;
     handle: ExtensionHandle<JSONObject, unknown, BaseContext>;
 } {
@@ -33,6 +33,7 @@ function makeHandle(opts: { peer?: JSONObject | undefined; strict?: boolean; pee
         'io.example/ui',
         { local: true },
         () => opts.peer,
+        () => opts.peerPresent ?? opts.peer !== undefined,
         () => opts.strict ?? false,
         opts.peerSchema
     );
@@ -70,7 +71,14 @@ describe('ExtensionHandle.getPeerSettings', () => {
         let peer: JSONObject | undefined;
         const getter = vi.fn(() => peer);
         const host = makeMockHost() as unknown as ExtensionHost<BaseContext>;
-        const handle = new ExtensionHandle(host, 'io.example/ui', {}, getter, () => false);
+        const handle = new ExtensionHandle(
+            host,
+            'io.example/ui',
+            {},
+            getter,
+            () => true,
+            () => false
+        );
 
         expect(handle.getPeerSettings()).toBeUndefined();
         peer = { v: 1 };
@@ -102,7 +110,7 @@ describe('ExtensionHandle.sendRequest / sendNotification — peer gating', () =>
     const Result = z.object({ ok: z.boolean() });
 
     test('lax mode (default): sends even when peer did not advertise', async () => {
-        const { host, handle } = makeHandle({ peer: undefined, strict: false });
+        const { host, handle } = makeHandle({ peer: undefined, peerPresent: true, strict: false });
         await handle.sendRequest('ui/do', { x: 1 }, Result);
         expect(host.sendCustomRequest).toHaveBeenCalledWith('ui/do', { x: 1 }, Result, undefined);
         await handle.sendNotification('ui/ping', {});
@@ -110,7 +118,7 @@ describe('ExtensionHandle.sendRequest / sendNotification — peer gating', () =>
     });
 
     test('strict mode: rejects with CapabilityNotSupported when peer did not advertise', async () => {
-        const { host, handle } = makeHandle({ peer: undefined, strict: true });
+        const { host, handle } = makeHandle({ peer: undefined, peerPresent: true, strict: true });
         await expect(handle.sendRequest('ui/do', {}, Result)).rejects.toSatisfy(
             (e: unknown) =>
                 e instanceof SdkError && e.code === SdkErrorCode.CapabilityNotSupported && /io\.example\/ui.*ui\/do/.test(e.message)
@@ -136,5 +144,13 @@ describe('ExtensionHandle — id and settings', () => {
         const { handle } = makeHandle({ peer: undefined });
         expect(handle.id).toBe('io.example/ui');
         expect(handle.settings).toEqual({ local: true });
+    });
+});
+
+describe('ExtensionHandle — pre-connect strict mode defers to NotConnected', () => {
+    test('does not throw CapabilityNotSupported before peer capabilities are known', async () => {
+        const { host, handle } = makeHandle({ peer: undefined, peerPresent: false, strict: true });
+        await handle.sendRequest('ui/do', {}, z.object({}));
+        expect(host.sendCustomRequest).toHaveBeenCalledOnce();
     });
 });

@@ -67,6 +67,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
         /** The local settings object advertised in `capabilities.extensions[id]`. */
         public readonly settings: Local,
         private readonly _getPeerExtensionSettings: () => JSONObject | undefined,
+        private readonly _getPeerCapabilitiesPresent: () => boolean,
         private readonly _getEnforceStrictCapabilities: () => boolean,
         private readonly _peerSchema?: AnySchema
     ) {}
@@ -150,6 +151,10 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
     }
 
     private _assertPeerCapability(method: string): void {
+        // If peer capabilities are not yet populated (pre-connect), defer to the
+        // NotConnected error from the underlying send path rather than misreporting
+        // CapabilityNotSupported.
+        if (!this._getPeerCapabilitiesPresent()) return;
         if (this._getEnforceStrictCapabilities() && this._getPeerExtensionSettings() === undefined) {
             throw new SdkError(
                 SdkErrorCode.CapabilityNotSupported,

@@ -10,6 +10,7 @@ export enum SdkErrorCode {
     // State errors
     /** Transport is not connected */
     NotConnected = 'NOT_CONNECTED',
+    ExtensionAlreadyRegistered = 'EXTENSION_ALREADY_REGISTERED',
     /** Transport is already connected */
     AlreadyConnected = 'ALREADY_CONNECTED',
     /** Protocol is not initialized */

@@ -254,7 +254,7 @@ export class Server extends Protocol<ServerContext> {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register extension after connecting to transport');
         }
         if (this._capabilities.extensions && Object.hasOwn(this._capabilities.extensions, id)) {
-            throw new Error(`Extension "${id}" is already registered`);
+            throw new SdkError(SdkErrorCode.ExtensionAlreadyRegistered, `Extension "${id}" is already registered`);
         }
         this._capabilities.extensions = { ...this._capabilities.extensions, [id]: settings };
         return new ExtensionHandle(
@@ -262,6 +262,7 @@ export class Server extends Protocol<ServerContext> {
             id,
             settings,
             () => this._clientCapabilities?.extensions?.[id],
+            () => this._clientCapabilities !== undefined,
             () => this._enforceStrictCapabilities,
             opts?.peerSchema
         );
