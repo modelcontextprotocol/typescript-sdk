@@ -1070,6 +1070,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * Absent or undefined `params` are normalized to `{}` (after stripping `_meta`) before
      * validation, so for no-params methods use `z.object({})` rather than `z.undefined()`.
+     *
+     * @example
+     * ```ts source="./protocol.examples.ts#Protocol_setCustomRequestHandler_basic"
+     * const SearchParams = z.object({ query: z.string(), limit: z.number().optional() });
+     *
+     * peer.setCustomRequestHandler('acme/search', SearchParams, async params => {
+     *     return { hits: [`result for ${params.query}`] };
+     * });
+     * ```
      */
     setCustomRequestHandler<P extends AnySchema>(
         method: string,
@@ -1110,6 +1119,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * Absent or undefined `params` are normalized to `{}` (after stripping `_meta`) before
      * validation, so for no-params methods use `z.object({})` rather than `z.undefined()`.
+     *
+     * @example
+     * ```ts source="./protocol.examples.ts#Protocol_setCustomNotificationHandler_basic"
+     * const ProgressParams = z.object({ percent: z.number() });
+     *
+     * peer.setCustomNotificationHandler('acme/progress', ProgressParams, params => {
+     *     console.log(`progress: ${params.percent}%`);
+     * });
+     * ```
      */
     setCustomNotificationHandler<P extends AnySchema>(
         method: string,
@@ -1157,6 +1175,24 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * The `params` schema is used only for validation — the value you pass is sent as-is.
      * Transforms (e.g. `.trim()`) and defaults (e.g. `.default(n)`) on the schema are not
      * applied to outbound data, matching the behavior of {@linkcode Protocol.request | request}.
+     *
+     * @example Bare result schema
+     * ```ts source="./protocol.examples.ts#Protocol_sendCustomRequest_basic"
+     * const SearchResult = z.object({ hits: z.array(z.string()) });
+     *
+     * const result = await peer.sendCustomRequest('acme/search', { query: 'widgets' }, SearchResult);
+     * console.log(result.hits);
+     * ```
+     *
+     * @example With params + result schema bundle
+     * ```ts source="./protocol.examples.ts#Protocol_sendCustomRequest_bundle"
+     * const SearchParams = z.object({ query: z.string() });
+     * const SearchResult = z.object({ hits: z.array(z.string()) });
+     *
+     * // Passing { params, result } validates outbound params before sending and types both ends.
+     * const result = await peer.sendCustomRequest('acme/search', { query: 'widgets' }, { params: SearchParams, result: SearchResult });
+     * console.log(result.hits);
+     * ```
      */
     sendCustomRequest<P extends AnySchema, R extends AnySchema>(
         method: string,
@@ -1201,6 +1237,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Pass a `{ params }` schema bundle as the third argument to get typed `params` and pre-send
      * validation. The schema validates only — transforms and defaults are not applied to
      * outbound data; the value you pass is sent as-is.
+     *
+     * @example
+     * ```ts source="./protocol.examples.ts#Protocol_sendCustomNotification_basic"
+     * await peer.sendCustomNotification('acme/heartbeat', { timestamp: Date.now() });
+     * ```
      */
     sendCustomNotification<P extends AnySchema>(
         method: string,

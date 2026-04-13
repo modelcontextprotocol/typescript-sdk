@@ -54,6 +54,36 @@ export interface ExtensionOptions<P extends AnySchema> {
  * Send-side methods respect `enforceStrictCapabilities`: when strict, sending throws if the peer
  * did not advertise the same extension ID; when lax (the default), sends proceed regardless and
  * {@linkcode getPeerSettings} returns `undefined`.
+ *
+ * @example Register handlers
+ * ```ts source="./extensionHandle.examples.ts#ExtensionHandle_setRequestHandler_basic"
+ * const OpenLinkParams = z.object({ url: z.string().url() });
+ *
+ * ui.setRequestHandler('ui/open-link', OpenLinkParams, async params => {
+ *     // ... open params.url in the host UI
+ *     return { opened: true };
+ * });
+ *
+ * ui.setNotificationHandler('ui/size-changed', z.object({ width: z.number(), height: z.number() }), params => {
+ *     console.log(`resized to ${params.width}x${params.height}`);
+ * });
+ * ```
+ *
+ * @example Send a request
+ * ```ts source="./extensionHandle.examples.ts#ExtensionHandle_sendRequest_basic"
+ * const OpenLinkResult = z.object({ opened: z.boolean() });
+ *
+ * const result = await ui.sendRequest('ui/open-link', { url: 'https://example.com' }, OpenLinkResult);
+ * console.log(result.opened);
+ * ```
+ *
+ * @example Read peer settings
+ * ```ts source="./extensionHandle.examples.ts#ExtensionHandle_getPeerSettings_basic"
+ * const peer = ui.getPeerSettings();
+ * if (peer?.openLinks) {
+ *     // peer supports the open-link feature
+ * }
+ * ```
  */
 export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, ContextT extends BaseContext = BaseContext> {
     /**

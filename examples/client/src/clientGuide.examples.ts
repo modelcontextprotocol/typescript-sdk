@@ -24,6 +24,7 @@ import {
     StdioClientTransport,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
+import * as z from 'zod/v4';
 //#endregion imports
 
 // ---------------------------------------------------------------------------
@@ -544,6 +545,54 @@ async function resumptionToken_basic(client: Client) {
     //#endregion resumptionToken_basic
 }
 
+// ---------------------------------------------------------------------------
+// Protocol extensions
+// ---------------------------------------------------------------------------
+
+/** Example: declare an SEP-2133 extension on a Client and wire handlers + sends. */
+function extension_declare() {
+    //#region extension_declare
+    const client = new Client({ name: 'ui-view', version: '1.0.0' });
+
+    // Declare the extension. `settings` is advertised in capabilities.extensions[id] during initialize.
+    const ui = client.extension(
+        'io.modelcontextprotocol/ui',
+        { availableModes: ['inline', 'fullscreen'] },
+        { peerSchema: z.object({ openLinks: z.boolean().optional() }) }
+    );
+
+    // Handle incoming custom notifications from the server.
+    ui.setNotificationHandler('ui/host-context-changed', z.object({ theme: z.enum(['light', 'dark']) }), params => {
+        document.body.dataset.theme = params.theme;
+    });
+    //#endregion extension_declare
+    return { client, ui };
+}
+
+/** Example: send a custom request through the handle and read peer settings. */
+async function extension_send() {
+    const { client, ui } = extension_declare();
+    //#region extension_send
+    await client.connect(transport);
+
+    // After connect, read the server's advertised settings for this extension.
+    if (ui.getPeerSettings()?.openLinks) {
+        const result = await ui.sendRequest('ui/open-link', { url: 'https://example.com' }, z.object({ opened: z.boolean() }));
+        console.log(result.opened);
+    }
+    //#endregion extension_send
+}
+
+/** Example: ungated custom method (no capability negotiation). */
+async function customMethod_ungated(client: Client) {
+    //#region customMethod_ungated
+    // For one-off vendor methods that do not warrant an SEP-2133 capability entry,
+    // use the flat custom-method API directly.
+    const result = await client.sendCustomRequest('acme/search', { query: 'widgets' }, z.object({ hits: z.array(z.string()) }));
+    console.log(result.hits);
+    //#endregion customMethod_ungated
+}
+
 // Suppress unused-function warnings (functions exist solely for type-checking)
 void connect_streamableHttp;
 void connect_stdio;
@@ -573,3 +622,9 @@ void errorHandling_lifecycle;
 void errorHandling_timeout;
 void middleware_basic;
 void resumptionToken_basic;
+void extension_declare;
+void extension_send;
+void customMethod_ungated;
+
+declare const transport: import('@modelcontextprotocol/client').Transport;
+declare const document: { body: { dataset: Record<string, string> } };

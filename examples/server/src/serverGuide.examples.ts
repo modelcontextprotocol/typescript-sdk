@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate, StdioServerTransport } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, Server, StdioServerTransport } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 //#endregion imports
 
@@ -534,6 +534,62 @@ function dnsRebinding_allowedHosts() {
     return app;
 }
 
+// ---------------------------------------------------------------------------
+// Protocol extensions
+// ---------------------------------------------------------------------------
+
+/** Example: declare an SEP-2133 extension on a low-level Server and wire handlers. */
+function extension_declare() {
+    //#region extension_declare
+    const server = new Server({ name: 'host', version: '1.0.0' }, { capabilities: {} });
+
+    // Declare the extension. `settings` is advertised in capabilities.extensions[id] during initialize.
+    const ui = server.extension(
+        'io.modelcontextprotocol/ui',
+        { openLinks: true, downloadFile: true },
+        { peerSchema: z.object({ availableModes: z.array(z.string()) }) }
+    );
+
+    // Register handlers for the extension's custom methods. The handle is proof of declaration —
+    // you cannot reach this point without the capability having been merged in above.
+    ui.setRequestHandler('ui/open-link', z.object({ url: z.string() }), async params => {
+        return { opened: params.url.startsWith('https://') };
+    });
+
+    ui.setNotificationHandler('ui/size-changed', z.object({ width: z.number(), height: z.number() }), params => {
+        console.log(`view resized to ${params.width}x${params.height}`);
+    });
+    //#endregion extension_declare
+    return { server, ui };
+}
+
+/** Example: read the connected client's extension settings. */
+async function extension_peerSettings() {
+    const { server, ui } = extension_declare();
+    //#region extension_peerSettings
+    await server.connect(transport);
+
+    // After connect, read what the client advertised for this extension.
+    const clientUi = ui.getPeerSettings(); // { availableModes: string[] } | undefined
+    if (clientUi?.availableModes.includes('fullscreen')) {
+        await ui.sendNotification('ui/mode-available', { mode: 'fullscreen' });
+    }
+    //#endregion extension_peerSettings
+}
+
+/** Example: ungated custom method (no capability negotiation). */
+function customMethod_ungated() {
+    const server = new Server({ name: 'host', version: '1.0.0' }, { capabilities: {} });
+    //#region customMethod_ungated
+    // For one-off vendor methods that do not warrant an SEP-2133 capability entry,
+    // use the flat custom-method API directly.
+    server.setCustomRequestHandler('acme/search', z.object({ query: z.string() }), async params => {
+        return { hits: [`result for ${params.query}`] };
+    });
+    //#endregion customMethod_ungated
+    return server;
+}
+
 // Suppress unused-function warnings (functions exist solely for type-checking)
 void instructions_basic;
 void registerTool_basic;
@@ -557,3 +613,8 @@ void shutdown_statefulHttp;
 void shutdown_stdio;
 void dnsRebinding_basic;
 void dnsRebinding_allowedHosts;
+void extension_declare;
+void extension_peerSettings;
+void customMethod_ungated;
+
+declare const transport: import('@modelcontextprotocol/server').Transport;

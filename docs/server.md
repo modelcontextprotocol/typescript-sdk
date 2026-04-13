@@ -22,7 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate, StdioServerTransport } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, Server, StdioServerTransport } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 ```
 
@@ -493,6 +493,74 @@ server.registerTool(
     }
 );
 ```
+
+## Protocol extensions
+
+[SEP-2133](https://modelcontextprotocol.io/seps/2133) defines a `capabilities.extensions` field that lets servers and clients advertise support for protocol extensions outside the core MCP spec — for example, [MCP Apps](https://modelcontextprotocol.io/seps/1865) (`io.modelcontextprotocol/ui`). This SDK provides two layers for implementing the JSON-RPC methods such an extension defines: {@linkcode @modelcontextprotocol/server!server/server.Server#extension | Server.extension()} for capability-aware extensions, and the lower-level {@linkcode @modelcontextprotocol/server!server/server.Server#setCustomRequestHandler | setCustomRequestHandler} family for ungated one-off methods.
+
+### Declaring an extension
+
+Call {@linkcode @modelcontextprotocol/server!server/server.Server#extension | server.extension(id, settings)} before connecting. This merges `settings` into `capabilities.extensions[id]` (advertised to the client during `initialize`) and returns an {@linkcode @modelcontextprotocol/server!index.ExtensionHandle | ExtensionHandle} for registering handlers and sending requests:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#extension_declare"
+const server = new Server({ name: 'host', version: '1.0.0' }, { capabilities: {} });
+
+// Declare the extension. `settings` is advertised in capabilities.extensions[id] during initialize.
+const ui = server.extension(
+    'io.modelcontextprotocol/ui',
+    { openLinks: true, downloadFile: true },
+    { peerSchema: z.object({ availableModes: z.array(z.string()) }) }
+);
+
+// Register handlers for the extension's custom methods. The handle is proof of declaration —
+// you cannot reach this point without the capability having been merged in above.
+ui.setRequestHandler('ui/open-link', z.object({ url: z.string() }), async params => {
+    return { opened: params.url.startsWith('https://') };
+});
+
+ui.setNotificationHandler('ui/size-changed', z.object({ width: z.number(), height: z.number() }), params => {
+    console.log(`view resized to ${params.width}x${params.height}`);
+});
+```
+
+The handle is the only way to reach `ui.setRequestHandler(...)`, so a handler registered through it is structurally guaranteed to belong to a declared extension — you cannot forget the capability declaration.
+
+After connecting, {@linkcode @modelcontextprotocol/server!index.ExtensionHandle#getPeerSettings | handle.getPeerSettings()} returns what the client advertised for the same extension ID. Pass a `peerSchema` to type and validate that blob:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#extension_peerSettings"
+await server.connect(transport);
+
+// After connect, read what the client advertised for this extension.
+const clientUi = ui.getPeerSettings(); // { availableModes: string[] } | undefined
+if (clientUi?.availableModes.includes('fullscreen')) {
+    await ui.sendNotification('ui/mode-available', { mode: 'fullscreen' });
+}
+```
+
+When `enforceStrictCapabilities` is enabled, {@linkcode @modelcontextprotocol/server!index.ExtensionHandle#sendRequest | handle.sendRequest()} and {@linkcode @modelcontextprotocol/server!index.ExtensionHandle#sendNotification | sendNotification()} throw if the client did not advertise the extension. Under the default (lax) mode they send regardless, and `getPeerSettings()` returns `undefined`.
+
+### Ungated custom methods
+
+For a one-off vendor method that does not warrant an SEP-2133 capability entry, use the flat custom-method API directly on the server. This skips capability negotiation entirely:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#customMethod_ungated"
+// For one-off vendor methods that do not warrant an SEP-2133 capability entry,
+// use the flat custom-method API directly.
+server.setCustomRequestHandler('acme/search', z.object({ query: z.string() }), async params => {
+    return { hits: [`result for ${params.query}`] };
+});
+```
+
+The companion {@linkcode @modelcontextprotocol/server!server/server.Server#sendCustomRequest | sendCustomRequest}, {@linkcode @modelcontextprotocol/server!server/server.Server#setCustomNotificationHandler | setCustomNotificationHandler}, and {@linkcode @modelcontextprotocol/server!server/server.Server#sendCustomNotification | sendCustomNotification} cover the other directions. Standard MCP method names are rejected with a clear error — use {@linkcode @modelcontextprotocol/server!server/server.Server#setRequestHandler | setRequestHandler} for those.
+
+### When to use which
+
+| Use | When |
+| --- | --- |
+| `server.extension(id, ...)` | You implement an SEP-2133 extension with a published ID, want it advertised in `capabilities`, and want sends gated on the peer supporting it. |
+| `setCustomRequestHandler` etc. | You need a single vendor-specific method without capability negotiation, or are prototyping before defining an extension. |
+
+For a full runnable example, see [`customMethodExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/customMethodExample.ts).
 
 ## Tasks (experimental)
 

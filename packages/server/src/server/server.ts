@@ -238,6 +238,24 @@ export class Server extends Protocol<ServerContext> {
      * Note: a later {@linkcode registerCapabilities} call that includes `extensions[id]` will
      * overwrite the wire value declared here; the returned handle's `settings` reflects what
      * was passed to this call, not subsequent overwrites.
+     *
+     * @example
+     * ```ts source="./server.examples.ts#Server_extension_basic"
+     * const server = new Server({ name: 'host', version: '1.0.0' }, { capabilities: {} });
+     *
+     * const ui = server.extension(
+     *     'io.modelcontextprotocol/ui',
+     *     { openLinks: true }, // advertised in capabilities.extensions[id]
+     *     { peerSchema: z.object({ availableModes: z.array(z.string()) }) }
+     * );
+     *
+     * ui.setRequestHandler('ui/open-link', z.object({ url: z.string() }), async params => {
+     *     return { opened: params.url.startsWith('https://') };
+     * });
+     *
+     * // After connect(): read what the client advertised for this extension
+     * const clientUiSettings = ui.getPeerSettings(); // { availableModes: string[] } | undefined
+     * ```
      */
     public extension<L extends JSONObject>(id: string, settings: L): ExtensionHandle<L, JSONObject, ServerContext>;
     public extension<L extends JSONObject, P extends AnySchema>(

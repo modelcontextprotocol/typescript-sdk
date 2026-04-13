@@ -8,6 +8,7 @@
  */
 
 import type { Prompt, Resource, Tool } from '@modelcontextprotocol/core';
+import * as z from 'zod/v4';
 
 import { Client } from './client.js';
 import { SSEClientTransport } from './sse.js';
@@ -192,3 +193,27 @@ async function Client_listResources_pagination(client: Client) {
     );
     //#endregion Client_listResources_pagination
 }
+
+/**
+ * Example: declare an SEP-2133 extension and use the returned handle.
+ */
+function Client_extension_basic() {
+    //#region Client_extension_basic
+    const client = new Client({ name: 'ui-view', version: '1.0.0' });
+
+    const ui = client.extension(
+        'io.modelcontextprotocol/ui',
+        { availableModes: ['inline', 'fullscreen'] },
+        { peerSchema: z.object({ openLinks: z.boolean().optional() }) }
+    );
+
+    ui.setNotificationHandler('ui/tool-result', z.object({ content: z.array(z.unknown()) }), params => {
+        console.log('tool result:', params.content);
+    });
+
+    // After connect: ui.getPeerSettings() returns the server's extensions['io.modelcontextprotocol/ui']
+    //#endregion Client_extension_basic
+    return { client, ui };
+}
+
+void Client_extension_basic;

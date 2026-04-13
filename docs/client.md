@@ -29,6 +29,7 @@ import {
     StdioClientTransport,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
+import * as z from 'zod/v4';
 ```
 
 ## Connecting to a server
@@ -595,6 +596,66 @@ console.log(result);
 ```
 
 For an end-to-end example of server-initiated SSE disconnection and automatic client reconnection with event replay, see [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/ssePollingClient.ts).
+
+## Protocol extensions
+
+[SEP-2133](https://modelcontextprotocol.io/seps/2133) defines a `capabilities.extensions` field that lets clients and servers advertise support for protocol extensions outside the core MCP spec. This SDK provides two layers for implementing the JSON-RPC methods such an extension defines: {@linkcode @modelcontextprotocol/client!client/client.Client#extension | Client.extension()} for capability-aware extensions, and the lower-level {@linkcode @modelcontextprotocol/client!client/client.Client#setCustomRequestHandler | setCustomRequestHandler} / {@linkcode @modelcontextprotocol/client!client/client.Client#sendCustomRequest | sendCustomRequest} family for ungated one-off methods.
+
+### Declaring an extension
+
+Call {@linkcode @modelcontextprotocol/client!client/client.Client#extension | client.extension(id, settings)} before connecting. This merges `settings` into `capabilities.extensions[id]` (sent to the server during `initialize`) and returns an {@linkcode @modelcontextprotocol/client!index.ExtensionHandle | ExtensionHandle} for registering handlers and sending requests:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#extension_declare"
+const client = new Client({ name: 'ui-view', version: '1.0.0' });
+
+// Declare the extension. `settings` is advertised in capabilities.extensions[id] during initialize.
+const ui = client.extension(
+    'io.modelcontextprotocol/ui',
+    { availableModes: ['inline', 'fullscreen'] },
+    { peerSchema: z.object({ openLinks: z.boolean().optional() }) }
+);
+
+// Handle incoming custom notifications from the server.
+ui.setNotificationHandler('ui/host-context-changed', z.object({ theme: z.enum(['light', 'dark']) }), params => {
+    document.body.dataset.theme = params.theme;
+});
+```
+
+The handle is the only way to reach `ui.setNotificationHandler(...)`, so a handler registered through it is structurally guaranteed to belong to a declared extension.
+
+After connecting, {@linkcode @modelcontextprotocol/client!index.ExtensionHandle#getPeerSettings | handle.getPeerSettings()} returns what the server advertised for the same extension ID, and {@linkcode @modelcontextprotocol/client!index.ExtensionHandle#sendRequest | handle.sendRequest()} sends a custom request gated on that:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#extension_send"
+await client.connect(transport);
+
+// After connect, read the server's advertised settings for this extension.
+if (ui.getPeerSettings()?.openLinks) {
+    const result = await ui.sendRequest('ui/open-link', { url: 'https://example.com' }, z.object({ opened: z.boolean() }));
+    console.log(result.opened);
+}
+```
+
+When `enforceStrictCapabilities` is enabled, `sendRequest()` and `sendNotification()` throw if the server did not advertise the extension. Under the default (lax) mode they send regardless, and `getPeerSettings()` returns `undefined`.
+
+### Ungated custom methods
+
+For a one-off vendor method that does not warrant an SEP-2133 capability entry, use the flat custom-method API directly on the client. This skips capability negotiation entirely:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#customMethod_ungated"
+// For one-off vendor methods that do not warrant an SEP-2133 capability entry,
+// use the flat custom-method API directly.
+const result = await client.sendCustomRequest('acme/search', { query: 'widgets' }, z.object({ hits: z.array(z.string()) }));
+console.log(result.hits);
+```
+
+Standard MCP method names are rejected with a clear error — use {@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} and friends for those.
+
+### When to use which
+
+| Use | When |
+| --- | --- |
+| `client.extension(id, ...)` | You implement an SEP-2133 extension with a published ID, want it advertised in `capabilities`, and want sends gated on the peer supporting it. |
+| `sendCustomRequest` etc. | You need a single vendor-specific method without capability negotiation, or are prototyping before defining an extension. |
 
 ## Tasks (experimental)
 

@@ -324,6 +324,23 @@ export class Client extends Protocol<ClientContext> {
      * Note: a later {@linkcode registerCapabilities} call that includes `extensions[id]` will
      * overwrite the wire value declared here; the returned handle's `settings` reflects what
      * was passed to this call, not subsequent overwrites.
+     *
+     * @example
+     * ```ts source="./client.examples.ts#Client_extension_basic"
+     * const client = new Client({ name: 'ui-view', version: '1.0.0' });
+     *
+     * const ui = client.extension(
+     *     'io.modelcontextprotocol/ui',
+     *     { availableModes: ['inline', 'fullscreen'] },
+     *     { peerSchema: z.object({ openLinks: z.boolean().optional() }) }
+     * );
+     *
+     * ui.setNotificationHandler('ui/tool-result', z.object({ content: z.array(z.unknown()) }), params => {
+     *     console.log('tool result:', params.content);
+     * });
+     *
+     * // After connect: ui.getPeerSettings() returns the server's extensions['io.modelcontextprotocol/ui']
+     * ```
      */
     public extension<L extends JSONObject>(id: string, settings: L): ExtensionHandle<L, JSONObject, ClientContext>;
     public extension<L extends JSONObject, P extends AnySchema>(
