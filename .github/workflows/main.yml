@@ -59,9 +59,11 @@ jobs:
               with:
                   node-version: 24
                   cache: npm
-                  registry-url: 'https://registry.npmjs.org'
 
             - run: npm ci
+
+            - name: Ensure npm CLI supports OIDC trusted publishing
+              run: npm install -g npm@11.5.1
 
             - name: Determine npm tag
               id: npm-tag
@@ -85,5 +87,3 @@ jobs:
                   fi
 
             - run: npm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
