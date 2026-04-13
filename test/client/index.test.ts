@@ -2386,14 +2386,14 @@ describe('Task-based execution', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
+                    async getTask(extra) {
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error(`Task ${extra.taskId} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
+                    async getTaskResult(extra) {
                         const result = await extra.taskStore.getTaskResult(extra.taskId);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
@@ -2462,14 +2462,14 @@ describe('Task-based execution', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
+                    async getTask(extra) {
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error(`Task ${extra.taskId} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
+                    async getTaskResult(extra) {
                         const result = await extra.taskStore.getTaskResult(extra.taskId);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
@@ -2539,14 +2539,14 @@ describe('Task-based execution', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
+                    async getTask(extra) {
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error(`Task ${extra.taskId} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
+                    async getTaskResult(extra) {
                         const result = await extra.taskStore.getTaskResult(extra.taskId);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
@@ -2620,14 +2620,14 @@ describe('Task-based execution', () => {
 
                         return { task };
                     },
-                    async getTask(_args, extra) {
+                    async getTask(extra) {
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error(`Task ${extra.taskId} not found`);
                         }
                         return task;
                     },
-                    async getTaskResult(_args, extra) {
+                    async getTaskResult(extra) {
                         const result = await extra.taskStore.getTaskResult(extra.taskId);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
@@ -3105,14 +3105,14 @@ describe('Task-based execution', () => {
 
                     return { task };
                 },
-                async getTask(_args, extra) {
+                async getTask(extra) {
                     const task = await extra.taskStore.getTask(extra.taskId);
                     if (!task) {
                         throw new Error(`Task ${extra.taskId} not found`);
                     }
                     return task;
                 },
-                async getTaskResult(_args, extra) {
+                async getTaskResult(extra) {
                     const result = await extra.taskStore.getTaskResult(extra.taskId);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
@@ -3373,14 +3373,14 @@ test('should respect server task capabilities', async () => {
 
                 return { task };
             },
-            async getTask(_args, extra) {
+            async getTask(extra) {
                 const task = await extra.taskStore.getTask(extra.taskId);
                 if (!task) {
                     throw new Error(`Task ${extra.taskId} not found`);
                 }
                 return task;
             },
-            async getTaskResult(_args, extra) {
+            async getTaskResult(extra) {
                 const result = await extra.taskStore.getTaskResult(extra.taskId);
                 return result as { content: Array<{ type: 'text'; text: string }> };
             }
