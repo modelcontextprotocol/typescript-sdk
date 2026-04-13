@@ -51,6 +51,17 @@ review rounds and grows over time.
 **Tests & docs**
 - New behavior has vitest coverage including error paths
 - Breaking changes documented in `docs/migration.md` and `docs/migration-SKILL.md`
+- Bugfix or behavior change: check whether `docs/**/*.md` describes the old behavior and needs updating; flag prose that now contradicts the implementation
+- New feature: verify prose documentation is added (not just JSDoc), and assess whether `examples/` needs a new or updated example
+- Behavior change: assess whether existing `examples/` still compile and demonstrate the current API
+
+## Reference
+
+When verifying spec compliance, consult the spec directly rather than relying on memory:
+
+- MCP documentation server: `https://modelcontextprotocol.io/mcp`
+- Full spec text (single file, LLM-friendly): `https://modelcontextprotocol.io/llms-full.txt` — fetch to a temp file and grep for the relevant section
+- Schema source of truth: [`schema.ts`](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts)
 
 ## Recurring Catches
 
