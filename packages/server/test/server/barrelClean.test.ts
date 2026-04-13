@@ -32,9 +32,12 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
         }
     }, 60_000);
 
-    test('dist/index.mjs contains no process-stdio runtime imports', () => {
-        const entry = join(distDir, 'index.mjs');
-        expect(readFileSync(entry, 'utf8')).not.toMatch(NODE_ONLY);
+    test('dist/index.mjs does not export StdioServerTransport and has no process-stdio runtime imports', () => {
+        const entry = readFileSync(join(distDir, 'index.mjs'), 'utf8');
+        // Server stdio has only type-level node:stream imports (erased at compile time), so the
+        // meaningful regression check is that the symbol itself is absent from the root barrel.
+        expect(entry).not.toMatch(/\bexport\s*\{[^}]*\bStdioServerTransport\b/);
+        expect(entry).not.toMatch(NODE_ONLY);
     });
 
     test('chunks transitively imported by dist/index.mjs contain no process-stdio runtime imports', () => {
