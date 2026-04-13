@@ -1,7 +1,6 @@
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { JSONObject, Result } from '../types/types.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
-import { parseSchema } from '../util/schema.js';
 import type { BaseContext, NotificationOptions, RequestOptions } from './protocol.js';
 
 /**
@@ -86,14 +85,20 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
         if (this._peerSchema === undefined) {
             return raw as Peer;
         }
-        const parsed = parseSchema(this._peerSchema, raw);
-        if (!parsed.success) {
+        const result = this._peerSchema['~standard'].validate(raw);
+        if (result instanceof Promise) {
             console.warn(
-                `[ExtensionHandle] Peer's capabilities.extensions["${this.id}"] failed schema validation: ${parsed.error.message}`
+                `[ExtensionHandle] peerSchema for extension "${this.id}" has async validation; getPeerSettings() returns the raw (unvalidated) blob.`
+            );
+            return raw as Peer;
+        }
+        if (result.issues && result.issues.length > 0) {
+            console.warn(
+                `[ExtensionHandle] Peer's capabilities.extensions["${this.id}"] failed schema validation: ${result.issues.map(i => i.message).join(', ')}`
             );
             return undefined;
         }
-        return parsed.data as Peer;
+        return (result as { value: Peer }).value;
     }
 
     /**
