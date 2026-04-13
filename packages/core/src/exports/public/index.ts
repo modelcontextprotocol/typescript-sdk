@@ -104,11 +104,13 @@ export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.j
 export {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
+    isJSONRPCResponse,
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
     parseJSONRPCMessage
@@ -137,7 +139,6 @@ export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/
 export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
-export { CfWorkerJsonSchemaValidator } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';
