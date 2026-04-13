@@ -38,7 +38,7 @@ Include what changed, why, and how to migrate. Search for related sections and g
 - **Files**: Lowercase with hyphens, test files with `.test.ts` suffix
 - **Imports**: ES module style, include `.js` extension, group imports logically
 - **Formatting**: 2-space indentation, semicolons required, single quotes preferred
-- **Testing**: Co-locate tests with source files, use descriptive test names
+- **Testing**: Place tests under each package's `test/` directory (vitest only includes `test/**/*.test.ts`), use descriptive test names
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
 
 ### JSDoc `@example` Code Snippets
