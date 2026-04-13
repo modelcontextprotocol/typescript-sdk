@@ -86,7 +86,7 @@ Notes:
 | `JSONRPCError`                           | `JSONRPCErrorResponse`                                   |
 | `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                             |
 | `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                 |
-| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                                |
+| `isJSONRPCResponse` (deprecated in v1)   | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error) |
 | `ResourceReference`                      | `ResourceTemplateReference`                              |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                        |
 | `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                     |
@@ -98,7 +98,7 @@ Notes:
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`) |
 
-All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original names (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, etc.).
+All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use type guard functions like `isCallToolResult` instead of `CallToolResultSchema.safeParse()`.
 
 ### Error class changes
 
@@ -435,6 +435,13 @@ const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
+If `CallToolResultSchema` was used for **runtime validation** (not just as a `request()` argument), replace with the `isCallToolResult` type guard:
+
+| v1 pattern                                          | v2 replacement             |
+| --------------------------------------------------- | -------------------------- |
+| `CallToolResultSchema.safeParse(value).success`     | `isCallToolResult(value)`  |
+| `CallToolResultSchema.parse(value)`                 | Use `isCallToolResult(value)` then cast, or use `CallToolResult` type |
+
 ## 12. Experimental: `TaskCreationParams.ttl` no longer accepts `null`
 
 `TaskCreationParams.ttl` changed from `z.union([z.number(), z.null()]).optional()` to `z.number().optional()`. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Omit `ttl` to let the server decide.
@@ -480,7 +487,10 @@ new McpServer(
 new McpServer({ name: 'server', version: '1.0.0' }, {});
 ```
 
-Access validators via `_shims` export: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
+Access validators explicitly:
+- Runtime-aware default: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
+- AJV (Node.js): `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';`
+- CF Worker: `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';`
 
 ## 15. Migration Steps (apply in this order)
 
