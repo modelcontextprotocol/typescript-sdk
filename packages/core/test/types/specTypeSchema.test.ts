@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
+import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
 import { isSpecType, specTypeSchema } from '../../src/types/specTypeSchema.js';
 import type { CallToolResult, ContentBlock, Implementation, JSONRPCRequest, Tool } from '../../src/types/types.js';
@@ -24,6 +25,13 @@ describe('specTypeSchema()', () => {
     it('covers JSON-RPC envelope types', () => {
         const ok = specTypeSchema('JSONRPCRequest')['~standard'].validate({ jsonrpc: '2.0', id: 1, method: 'ping' });
         expect((ok as { issues?: unknown }).issues).toBeUndefined();
+    });
+
+    it('covers OAuth types from shared/auth.ts', () => {
+        const ok = specTypeSchema('OAuthTokens')['~standard'].validate({ access_token: 'x', token_type: 'Bearer' });
+        expect((ok as { issues?: unknown }).issues).toBeUndefined();
+        const bad = specTypeSchema('OAuthTokens')['~standard'].validate({ token_type: 'Bearer' });
+        expect((bad as { issues?: readonly unknown[] }).issues?.length).toBeGreaterThan(0);
     });
 });
 
@@ -65,6 +73,8 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         expectTypeOf<'Tool'>().toMatchTypeOf<SpecTypeName>();
         expectTypeOf<'Implementation'>().toMatchTypeOf<SpecTypeName>();
         expectTypeOf<'JSONRPCRequest'>().toMatchTypeOf<SpecTypeName>();
+        expectTypeOf<'OAuthTokens'>().toMatchTypeOf<SpecTypeName>();
+        expectTypeOf<'OAuthMetadata'>().toMatchTypeOf<SpecTypeName>();
     });
 
     it('SpecTypes[K] matches the named export type', () => {
@@ -73,5 +83,7 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         expectTypeOf<SpecTypes['Tool']>().toEqualTypeOf<Tool>();
         expectTypeOf<SpecTypes['Implementation']>().toEqualTypeOf<Implementation>();
         expectTypeOf<SpecTypes['JSONRPCRequest']>().toEqualTypeOf<JSONRPCRequest>();
+        expectTypeOf<SpecTypes['OAuthTokens']>().toEqualTypeOf<OAuthTokens>();
+        expectTypeOf<SpecTypes['OAuthMetadata']>().toEqualTypeOf<OAuthMetadata>();
     });
 });

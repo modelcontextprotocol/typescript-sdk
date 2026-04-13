@@ -1,9 +1,10 @@
 import type * as z from 'zod/v4';
 
+import * as authSchemas from '../shared/auth.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import * as schemas from './schemas.js';
 
-type SchemaModule = typeof schemas;
+type SchemaModule = typeof schemas & typeof authSchemas;
 
 type StripSchemaSuffix<K> = K extends `${infer N}Schema` ? N : never;
 
@@ -17,8 +18,9 @@ type SchemaKey = {
 }[keyof SchemaModule];
 
 /**
- * Union of every named type in the MCP spec schema (e.g. `'CallToolResult'`, `'ContentBlock'`,
- * `'Tool'`). Derived from the SDK's internal Zod schemas, so it stays in sync with the spec.
+ * Union of every named type in the SDK's protocol and OAuth schemas (e.g. `'CallToolResult'`,
+ * `'ContentBlock'`, `'Tool'`, `'OAuthTokens'`). Derived from the internal Zod schemas, so it stays
+ * in sync with the spec.
  */
 export type SpecTypeName = StripSchemaSuffix<SchemaKey>;
 
@@ -32,9 +34,11 @@ export type SpecTypes = {
 };
 
 const specTypeSchemas: Record<string, z.ZodTypeAny> = {};
-for (const [key, value] of Object.entries(schemas)) {
-    if (key.endsWith('Schema') && value !== null && typeof value === 'object') {
-        specTypeSchemas[key.slice(0, -'Schema'.length)] = value as z.ZodTypeAny;
+for (const source of [schemas, authSchemas]) {
+    for (const [key, value] of Object.entries(source)) {
+        if (key.endsWith('Schema') && value !== null && typeof value === 'object') {
+            specTypeSchemas[key.slice(0, -'Schema'.length)] = value as z.ZodTypeAny;
+        }
     }
 }
 
