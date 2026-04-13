@@ -70,9 +70,11 @@ jobs:
 
                   This is an automated update triggered by the nightly cron job."
 
-                  if gh pr view update-spec-types &>/dev/null; then
-                    echo "PR already exists, updating description..."
-                    gh pr edit update-spec-types --body "$PR_BODY"
+                  # `gh pr view <branch>` matches closed PRs too, so check for an *open* PR explicitly.
+                  EXISTING_PR=$(gh pr list --head update-spec-types --state open --json number --jq '.[0].number // empty')
+                  if [ -n "$EXISTING_PR" ]; then
+                    echo "PR #$EXISTING_PR already exists, updating description..."
+                    gh pr edit "$EXISTING_PR" --body "$PR_BODY"
                   else
                     gh pr create \
                       --title "chore: update spec.types.ts from upstream" \
