@@ -104,11 +104,13 @@ export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.j
 export {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
+    isJSONRPCResponse,
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
     parseJSONRPCMessage
