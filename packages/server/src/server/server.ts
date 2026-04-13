@@ -234,6 +234,10 @@ export class Server extends Protocol<ServerContext> {
      * in the `initialize` result. Must be called before {@linkcode connect}. After connecting,
      * {@linkcode ExtensionHandle.getPeerSettings | handle.getPeerSettings()} returns the client's
      * `capabilities.extensions[id]` blob (validated against `peerSchema` if provided).
+     *
+     * Note: a later {@linkcode registerCapabilities} call that includes `extensions[id]` will
+     * overwrite the wire value declared here; the returned handle's `settings` reflects what
+     * was passed to this call, not subsequent overwrites.
      */
     public extension<L extends JSONObject>(id: string, settings: L): ExtensionHandle<L, JSONObject, ServerContext>;
     public extension<L extends JSONObject, P extends AnySchema>(
@@ -258,7 +262,7 @@ export class Server extends Protocol<ServerContext> {
             id,
             settings,
             () => this._clientCapabilities?.extensions?.[id],
-            this._enforceStrictCapabilities,
+            () => this._enforceStrictCapabilities,
             opts?.peerSchema
         );
     }

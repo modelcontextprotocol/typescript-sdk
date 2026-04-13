@@ -67,7 +67,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
         /** The local settings object advertised in `capabilities.extensions[id]`. */
         public readonly settings: Local,
         private readonly _getPeerExtensionSettings: () => JSONObject | undefined,
-        private readonly _enforceStrictCapabilities: boolean,
+        private readonly _getEnforceStrictCapabilities: () => boolean,
         private readonly _peerSchema?: AnySchema
     ) {}
 
@@ -150,7 +150,7 @@ export class ExtensionHandle<Local extends JSONObject, Peer = JSONObject, Contex
     }
 
     private _assertPeerCapability(method: string): void {
-        if (this._enforceStrictCapabilities && this._getPeerExtensionSettings() === undefined) {
+        if (this._getEnforceStrictCapabilities() && this._getPeerExtensionSettings() === undefined) {
             throw new SdkError(
                 SdkErrorCode.CapabilityNotSupported,
                 `Peer does not support extension "${this.id}" (required for ${method})`

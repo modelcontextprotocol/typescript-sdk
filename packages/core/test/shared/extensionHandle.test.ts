@@ -33,7 +33,7 @@ function makeHandle(opts: { peer?: JSONObject | undefined; strict?: boolean; pee
         'io.example/ui',
         { local: true },
         () => opts.peer,
-        opts.strict ?? false,
+        () => opts.strict ?? false,
         opts.peerSchema
     );
     return { host, handle };
@@ -70,7 +70,7 @@ describe('ExtensionHandle.getPeerSettings', () => {
         let peer: JSONObject | undefined;
         const getter = vi.fn(() => peer);
         const host = makeMockHost() as unknown as ExtensionHost<BaseContext>;
-        const handle = new ExtensionHandle(host, 'io.example/ui', {}, getter, false);
+        const handle = new ExtensionHandle(host, 'io.example/ui', {}, getter, () => false);
 
         expect(handle.getPeerSettings()).toBeUndefined();
         peer = { v: 1 };
