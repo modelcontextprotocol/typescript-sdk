@@ -145,7 +145,7 @@ export class Server extends Protocol<ServerContext> {
             const transportSessionId: string | undefined =
                 ctx.sessionId || (ctx.http?.req?.headers.get('mcp-session-id') as string) || undefined;
             const { level } = request.params;
-            const parseResult = parseSchema(LoggingLevelSchema, level);
+            const parseResult = await parseSchema(LoggingLevelSchema, level);
             if (parseResult.success) {
                 this._loggingLevels.set(transportSessionId, parseResult.data);
             }
@@ -228,7 +228,7 @@ export class Server extends Protocol<ServerContext> {
     ): void {
         if (method === 'tools/call') {
             const wrappedHandler = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
-                const validatedRequest = parseSchema(CallToolRequestSchema, request);
+                const validatedRequest = await parseSchema(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -241,7 +241,7 @@ export class Server extends Protocol<ServerContext> {
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
+                    const taskValidationResult = await parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -253,7 +253,7 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 // For non-task requests, validate against CallToolResultSchema
-                const validationResult = parseSchema(CallToolResultSchema, result);
+                const validationResult = await parseSchema(CallToolResultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);

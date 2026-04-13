@@ -867,7 +867,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 reject(error);
             };
 
-            this._responseHandlers.set(messageId, response => {
+            this._responseHandlers.set(messageId, async response => {
                 if (options?.signal?.aborted) {
                     return;
                 }
@@ -877,7 +877,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
 
                 try {
-                    const parseResult = parseSchema(resultSchema, response.result);
+                    const parseResult = await parseSchema(resultSchema, response.result);
                     if (parseResult.success) {
                         resolve(parseResult.data as SchemaOutput<T>);
                     } else {
@@ -1079,14 +1079,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (isRequestMethod(method)) {
             throw new Error(`"${method}" is a standard MCP request method. Use setRequestHandler() instead.`);
         }
-        this._requestHandlers.set(method, (request, ctx) => {
+        this._requestHandlers.set(method, async (request, ctx) => {
             const { _meta, ...userParams } = (request.params ?? {}) as Record<string, unknown>;
             void _meta;
-            const parsed = parseSchema(paramsSchema, userParams);
+            const parsed = await parseSchema(paramsSchema, userParams);
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
             }
-            return Promise.resolve(handler(parsed.data, ctx));
+            return handler(parsed.data, ctx);
         });
     }
 
@@ -1119,14 +1119,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (isNotificationMethod(method)) {
             throw new Error(`"${method}" is a standard MCP notification method. Use setNotificationHandler() instead.`);
         }
-        this._notificationHandlers.set(method, notification => {
+        this._notificationHandlers.set(method, async notification => {
             const { _meta, ...userParams } = (notification.params ?? {}) as Record<string, unknown>;
             void _meta;
-            const parsed = parseSchema(paramsSchema, userParams);
+            const parsed = await parseSchema(paramsSchema, userParams);
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
             }
-            return Promise.resolve(handler(parsed.data));
+            return handler(parsed.data);
         });
     }
 
@@ -1178,7 +1178,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ): Promise<unknown> {
         let resultSchema: AnySchema;
         if (isSchemaBundle(schemaOrBundle)) {
-            const parsed = parseSchema(schemaOrBundle.params, params);
+            const parsed = await parseSchema(schemaOrBundle.params, params);
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
             }
@@ -1217,7 +1217,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ): Promise<void> {
         let options: NotificationOptions | undefined;
         if (schemasOrOptions && 'params' in schemasOrOptions) {
-            const parsed = parseSchema(schemasOrOptions.params, params);
+            const parsed = await parseSchema(schemasOrOptions.params, params);
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
             }

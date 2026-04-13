@@ -255,23 +255,23 @@ export class Client extends Protocol<ClientContext> {
      * Handlers are silently skipped if the server doesn't advertise the corresponding listChanged capability.
      * @internal
      */
-    private _setupListChangedHandlers(config: ListChangedHandlers): void {
+    private async _setupListChangedHandlers(config: ListChangedHandlers): Promise<void> {
         if (config.tools && this._serverCapabilities?.tools?.listChanged) {
-            this._setupListChangedHandler('tools', 'notifications/tools/list_changed', config.tools, async () => {
+            await this._setupListChangedHandler('tools', 'notifications/tools/list_changed', config.tools, async () => {
                 const result = await this.listTools();
                 return result.tools;
             });
         }
 
         if (config.prompts && this._serverCapabilities?.prompts?.listChanged) {
-            this._setupListChangedHandler('prompts', 'notifications/prompts/list_changed', config.prompts, async () => {
+            await this._setupListChangedHandler('prompts', 'notifications/prompts/list_changed', config.prompts, async () => {
                 const result = await this.listPrompts();
                 return result.prompts;
             });
         }
 
         if (config.resources && this._serverCapabilities?.resources?.listChanged) {
-            this._setupListChangedHandler('resources', 'notifications/resources/list_changed', config.resources, async () => {
+            await this._setupListChangedHandler('resources', 'notifications/resources/list_changed', config.resources, async () => {
                 const result = await this.listResources();
                 return result.resources;
             });
@@ -339,7 +339,7 @@ export class Client extends Protocol<ClientContext> {
     ): void {
         if (method === 'elicitation/create') {
             const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
-                const validatedRequest = parseSchema(ElicitRequestSchema, request);
+                const validatedRequest = await parseSchema(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -363,7 +363,7 @@ export class Client extends Protocol<ClientContext> {
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
+                    const taskValidationResult = await parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -375,7 +375,7 @@ export class Client extends Protocol<ClientContext> {
                 }
 
                 // For non-task requests, validate against ElicitResultSchema
-                const validationResult = parseSchema(ElicitResultSchema, result);
+                const validationResult = await parseSchema(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -409,7 +409,7 @@ export class Client extends Protocol<ClientContext> {
 
         if (method === 'sampling/createMessage') {
             const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
-                const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
+                const validatedRequest = await parseSchema(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -422,7 +422,7 @@ export class Client extends Protocol<ClientContext> {
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
+                    const taskValidationResult = await parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidationResult.success) {
                         const errorMessage =
                             taskValidationResult.error instanceof Error
@@ -436,7 +436,7 @@ export class Client extends Protocol<ClientContext> {
                 // For non-task requests, validate against appropriate schema based on tools presence
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
-                const validationResult = parseSchema(resultSchema, result);
+                const validationResult = await parseSchema(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
@@ -538,7 +538,7 @@ export class Client extends Protocol<ClientContext> {
 
             // Set up list changed handlers now that we know server capabilities
             if (this._pendingListChangedConfig) {
-                this._setupListChangedHandlers(this._pendingListChangedConfig);
+                await this._setupListChangedHandlers(this._pendingListChangedConfig);
                 this._pendingListChangedConfig = undefined;
             }
         } catch (error) {
@@ -1005,14 +1005,14 @@ export class Client extends Protocol<ClientContext> {
      * Set up a single list changed handler.
      * @internal
      */
-    private _setupListChangedHandler<T>(
+    private async _setupListChangedHandler<T>(
         listType: string,
         notificationMethod: NotificationMethod,
         options: ListChangedOptions<T>,
         fetcher: () => Promise<T[]>
-    ): void {
-        // Validate options using Zod schema (validates autoRefresh and debounceMs)
-        const parseResult = parseSchema(ListChangedOptionsBaseSchema, options);
+    ): Promise<void> {
+        // Validate options (autoRefresh and debounceMs)
+        const parseResult = await parseSchema(ListChangedOptionsBaseSchema, options);
         if (!parseResult.success) {
             throw new Error(`Invalid ${listType} listChanged options: ${parseResult.error.message}`);
         }

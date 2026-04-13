@@ -6,6 +6,7 @@ import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import { ProtocolError, ProtocolErrorCode } from '../../src/types/index.js';
 import { InMemoryTransport } from '../../src/util/inMemory.js';
+import type { StandardSchemaV1 } from '../../src/util/standardSchema.js';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
@@ -271,5 +272,49 @@ describe('sendCustomNotification', () => {
         void a.sendCustomNotification('acme/tick');
         await new Promise(r => setTimeout(r, 10));
         expect(count).toBe(1);
+    });
+});
+
+describe('setCustom* — accepts non-Zod StandardSchemaV1', () => {
+    function makeStandardSchema<T>(validate: (v: unknown) => T | { issues: ReadonlyArray<{ message: string }> }): StandardSchemaV1<T> {
+        return {
+            '~standard': {
+                version: 1 as const,
+                vendor: 'test',
+                types: undefined as unknown as { input: T; output: T },
+                validate: (v: unknown) => {
+                    const r = validate(v);
+                    return typeof r === 'object' && r !== null && 'issues' in r ? r : { value: r as T };
+                }
+            }
+        };
+    }
+
+    test('setCustomRequestHandler validates via ~standard.validate (no Zod)', async () => {
+        const [client, server] = await linkedPair();
+
+        type Params = { n: number };
+        const ParamsSchema = makeStandardSchema<Params>(v =>
+            typeof v === 'object' && v !== null && typeof (v as Params).n === 'number'
+                ? (v as Params)
+                : { issues: [{ message: 'n must be a number' }] }
+        );
+        const ResultSchema = makeStandardSchema<{ doubled: number }>(v =>
+            typeof v === 'object' && v !== null && typeof (v as { doubled: number }).doubled === 'number'
+                ? (v as { doubled: number })
+                : { issues: [{ message: 'doubled must be a number' }] }
+        );
+
+        server.setCustomRequestHandler('test/double', ParamsSchema, async (params: Params) => ({ doubled: params.n * 2 }));
+
+        const result = await client.sendCustomRequest('test/double', { n: 21 }, ResultSchema);
+        expect(result.doubled).toBe(42);
+
+        await expect(client.sendCustomRequest('test/double', { n: 'nope' }, ResultSchema)).rejects.toSatisfy(
+            (e: unknown) => e instanceof ProtocolError && /n must be a number/.test(e.message)
+        );
+
+        await client.close();
+        await server.close();
     });
 });
