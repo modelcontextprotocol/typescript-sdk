@@ -454,6 +454,36 @@ Type changes in handler context:
 
 > These task APIs are `@experimental` and may change without notice.
 
+## 12b. Tool Error Sanitization (Breaking Change)
+
+Tool handlers that `throw new Error('message')` now return `"Internal error"` to clients instead of the raw error message. This prevents accidental leakage of server internals (hostnames, connection strings, stack traces) through tool error responses.
+
+To send a user-visible error message, use the new `ToolError` class:
+
+```typescript
+import { ToolError } from '@modelcontextprotocol/server';
+
+// Generic errors are sanitized -- client sees: "Internal error"
+server.registerTool('db-query', {
+    description: 'Query the database',
+    inputSchema: z.object({ sql: z.string() })
+}, async ({ sql }) => {
+    throw new Error('Connection refused to 10.0.0.5:5432');
+});
+
+// ToolError messages pass through -- client sees: "Invalid query syntax"
+server.registerTool('safe-query', {
+    description: 'Query with validated input',
+    inputSchema: z.object({ sql: z.string() })
+}, async ({ sql }) => {
+    throw new ToolError('Invalid query syntax');
+});
+```
+
+`ProtocolError` messages (SDK validation errors) are still passed through unchanged.
+
+**Migration action:** If your v1 tool handlers rely on `throw new Error('user-visible message')` to communicate errors to clients, switch those throws to `throw new ToolError('user-visible message')`. No changes needed for tools that only throw errors for genuinely unexpected failures.
+
 ## 13. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
