@@ -420,7 +420,81 @@ type AppSpec = {
 
 ---
 
-## 7. Discussion Points for SDK Team
+## 7. Type Safety Regression for Custom Method Handlers
+
+In v1, `setRequestHandler(schema, handler)` was **protocol-agnostic** — the Zod schema
+carried both the method discriminator and the full request type. Any Zod schema with
+`{ method: z.literal('...') }` worked identically, whether it was `CallToolRequestSchema`
+(MCP spec) or `McpUiInitializeRequestSchema` (ext-apps custom). The handler received
+`z.infer<typeof schema>` regardless of provenance.
+
+V2 **splits this into two paths**:
+
+1. **Spec methods** (`M extends RequestMethod`): fully typed via `RequestTypeMap[M]`.
+   Handler receives the full request object. Type-safe.
+2. **Custom methods** (string fallback): 3-arg form `(method, paramsSchema, handler)`.
+   Handler receives only validated `params` (not the full request envelope), and the
+   return type is `Result` (untyped) unless a `ProtocolSpec` generic is supplied.
+
+This means ext-apps' current pattern:
+```typescript
+// v1: one generic, works for any schema, fully typed
+this.replaceRequestHandler(McpUiOpenLinkRequestSchema, (request, extra) => {
+    // request is McpUiOpenLinkRequest (full envelope)
+    return this._onopenlink(request.params, extra);
+});
+```
+
+Becomes either:
+```typescript
+// v2 untyped fallback: params is Record<string, unknown>
+this.setRequestHandler('ui/open-link', McpUiOpenLinkParamsSchema, (params, ctx) => {
+    return this._onopenlink(params, ctx); // params typed from schema only
+});
+```
+
+Or (with `ProtocolSpec`):
+```typescript
+// v2 + ProtocolSpec: fully typed from the spec
+this.setRequestHandler('ui/open-link', McpUiOpenLinkParamsSchema, (params, ctx) => {
+    return this._onopenlink(params, ctx); // params typed from AppSpec
+});
+```
+
+The **handler shape also changes**: v1 handlers receive the full JSON-RPC request object
+(`{ method, params }`), v2 custom handlers receive only the validated `params` (with `_meta`
+stripped). This affects ext-apps' `ProtocolWithEvents._assertMethodNotRegistered()` which
+currently accesses `schema.shape.method.value` to extract the method name — that Zod
+introspection no longer works when the first arg is a string.
+
+**Recommendation**: The `ProtocolSpec` path restores full type safety but requires ext-apps
+to declare its method vocabulary up front. The v1 approach of "pass any schema, get types
+for free" was more ergonomic for extension protocols. Consider whether the SDK should
+preserve a schema-based overload alongside the string-based one.
+
+---
+
+## 8. Package Dependency Model
+
+Both `@modelcontextprotocol/client` and `@modelcontextprotocol/server` depend on
+`@modelcontextprotocol/core` (`"workspace:^"`) and re-export its public types via
+`export * from '@modelcontextprotocol/core/public'`. The types are **not duplicated** u2014
+`core` is a single copy at install time. `CallToolRequest` imported from either `client`
+or `server` has the same type identity.
+
+ext-apps already uses both `Client` (from `client`) and `McpServer` (from `server`),
+so it would depend on two packages instead of one u2014 but this is a cosmetic change, not
+a real cost. The types come along for free from either package.
+
+`@modelcontextprotocol/core` is `private: true` and must not be depended on directly
+by consumers. However, ext-apps' `generated/schema.ts` composes SDK Zod schemas
+(`CallToolResultSchema`, `ToolSchema`, etc.) which are only in `core`'s internal barrel.
+This is the one case where ext-apps may need a blessed escape hatch or must vendor
+those schemas.
+
+---
+
+## 9. Discussion Points for SDK Team
 
 1. **Should `Protocol` be part of the public API?** The protocol-concrete branch exports it.
    ext-apps is the primary consumer outside the SDK itself. If Protocol stays internal,
