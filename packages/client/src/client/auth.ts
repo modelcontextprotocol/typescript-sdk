@@ -805,6 +805,28 @@ async function authInternal(
 }
 
 /**
+ * Validates that the given `clientMetadataUrl` is a valid HTTPS URL with a non-root pathname.
+ *
+ * No-op when `url` is `undefined` or empty (providers that do not use URL-based client IDs
+ * are unaffected). When the value is defined but invalid, throws an {@linkcode OAuthError}
+ * with code {@linkcode OAuthErrorCode.InvalidClientMetadata}.
+ *
+ * {@linkcode OAuthClientProvider} implementations that accept a `clientMetadataUrl` should
+ * call this in their constructors for early validation.
+ *
+ * @param url - The `clientMetadataUrl` value to validate (from `OAuthClientProvider.clientMetadataUrl`)
+ * @throws {OAuthError} When `url` is defined but is not a valid HTTPS URL with a non-root pathname
+ */
+export function validateClientMetadataUrl(url: string | undefined): void {
+    if (url && !isHttpsUrl(url)) {
+        throw new OAuthError(
+            OAuthErrorCode.InvalidClientMetadata,
+            `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${url}`
+        );
+    }
+}
+
+/**
  * SEP-991: URL-based Client IDs
  * Validate that the `client_id` is a valid URL with `https` scheme
  */
