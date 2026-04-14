@@ -67,8 +67,18 @@ Key changes:
 Schema objects like `CallToolRequestSchema` are **no longer passed** to these methods.
 Instead, a method string is used and the SDK internally resolves the correct schema.
 
-The protocol-concrete branch adds a **3-arg overload** for custom (non-spec) methods:
+**Type safety is preserved** for standard MCP methods — `M` narrows to a string literal
+that indexes `RequestTypeMap`/`NotificationTypeMap`, so handler params/return are fully typed:
 ```typescript
+// TypeScript infers: request is CallToolRequest, return must be CallToolResult
+server.setRequestHandler('tools/call', async (request, ctx) => { ... });
+```
+
+For **custom (non-spec) methods** like ext-apps' `ui/*`, the untyped string fallback gives
+`Record<string, unknown>` params. To get type safety on custom methods, use the
+protocol-concrete branch's **3-arg overload** with a `ProtocolSpec` generic:
+```typescript
+// With ProtocolSpec, params/result are typed from the spec:
 protocol.setRequestHandler('ui/initialize', paramsSchema, handler)
 ```
 
