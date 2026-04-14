@@ -442,6 +442,18 @@ const result = await client.callTool({ name: 'my-tool', arguments: {} });
 
 The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
 
+If you were using `CallToolResultSchema` for **runtime validation** (not just in `request()`/`callTool()` calls), use the new `isCallToolResult` type guard instead:
+
+```typescript
+// v1: runtime validation with Zod schema
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+if (CallToolResultSchema.safeParse(value).success) { /* ... */ }
+
+// v2: use the type guard
+import { isCallToolResult } from '@modelcontextprotocol/client';
+if (isCallToolResult(value)) { /* ... */ }
+```
+
 ### Client list methods return empty results for missing capabilities
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.
@@ -482,13 +494,15 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `JSONRPCError`                           | `JSONRPCErrorResponse`                           |
 | `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                     |
 | `isJSONRPCError`                         | `isJSONRPCErrorResponse`                         |
-| `isJSONRPCResponse`                      | `isJSONRPCResultResponse`                        |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse` (see note below)       |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
 | `ResourceReference`                      | `ResourceTemplateReference`                      |
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
 All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
+
+> **Note on `isJSONRPCResponse`:** v1's `isJSONRPCResponse` was a deprecated alias that only checked for *result* responses (it was equivalent to `isJSONRPCResultResponse`). v2 removes the deprecated alias and introduces a **new** `isJSONRPCResponse` with corrected semantics — it checks for *any* response (either result or error). If you are migrating v1 code that used `isJSONRPCResponse`, rename it to `isJSONRPCResultResponse` to preserve the original behavior. Use the new `isJSONRPCResponse` only when you want to match both result and error responses.
 
 **Before (v1):**
 
