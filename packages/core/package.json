@@ -32,6 +32,10 @@
         "./public": {
             "types": "./src/exports/public/index.ts",
             "import": "./src/exports/public/index.ts"
+        },
+        "./schemas": {
+            "types": "./src/types/schemas.ts",
+            "import": "./src/types/schemas.ts"
         }
     },
     "scripts": {
