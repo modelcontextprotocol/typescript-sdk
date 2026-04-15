@@ -12,6 +12,8 @@ export type {
     AnyToolHandler,
     BaseToolCallback,
     CompleteResourceTemplateCallback,
+    LegacyPromptCallback,
+    LegacyToolCallback,
     ListResourcesCallback,
     PromptCallback,
     ReadResourceCallback,
@@ -21,7 +23,8 @@ export type {
     RegisteredResourceTemplate,
     RegisteredTool,
     ResourceMetadata,
-    ToolCallback
+    ToolCallback,
+    ZodRawShape
 } from './server/mcp.js';
 export { McpServer, ResourceTemplate } from './server/mcp.js';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation.js';

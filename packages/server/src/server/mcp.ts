@@ -30,6 +30,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isStandardSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
@@ -38,6 +39,7 @@ import {
     validateAndWarnToolName,
     validateStandardSchema
 } from '@modelcontextprotocol/core';
+import { z } from 'zod';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
@@ -950,6 +952,132 @@ export class McpServer {
         return registeredPrompt;
     }
 
+    // ---------------------------------------------------------------------
+    // v1-compat variadic registration methods. Frozen at 2025-03-26 surface.
+    // ---------------------------------------------------------------------
+
+    /** @deprecated Use {@linkcode registerTool}. */
+    tool(name: string, cb: LegacyToolCallback<undefined>): RegisteredTool;
+    /** @deprecated Use {@linkcode registerTool}. */
+    tool(name: string, description: string, cb: LegacyToolCallback<undefined>): RegisteredTool;
+    /** @deprecated Use {@linkcode registerTool}. */
+    tool<Args extends ZodRawShape>(
+        name: string,
+        paramsSchemaOrAnnotations: Args | ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
+    /** @deprecated Use {@linkcode registerTool}. */
+    tool<Args extends ZodRawShape>(
+        name: string,
+        description: string,
+        paramsSchemaOrAnnotations: Args | ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
+    /** @deprecated Use {@linkcode registerTool}. */
+    tool<Args extends ZodRawShape>(
+        name: string,
+        paramsSchema: Args,
+        annotations: ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
+    /** @deprecated Use {@linkcode registerTool}. */
+    tool<Args extends ZodRawShape>(
+        name: string,
+        description: string,
+        paramsSchema: Args,
+        annotations: ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
+    tool(name: string, ...rest: unknown[]): RegisteredTool {
+        let description: string | undefined;
+        let inputSchema: StandardSchemaWithJSON | undefined;
+        let annotations: ToolAnnotations | undefined;
+
+        if (typeof rest[0] === 'string') description = rest.shift() as string;
+
+        if (rest.length > 1) {
+            const first = rest[0];
+            if (isZodRawShape(first) || isStandardSchema(first)) {
+                inputSchema = wrapRawShape(rest.shift());
+                if (
+                    rest.length > 1 &&
+                    typeof rest[0] === 'object' &&
+                    rest[0] !== null &&
+                    !isZodRawShape(rest[0]) &&
+                    !isStandardSchema(rest[0])
+                ) {
+                    annotations = rest.shift() as ToolAnnotations;
+                }
+            } else if (typeof first === 'object' && first !== null) {
+                annotations = rest.shift() as ToolAnnotations;
+            }
+        }
+
+        if (this._registeredTools[name]) {
+            throw new Error(`Tool ${name} is already registered`);
+        }
+        const cb = rest[0] as ToolCallback<StandardSchemaWithJSON | undefined>;
+        return this._createRegisteredTool(
+            name,
+            undefined,
+            description,
+            inputSchema,
+            undefined,
+            annotations,
+            { taskSupport: 'forbidden' },
+            undefined,
+            cb
+        );
+    }
+
+    /** @deprecated Use {@linkcode registerPrompt}. */
+    prompt(name: string, cb: PromptCallback): RegisteredPrompt;
+    /** @deprecated Use {@linkcode registerPrompt}. */
+    prompt(name: string, description: string, cb: PromptCallback): RegisteredPrompt;
+    /** @deprecated Use {@linkcode registerPrompt}. */
+    prompt<Args extends ZodRawShape>(name: string, argsSchema: Args, cb: LegacyPromptCallback<Args>): RegisteredPrompt;
+    /** @deprecated Use {@linkcode registerPrompt}. */
+    prompt<Args extends ZodRawShape>(name: string, description: string, argsSchema: Args, cb: LegacyPromptCallback<Args>): RegisteredPrompt;
+    prompt(name: string, ...rest: unknown[]): RegisteredPrompt {
+        let description: string | undefined;
+        if (typeof rest[0] === 'string') description = rest.shift() as string;
+
+        let argsSchema: StandardSchemaWithJSON | undefined;
+        if (rest.length > 1) argsSchema = wrapRawShape(rest.shift());
+
+        if (this._registeredPrompts[name]) {
+            throw new Error(`Prompt ${name} is already registered`);
+        }
+        const cb = rest[0] as PromptCallback<StandardSchemaWithJSON | undefined>;
+        const registered = this._createRegisteredPrompt(name, undefined, description, argsSchema, cb, undefined);
+        this.setPromptRequestHandlers();
+        this.sendPromptListChanged();
+        return registered;
+    }
+
+    /** @deprecated Use {@linkcode registerResource}. */
+    resource(name: string, uri: string, readCallback: ReadResourceCallback): RegisteredResource;
+    /** @deprecated Use {@linkcode registerResource}. */
+    resource(name: string, uri: string, metadata: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    /** @deprecated Use {@linkcode registerResource}. */
+    resource(name: string, template: ResourceTemplate, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
+    /** @deprecated Use {@linkcode registerResource}. */
+    resource(
+        name: string,
+        template: ResourceTemplate,
+        metadata: ResourceMetadata,
+        readCallback: ReadResourceTemplateCallback
+    ): RegisteredResourceTemplate;
+    resource(name: string, uriOrTemplate: string | ResourceTemplate, ...rest: unknown[]): RegisteredResource | RegisteredResourceTemplate {
+        let metadata: ResourceMetadata = {};
+        if (typeof rest[0] === 'object') metadata = rest.shift() as ResourceMetadata;
+        const readCallback = rest[0] as ReadResourceCallback & ReadResourceTemplateCallback;
+        if (typeof uriOrTemplate === 'string') {
+            return this.registerResource(name, uriOrTemplate, metadata, readCallback);
+        }
+        return this.registerResource(name, uriOrTemplate, metadata, readCallback);
+    }
+
     /**
      * Checks if the server is connected to a transport.
      * @returns `true` if the server is connected
@@ -1060,6 +1188,51 @@ export class ResourceTemplate {
     completeCallback(variable: string): CompleteResourceTemplateCallback | undefined {
         return this._callbacks.complete?.[variable];
     }
+}
+
+/**
+ * A plain record of Zod field schemas, e.g. `{ name: z.string() }`. Used by the v1 variadic
+ * `.tool()`/`.prompt()` overloads. For `registerTool`/`registerPrompt`, wrap in `z.object({...})`.
+ */
+export type ZodRawShape = z.ZodRawShape;
+
+/** Infers `{ [K]: T }` from a {@linkcode ZodRawShape} `{ [K]: z.ZodType<T> }`. */
+export type InferRawShape<S extends ZodRawShape> = { [K in keyof S]: z.infer<S[K]> };
+
+/** Callback shape for the v1 variadic `.tool()` overloads. See also {@linkcode ToolCallback}. */
+export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
+    ? (args: InferRawShape<Args>, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>
+    : (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+
+/** Callback shape for the v1 variadic `.prompt()` overloads. See also {@linkcode PromptCallback}. */
+export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
+    ? (args: InferRawShape<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
+    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+
+/**
+ * Detects a v1 "raw shape" — a plain object whose values are Standard Schema
+ * field schemas, e.g. `{ name: z.string() }`. Used by the deprecated variadic
+ * `.tool()`/`.prompt()` shims to disambiguate the schema arg from annotations.
+ *
+ * @internal
+ */
+function isZodRawShape(obj: unknown): obj is ZodRawShape {
+    if (typeof obj !== 'object' || obj === null) return false;
+    if (isStandardSchema(obj)) return false;
+    const values = Object.values(obj);
+    return values.length > 0 && values.every(v => isStandardSchema(v));
+}
+
+/**
+ * Wraps a v1 raw shape in `z.object()` for the variadic shims; passes Standard
+ * Schemas through unchanged.
+ *
+ * @internal
+ */
+function wrapRawShape(schema: unknown): StandardSchemaWithJSON | undefined {
+    if (schema === undefined) return undefined;
+    if (isZodRawShape(schema)) return z.object(schema);
+    return schema as StandardSchemaWithJSON;
 }
 
 export type BaseToolCallback<
