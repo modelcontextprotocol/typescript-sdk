@@ -463,3 +463,28 @@ Buffer-as-canonical-log adds memory cost: events that previously bypassed the bu
 ### Docs note: emit-only events
 
 When an event is purely emit-driven (no upstream polling), the `check` callback can be a stub: `async () => ({ events: [], cursor: '', nextPollSeconds: 60 })`. The `nextPollSeconds: 60` keeps the wasted polling tick rate low. Future work: making `check` optional for emit-only events would remove this E1 boilerplate (still tracked in stress report).
+
+## Check() results stay per-subscription 2026-04-15
+
+A background security review on the cursor redesign caught a HIGH severity cross-tenant data leak in `_runCheckTick`. The original implementation appended check() results to the shared per-event-name event log via `_appendToLog` AND fanned them out to other subscribers via `_fanOutExceptCaller`. This was wrong:
+
+1. **check() is per-subscription.** It runs with that sub's specific `params` and may be scoped to that sub's principal (e.g. a Gmail check returns one tenant's messages). Pushing those into the shared log pollutes it with tenant-specific data.
+2. **Other subs received results that weren't intended for them.** A tenant-A subscription's check() output got delivered to tenant-B subscriptions of the same event name. Cross-tenant disclosure.
+
+### Fix
+
+`_runCheckTick` now constructs occurrences locally for the calling subscription only:
+- NOT inserted into the shared event log
+- NOT fanned out (the `_fanOutExceptCaller` helper has been deleted as dead code)
+- Auto-cursor assignment via `_mintAutoCursor` retained for events the app doesn't cursor itself
+
+emit() retains its broadcast-via-shared-log behavior — it's an explicit broadcast and the canonical event is meant to reach all matching subs.
+
+### Resume implications
+
+The "unified log holds everything" property of the cursor redesign now applies only to emit()-derived events. Resume across check-derived events works the original way: when a sub resubscribes with a cursor, the server passes that cursor to the next `check()` call and the app returns events from that point. Resume across emit() events continues to use the cursor-indexed shared log.
+
+### What this means for app authors
+
+- emit() is broadcast; results are visible to all matching subs and replayable from the log.
+- check() is private to the calling sub; results are only delivered to that sub. If you want a check-derived event to reach all subs, emit() it explicitly inside or after the check.

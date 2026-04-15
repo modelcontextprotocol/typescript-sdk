@@ -397,7 +397,7 @@ export class ServerEventManager {
      *
      * Capped via simple FIFO eviction to bound memory.
      */
-    private _pollState = new Map<string, { checkCursor: string | null; lastSeenSeq: number }>();
+    private _pollState = new Map<string, { checkCursor: string | null; lastSeenSeq: number; lastReturnedCursor?: string }>();
     private static readonly _MAX_POLL_STATE = 10_000;
 
     private readonly _maxSubsPerRequest: number;
@@ -777,42 +777,20 @@ export class ServerEventManager {
         } catch (error) {
             return { error: this._toSubscriptionError(error) };
         }
-        const occurrences: EventOccurrence[] = [];
-        for (const e of checkResult.events) {
-            occurrences.push(this._appendToLog(event, e.name ?? eventName, e.data, e.cursor, e._meta));
-        }
-        // Fan out to *other* subs of the same event name (this sub will get them via the caller).
-        for (const occ of occurrences) this._fanOutExceptCaller(event, eventName, occ, ctx);
+        // check() runs per-subscription with that sub's params (and may be
+        // scoped to its principal — e.g. Gmail returns one tenant's messages).
+        // Results MUST stay local to the calling subscription. They are NOT
+        // appended to the shared event log and NOT fanned out to other subs.
+        // emit() retains broadcast semantics; check() does not.
+        const occurrences: EventOccurrence[] = checkResult.events.map(e =>
+            this._makeOccurrence(e.name ?? eventName, e.data, e._meta, e.cursor ?? this._mintAutoCursor(event))
+        );
         return {
             events: occurrences,
             nextInternalCheckCursor: checkResult.cursor,
             nextPollSeconds: checkResult.nextPollSeconds,
             hasMore: checkResult.hasMore
         };
-    }
-
-    /**
-     * Same as {@linkcode _fanOut} but skips the subscription whose context
-     * triggered the check call — the caller handles delivery to that one
-     * directly so it can also update wire-cursor state in the same code path.
-     * We identify "the caller" by ctx identity, which is unique per sub for
-     * push/webhook and identifies the calling poll request for poll mode.
-     */
-    private _fanOutExceptCaller(event: InternalRegisteredEvent, eventName: string, occurrence: EventOccurrence, callerCtx: ServerContext): void {
-        for (const stream of this._pushStreams) {
-            if (stream.ctx === callerCtx) continue;
-            for (const sub of stream.subscriptions.values()) {
-                if (sub.eventName !== eventName) continue;
-                if (event.matches && !event.matches(sub.params, occurrence.data)) continue;
-                this._deliverToPush(stream, sub, occurrence);
-            }
-        }
-        for (const sub of this._webhookSubs.values()) {
-            if (sub.ctx === callerCtx) continue;
-            if (sub.eventName !== eventName) continue;
-            if (event.matches && !event.matches(sub.params, occurrence.data)) continue;
-            void this._deliverWebhook(sub, occurrence);
-        }
     }
 
     private async _pollOne(spec: EventSubscriptionSpec, maxEvents: number, ctx: ServerContext): Promise<PollEventsResultEntry> {
@@ -841,14 +819,21 @@ export class ServerEventManager {
         let replayFromSeq: number;
         if (wireCursor !== null) {
             const seq = event.log.cursorMap.get(wireCursor);
-            if (seq === undefined) {
+            if (seq !== undefined) {
+                replayFromSeq = seq;
+            } else if (existingState && existingState.lastReturnedCursor === wireCursor) {
+                // Cursor was a check-derived passthrough we returned previously
+                // (check() results never enter the shared log). Resume from the
+                // sub's persisted log position; the saved checkCursor below
+                // will pick up the check stream where it left off.
+                replayFromSeq = existingState.lastSeenSeq;
+            } else {
                 this._pollState.delete(pollKey);
                 return {
                     id: spec.id,
                     error: { code: CURSOR_EXPIRED, message: 'Cursor not found in event log (re-subscribe to start from current head)' }
                 };
             }
-            replayFromSeq = seq;
         } else if (existingState) {
             replayFromSeq = existingState.lastSeenSeq;
         } else {
@@ -894,7 +879,12 @@ export class ServerEventManager {
             if (deliveredCursors.has(entry.cursor) && entry.seq > newLastSeen) newLastSeen = entry.seq;
         }
         if (occurrences.length === 0) newLastSeen = Math.max(newLastSeen, event.log.nextSeq - 1);
-        this._setPollState(pollKey, { checkCursor: tick.nextInternalCheckCursor, lastSeenSeq: newLastSeen });
+        // Only persist `lastReturnedCursor` for check-derived cursors (not in
+        // the log). Log-anchored cursors don't need passthrough because they
+        // resolve via cursorMap; once evicted they MUST yield CursorExpired,
+        // not silently fall through to existingState.
+        const passthrough = newCursor !== undefined && !event.log.cursorMap.has(newCursor) ? newCursor : undefined;
+        this._setPollState(pollKey, { checkCursor: tick.nextInternalCheckCursor, lastSeenSeq: newLastSeen, lastReturnedCursor: passthrough });
         return {
             id: spec.id,
             events: occurrences,
@@ -909,7 +899,7 @@ export class ServerEventManager {
         return `${principal}\0${eventName}\0${subId}`;
     }
 
-    private _setPollState(key: string, value: { checkCursor: string | null; lastSeenSeq: number }): void {
+    private _setPollState(key: string, value: { checkCursor: string | null; lastSeenSeq: number; lastReturnedCursor?: string }): void {
         if (this._pollState.has(key)) this._pollState.delete(key);
         this._pollState.set(key, value);
         while (this._pollState.size > ServerEventManager._MAX_POLL_STATE) {

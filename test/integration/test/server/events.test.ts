@@ -1672,4 +1672,180 @@ describe('Events', () => {
             c.abort();
         });
     });
+
+    describe('check() per-subscription scoping', () => {
+        // Regression suite for the cross-tenant leak fixed 2026-04-15: check()
+        // results MUST stay local to the calling subscription. They are not
+        // appended to the shared event log and not fanned out to other subs.
+
+        it('check() results are not delivered to other subscribers of the same event', async () => {
+            // Per-call counter so each sub's check returns events tagged with
+            // a sub-specific value — easy to detect cross-talk if it happens.
+            const seen: Record<string, number[]> = {};
+            server.registerEvent(
+                'tenant.event',
+                {
+                    inputSchema: z.object({ tenant: z.string() }),
+                    payloadSchema: z.object({ tenant: z.string(), n: z.number() }),
+                    buffer: { capacity: 100 }
+                },
+                async (params, cursor) => {
+                    const tenant = (params as { tenant: string }).tenant;
+                    const next = (cursor === null ? 0 : Number(cursor)) + 1;
+                    seen[tenant] = (seen[tenant] ?? []).concat(next);
+                    return {
+                        events: [{ name: 'tenant.event', data: { tenant, n: next } }],
+                        cursor: String(next),
+                        nextPollSeconds: 60
+                    };
+                }
+            );
+            await connectPair(server, client);
+
+            // Two subs, different params (simulating different tenants).
+            // Each bootstrap returns one event from check() ({tenant, n:1}).
+            const bootstrap = await client.pollEvents({
+                subscriptions: [
+                    { id: 'sub-a', name: 'tenant.event', params: { tenant: 'A' }, cursor: null },
+                    { id: 'sub-b', name: 'tenant.event', params: { tenant: 'B' }, cursor: null }
+                ]
+            });
+
+            const bootA = bootstrap.results.find(x => x.id === 'sub-a')!;
+            const bootB = bootstrap.results.find(x => x.id === 'sub-b')!;
+
+            // Each sub's bootstrap delivers ONLY its tenant — not the other's.
+            expect(bootA.events!.every(e => (e.data as { tenant: string }).tenant === 'A')).toBe(true);
+            expect(bootB.events!.every(e => (e.data as { tenant: string }).tenant === 'B')).toBe(true);
+
+            // Resume each sub from its own returned cursor; check() runs again
+            // per-sub and returns the next tenant-specific event. Cross-talk
+            // would surface here as the "wrong" tenant in either result.
+            const r = await client.pollEvents({
+                subscriptions: [
+                    { id: 'sub-a', name: 'tenant.event', params: { tenant: 'A' }, cursor: bootA.cursor ?? null },
+                    { id: 'sub-b', name: 'tenant.event', params: { tenant: 'B' }, cursor: bootB.cursor ?? null }
+                ]
+            });
+
+            const aEvents = r.results.find(x => x.id === 'sub-a')!.events ?? [];
+            const bEvents = r.results.find(x => x.id === 'sub-b')!.events ?? [];
+
+            expect(aEvents.every(e => (e.data as { tenant: string }).tenant === 'A')).toBe(true);
+            expect(bEvents.every(e => (e.data as { tenant: string }).tenant === 'B')).toBe(true);
+        });
+
+        it('check() results are not appended to the shared event log', async () => {
+            // Sub A's check produces events. Sub B subscribes later with cursor:null
+            // (fresh "from now"). It must NOT see A's check-derived backlog
+            // because those events are not in the shared log.
+            const callsByParams = new Map<string, number>();
+            server.registerEvent(
+                'private.event',
+                {
+                    inputSchema: z.object({ who: z.string() }),
+                    payloadSchema: z.object({ who: z.string(), n: z.number() }),
+                    buffer: { capacity: 100 }
+                },
+                async params => {
+                    const who = (params as { who: string }).who;
+                    const n = (callsByParams.get(who) ?? 0) + 1;
+                    callsByParams.set(who, n);
+                    return {
+                        events: [{ name: 'private.event', data: { who, n } }],
+                        cursor: String(n),
+                        nextPollSeconds: 60
+                    };
+                }
+            );
+            await connectPair(server, client);
+
+            // Sub A polls twice — its check returns 2 events total.
+            await client.pollEvents({ subscriptions: [{ id: 'a', name: 'private.event', params: { who: 'A' }, cursor: null }] });
+            await client.pollEvents({ subscriptions: [{ id: 'a', name: 'private.event', params: { who: 'A' }, cursor: '1' }] });
+
+            // Sub B subscribes fresh (cursor:null). Its check returns ITS OWN first event.
+            // It MUST NOT receive any of A's check results from a shared log.
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'b', name: 'private.event', params: { who: 'B' }, cursor: null }]
+            });
+
+            const bEvents = r.results.find(x => x.id === 'b')!.events ?? [];
+            // Only B's own check results should be present (or none on bootstrap).
+            expect(bEvents.every(e => (e.data as { who: string }).who === 'B')).toBe(true);
+        });
+
+        it('emit() broadcast still reaches all matching subs (regression guard)', async () => {
+            // emit()'s shared-log behavior is unchanged; only check() was scoped.
+            server.registerEvent(
+                'broadcast.event',
+                {
+                    inputSchema: z.object({}),
+                    payloadSchema: z.object({ n: z.number() }),
+                    buffer: { capacity: 100 }
+                },
+                async () => ({ events: [], cursor: '', nextPollSeconds: 60 })
+            );
+            await connectPair(server, client);
+
+            // Two subs, both bootstrap.
+            await client.pollEvents({
+                subscriptions: [
+                    { id: 'one', name: 'broadcast.event', params: {}, cursor: null },
+                    { id: 'two', name: 'broadcast.event', params: {}, cursor: null }
+                ]
+            });
+
+            server.emitEvent('broadcast.event', { n: 1 }, { cursor: 'b-1' });
+            server.emitEvent('broadcast.event', { n: 2 }, { cursor: 'b-2' });
+
+            const r = await client.pollEvents({
+                subscriptions: [
+                    { id: 'one', name: 'broadcast.event', params: {}, cursor: null },
+                    { id: 'two', name: 'broadcast.event', params: {}, cursor: null }
+                ]
+            });
+
+            const oneEvents = r.results.find(x => x.id === 'one')!.events!;
+            const twoEvents = r.results.find(x => x.id === 'two')!.events!;
+            expect(oneEvents.map(e => e.cursor)).toEqual(['b-1', 'b-2']);
+            expect(twoEvents.map(e => e.cursor)).toEqual(['b-1', 'b-2']);
+        });
+
+        it('check() resume-by-cursor still works (cursor passes through to check)', async () => {
+            // The internal check-cursor is preserved per-sub; resuming with a
+            // cursor must call check() with that cursor (not lose it because we
+            // stopped using the shared log).
+            const checkInvocations: (string | null)[] = [];
+            server.registerEvent(
+                'resumable.event',
+                {
+                    inputSchema: z.object({}),
+                    payloadSchema: z.object({ n: z.number() }),
+                    buffer: { capacity: 100 }
+                },
+                async (_params, cursor) => {
+                    checkInvocations.push(cursor);
+                    const n = (cursor === null ? 0 : Number(cursor)) + 1;
+                    return {
+                        events: [{ name: 'resumable.event', data: { n } }],
+                        cursor: String(n),
+                        nextPollSeconds: 60
+                    };
+                }
+            );
+            await connectPair(server, client);
+
+            // First poll: check called with null, returns event n=1.
+            const first = await client.pollEvents({ subscriptions: [{ id: 's', name: 'resumable.event', params: {}, cursor: null }] });
+            // Second poll: resume from the returned wire cursor; check should
+            // be called with the per-sub internalCheckCursor ("1") — not null.
+            await client.pollEvents({ subscriptions: [{ id: 's', name: 'resumable.event', params: {}, cursor: first.results[0]!.cursor ?? null }] });
+
+            // Server tracks an internal check cursor per-sub and passes it through.
+            // We saw at least: null (bootstrap), then a non-null on a subsequent invocation.
+            expect(checkInvocations).toContain(null);
+            expect(checkInvocations.some(c => c !== null)).toBe(true);
+        });
+    });
 });
