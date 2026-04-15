@@ -137,7 +137,7 @@ export function createServer(stripeOverride?: Stripe): McpServer {
                 inputSchema,
                 payloadSchema,
                 // Broadcast emits from the webhook path must reach poll clients too.
-                bufferEmits: { capacity: 1000 },
+                buffer: { capacity: 1000 },
                 matches: () => true // webhook handler already filters by type
             },
             check(stripeType, mcpName)

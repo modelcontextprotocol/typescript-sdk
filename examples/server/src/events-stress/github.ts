@@ -6,7 +6,7 @@
  * verifies the `X-Hub-Signature-256` HMAC via `@octokit/webhooks`, strips the
  * fat payload (>100KB for PRs) to a minimal projection, and broadcasts via
  * `server.emitEvent()`. Poll-mode clients see the same events through
- * `bufferEmits`; push/webhook clients receive them in real time. Subscribers
+ * `buffer`; push/webhook clients receive them in real time. Subscribers
  * may filter by repo and by action/conclusion sub-type.
  *
  * ## Setup
@@ -92,9 +92,9 @@ export function createServer(webhooksOverride?: Webhooks): McpServer {
                 if (params.actions && !params.actions.includes(d.action)) return false;
                 return true;
             },
-            bufferEmits: { capacity: 1000 }
+            buffer: { capacity: 1000 }
         },
-        // emit-only: check callback is inert; bufferEmits surfaces emits to poll.
+        // emit-only: check callback is inert; buffer surfaces emits to poll.
         async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
     );
 
@@ -113,7 +113,7 @@ export function createServer(webhooksOverride?: Webhooks): McpServer {
                 if (params.conclusion && params.conclusion !== d.conclusion) return false;
                 return true;
             },
-            bufferEmits: { capacity: 1000 }
+            buffer: { capacity: 1000 }
         },
         async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
     );

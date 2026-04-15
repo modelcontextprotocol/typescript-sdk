@@ -1017,8 +1017,16 @@ export class McpServer {
      * - Omit `subscriptionId` for **broadcast** delivery (filtered by the event's
      *   `matches` callback if provided).
      * - Pass `subscriptionId` for **targeted** delivery to a single subscription.
+     *
+     * The optional `cursor` lets you supply a natural upstream identifier
+     * (e.g. a Stripe event ID) as the per-event cursor. When omitted, the SDK
+     * auto-assigns a per-event-name monotonic sequence cursor.
      */
-    emitEvent(eventName: string, data: Record<string, unknown>, options: { subscriptionId?: string } = {}): void {
+    emitEvent(
+        eventName: string,
+        data: Record<string, unknown>,
+        options: { cursor?: string; subscriptionId?: string } = {}
+    ): void {
         this._getOrCreateEventManager().emit(eventName, data, options);
     }
 

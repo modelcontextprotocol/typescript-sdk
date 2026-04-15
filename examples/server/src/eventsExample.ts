@@ -49,9 +49,16 @@ const server = new McpServer(
 let counter = 0;
 setInterval(() => {
     counter++;
-    // Emit drives push/webhook delivery in real time; bufferEmits below merges
-    // these into poll responses too, so all three modes see ticks at 1s cadence.
-    server.emitEvent('counter.tick', { value: counter, timestamp: new Date().toISOString() });
+    // Emit drives push/webhook delivery in real time; the always-on event log
+    // makes the same emits visible to poll-mode clients on their next poll
+    // and to any client that resumes with a prior cursor.
+    // Cursor is application-provided here ("tick-N") so resume can address
+    // any past tick by its natural identifier.
+    server.emitEvent(
+        'counter.tick',
+        { value: counter, timestamp: new Date().toISOString() },
+        { cursor: `tick-${counter}` }
+    );
 }, 1000);
 
 server.registerEvent(
@@ -69,10 +76,10 @@ server.registerEvent(
         matches: (params, data) => {
             const v = (data as { value: number }).value;
             return v >= params.minValue && v % params.modulo === 0;
-        },
-        bufferEmits: { capacity: 500 }
+        }
     },
-    async () => ({ events: [], cursor: String(counter), nextPollSeconds: 5 })
+    // Pure emit-driven: check is a no-op stub. Buffer + fan-out handle delivery.
+    async () => ({ events: [], cursor: '', nextPollSeconds: 60 })
 );
 
 // --- incident.created: emit-driven with lifecycle hooks ---
@@ -102,14 +109,11 @@ server.registerEvent(
                 console.error(`[incidents] subscriber ${id} left`);
             }
         },
-        matches: (params, data) => !params.severity || params.severity === data.severity,
-        // Buffer broadcast emits so poll-mode clients see them on their next poll.
-        bufferEmits: { capacity: 500 }
+        matches: (params, data) => !params.severity || params.severity === data.severity
     },
-    // For emit-driven events, the check callback only handles bootstrap.
-    // With bufferEmits configured, the SDK merges buffered emits into poll
-    // responses — the callback just returns a stable cursor.
-    async (_params, _cursor) => ({ events: [], cursor: 'emit-only', nextPollSeconds: 5 })
+    // Emit-driven: check is a no-op. The always-on event log makes emits
+    // visible to all delivery modes and supports resume via cursor.
+    async (_params, _cursor) => ({ events: [], cursor: '', nextPollSeconds: 60 })
 );
 
 // Simulate incidents arriving from upstream every 15 seconds.

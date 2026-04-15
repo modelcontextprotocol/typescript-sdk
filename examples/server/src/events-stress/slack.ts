@@ -7,7 +7,7 @@
  * refcounted across overlapping subscriptions so the bot only joins once and
  * leaves when the last subscriber for a channel unsubscribes. Both events are
  * emit-only: Slack has no REST "list reactions since T" surface, and Socket
- * Mode is the canonical push path for messages. `bufferEmits` makes both
+ * Mode is the canonical push path for messages. `buffer` makes both
  * visible to poll-mode clients.
  *
  * ## Setup
@@ -184,13 +184,13 @@ export function createServer(clients?: SlackClients): McpServer {
                 onUnsubscribe: id => release(id)
             },
             matches: (params, data) => params.channelId === data.channelId,
-            bufferEmits: { capacity: 500 }
+            buffer: { capacity: 500 }
         },
         async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
     );
 
     // slack.reaction_added — PURE emit. No Slack REST endpoint lists reactions
-    // since-T, so the check callback has nothing to read. bufferEmits is the
+    // since-T, so the check callback has nothing to read. buffer is the
     // *only* thing that makes this event visible to poll clients.
     server.registerEvent(
         'slack.reaction_added',
@@ -208,7 +208,7 @@ export function createServer(clients?: SlackClients): McpServer {
                 onUnsubscribe: id => release(id)
             },
             matches: (params, data) => params.channelId === data.channelId,
-            bufferEmits: { capacity: 500 }
+            buffer: { capacity: 500 }
         },
         async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
     );

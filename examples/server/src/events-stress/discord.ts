@@ -75,7 +75,7 @@ const memberPayload = z.object({
 
 // --- event helpers -----------------------------------------------------------
 // All three events are emit-only: the Gateway has no "list since T" API
-// for these streams, so the check callback is a stub and `bufferEmits`
+// for these streams, so the check callback is a stub and `buffer`
 // is the sole path for poll-mode clients.
 
 const matchesChannel = (params: Filter, data: Record<string, unknown>) =>
@@ -156,7 +156,7 @@ export function createServer(discord?: DiscordClient): McpServer {
             inputSchema: filterSchema,
             payloadSchema: messagePayload,
             matches: matchesChannel,
-            bufferEmits: { capacity: 500 }
+            buffer: { capacity: 500 }
         },
         emitOnlyCheck
     );
@@ -168,7 +168,7 @@ export function createServer(discord?: DiscordClient): McpServer {
             inputSchema: filterSchema,
             payloadSchema: reactionPayload,
             matches: matchesChannel,
-            bufferEmits: { capacity: 500 }
+            buffer: { capacity: 500 }
         },
         emitOnlyCheck
     );
@@ -180,7 +180,7 @@ export function createServer(discord?: DiscordClient): McpServer {
             inputSchema: filterSchema.pick({ guildId: true }),
             payloadSchema: memberPayload,
             matches: (params, data) => !params.guildId || params.guildId === data.guildId,
-            bufferEmits: { capacity: 500 }
+            buffer: { capacity: 500 }
         },
         emitOnlyCheck
     );

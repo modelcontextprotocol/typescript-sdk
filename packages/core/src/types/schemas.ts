@@ -2163,10 +2163,16 @@ export const EventOccurrenceSchema = z.object({
      */
     data: z.record(z.string(), z.unknown()),
     /**
-     * The subscription's position *after* this event. Present on push/webhook deliveries
-     * so the client can persist the latest cursor for reconnection.
+     * The subscription's position after this event. Opaque, application-defined,
+     * monotonic per-(eventName, subscription-params). Resume from any prior
+     * delivery by passing this value back as `cursor` on the next subscribe.
+     *
+     * Always present — every delivered event carries a unique cursor. The SDK
+     * auto-assigns a per-event-name sequence cursor when the application doesn't
+     * supply one (via `emitEvent({cursor})` or per-event cursors in
+     * `EventCheckResult.events`).
      */
-    cursor: z.string().optional(),
+    cursor: z.string(),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on `_meta` usage.

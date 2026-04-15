@@ -135,7 +135,7 @@ describe('Events', () => {
     });
 
     describe('events/poll', () => {
-        it('returns empty events and a fresh cursor on bootstrap', async () => {
+        it('returns empty events on bootstrap when state is at the head', async () => {
             const { state, check } = makeCounterEvent(0.01);
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
 
@@ -148,48 +148,55 @@ describe('Events', () => {
 
             expect(result.results).toHaveLength(1);
             expect(result.results[0]!.id).toBe('sub1');
+            // Bootstrap calls check(null) which returns no events (state is "now");
+            // wire cursor is undefined when nothing was delivered.
             expect(result.results[0]!.events).toEqual([]);
-            expect(result.results[0]!.cursor).toBe('5');
         });
 
-        it('returns events since the cursor on subsequent polls', async () => {
+        it('returns events since the last poll on subsequent polls', async () => {
             const { state, check } = makeCounterEvent(0.01);
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
 
             await connectPair(server, client);
 
-            // Bootstrap
-            let r = await client.pollEvents({
+            // Bootstrap; server tracks check-cursor internally per (principal,sub).
+            await client.pollEvents({
                 subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 0 }, cursor: null }]
             });
-            const bootCursor = r.results[0]!.cursor!;
 
-            // Produce three events
+            // Produce three events.
             state.value = 3;
 
-            r = await client.pollEvents({
-                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 0 }, cursor: bootCursor }]
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 0 }, cursor: null }]
             });
             expect(r.results[0]!.events).toHaveLength(3);
             expect(r.results[0]!.events!.map(e => e.data.value)).toEqual([1, 2, 3]);
-            expect(r.results[0]!.cursor).toBe('3');
+            // Wire cursor is now opaque (per-event), advances to last delivered event's cursor.
+            expect(r.results[0]!.cursor).toBe(r.results[0]!.events![2]!.cursor);
         });
 
         it('respects subscription params as filters', async () => {
             const { state, check } = makeCounterEvent(0.01);
-            server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
+            server.registerEvent(
+                'counter.tick',
+                {
+                    inputSchema: z.object({ minValue: z.number().default(0) }),
+                    matches: (params, data) => (data as { value: number }).value >= params.minValue
+                },
+                check
+            );
 
             await connectPair(server, client);
 
-            let r = await client.pollEvents({
+            await client.pollEvents({
                 subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 3 }, cursor: null }]
             });
-            const bootCursor = r.results[0]!.cursor!;
 
             state.value = 5;
 
-            r = await client.pollEvents({
-                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 3 }, cursor: bootCursor }]
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 3 }, cursor: null }]
             });
             expect(r.results[0]!.events!.map(e => e.data.value)).toEqual([3, 4, 5]);
         });
@@ -495,7 +502,7 @@ describe('Events', () => {
                 {
                     inputSchema: z.object({ severity: z.string().optional() }),
                     matches: (params, data) => !params.severity || params.severity === data.severity,
-                    bufferEmits: { capacity }
+                    buffer: { capacity }
                 },
                 // Check callback returns nothing — emits drive everything.
                 async (_params, _cursor) => ({ events: [], cursor: 'check-cursor', nextPollSeconds: 30 })
@@ -555,13 +562,17 @@ describe('Events', () => {
             registerIncidentEvent(2);
             await connectPair(server, client);
 
+            // Bootstrap then emit one event so we can capture its cursor.
+            await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: null }]
+            });
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
             let r = await client.pollEvents({
                 subscriptions: [{ id: 's', name: 'incident.created', params: {}, cursor: null }]
             });
-            const staleCursor = r.results[0]!.cursor!;
+            const staleCursor = r.results[0]!.events![0]!.cursor!;
 
-            // Emit 3 events into a capacity-2 buffer — oldest is evicted.
-            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            // Emit 2 more — capacity is 2, so the captured cursor's entry is evicted.
             server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
             server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
 
@@ -594,7 +605,7 @@ describe('Events', () => {
                 'mixed.event',
                 {
                     inputSchema: z.object({ minValue: z.number().default(0) }),
-                    bufferEmits: { capacity: 100 }
+                    buffer: { capacity: 100 }
                 },
                 check
             );
@@ -679,14 +690,17 @@ describe('Events', () => {
 
             await connectPair(server, client);
 
-            // Bootstrap once to obtain a valid composite cursor.
+            // Bootstrap, then emit + poll to capture a real event cursor.
+            await client.pollEvents({
+                subscriptions: [{ id: 'p', name: 'incident.created', params: {}, cursor: null }]
+            });
+            server.emitEvent('incident.created', { incidentId: 'INC-X', severity: 'P1' });
             const r = await client.pollEvents({
                 subscriptions: [{ id: 'p', name: 'incident.created', params: {}, cursor: null }]
             });
-            const staleCursor = r.results[0]!.cursor!;
+            const staleCursor = r.results[0]!.events![0]!.cursor!;
 
-            // Emit 3 into a 2-capacity buffer — oldest evicted past staleCursor.
-            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            // Emit 2 more — capacity is 2, so the captured entry is evicted.
             server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
             server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
 
@@ -1177,7 +1191,7 @@ describe('Events', () => {
                 {
                     inputSchema: z.object({ severity: z.string().optional() }),
                     matches: (params, data) => !params.severity || params.severity === data.severity,
-                    bufferEmits: { capacity: 100 }
+                    buffer: { capacity: 100 }
                 },
                 async (_p, _c) => ({ events: [], cursor: 'check', nextPollSeconds: 30 })
             );
@@ -1225,20 +1239,23 @@ describe('Events', () => {
                 {
                     inputSchema: z.object({ severity: z.string().optional() }),
                     matches: (params, data) => !params.severity || params.severity === data.severity,
-                    bufferEmits: { capacity: 2 }
+                    buffer: { capacity: 2 }
                 },
                 async (_p, _c) => ({ events: [], cursor: 'check', nextPollSeconds: 30 })
             );
 
             await connectPair(server, client);
 
-            // Get a valid composite cursor from a poll, then evict past it.
+            // Bootstrap a poll-sub, then emit + poll to capture a real event cursor.
+            await client.pollEvents({
+                subscriptions: [{ id: 'p', name: 'incident.created', params: {}, cursor: null }]
+            });
+            server.emitEvent('incident.created', { incidentId: 'INC-X', severity: 'P1' });
             const r = await client.pollEvents({
                 subscriptions: [{ id: 'p', name: 'incident.created', params: {}, cursor: null }]
             });
-            const staleCursor = r.results[0]!.cursor!;
+            const staleCursor = r.results[0]!.events![0]!.cursor!;
 
-            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
             server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
             server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
 
@@ -1301,8 +1318,11 @@ describe('Events', () => {
 
             expect(sub.delivery).toBe('poll');
 
-            // Wait for the bootstrap poll to establish a cursor before producing events.
-            await vi.waitFor(() => expect(sub.cursor).not.toBeNull());
+            // Wait for the bootstrap poll to settle so check() captures the
+            // current state.value as its starting position. Without this delay,
+            // setting state.value before the first poll would make those values
+            // pre-bootstrap and skipped.
+            await new Promise(r => setTimeout(r, 50));
             state.value = 3;
 
             const received: number[] = [];
@@ -1498,6 +1518,158 @@ describe('Events', () => {
             expect(isSafeWebhookUrl('https://[2001:db8::1]/hook').safe).toBe(true);
             // allowPrivateNetworks override.
             expect(isSafeWebhookUrl('https://[::1]/hook', { allowPrivateNetworks: true }).safe).toBe(true);
+        });
+    });
+
+    describe('opaque cursor model', () => {
+        function registerEmitOnly() {
+            server.registerEvent(
+                'demo.event',
+                {
+                    inputSchema: z.object({}),
+                    payloadSchema: z.object({ n: z.number() }),
+                    buffer: { capacity: 100 }
+                },
+                async () => ({ events: [], cursor: '', nextPollSeconds: 60 })
+            );
+        }
+
+        it('emit() with explicit cursor delivers that cursor verbatim', async () => {
+            registerEmitOnly();
+            await connectPair(server, client);
+
+            // Bootstrap the poll-sub.
+            await client.pollEvents({ subscriptions: [{ id: 's', name: 'demo.event', params: {}, cursor: null }] });
+
+            server.emitEvent('demo.event', { n: 1 }, { cursor: 'app-evt-001' });
+            server.emitEvent('demo.event', { n: 2 }, { cursor: 'app-evt-002' });
+
+            const r = await client.pollEvents({ subscriptions: [{ id: 's', name: 'demo.event', params: {}, cursor: null }] });
+            expect(r.results[0]!.events!.map(e => e.cursor)).toEqual(['app-evt-001', 'app-evt-002']);
+        });
+
+        it('SDK auto-assigns per-event cursors when emit omits one', async () => {
+            registerEmitOnly();
+            await connectPair(server, client);
+
+            await client.pollEvents({ subscriptions: [{ id: 's', name: 'demo.event', params: {}, cursor: null }] });
+
+            server.emitEvent('demo.event', { n: 1 });
+            server.emitEvent('demo.event', { n: 2 });
+            server.emitEvent('demo.event', { n: 3 });
+
+            const r = await client.pollEvents({ subscriptions: [{ id: 's', name: 'demo.event', params: {}, cursor: null }] });
+            const cursors = r.results[0]!.events!.map(e => e.cursor!);
+            // Each event has a distinct, defined cursor.
+            expect(cursors).toHaveLength(3);
+            expect(new Set(cursors).size).toBe(3);
+            expect(cursors.every(c => typeof c === 'string' && c.length > 0)).toBe(true);
+        });
+
+        it('every delivered event has a unique cursor across emit and check sources', async () => {
+            const state = { value: 0 };
+            server.registerEvent(
+                'mixed.event',
+                {
+                    inputSchema: z.object({}),
+                    buffer: { capacity: 100 }
+                },
+                async (_p, cursor) => {
+                    const position = cursor === null ? state.value : Number(cursor);
+                    const events: { name: string; data: Record<string, unknown> }[] = [];
+                    for (let i = position + 1; i <= state.value; i++) {
+                        events.push({ name: 'mixed.event', data: { source: 'check', n: i } });
+                    }
+                    return { events, cursor: String(state.value), nextPollSeconds: 60 };
+                }
+            );
+
+            await connectPair(server, client);
+
+            await client.pollEvents({ subscriptions: [{ id: 's', name: 'mixed.event', params: {}, cursor: null }] });
+            state.value = 2;
+            server.emitEvent('mixed.event', { source: 'emit', n: 1 });
+
+            const r = await client.pollEvents({ subscriptions: [{ id: 's', name: 'mixed.event', params: {}, cursor: null }] });
+            const events = r.results[0]!.events!;
+            const cursors = events.map(e => e.cursor!);
+            expect(events.length).toBeGreaterThanOrEqual(3);
+            expect(new Set(cursors).size).toBe(cursors.length);
+        });
+
+        it('mid-batch resume — capture cursor of event N, resume yields N+1 onward', async () => {
+            registerEmitOnly();
+            await connectPair(server, client);
+
+            // Bootstrap a poll-sub then emit 5 events via app cursors.
+            await client.pollEvents({ subscriptions: [{ id: 's', name: 'demo.event', params: {}, cursor: null }] });
+            for (let i = 1; i <= 5; i++) {
+                server.emitEvent('demo.event', { n: i }, { cursor: `evt-${i}` });
+            }
+
+            // Now resume from the cursor of event #2 — should yield evt-3, evt-4, evt-5.
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 's2', name: 'demo.event', params: {}, cursor: 'evt-2' }]
+            });
+            expect(r.results[0]!.events!.map(e => e.cursor)).toEqual(['evt-3', 'evt-4', 'evt-5']);
+        });
+
+        it('cursor map is cleaned on buffer eviction', async () => {
+            server.registerEvent(
+                'demo.event',
+                {
+                    inputSchema: z.object({}),
+                    buffer: { capacity: 2 }
+                },
+                async () => ({ events: [], cursor: '', nextPollSeconds: 60 })
+            );
+            await connectPair(server, client);
+
+            await client.pollEvents({ subscriptions: [{ id: 's', name: 'demo.event', params: {}, cursor: null }] });
+            server.emitEvent('demo.event', { n: 1 }, { cursor: 'old-cursor' });
+            server.emitEvent('demo.event', { n: 2 }, { cursor: 'mid-cursor' });
+            server.emitEvent('demo.event', { n: 3 }, { cursor: 'new-cursor' });
+            // capacity=2 → 'old-cursor' was evicted; lookup fails → CursorExpired.
+
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'r', name: 'demo.event', params: {}, cursor: 'old-cursor' }]
+            });
+            expect(r.results[0]!.error?.code).toBe(CURSOR_EXPIRED);
+        });
+
+        it('every push delivery carries a unique cursor (live + replay together)', async () => {
+            registerEmitOnly();
+
+            const eventsRecv: EventNotification['params'][] = [];
+            client.setNotificationHandler('notifications/events/event', n => {
+                eventsRecv.push(n.params);
+            });
+
+            await connectPair(server, client);
+
+            // Pre-emit 3 events, then subscribe with a cursor pointing at the
+            // first one — server replays evt-2 + evt-3 on bootstrap, then live
+            // emits arrive after.
+            for (let i = 1; i <= 3; i++) {
+                server.emitEvent('demo.event', { n: i }, { cursor: `evt-${i}` });
+            }
+
+            const c = new AbortController();
+            openStream(client, [{ id: 's', name: 'demo.event', params: {}, cursor: 'evt-1' }], c);
+
+            await vi.waitFor(() => expect(eventsRecv.filter(e => e.id === 's').length).toBeGreaterThanOrEqual(2));
+
+            server.emitEvent('demo.event', { n: 4 }, { cursor: 'evt-4' });
+            await vi.waitFor(() => expect(eventsRecv.filter(e => e.id === 's' && e.cursor === 'evt-4').length).toBe(1));
+
+            const cursors = eventsRecv.filter(e => e.id === 's').map(e => e.cursor);
+            // Replay (evt-2, evt-3) + live (evt-4) — all unique, all the explicit app cursors.
+            expect(cursors).toContain('evt-2');
+            expect(cursors).toContain('evt-3');
+            expect(cursors).toContain('evt-4');
+            expect(new Set(cursors).size).toBe(cursors.length);
+
+            c.abort();
         });
     });
 });

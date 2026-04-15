@@ -427,3 +427,39 @@ Added 4 cases to `events.test.ts`:
 ### Live E2E (`/tmp/events-replay-e2e.log`)
 
 `sub counter.tick push` → captured cursor `{"c":"","b":3}` after value=2 → `unsub` → 5s gap (server emits values 3-7 to nobody) → `sub counter.tick push --from {"c":"","b":3}` → received values 4-12. Confirms end-to-end push replay works through the CLI.
+
+## Single opaque cursor 2026-04-15
+
+Replaced the composite cursor model (`encodeCompositeCursor({c, b})`) with a single opaque application-defined cursor. The previous design leaked delivery internals — clients saw base64-encoded JSON, replay had to decode/re-encode in three handlers, and buffer-replay events all shared one batch cursor (no mid-replay resume).
+
+### What changed
+
+- `EventOccurrence.cursor: string` is now **required** (was optional). Every delivered event carries a unique, resumable cursor.
+- `emit(name, data, opts?)` now accepts `{cursor?: string, subscriptionId?: string}`. App-provided cursors flow through verbatim; omitted cursors get auto-assigned `seq-N` per event-name.
+- `EventCheckResult.events[].cursor` is now optional per event (was disallowed). Same auto-assign fallback when absent.
+- `EventConfig.bufferEmits: { capacity }` renamed to `EventConfig.buffer: { capacity? }`. Buffer is **always on** with default capacity 1000; supply `buffer: { capacity }` only to override.
+- Server keeps a unified `EventLog` per event-name: `{entries, cursorMap, nextSeq, autoCursorCounter}`. Both `emit()` and `check()` results flow through the log; replay is a simple `cursorMap.get(cursor)` → seq lookup → return entries with `seq > N`.
+- Resume from a cursor that's not in the log → `CursorExpired` (regardless of buffer state). Resume from `null` cursor with prior poll state → continue from server-tracked `lastSeenSeq`.
+
+### What went away
+
+- `encodeCompositeCursor` / `decodeCompositeCursor` / `_decodeCursorForCheck` (deleted entirely)
+- `_bootstrapFromCursor` (replaced by the much simpler `_replayAfterCursor` + `_runCheckTick`)
+- The "buffer seq vs check cursor" mental model
+- Per-event vs batch cursor distinction (every event has a unique cursor by definition now)
+
+### Server-side state
+
+Per-poll-subscription state keyed by `(principal-or-anon, eventName, subId)` tracks `{checkCursor, lastSeenSeq}`. Capped at 10k entries with FIFO eviction. Added because the wire cursor is now opaque (just an event cursor) and can't double as a check cursor — the server needs its own place to remember "where check should resume" and "what's the highest seq this client has been delivered."
+
+### Migration
+
+This is a breaking change. Pre-existing composite cursor strings (base64 JSON `eyJ...`) won't be in any new log's cursorMap → `CursorExpired` → client re-subscribes with `null`. Acceptable since events is pre-spec; we own the only consumers.
+
+### Trade-off
+
+Buffer-as-canonical-log adds memory cost: events that previously bypassed the buffer (registered without `bufferEmits`) now persist in a 1000-entry default ring. Apps with high-volume emits should set explicit `buffer: { capacity }`. The simplicity win is bigger than the memory cost for normal usage.
+
+### Docs note: emit-only events
+
+When an event is purely emit-driven (no upstream polling), the `check` callback can be a stub: `async () => ({ events: [], cursor: '', nextPollSeconds: 60 })`. The `nextPollSeconds: 60` keeps the wasted polling tick rate low. Future work: making `check` optional for emit-only events would remove this E1 boilerplate (still tracked in stress report).

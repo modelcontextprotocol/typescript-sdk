@@ -162,7 +162,7 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
         if (this._seen.includes(occurrence.eventId)) return;
         this._seen.push(occurrence.eventId);
         if (this._seen.length > this._dedupeWindow) this._seen.shift();
-        if (occurrence.cursor) this.cursor = occurrence.cursor;
+        this.cursor = occurrence.cursor;
         const waiter = this._queue.waiters.shift();
         if (waiter) {
             waiter({ value: occurrence, done: false });

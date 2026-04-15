@@ -155,7 +155,7 @@ export function createServer(shopifyOverride?: Shopify): McpServer {
             }),
             payloadSchema: OrderPayload,
             matches: (params, data) => Number((data as OrderPayload).total_price) >= params.minTotal,
-            bufferEmits: { capacity: 500 },
+            buffer: { capacity: 500 },
             hooks: {
                 onSubscribe: async () => {
                     if (orderSubscribers++ === 0) {
@@ -170,7 +170,7 @@ export function createServer(shopifyOverride?: Shopify): McpServer {
                 }
             }
         },
-        // emit-only: no upstream cursor API for orders. bufferEmits handles poll.
+        // emit-only: no upstream cursor API for orders. buffer handles poll.
         async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
     );
 
@@ -180,7 +180,7 @@ export function createServer(shopifyOverride?: Shopify): McpServer {
             description: 'GDPR mandatory webhook: customer requested data erasure',
             inputSchema: z.object({}),
             payloadSchema: RedactPayload,
-            bufferEmits: { capacity: 100 }
+            buffer: { capacity: 100 }
             // No hooks: privacy webhooks are configured in the Partner dashboard
             // and cannot be (de)registered via the Admin API.
         },
