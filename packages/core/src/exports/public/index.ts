@@ -71,6 +71,9 @@ export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/s
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
 export { createFetchWithInit } from '../../shared/transport.js';
 
+// In-memory transport (for testing client/server in the same process)
+export { InMemoryTransport } from '../../util/inMemory.js';
+
 // URI Template
 export type { Variables } from '../../shared/uriTemplate.js';
 export { UriTemplate } from '../../shared/uriTemplate.js';
