@@ -41,10 +41,12 @@
         "test": "vitest run",
         "test:watch": "vitest"
     },
-    "dependencies": {},
+    "dependencies": {
+        "cors": "catalog:runtimeServerOnly"
+    },
     "peerDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
-        "express": "catalog:runtimeServerOnly"
+        "express": "^4.18.0 || ^5.0.0"
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
@@ -52,8 +54,11 @@
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@eslint/js": "catalog:devTools",
+        "@types/cors": "catalog:devTools",
         "@types/express": "catalog:devTools",
         "@types/express-serve-static-core": "catalog:devTools",
+        "@types/supertest": "catalog:devTools",
+        "supertest": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",

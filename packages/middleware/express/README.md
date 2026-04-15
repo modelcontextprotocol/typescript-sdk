@@ -23,6 +23,10 @@ npm install @modelcontextprotocol/node
 - `createMcpExpressApp(options?)`
 - `hostHeaderValidation(allowedHostnames)`
 - `localhostHostValidation()`
+- `requireBearerAuth(options)`
+- `mcpAuthMetadataRouter(options)`
+- `getOAuthProtectedResourceMetadataUrl(serverUrl)`
+- `OAuthTokenVerifier` (interface)
 
 ## Usage
 
