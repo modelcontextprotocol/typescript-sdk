@@ -257,7 +257,7 @@ importers:
         version: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.4)
       eslint-plugin-import:
         specifier: ^2.32.0
-        version: 2.32.0(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4)
+        version: 2.32.0(@typescript-eslint/parser@8.57.2(eslint@9.39.4)(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4)
       eslint-plugin-n:
         specifier: catalog:devTools
         version: 17.24.0(eslint@9.39.4)(typescript@5.9.3)
@@ -889,6 +889,61 @@ importers:
         specifier: catalog:devTools
         version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/sdk:
+    dependencies:
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../client
+      '@modelcontextprotocol/express':
+        specifier: workspace:^
+        version: link:../middleware/express
+      '@modelcontextprotocol/node':
+        specifier: workspace:^
+        version: link:../middleware/node
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../server
+      '@modelcontextprotocol/server-auth-legacy':
+        specifier: workspace:^
+        version: link:../server-auth-legacy
+    devDependencies:
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../core
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/test-helpers':
+        specifier: workspace:^
+        version: link:../../test/helpers
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      '@typescript/native-preview':
+        specifier: catalog:devTools
+        version: 7.0.0-dev.20260327.2
+      eslint:
+        specifier: catalog:devTools
+        version: 9.39.4
+      prettier:
+        specifier: catalog:devTools
+        version: 3.6.2
+      tsdown:
+        specifier: catalog:devTools
+        version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+      vitest:
+        specifier: catalog:devTools
+        version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3))
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
+
   packages/server:
     dependencies:
       zod:
@@ -1112,9 +1167,15 @@ importers:
       '@modelcontextprotocol/node':
         specifier: workspace:^
         version: link:../../packages/middleware/node
+      '@modelcontextprotocol/sdk':
+        specifier: workspace:^
+        version: link:../../packages/sdk
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
+      '@modelcontextprotocol/server-auth-legacy':
+        specifier: workspace:^
+        version: link:../../packages/server-auth-legacy
       '@modelcontextprotocol/test-helpers':
         specifier: workspace:^
         version: link:../helpers
@@ -7174,14 +7235,15 @@ snapshots:
       tinyglobby: 0.2.15
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.57.2(eslint@9.39.4)(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4)
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.12.1(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4):
+  eslint-module-utils@2.12.1(@typescript-eslint/parser@8.57.2(eslint@9.39.4)(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
+      '@typescript-eslint/parser': 8.57.2(eslint@9.39.4)(typescript@5.9.3)
       eslint: 9.39.4
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.4)
@@ -7195,7 +7257,7 @@ snapshots:
       eslint: 9.39.4
       eslint-compat-utils: 0.5.1(eslint@9.39.4)
 
-  eslint-plugin-import@2.32.0(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.57.2(eslint@9.39.4)(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -7206,7 +7268,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.39.4
       eslint-import-resolver-node: 0.3.9
-      eslint-module-utils: 2.12.1(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4)
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.57.2(eslint@9.39.4)(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4)
       hasown: 2.0.2
       is-core-module: 2.16.1
       is-glob: 4.0.3
@@ -7217,6 +7279,8 @@ snapshots:
       semver: 6.3.1
       string.prototype.trimend: 1.0.9
       tsconfig-paths: 3.15.0
+    optionalDependencies:
+      '@typescript-eslint/parser': 8.57.2(eslint@9.39.4)(typescript@5.9.3)
     transitivePeerDependencies:
       - eslint-import-resolver-typescript
       - eslint-import-resolver-webpack
