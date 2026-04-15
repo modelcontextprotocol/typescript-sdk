@@ -20,9 +20,12 @@ import {
     computeWebhookSignature,
     CURSOR_EXPIRED,
     EVENT_NOT_FOUND,
+    EVENT_UNAUTHORIZED,
     generateWebhookSecret,
     INVALID_CALLBACK_URL,
+    isPrivateAddress,
     isSafeWebhookUrl,
+    normaliseHostname,
     parseSchema,
     ProtocolError,
     ProtocolErrorCode,
@@ -34,6 +37,21 @@ import {
 } from '@modelcontextprotocol/core';
 
 import type { Server } from './server.js';
+
+/**
+ * DNS lookup function shape — matches `node:dns/promises` `lookup(hostname, {all: true})`.
+ * Injectable for testing delivery-time SSRF validation.
+ */
+export type HostResolver = (hostname: string) => Promise<{ address: string; family: number }[]>;
+
+const defaultHostResolver: HostResolver = async hostname => {
+    // Dynamic import keeps Cloudflare Workers builds free of a static `node:dns`
+    // dependency. On runtimes without it, delivery-time validation degrades to
+    // the subscribe-time hostname check; supply `webhook.resolveHost` explicitly
+    // (or rely on the platform's own SSRF guards) for full DNS-rebinding cover.
+    const { lookup } = await import('node:dns/promises');
+    return lookup(hostname, { all: true });
+};
 
 /**
  * Result returned from an {@linkcode EventCheckCallback}.
@@ -208,10 +226,18 @@ export interface EventWebhookOptions {
      */
     fetch?: FetchLike;
     /**
+     * DNS resolver invoked **on every delivery** to validate the callback host's
+     * resolved address against private/loopback ranges (DNS-rebinding mitigation).
+     * Defaults to `node:dns/promises` `lookup(hostname, {all: true})`. Override
+     * for testing or to supply a caching resolver.
+     */
+    resolveHost?: HostResolver;
+    /**
      * Extracts the caller's canonical principal identifier from the request
      * context (e.g., OAuth `sub`, API key ID). If this returns a non-empty
-     * string, subscriptions are keyed by `(principal, id)`. If it returns
-     * `undefined`, the server falls back to `(delivery.url, id)` scoping.
+     * string, subscriptions are keyed by `(principal, delivery.url, id)`.
+     * If it returns `undefined`, the server falls back to `(delivery.url, id)`
+     * scoping.
      *
      * Defaults to `ctx.http?.authInfo?.clientId`.
      */
@@ -382,6 +408,7 @@ export class ServerEventManager {
     private readonly _pushOptions: Required<EventPushOptions>;
     private readonly _webhookOptions?: EventWebhookOptions;
     private readonly _fetch: FetchLike;
+    private readonly _resolveHost: HostResolver;
     private readonly _getPrincipal: (ctx: ServerContext) => string | undefined;
 
     constructor(
@@ -396,25 +423,21 @@ export class ServerEventManager {
         };
         this._webhookOptions = options.webhook;
         this._fetch = options.webhook?.fetch ?? fetch;
+        this._resolveHost = options.webhook?.resolveHost ?? defaultHostResolver;
         this._getPrincipal = options.webhook?.getPrincipal ?? (ctx => ctx.http?.authInfo?.clientId);
     }
 
     /**
      * Computes the compound subscription key used to store/look up webhook
-     * subscriptions. `(principal, id)` when a principal is present, otherwise
-     * `(delivery.url, id)`. The two scopes never collide because of the `p:` /
-     * `u:` prefix.
+     * subscriptions. `(principal, delivery.url, id)` when a principal is present,
+     * otherwise `(delivery.url, id)`. `delivery.url` is part of the key in both
+     * scopes and is therefore immutable for a subscription's lifetime — to change
+     * endpoint, unsubscribe then resubscribe.
      */
-    private _subscriptionKey(ctx: ServerContext, id: string, url: string | undefined): { key: string; principalScoped: boolean } {
+    private _subscriptionKey(ctx: ServerContext, id: string, url: string): { key: string; principalScoped: boolean } {
         const principal = this._getPrincipal(ctx);
         if (principal) {
-            return { key: `p:${principal}\0${id}`, principalScoped: true };
-        }
-        if (!url) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
-                'delivery.url is required to form the subscription key on an unauthenticated server'
-            );
+            return { key: `p:${principal}\0${url}\0${id}`, principalScoped: true };
         }
         return { key: `u:${url}\0${id}`, principalScoped: false };
     }
@@ -501,8 +524,7 @@ export class ServerEventManager {
             if (options.subscriptionId && sub.id !== options.subscriptionId) return;
             if (!options.subscriptionId && event.matches && !event.matches(sub.params, data)) return;
 
-            sub.cursor = occurrence.eventId;
-            const withCursor: EventOccurrence = { ...occurrence, cursor: sub.cursor };
+            const withCursor: EventOccurrence = { ...occurrence, cursor: occurrence.eventId };
             if (sink === 'push' && stream) {
                 this._sendEventNotification(stream, sub.id, withCursor);
             } else if (sink === 'webhook') {
@@ -550,6 +572,7 @@ export class ServerEventManager {
         }
         for (const [key, webhook] of this._webhookSubs) {
             if (webhook.id === subscriptionId) {
+                void this._deliverWebhookError(webhook, { code: EVENT_UNAUTHORIZED, message: reason ?? 'Subscription terminated' });
                 void this._teardownWebhookSub(webhook);
                 this._webhookSubs.delete(key);
             }
@@ -816,7 +839,7 @@ export class ServerEventManager {
         // Heartbeat.
         stream.heartbeatTimer = setInterval(() => {
             if (stream.closed) return;
-            void stream.ctx.mcpReq.notify({ method: 'notifications/events/heartbeat' });
+            void stream.ctx.mcpReq.notify({ method: 'notifications/events/heartbeat', params: {} });
         }, this._pushOptions.heartbeatIntervalMs);
         if (typeof stream.heartbeatTimer === 'object' && 'unref' in stream.heartbeatTimer) {
             (stream.heartbeatTimer as unknown as { unref: () => void }).unref();
@@ -953,18 +976,19 @@ export class ServerEventManager {
             deliveryStatus: { active: true, lastDeliveryAt: null, lastError: null }
         };
 
-        // Upsert mutable fields.
+        // Upsert mutable fields. delivery.url is part of the key in all scopes
+        // and therefore immutable; a different URL addresses a different sub.
         sub.eventName = params.name;
         sub.params = paramsResult.params;
         sub.cursor = cursor;
-        // delivery.url is mutable only in principal scope; in url scope it's part of the key.
-        if (principalScoped) sub.url = params.delivery.url;
         // delivery.secret is server-minted by default; client supplies it only to override or rotate.
         if (params.delivery.secret !== undefined) sub.secret = params.delivery.secret;
         sub.expiresAt = expiresAt;
         sub.ctx = ctx;
-        // A successful refresh reactivates a subscription that had been backed off.
-        sub.deliveryStatus = { ...sub.deliveryStatus, active: true, lastError: null, failedSince: null };
+        // Surface prior delivery health (including lastError) on this refresh,
+        // then reactivate for subsequent deliveries.
+        const priorStatus = sub.deliveryStatus;
+        sub.deliveryStatus = { ...sub.deliveryStatus, active: true, failedSince: null };
 
         if (isNew) {
             this._webhookSubs.set(key, sub);
@@ -986,17 +1010,16 @@ export class ServerEventManager {
         return {
             id: params.id,
             secret: isNew ? sub.secret : undefined,
-            cursor,
             refreshBefore: new Date(expiresAt).toISOString(),
-            deliveryStatus: isNew ? undefined : sub.deliveryStatus
+            deliveryStatus: isNew ? undefined : priorStatus
         };
     }
 
     private async _handleUnsubscribe(
-        params: { id: string; delivery?: { url: string } },
+        params: { id: string; delivery: { url: string } },
         ctx: ServerContext
     ): Promise<Record<string, never>> {
-        const { key } = this._subscriptionKey(ctx, params.id, params.delivery?.url);
+        const { key } = this._subscriptionKey(ctx, params.id, params.delivery.url);
         const sub = this._webhookSubs.get(key);
         if (!sub) {
             throw new ProtocolError(SUBSCRIPTION_NOT_FOUND, `Unknown subscription: ${params.id}`);
@@ -1028,6 +1051,7 @@ export class ServerEventManager {
             } catch (error) {
                 const subErr = this._toSubscriptionError(error);
                 if (subErr.code === CURSOR_EXPIRED) {
+                    void this._deliverWebhookError(sub, subErr);
                     const reboot = await event.check(sub.params, null, sub.ctx);
                     sub.cursor = reboot.cursor;
                     if (reboot.nextPollSeconds !== undefined) currentInterval = reboot.nextPollSeconds * 1000;
@@ -1038,19 +1062,46 @@ export class ServerEventManager {
         sub.pollTimer = setTimeout(tick, currentInterval);
     }
 
-    private async _deliverWebhook(sub: WebhookSubscription, occurrence: EventOccurrence): Promise<void> {
-        const body = JSON.stringify({ id: sub.id, ...occurrence });
+    /**
+     * Validates the callback URL's resolved address(es) against private/loopback
+     * ranges at delivery time (DNS-rebinding mitigation), returning a possibly
+     * rewritten target URL plus the `Host` header to send. For HTTP, the URL is
+     * rewritten to the validated IP literal so the connection is pinned; for
+     * HTTPS the original hostname is kept (TLS SNI/cert verification needs it),
+     * leaving a small TOCTOU window between resolution and connect.
+     */
+    private async _resolveDeliveryTarget(rawUrl: string): Promise<{ url: string; host: string }> {
+        const parsed = new URL(rawUrl);
+        const host = parsed.host;
+        if (!this._webhookOptions?.urlValidation?.allowPrivateNetworks) {
+            const addresses = await this._resolveHost(parsed.hostname);
+            for (const { address } of addresses) {
+                if (isPrivateAddress(normaliseHostname(address))) {
+                    throw new Error(`Callback host ${parsed.hostname} resolved to private/loopback address ${address}`);
+                }
+            }
+            if (parsed.protocol === 'http:' && addresses[0]) {
+                const addr = addresses[0].address;
+                parsed.hostname = addresses[0].family === 6 ? `[${addr}]` : addr;
+            }
+        }
+        return { url: parsed.toString(), host };
+    }
+
+    private async _postWebhook(sub: WebhookSubscription, body: string): Promise<void> {
         const maxAttempts = this._webhookOptions?.maxDeliveryAttempts ?? 3;
         let delay = this._webhookOptions?.initialRetryDelayMs ?? 1000;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
+                const { url, host } = await this._resolveDeliveryTarget(sub.url);
                 const timestamp = Math.floor(Date.now() / 1000);
                 const signature = await computeWebhookSignature(sub.secret, timestamp, body);
-                const res = await this._fetch(sub.url, {
+                const res = await this._fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        Host: host,
                         [WEBHOOK_SIGNATURE_HEADER]: signature,
                         [WEBHOOK_TIMESTAMP_HEADER]: String(timestamp)
                     },
@@ -1078,6 +1129,21 @@ export class ServerEventManager {
         }
     }
 
+    private _deliverWebhook(sub: WebhookSubscription, occurrence: EventOccurrence): Promise<void> {
+        return this._postWebhook(sub, JSON.stringify({ id: sub.id, ...occurrence }));
+    }
+
+    /**
+     * POSTs a signed error envelope (`{ id, error }`) to the callback URL when a
+     * webhook subscription hits a terminal or recoverable error (CursorExpired,
+     * server-initiated termination). The endpoint can use this to surface the
+     * condition to the consuming client without waiting for the next refresh.
+     */
+    private _deliverWebhookError(sub: WebhookSubscription, error: EventSubscriptionError): Promise<void> {
+        sub.deliveryStatus = { ...sub.deliveryStatus, lastError: error.message };
+        return this._postWebhook(sub, JSON.stringify({ id: sub.id, error }));
+    }
+
     private async _teardownWebhookSub(sub: WebhookSubscription, ctx?: ServerContext): Promise<void> {
         if (sub.pollTimer) clearTimeout(sub.pollTimer);
         const event = this._events.get(sub.eventName);
@@ -1099,7 +1165,7 @@ export class ServerEventManager {
     private _sendEventNotification(stream: PushStream, id: string, occurrence: EventOccurrence): void {
         if (stream.closed) return;
         void stream.ctx.mcpReq.notify({
-            method: 'notifications/event',
+            method: 'notifications/events/event',
             params: { id, ...occurrence }
         });
     }

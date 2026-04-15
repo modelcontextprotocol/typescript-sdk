@@ -379,10 +379,7 @@ export class ClientEventManager {
                 this._webhookTimers.delete(sub.id);
                 try {
                     await this._client.unsubscribeEvent(
-                        {
-                            id: sub.id,
-                            delivery: this._options.webhook ? { url: this._options.webhook.url } : undefined
-                        },
+                        { id: sub.id, delivery: { url: this._options.webhook!.url } },
                         this._options.requestOptions
                     );
                 } catch {
@@ -445,7 +442,7 @@ export class ClientEventManager {
 
     private _installPushHandlers(): void {
         if (this._pushHandlersInstalled) return;
-        this._client.setNotificationHandler('notifications/event', n => {
+        this._client.setNotificationHandler('notifications/events/event', n => {
             const sub = this._pushSubs.get(n.params.id);
             if (!sub) return;
             const { id: _id, ...occurrence } = n.params;
@@ -538,7 +535,6 @@ export class ClientEventManager {
                     },
                     this._options.requestOptions
                 );
-                sub.cursor = result.cursor;
                 if (result.secret !== undefined) {
                     sub.secret = result.secret;
                     await webhook.onSecret?.(result.secret, sub.id);

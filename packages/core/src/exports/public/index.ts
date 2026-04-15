@@ -41,7 +41,9 @@ export {
     computeWebhookSignature,
     DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS,
     generateWebhookSecret,
+    isPrivateAddress,
     isSafeWebhookUrl,
+    normaliseHostname,
     verifyWebhookSignature,
     WEBHOOK_SIGNATURE_HEADER,
     WEBHOOK_TIMESTAMP_HEADER

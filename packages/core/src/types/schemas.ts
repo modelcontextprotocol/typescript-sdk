@@ -2422,10 +2422,6 @@ export const SubscribeEventResultSchema = ResultSchema.extend({
      */
     secret: z.string().optional(),
     /**
-     * The subscription's current cursor position.
-     */
-    cursor: z.string(),
-    /**
      * ISO 8601 timestamp. The client MUST re-call `events/subscribe` before
      * this time to keep the subscription alive. The server resets the TTL on
      * each refresh.
@@ -2446,12 +2442,12 @@ export const UnsubscribeEventRequestParamsSchema = BaseRequestParamsSchema.exten
      */
     id: z.string(),
     /**
-     * The callback URL the subscription was created with. Required on
-     * unauthenticated servers so the server can form the `(delivery.url, id)`
-     * compound key. Ignored when the caller is authenticated (the server uses
-     * `(principal, id)` instead).
+     * The callback URL the subscription was created with. Always required —
+     * `delivery.url` is part of the subscription key in both authenticated
+     * (`(principal, delivery.url, id)`) and unauthenticated (`(delivery.url, id)`)
+     * scopes.
      */
-    delivery: z.object({ url: z.string() }).optional()
+    delivery: z.object({ url: z.string() })
 });
 
 /**
@@ -2473,7 +2469,7 @@ export const EventListChangedNotificationSchema = NotificationSchema.extend({
 });
 
 /**
- * Parameters for a {@linkcode EventNotification | notifications/event} notification.
+ * Parameters for a {@linkcode EventNotification | notifications/events/event} notification.
  */
 export const EventNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
@@ -2487,7 +2483,7 @@ export const EventNotificationParamsSchema = NotificationsParamsSchema.extend({
  * A single event occurrence delivered on a push stream.
  */
 export const EventNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/event'),
+    method: z.literal('notifications/events/event'),
     params: EventNotificationParamsSchema
 });
 

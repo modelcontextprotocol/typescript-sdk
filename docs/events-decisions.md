@@ -364,3 +364,28 @@ signal intact and is harmless.
 `examples/client/src/eventsClient.ts` still demonstrates the override path
 (hardcoded `secret: 'example-secret-please-change'`). Left per directive; it
 typechecks and works, just isn't the new default flow.
+
+## Spec deltas 2026-04-15
+
+Applied the revision deltas from `experimental-ext-triggers-events/docs/design-sketch-revision-deltas.md`. Per-delta status:
+
+| # | Delta | Status |
+|---|---|---|
+| 1 | Webhook cursor model — server no longer tracks watermark | **Applied.** Removed `cursor` from `SubscribeEventResultSchema` and the server return. Kept `sub.cursor` as the *upstream-poll* position (needed for the check() loop, distinct from a delivery watermark — we never had advance-on-ack logic). `emit()` no longer overwrites `sub.cursor` with eventId. Client `_activateWebhook` no longer reads `result.cursor`. |
+| 2 | `delivery.url` always in subscription key | **Applied.** `_subscriptionKey` authenticated path → `p:<principal>\0<url>\0<id>`. URL-mutation-on-refresh branch removed. `UnsubscribeEventRequestParams.delivery` is now required. Principal-scope test rewritten: different URL ⇒ new sub. |
+| 3 | `events/stream` no longer replaces GET SSE | **Already compliant.** We never removed GET SSE or routed non-event notifications onto `events/stream`. Empty-subscriptions stream is accepted and just heartbeats. |
+| 4 | Poll lease key → `(principal, eventName, canonicalHash(params))` | **Gap — not applied.** We have no poll-mode lease table; `onSubscribe` fires on every `cursor: null` poll. The delta's "was" and "now" both assume a lease table that doesn't exist here. Adding one is a separate feature. |
+| 5 | Broadcast emit requires author-supplied `match()` | **Already compliant.** Our `EventConfig.matches: (params, data) => bool` is the equivalent (arg order/name differs from spec's `match(event, params)`, kept as established SDK API). No-hook ⇒ deliver-to-all behaviour confirmed at `events.ts` `emit()` and `_pollOne()`. |
+| 6 | DNS-rebinding mitigation at delivery time | **Applied.** New `EventWebhookOptions.resolveHost: HostResolver` (defaults to dynamic-import of `node:dns/promises` `lookup`). `_resolveDeliveryTarget()` runs on every POST: resolves all addresses, rejects if any is private/loopback (via new exported `isPrivateAddress`/`normaliseHostname`). For `http:` rewrites the URL to the validated IP and sends `Host: <original>`; for `https:` keeps the hostname (TLS SNI/cert needs it) leaving a small TOCTOU window. Subscribe-time check retained as early-reject. **Dynamic import** keeps CF Workers builds working without `nodejs_compat`. |
+| 7 | `X-MCP-Timestamp` SHOULD → MUST | **Already compliant.** `_postWebhook` always sends it; `verifyWebhookSignature` already rejects when missing. |
+| 8 | `StreamEventsResult` only when server can write final frame | **Already compliant in practice.** `_handleStream` resolves `{}` unconditionally; on client-initiated HTTP disconnect the transport layer cannot write it, on server-initiated close/stdio it can. No code change. |
+| 9 | Webhook `CursorExpired` / terminated → POST signed error envelope | **Applied.** New `_deliverWebhookError(sub, error)` posts `{"id", "error":{code,message,data}}` via the same signed `_postWebhook` path. Called from `terminate()` (for webhook subs) and `_scheduleWebhookPoll`'s CursorExpired catch. Refresh response now surfaces the *prior* `deliveryStatus` (with `lastError`) before reactivating. Terminal client webhook listener handles bodies with top-level `error`. |
+| 10 | Endpoint MUST forward `cursor`/`eventId` | **Applied.** Terminal client `printOccurrence` now includes `cursor=`. `eventId` was already shown. |
+| 11–13 | Wording softened / qualified / v1 gap acknowledged | No-op (docs only). |
+| 14 | Wire-format corrections | **Applied:** `notifications/event` → `notifications/events/event` (schema, server, server.ts capability switch, client handler, tests). `nextPollSeconds` already per-result-entry. Heartbeat now sends `params: {}`. **Kept divergent:** error-code numbers stay -32011..-32016 — spec's -32004 collides with `ResourceNotFound = -32002` range; still needs spec fix. |
+
+### Judgment calls
+
+- **#1 nuance:** "delete server-side per-subscription cursor field" interpreted as the *delivery watermark*, not the upstream check-callback cursor. The latter is essential for poll-driven webhook delivery and is not a delivery-ack position.
+- **#6 HTTPS TOCTOU:** Full pin-to-IP for HTTPS would require a custom undici dispatcher with SNI override. Deferred; documented in `_resolveDeliveryTarget` JSDoc. Users needing strict pinning supply a custom `fetch`.
+- **#9 refresh semantics:** Previously refresh cleared `lastError`; now it returns the *prior* status (so client sees the error) and *then* clears `failedSince`/reactivates. `lastError` is preserved across refresh until a successful delivery overwrites it.

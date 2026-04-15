@@ -67,7 +67,7 @@ function out(line: string): void {
 }
 
 function printOccurrence(mode: string, ev: EventOccurrence): void {
-    out(`  [${mode}] ${ev.name} ${ev.eventId} ${ev.timestamp}: ${JSON.stringify(ev.data)}`);
+    out(`  [${mode}] ${ev.name} ${ev.eventId} cursor=${ev.cursor ?? '-'} ${ev.timestamp}: ${JSON.stringify(ev.data)}`);
 }
 
 function help(): void {
@@ -102,7 +102,7 @@ async function ensureWebhookListener(): Promise<string> {
         req.on('data', chunk => (body += chunk));
         req.on('end', () => {
             void (async () => {
-                let payload: EventNotification['params'];
+                let payload: EventNotification['params'] | { id: string; error: { code: number; message: string } };
                 try {
                     payload = JSON.parse(body);
                 } catch {
@@ -125,7 +125,11 @@ async function ensureWebhookListener(): Promise<string> {
                     res.writeHead(401).end();
                     return;
                 }
-                activeManager?.deliverWebhookPayload(payload);
+                if ('error' in payload) {
+                    out(`  [webhook] error for ${payload.id}: ${payload.error.code} ${payload.error.message}`);
+                } else {
+                    activeManager?.deliverWebhookPayload(payload);
+                }
                 res.writeHead(200).end();
             })();
         });

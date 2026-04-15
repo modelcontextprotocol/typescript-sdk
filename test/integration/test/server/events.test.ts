@@ -279,7 +279,7 @@ describe('Events', () => {
             client.setNotificationHandler('notifications/events/active', n => {
                 active.push(n.params.id);
             });
-            client.setNotificationHandler('notifications/event', n => {
+            client.setNotificationHandler('notifications/events/event', n => {
                 events.push(n.params);
             });
 
@@ -422,7 +422,7 @@ describe('Events', () => {
             );
 
             const received: { id: string; severity: unknown }[] = [];
-            client.setNotificationHandler('notifications/event', n => {
+            client.setNotificationHandler('notifications/events/event', n => {
                 received.push({ id: n.params.id, severity: n.params.data.severity });
             });
 
@@ -461,7 +461,7 @@ describe('Events', () => {
             }));
 
             const received: string[] = [];
-            client.setNotificationHandler('notifications/event', n => {
+            client.setNotificationHandler('notifications/events/event', n => {
                 received.push(n.params.id);
             });
 
@@ -664,7 +664,6 @@ describe('Events', () => {
             });
 
             expect(result.id).toBe(SUB_ID);
-            expect(result.cursor).toBe('0');
             expect(result.refreshBefore).toBeDefined();
             expect(new Date(result.refreshBefore).getTime()).toBeGreaterThan(Date.now());
         });
@@ -850,14 +849,9 @@ describe('Events', () => {
             // Unsubscribing A does not affect B.
             await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: urlA } });
             await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: urlB } });
-
-            // Unsubscribing B without URL fails (cannot form key).
-            await expect(client.unsubscribeEvent({ id: SUB_ID })).rejects.toMatchObject({
-                code: ProtocolErrorCode.InvalidParams
-            });
         });
 
-        it('scopes by (principal, id) when a principal is present and allows URL rotation', async () => {
+        it('scopes by (principal, delivery.url, id) when a principal is present', async () => {
             let currentPrincipal = 'alice';
             server = new McpServer(
                 { name: 's', version: '1.0.0' },
@@ -887,33 +881,42 @@ describe('Events', () => {
             });
             expect(first.deliveryStatus).toBeUndefined();
 
-            // Alice refreshes with a DIFFERENT URL → same key (principal, id), URL is mutable.
-            const rotated = await client.subscribeEvent({
+            // Alice "refreshes" with a DIFFERENT URL → URL is part of the key, so this is a NEW sub.
+            const differentUrl = await client.subscribeEvent({
                 id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
                 delivery: { mode: 'webhook', url: 'http://localhost:2222/a', secret: 's' },
                 cursor: null
             });
-            expect(rotated.deliveryStatus).toBeDefined(); // refresh, not a new sub
+            expect(differentUrl.deliveryStatus).toBeUndefined(); // new sub, not a refresh
 
-            // Bob subscribes with the same id → distinct key (different principal).
+            // Alice refreshes with the SAME URL → that's a refresh.
+            const refreshed = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'counter.tick',
+                params: { minValue: 0 },
+                delivery: { mode: 'webhook', url: 'http://localhost:1111/a', secret: 's' },
+                cursor: null
+            });
+            expect(refreshed.deliveryStatus).toBeDefined(); // refresh of first sub
+
+            // Bob subscribes with the same id+url → distinct key (different principal).
             currentPrincipal = 'bob';
             const bob = await client.subscribeEvent({
                 id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
-                delivery: { mode: 'webhook', url: 'http://localhost:3333/b', secret: 's' },
+                delivery: { mode: 'webhook', url: 'http://localhost:1111/a', secret: 's' },
                 cursor: null
             });
             expect(bob.deliveryStatus).toBeUndefined(); // new sub, not a refresh of Alice's
 
-            // Bob's unsubscribe doesn't need delivery.url (principal forms the key).
-            await client.unsubscribeEvent({ id: SUB_ID });
-
-            // Alice's subscription is still there.
+            // Unsubscribe each — delivery.url is always required to form the key.
+            await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: 'http://localhost:1111/a' } });
             currentPrincipal = 'alice';
-            await client.unsubscribeEvent({ id: SUB_ID });
+            await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: 'http://localhost:1111/a' } });
+            await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: 'http://localhost:2222/a' } });
         });
 
         it('keeps server cursor on refresh with cursor: null', async () => {
@@ -937,17 +940,21 @@ describe('Events', () => {
             });
 
             state.value = 5;
-            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+            await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(5));
+            const callsBefore = fetchMock.mock.calls.length;
 
-            // Refresh with cursor: null — server keeps its position (5), doesn't rewind to 0.
-            const refreshed = await client.subscribeEvent({
+            // Refresh with cursor: null — server keeps its upstream position (5); the
+            // result no longer carries a cursor, so observe via delivery: no replay
+            // of value 1..5 should occur after refresh.
+            await client.subscribeEvent({
                 id: SUB_ID,
                 name: 'counter.tick',
                 params: { minValue: 0 },
                 delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
                 cursor: null
             });
-            expect(refreshed.cursor).toBe('5');
+            await new Promise(r => setTimeout(r, 50));
+            expect(fetchMock.mock.calls.length).toBe(callsBefore);
         });
 
         it('rejects unsafe callback URLs with InvalidCallbackUrl', async () => {
@@ -969,6 +976,75 @@ describe('Events', () => {
                     cursor: null
                 })
             ).rejects.toMatchObject({ code: -32_015 });
+        });
+
+        it('rejects delivery when the callback host resolves to a private address (DNS rebinding)', async () => {
+            // Hostname looks public; resolver returns loopback at delivery time.
+            const resolveHost = vi.fn(async () => [{ address: '127.0.0.1', family: 4 }]);
+            server = new McpServer(
+                { name: 's', version: '1.0.0' },
+                {
+                    events: {
+                        webhook: {
+                            ttlMs: 30_000,
+                            urlValidation: { allowInsecure: true },
+                            fetch: fetchMock as unknown as typeof fetch,
+                            resolveHost,
+                            maxDeliveryAttempts: 1
+                        }
+                    }
+                }
+            );
+            server.registerEvent('e', {}, async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 }));
+            await connectPair(server, client);
+
+            await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'e',
+                delivery: { mode: 'webhook', url: 'http://hooks.example.com/a' },
+                cursor: null
+            });
+            server.emitEvent('e', { v: 1 });
+
+            await vi.waitFor(() => expect(resolveHost).toHaveBeenCalled());
+            await new Promise(r => setTimeout(r, 10));
+            expect(fetchMock).not.toHaveBeenCalled();
+
+            const refreshed = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'e',
+                delivery: { mode: 'webhook', url: 'http://hooks.example.com/a' },
+                cursor: null
+            });
+            expect(refreshed.deliveryStatus?.lastError).toContain('private/loopback');
+        });
+
+        it('POSTs a signed error envelope to the webhook on terminate()', async () => {
+            server.registerEvent('e', {}, async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 }));
+            await connectPair(server, client);
+
+            const created = await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'e',
+                delivery: { mode: 'webhook', url: HOOK_URL },
+                cursor: null
+            });
+
+            server.terminateEventSubscription(SUB_ID, 'upstream revoked');
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+            const [, init] = fetchMock.mock.calls[0]!;
+            const body = JSON.parse(init.body as string);
+            expect(body.id).toBe(SUB_ID);
+            expect(body.error.message).toBe('upstream revoked');
+
+            const verify = await verifyWebhookSignature(
+                created.secret!,
+                init.body as string,
+                (init.headers as Record<string, string>)[WEBHOOK_SIGNATURE_HEADER],
+                (init.headers as Record<string, string>)[WEBHOOK_TIMESTAMP_HEADER]
+            );
+            expect(verify.valid).toBe(true);
         });
 
         it('marks deliveryStatus as inactive after exhausting retries', async () => {

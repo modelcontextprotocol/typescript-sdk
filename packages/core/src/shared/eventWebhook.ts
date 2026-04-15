@@ -157,11 +157,23 @@ const PRIVATE_HOST_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Tests whether a normalised host string (IP literal or `localhost`) falls in
+ * a private, loopback, or link-local range. The input MUST already have been
+ * passed through {@linkcode normaliseHostname}.
+ */
+export function isPrivateAddress(normalisedHost: string): boolean {
+    for (const pattern of PRIVATE_HOST_PATTERNS) {
+        if (pattern.test(normalisedHost)) return true;
+    }
+    return false;
+}
+
+/**
  * Normalises a URL hostname for pattern matching: lowercases, strips IPv6
  * brackets, and unwraps IPv4-mapped IPv6 (`::ffff:a.b.c.d` or `::ffff:xxxx:xxxx`)
  * into the embedded IPv4 dotted form.
  */
-function normaliseHostname(hostname: string): string {
+export function normaliseHostname(hostname: string): string {
     let h = hostname.toLowerCase();
     if (h.startsWith('[') && h.endsWith(']')) {
         h = h.slice(1, -1);
@@ -218,12 +230,8 @@ export function isSafeWebhookUrl(url: string, options: WebhookUrlValidationOptio
         return { safe: true };
     }
 
-    if (!options.allowPrivateNetworks) {
-        for (const pattern of PRIVATE_HOST_PATTERNS) {
-            if (pattern.test(hostname)) {
-                return { safe: false, reason: `Host ${rawHostname} resolves to a private or loopback range` };
-            }
-        }
+    if (!options.allowPrivateNetworks && isPrivateAddress(hostname)) {
+        return { safe: false, reason: `Host ${rawHostname} resolves to a private or loopback range` };
     }
 
     return { safe: true };

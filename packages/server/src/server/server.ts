@@ -344,7 +344,7 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
 
-            case 'notifications/event':
+            case 'notifications/events/event':
             case 'notifications/events/active':
             case 'notifications/events/error':
             case 'notifications/events/terminated':
