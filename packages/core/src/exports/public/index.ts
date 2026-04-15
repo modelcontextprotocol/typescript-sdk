@@ -45,6 +45,7 @@ export type {
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
+    RequestHandlerExtra,
     RequestHandlerSchemas,
     RequestOptions,
     ServerContext
