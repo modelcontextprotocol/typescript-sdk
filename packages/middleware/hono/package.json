@@ -61,5 +61,6 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"
-    }
+    },
+    "types": "./dist/index.d.mts"
 }

@@ -87,5 +87,19 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"
+    },
+    "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "validators/cf-worker": [
+                "dist/validators/cfWorker.d.mts"
+            ],
+            "zod-schemas": [
+                "dist/zodSchemas.d.mts"
+            ],
+            "stdio": [
+                "dist/stdio.d.mts"
+            ]
+        }
     }
 }
