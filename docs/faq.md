@@ -69,9 +69,9 @@ For production use, you can either:
 
 The SDK ships several runnable server examples under `examples/server/src`. Start from the server examples index in [`examples/server/README.md`](../examples/server/README.md) and the entry-point quick start in the root [`README.md`](../README.md).
 
-### Why did we remove `server` auth exports?
+### Where are the server auth helpers?
 
-Server authentication & authorization is outside of the scope of the SDK, and the recommendation is to use packages that focus on this area specifically (or a full-fledged Authorization Server for those who use such). Example packages provide an example with `better-auth`.
+All v1 `server/auth/*` exports are available in the deprecated `@modelcontextprotocol/server-auth-legacy` package (frozen v1 copy). New code should use a dedicated IdP/OAuth library; example packages provide a demo with `better-auth`.
 
 ### Why did we remove `server` SSE transport?
 
