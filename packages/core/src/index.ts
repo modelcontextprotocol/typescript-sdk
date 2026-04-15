@@ -49,3 +49,4 @@ export * from './validators/fromJsonSchema.js';
 
 // Core types only - implementations are exported via separate entry points
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';
+export { deprecate } from './util/deprecate.js';
