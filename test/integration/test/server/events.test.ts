@@ -626,6 +626,77 @@ describe('Events', () => {
             });
             expect(r.results[0]!.events).toEqual([]);
         });
+
+        it('push subscribe with prior cursor replays buffered emits since that cursor', async () => {
+            registerIncidentEvent(100);
+            const events: EventNotification['params'][] = [];
+            client.setNotificationHandler('notifications/events/event', n => {
+                events.push(n.params);
+            });
+            const active: { id: string; cursor: string }[] = [];
+            client.setNotificationHandler('notifications/events/active', n => {
+                active.push({ id: n.params.id, cursor: n.params.cursor as string });
+            });
+
+            await connectPair(server, client);
+
+            // First stream — bootstrap, capture a cursor after one delivery.
+            const c1 = new AbortController();
+            openStream(client, [{ id: 's1', name: 'incident.created', params: {}, cursor: null }], c1);
+            await vi.waitFor(() => expect(active.find(a => a.id === 's1')).toBeDefined());
+
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            await vi.waitFor(() => expect(events.find(e => e.data.incidentId === 'INC-1')).toBeDefined());
+            const capturedCursor = events.find(e => e.data.incidentId === 'INC-1')!.cursor!;
+            c1.abort();
+            // Give the abort a moment to close the server-side stream so subsequent
+            // emits don't race-deliver to the dying s1 sub.
+            await new Promise(r => setTimeout(r, 30));
+
+            // While "disconnected", more events fire.
+            server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-4', severity: 'P1' });
+
+            events.length = 0;
+
+            // Resume with the captured cursor — server should replay INC-2..INC-4 from buffer.
+            const c2 = new AbortController();
+            openStream(client, [{ id: 's2', name: 'incident.created', params: {}, cursor: capturedCursor }], c2);
+
+            await vi.waitFor(() => expect(events.filter(e => e.id === 's2').length).toBeGreaterThanOrEqual(3));
+            const s2Events = events.filter(e => e.id === 's2');
+            expect(s2Events.map(e => e.data.incidentId)).toEqual(['INC-2', 'INC-3', 'INC-4']);
+            c2.abort();
+        });
+
+        it('push subscribe with cursor older than buffer head returns CursorExpired', async () => {
+            registerIncidentEvent(2);
+            const errors: { id: string; code: number }[] = [];
+            client.setNotificationHandler('notifications/events/error', n => {
+                errors.push({ id: n.params.id, code: n.params.code });
+            });
+
+            await connectPair(server, client);
+
+            // Bootstrap once to obtain a valid composite cursor.
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'p', name: 'incident.created', params: {}, cursor: null }]
+            });
+            const staleCursor = r.results[0]!.cursor!;
+
+            // Emit 3 into a 2-capacity buffer — oldest evicted past staleCursor.
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
+
+            const c = new AbortController();
+            openStream(client, [{ id: 's', name: 'incident.created', params: {}, cursor: staleCursor }], c);
+
+            await vi.waitFor(() => expect(errors).toHaveLength(1));
+            expect(errors[0]!.code).toBe(CURSOR_EXPIRED);
+            c.abort();
+        });
     });
 
     describe('events/subscribe and events/unsubscribe (webhook mode)', () => {
@@ -1098,6 +1169,88 @@ describe('Events', () => {
             // A refresh reactivates, but the previous delivery status would have been inactive.
             // The upsert resets active to true, so we verify the server tracked the error.
             expect(refreshed.deliveryStatus).toBeDefined();
+        });
+
+        it('webhook subscribe with prior cursor replays buffered emits since that cursor', async () => {
+            server.registerEvent(
+                'incident.created',
+                {
+                    inputSchema: z.object({ severity: z.string().optional() }),
+                    matches: (params, data) => !params.severity || params.severity === data.severity,
+                    bufferEmits: { capacity: 100 }
+                },
+                async (_p, _c) => ({ events: [], cursor: 'check', nextPollSeconds: 30 })
+            );
+
+            await connectPair(server, client);
+
+            // First subscribe — bootstrap, then capture cursor after one delivery.
+            await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'incident.created',
+                params: {},
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 'secret123' },
+                cursor: null
+            });
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+            const firstBody = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+            const capturedCursor = firstBody.cursor;
+            expect(capturedCursor).toBeDefined();
+
+            // Unsubscribe and emit more while "disconnected".
+            await client.unsubscribeEvent({ id: SUB_ID, delivery: { url: HOOK_URL } });
+            server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
+
+            fetchMock.mockClear();
+
+            // Resubscribe with the captured cursor — server should replay INC-2 and INC-3 from buffer.
+            await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'incident.created',
+                params: {},
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: 'secret123' },
+                cursor: capturedCursor
+            });
+
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+            const replays = fetchMock.mock.calls.map(c => JSON.parse(c[1]!.body as string).data.incidentId);
+            expect(replays).toEqual(['INC-2', 'INC-3']);
+        });
+
+        it('webhook subscribe with cursor older than buffer head returns CursorExpired', async () => {
+            server.registerEvent(
+                'incident.created',
+                {
+                    inputSchema: z.object({ severity: z.string().optional() }),
+                    matches: (params, data) => !params.severity || params.severity === data.severity,
+                    bufferEmits: { capacity: 2 }
+                },
+                async (_p, _c) => ({ events: [], cursor: 'check', nextPollSeconds: 30 })
+            );
+
+            await connectPair(server, client);
+
+            // Get a valid composite cursor from a poll, then evict past it.
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'p', name: 'incident.created', params: {}, cursor: null }]
+            });
+            const staleCursor = r.results[0]!.cursor!;
+
+            server.emitEvent('incident.created', { incidentId: 'INC-1', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-2', severity: 'P1' });
+            server.emitEvent('incident.created', { incidentId: 'INC-3', severity: 'P1' });
+
+            await expect(
+                client.subscribeEvent({
+                    id: SUB_ID,
+                    name: 'incident.created',
+                    params: {},
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: 's' },
+                    cursor: staleCursor
+                })
+            ).rejects.toMatchObject({ code: CURSOR_EXPIRED });
         });
     });
 

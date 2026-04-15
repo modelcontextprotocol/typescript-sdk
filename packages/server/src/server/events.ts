@@ -514,17 +514,24 @@ export class ServerEventManager {
 
         // Broadcast emits are buffered so poll clients can see them. Targeted
         // emits are not — they address a specific push/webhook subscription.
+        // Capture the assigned seq so live deliveries can carry a composite
+        // cursor that resume logic understands (see _bootstrapFromCursor).
+        let assignedSeq: number | null = null;
         if (event.buffer && !options.subscriptionId) {
             const buf = event.buffer;
+            assignedSeq = buf.nextSeq;
             buf.entries.push({ seq: buf.nextSeq++, occurrence });
             if (buf.entries.length > buf.capacity) buf.entries.shift();
         }
+
+        const liveCursor =
+            assignedSeq !== null ? encodeCompositeCursor({ c: '', b: assignedSeq + 1 }) : occurrence.eventId;
 
         const deliverTo = (sub: ActiveSubscription, sink: 'push' | 'webhook', stream?: PushStream) => {
             if (options.subscriptionId && sub.id !== options.subscriptionId) return;
             if (!options.subscriptionId && event.matches && !event.matches(sub.params, data)) return;
 
-            const withCursor: EventOccurrence = { ...occurrence, cursor: occurrence.eventId };
+            const withCursor: EventOccurrence = { ...occurrence, cursor: liveCursor };
             if (sink === 'push' && stream) {
                 this._sendEventNotification(stream, sub.id, withCursor);
             } else if (sink === 'webhook') {
@@ -680,6 +687,92 @@ export class ServerEventManager {
         return { results };
     }
 
+    /**
+     * Shared bootstrap path for all three handlers (poll/push/webhook). Decodes
+     * the composite cursor for buffered events, runs the check callback against
+     * the unwrapped cursor, then merges any newer buffered emits. Returns the
+     * resulting backlog (in occurrence order: check results first, then buffer)
+     * and the new composite cursor that subsequent operations should resume from.
+     */
+    private async _bootstrapFromCursor(
+        event: InternalRegisteredEvent,
+        eventName: string,
+        params: Record<string, unknown>,
+        rawCursor: string | null,
+        ctx: ServerContext
+    ): Promise<
+        | { backlog: EventOccurrence[]; cursor: string; nextPollSeconds?: number; hasMore?: boolean }
+        | { error: EventSubscriptionError }
+    > {
+        const isBootstrap = rawCursor === null;
+
+        let checkCursor: string | null;
+        let bufferSeq: number;
+        if (event.buffer) {
+            if (isBootstrap) {
+                checkCursor = null;
+                bufferSeq = event.buffer.nextSeq; // "start from now" — skip all currently buffered emits
+            } else {
+                const composite = decodeCompositeCursor(rawCursor!);
+                if (!composite) {
+                    return { error: { code: CURSOR_EXPIRED, message: 'Cursor format is not valid for this event (re-bootstrap required)' } };
+                }
+                checkCursor = composite.c;
+                bufferSeq = composite.b;
+                const oldestSeq = event.buffer.entries[0]?.seq ?? event.buffer.nextSeq;
+                if (bufferSeq < oldestSeq) {
+                    return { error: { code: CURSOR_EXPIRED, message: 'Emit buffer has wrapped past this cursor (re-bootstrap required)' } };
+                }
+            }
+        } else {
+            checkCursor = rawCursor;
+            bufferSeq = 0;
+        }
+
+        let checkResult: EventCheckResult;
+        try {
+            checkResult = await event.check(params, checkCursor, ctx);
+        } catch (error) {
+            return { error: this._toSubscriptionError(error) };
+        }
+
+        const checkOccurrences = checkResult.events.map(e => this._makeOccurrence(e.name ?? eventName, e.data, e._meta));
+
+        const bufferOccurrences: EventOccurrence[] = [];
+        let newBufferSeq = bufferSeq;
+        if (event.buffer) {
+            for (const entry of event.buffer.entries) {
+                if (entry.seq < bufferSeq) continue;
+                newBufferSeq = entry.seq + 1;
+                if (event.matches && !event.matches(params, entry.occurrence.data)) continue;
+                bufferOccurrences.push(entry.occurrence);
+            }
+        }
+
+        const cursor = event.buffer ? encodeCompositeCursor({ c: checkResult.cursor, b: newBufferSeq }) : checkResult.cursor;
+        return {
+            backlog: [...checkOccurrences, ...bufferOccurrences],
+            cursor,
+            nextPollSeconds: checkResult.nextPollSeconds,
+            hasMore: checkResult.hasMore
+        };
+    }
+
+    /**
+     * For the polling tick loops (push + webhook): unwrap a composite cursor
+     * (if the event buffers) so we hand the check callback a stable check-cursor
+     * value. Returns the bufferSeq separately so the caller can re-encode after
+     * the check returns. Live emits are delivered through {@linkcode emit} and
+     * never go through this loop.
+     */
+    private _decodeCursorForCheck(event: InternalRegisteredEvent, rawCursor: string | null): { checkCursor: string | null; bufferSeq: number } {
+        if (!event.buffer) return { checkCursor: rawCursor, bufferSeq: 0 };
+        if (rawCursor === null) return { checkCursor: null, bufferSeq: event.buffer.nextSeq };
+        const composite = decodeCompositeCursor(rawCursor);
+        if (!composite) return { checkCursor: null, bufferSeq: event.buffer.nextSeq };
+        return { checkCursor: composite.c, bufferSeq: composite.b };
+    }
+
     private async _pollOne(spec: EventSubscriptionSpec, maxEvents: number, ctx: ServerContext): Promise<PollEventsResultEntry> {
         const event = this._events.get(spec.name);
         if (!event || !event.enabled) {
@@ -692,76 +785,23 @@ export class ServerEventManager {
         }
 
         const isBootstrap = (spec.cursor ?? null) === null;
-
-        // Unwrap composite cursor when this event buffers emits for poll.
-        let checkCursor: string | null;
-        let bufferSeq: number;
-        if (event.buffer) {
-            if (isBootstrap) {
-                checkCursor = null;
-                bufferSeq = event.buffer.nextSeq; // "start from now" — skip all currently buffered emits
-            } else {
-                const composite = decodeCompositeCursor(spec.cursor!);
-                if (!composite) {
-                    return {
-                        id: spec.id,
-                        error: { code: CURSOR_EXPIRED, message: 'Cursor format is not valid for this event (re-bootstrap required)' }
-                    };
-                }
-                checkCursor = composite.c;
-                bufferSeq = composite.b;
-                // If the buffer evicted entries the client hasn't seen yet, the gap is unrecoverable.
-                const oldestSeq = event.buffer.entries[0]?.seq ?? event.buffer.nextSeq;
-                if (bufferSeq < oldestSeq) {
-                    return {
-                        id: spec.id,
-                        error: { code: CURSOR_EXPIRED, message: 'Emit buffer has wrapped past this cursor (re-bootstrap required)' }
-                    };
-                }
-            }
-        } else {
-            checkCursor = spec.cursor ?? null;
-            bufferSeq = 0;
-        }
-
-        // Lifecycle: null cursor = bootstrap = onSubscribe hook.
         if (isBootstrap && event.hooks?.onSubscribe) {
             await event.hooks.onSubscribe(spec.id, paramsResult.params, ctx);
         }
 
-        let checkResult: EventCheckResult;
-        try {
-            checkResult = await event.check(paramsResult.params, checkCursor, ctx);
-        } catch (error) {
-            return { id: spec.id, error: this._toSubscriptionError(error) };
+        const result = await this._bootstrapFromCursor(event, spec.name, paramsResult.params, spec.cursor ?? null, ctx);
+        if ('error' in result) {
+            return { id: spec.id, error: result.error };
         }
 
-        const checkOccurrences = checkResult.events.map(e => this._makeOccurrence(e.name ?? spec.name, e.data, e._meta));
-
-        // Merge in buffered emits (filtered by the event's matches callback).
-        const bufferOccurrences: EventOccurrence[] = [];
-        let newBufferSeq = bufferSeq;
-        if (event.buffer) {
-            for (const entry of event.buffer.entries) {
-                if (entry.seq < bufferSeq) continue;
-                newBufferSeq = entry.seq + 1;
-                if (event.matches && !event.matches(paramsResult.params, entry.occurrence.data)) continue;
-                bufferOccurrences.push(entry.occurrence);
-            }
-        }
-
-        const merged = [...checkOccurrences, ...bufferOccurrences];
-        const occurrences = merged.slice(0, maxEvents);
-        const hasMore = (checkResult.hasMore ?? false) || merged.length > maxEvents;
-        const nextPollSeconds = checkResult.nextPollSeconds ?? DEFAULT_POLL_SECONDS;
-        const cursor = event.buffer ? encodeCompositeCursor({ c: checkResult.cursor, b: newBufferSeq }) : checkResult.cursor;
-
+        const occurrences = result.backlog.slice(0, maxEvents);
+        const hasMore = (result.hasMore ?? false) || result.backlog.length > maxEvents;
         return {
             id: spec.id,
             events: occurrences,
-            cursor,
+            cursor: result.cursor,
             hasMore,
-            nextPollSeconds
+            nextPollSeconds: result.nextPollSeconds ?? DEFAULT_POLL_SECONDS
         };
     }
 
@@ -800,21 +840,14 @@ export class ServerEventManager {
                 continue;
             }
 
-            let bootCursor: string;
-            let bootNextPollSeconds: number | undefined;
-            try {
-                const bootstrap = await event.check(paramsResult.params, spec.cursor ?? null, stream.ctx);
-                bootCursor = bootstrap.cursor;
-                bootNextPollSeconds = bootstrap.nextPollSeconds;
-                // If reconnecting with a cursor, replay any backlog from bootstrap.
-                for (const e of bootstrap.events) {
-                    const occ = this._makeOccurrence(e.name ?? spec.name, e.data, e._meta);
-                    occ.cursor = bootstrap.cursor;
-                    this._sendEventNotification(stream, spec.id, occ);
-                }
-            } catch (error) {
-                this._sendErrorNotification(stream, spec.id, this._toSubscriptionError(error));
+            const bootstrap = await this._bootstrapFromCursor(event, spec.name, paramsResult.params, spec.cursor ?? null, stream.ctx);
+            if ('error' in bootstrap) {
+                this._sendErrorNotification(stream, spec.id, bootstrap.error);
                 continue;
+            }
+            // Replay any backlog (check results + buffered emits since the cursor).
+            for (const occ of bootstrap.backlog) {
+                this._sendEventNotification(stream, spec.id, { ...occ, cursor: bootstrap.cursor });
             }
 
             if ((spec.cursor ?? null) === null && event.hooks?.onSubscribe) {
@@ -825,14 +858,14 @@ export class ServerEventManager {
                 id: spec.id,
                 eventName: spec.name,
                 params: paramsResult.params,
-                cursor: bootCursor,
+                cursor: bootstrap.cursor,
                 ctx: stream.ctx
             };
             stream.subscriptions.set(spec.id, active);
-            this._sendActiveNotification(stream, spec.id, bootCursor);
+            this._sendActiveNotification(stream, spec.id, bootstrap.cursor);
 
             if (this._pushOptions.pollDriven) {
-                this._schedulePushPoll(stream, active, event, bootNextPollSeconds);
+                this._schedulePushPoll(stream, active, event, bootstrap.nextPollSeconds);
             }
         }
 
@@ -853,26 +886,28 @@ export class ServerEventManager {
         initialNextPollSeconds?: number
     ): void {
         let currentInterval = (initialNextPollSeconds ?? DEFAULT_POLL_SECONDS) * 1000;
+        const encode = (checkCursor: string, bufferSeq: number) =>
+            event.buffer ? encodeCompositeCursor({ c: checkCursor, b: bufferSeq }) : checkCursor;
         const tick = async () => {
             if (stream.closed) return;
             try {
-                const result = await event.check(sub.params, sub.cursor, stream.ctx);
+                const { checkCursor, bufferSeq } = this._decodeCursorForCheck(event, sub.cursor);
+                const result = await event.check(sub.params, checkCursor, stream.ctx);
+                const newCursor = encode(result.cursor, bufferSeq);
                 for (const e of result.events) {
                     const occ = this._makeOccurrence(e.name ?? sub.eventName, e.data, e._meta);
-                    sub.cursor = result.cursor;
-                    occ.cursor = sub.cursor;
+                    occ.cursor = newCursor;
                     this._sendEventNotification(stream, sub.id, occ);
                 }
-                sub.cursor = result.cursor;
+                sub.cursor = newCursor;
                 if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
                 stream.pollTimers.set(sub.id, setTimeout(tick, result.hasMore ? 0 : currentInterval));
             } catch (error) {
                 const subErr = this._toSubscriptionError(error);
                 this._sendErrorNotification(stream, sub.id, subErr);
-                // CursorExpired is recoverable by re-bootstrapping; anything else terminates the subscription.
                 if (subErr.code === CURSOR_EXPIRED) {
                     const reboot = await event.check(sub.params, null, stream.ctx);
-                    sub.cursor = reboot.cursor;
+                    sub.cursor = encode(reboot.cursor, event.buffer?.nextSeq ?? 0);
                     if (reboot.nextPollSeconds !== undefined) currentInterval = reboot.nextPollSeconds * 1000;
                     stream.pollTimers.set(sub.id, setTimeout(tick, currentInterval));
                 } else {
@@ -945,20 +980,18 @@ export class ServerEventManager {
         // Cursor semantics: on a fresh sub, null = bootstrap. On refresh, null =
         // keep the server's current position; non-null = replace.
         let cursor: string;
-        let backlog: EventCheckResult['events'] = [];
+        let backlog: EventOccurrence[] = [];
         let bootNextPollSeconds: number | undefined;
         if (existing && (params.cursor ?? null) === null) {
             cursor = existing.cursor;
         } else {
-            try {
-                const bootstrap = await event.check(paramsResult.params, params.cursor ?? null, ctx);
-                cursor = bootstrap.cursor;
-                backlog = bootstrap.events;
-                bootNextPollSeconds = bootstrap.nextPollSeconds;
-            } catch (error) {
-                const subErr = this._toSubscriptionError(error);
-                throw new ProtocolError(subErr.code, subErr.message, subErr.data);
+            const bootstrap = await this._bootstrapFromCursor(event, params.name, paramsResult.params, params.cursor ?? null, ctx);
+            if ('error' in bootstrap) {
+                throw new ProtocolError(bootstrap.error.code, bootstrap.error.message, bootstrap.error.data);
             }
+            cursor = bootstrap.cursor;
+            backlog = bootstrap.backlog;
+            bootNextPollSeconds = bootstrap.nextPollSeconds;
         }
 
         const expiresAt = Date.now() + ttl;
@@ -1000,11 +1033,9 @@ export class ServerEventManager {
             }
         }
 
-        // Deliver any backlog from the bootstrap/resume check.
-        for (const e of backlog) {
-            const occ = this._makeOccurrence(e.name ?? params.name, e.data, e._meta);
-            occ.cursor = cursor;
-            void this._deliverWebhook(sub, occ);
+        // Deliver any backlog from the bootstrap/resume (check + buffered emits).
+        for (const occ of backlog) {
+            void this._deliverWebhook(sub, { ...occ, cursor });
         }
 
         return {
@@ -1031,6 +1062,8 @@ export class ServerEventManager {
 
     private _scheduleWebhookPoll(sub: WebhookSubscription, event: InternalRegisteredEvent, initialNextPollSeconds?: number): void {
         let currentInterval = (initialNextPollSeconds ?? DEFAULT_POLL_SECONDS) * 1000;
+        const encode = (checkCursor: string, bufferSeq: number) =>
+            event.buffer ? encodeCompositeCursor({ c: checkCursor, b: bufferSeq }) : checkCursor;
         const tick = async () => {
             if (!this._webhookSubs.has(sub.key)) return;
             if (!sub.deliveryStatus.active) {
@@ -1038,14 +1071,15 @@ export class ServerEventManager {
                 return;
             }
             try {
-                const result = await event.check(sub.params, sub.cursor, sub.ctx);
+                const { checkCursor, bufferSeq } = this._decodeCursorForCheck(event, sub.cursor);
+                const result = await event.check(sub.params, checkCursor, sub.ctx);
+                const newCursor = encode(result.cursor, bufferSeq);
                 for (const e of result.events) {
                     const occ = this._makeOccurrence(e.name ?? sub.eventName, e.data, e._meta);
-                    sub.cursor = result.cursor;
-                    occ.cursor = sub.cursor;
+                    occ.cursor = newCursor;
                     void this._deliverWebhook(sub, occ);
                 }
-                sub.cursor = result.cursor;
+                sub.cursor = newCursor;
                 if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
                 sub.pollTimer = setTimeout(tick, result.hasMore ? 0 : currentInterval);
             } catch (error) {
@@ -1053,7 +1087,7 @@ export class ServerEventManager {
                 if (subErr.code === CURSOR_EXPIRED) {
                     void this._deliverWebhookError(sub, subErr);
                     const reboot = await event.check(sub.params, null, sub.ctx);
-                    sub.cursor = reboot.cursor;
+                    sub.cursor = encode(reboot.cursor, event.buffer?.nextSeq ?? 0);
                     if (reboot.nextPollSeconds !== undefined) currentInterval = reboot.nextPollSeconds * 1000;
                 }
                 sub.pollTimer = setTimeout(tick, currentInterval);

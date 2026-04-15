@@ -49,6 +49,9 @@ const server = new McpServer(
 let counter = 0;
 setInterval(() => {
     counter++;
+    // Emit drives push/webhook delivery in real time; bufferEmits below merges
+    // these into poll responses too, so all three modes see ticks at 1s cadence.
+    server.emitEvent('counter.tick', { value: counter, timestamp: new Date().toISOString() });
 }, 1000);
 
 server.registerEvent(
@@ -62,21 +65,14 @@ server.registerEvent(
         payloadSchema: z.object({
             value: z.number(),
             timestamp: z.string()
-        })
+        }),
+        matches: (params, data) => {
+            const v = (data as { value: number }).value;
+            return v >= params.minValue && v % params.modulo === 0;
+        },
+        bufferEmits: { capacity: 500 }
     },
-    async ({ minValue, modulo }, cursor) => {
-        const position = cursor === null ? counter : Number(cursor);
-        const events = [];
-        for (let i = position + 1; i <= counter; i++) {
-            if (i >= minValue && i % modulo === 0) {
-                events.push({
-                    name: 'counter.tick',
-                    data: { value: i, timestamp: new Date().toISOString() }
-                });
-            }
-        }
-        return { events, cursor: String(counter), nextPollSeconds: 2 };
-    }
+    async () => ({ events: [], cursor: String(counter), nextPollSeconds: 5 })
 );
 
 // --- incident.created: emit-driven with lifecycle hooks ---
@@ -113,7 +109,7 @@ server.registerEvent(
     // For emit-driven events, the check callback only handles bootstrap.
     // With bufferEmits configured, the SDK merges buffered emits into poll
     // responses — the callback just returns a stable cursor.
-    async (_params, _cursor) => ({ events: [], cursor: 'emit-only', nextPollSeconds: 10 })
+    async (_params, _cursor) => ({ events: [], cursor: 'emit-only', nextPollSeconds: 5 })
 );
 
 // Simulate incidents arriving from upstream every 15 seconds.

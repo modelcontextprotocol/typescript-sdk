@@ -389,3 +389,41 @@ Applied the revision deltas from `experimental-ext-triggers-events/docs/design-s
 - **#1 nuance:** "delete server-side per-subscription cursor field" interpreted as the *delivery watermark*, not the upstream check-callback cursor. The latter is essential for poll-driven webhook delivery and is not a delivery-ack position.
 - **#6 HTTPS TOCTOU:** Full pin-to-IP for HTTPS would require a custom undici dispatcher with SNI override. Deferred; documented in `_resolveDeliveryTarget` JSDoc. Users needing strict pinning supply a custom `fetch`.
 - **#9 refresh semantics:** Previously refresh cleared `lastError`; now it returns the *prior* status (so client sees the error) and *then* clears `failedSince`/reactivates. `lastError` is preserved across refresh until a successful delivery overwrites it.
+
+## Buffer replay fix 2026-04-15
+
+Three bugs prevented push and webhook subscriptions from resuming via cursor when the event used `bufferEmits`:
+
+1. **`emit()` set the wrong cursor on live deliveries.** Push and webhook fan-out wrote `cursor = occurrence.eventId` on each notification — but the resume path (`decodeCompositeCursor`) only understands cursors of the form `{c, b}` produced by `encodeCompositeCursor`. So when a client captured a printed cursor and pasted it back as the resume cursor, the server treated it as malformed → CursorExpired.
+
+2. **`_openStream` (push bootstrap) ignored the buffer.** It only delivered `event.check()` results. For emit-only events whose check returns nothing, the backlog was always empty regardless of the cursor.
+
+3. **`_handleSubscribe` (webhook bootstrap) had the same bug.** Same shape — only `event.check()` results were replayed.
+
+### Fix
+
+Extracted the existing poll-path bootstrap into a shared `_bootstrapFromCursor(event, eventName, params, rawCursor, ctx)` helper. It decodes the composite cursor, runs `event.check()` against the unwrapped check-cursor, scans `event.buffer.entries` for entries with `seq >= bufferSeq`, returns the merged backlog and a re-encoded composite cursor. All three handlers (`_pollOne`, `_openStream`, `_handleSubscribe`) now use it.
+
+`emit()` now encodes a composite cursor `{c: '', b: assignedSeq + 1}` on each live delivery when the event has a buffer. The `b` is "next seq to deliver" so resume picks up exactly the next emit. Events without a buffer keep the eventId fallback (no resume is possible anyway).
+
+The polling tick functions (`_schedulePushPoll`, `_scheduleWebhookPoll`) now decode the composite cursor before passing it to `event.check()` and re-encode after, via a small `_decodeCursorForCheck` helper. This keeps `sub.cursor` consistently composite for buffered events without breaking check callbacks that read the cursor.
+
+### Known limitation
+
+When emit() runs while a poll-driven push/webhook sub is also running, the live delivery's cursor encodes `c: ''` — losing whatever check-cursor the SDK had last seen. If the client then disconnects and resumes from that emit's cursor, the next `event.check()` call gets `''` instead of the real position. For events whose check ignores the cursor (counter.tick, pure emit-only events) this is fine. For dual-driven events whose check uses the cursor to derive history, position is lost on resume across an emit boundary.
+
+The proper fix is for emit() to know the most recent check-cursor per active sub, which would require maintaining that state on `ActiveSubscription`. Out of scope for this fix; documented here for future reference.
+
+### Tests
+
+Added 4 cases to `events.test.ts`:
+- push subscribe with prior cursor replays buffered emits since that cursor
+- push subscribe with cursor older than buffer head returns CursorExpired
+- webhook subscribe with prior cursor replays buffered emits since that cursor (verifies via `fetchMock`)
+- webhook subscribe with cursor older than buffer head returns CursorExpired
+
+49 → 53 events tests; 471 → 475 integration total.
+
+### Live E2E (`/tmp/events-replay-e2e.log`)
+
+`sub counter.tick push` → captured cursor `{"c":"","b":3}` after value=2 → `unsub` → 5s gap (server emits values 3-7 to nobody) → `sub counter.tick push --from {"c":"","b":3}` → received values 4-12. Confirms end-to-end push replay works through the CLI.

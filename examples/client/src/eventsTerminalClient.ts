@@ -75,8 +75,8 @@ function help(): void {
         [
             'commands:',
             '  list                                 list available event types',
-            '  sub <name> <poll|push|webhook> [json-params]   subscribe',
-            '  unsub <index|id>                     cancel a subscription',
+            '  sub <name> <poll|push|webhook> [json] [--from <cursor>]   subscribe',
+            '  unsub [index|id]                     cancel one (or all if no arg)',
             '  subs                                 list active subscriptions',
             '  help                                 this help',
             '  quit                                 unsubscribe all and exit'
@@ -211,24 +211,34 @@ async function main(): Promise<void> {
                 return;
             }
             case 'sub': {
-                const [name, modeRaw, ...paramParts] = rest;
+                const [name, modeRaw, ...tail] = rest;
                 const mode = modeRaw?.toLowerCase() as EventDeliveryMode | undefined;
                 if (!name || !mode || !['poll', 'push', 'webhook'].includes(mode)) {
-                    out('usage: sub <name> <poll|push|webhook> [json-params]');
+                    out('usage: sub <name> <poll|push|webhook> [json-params] [--from <cursor>]');
                     return;
                 }
+                let fromCursor: string | undefined;
+                const fromIdx = tail.indexOf('--from');
+                if (fromIdx >= 0) {
+                    fromCursor = tail[fromIdx + 1];
+                    if (!fromCursor) {
+                        out('--from requires a cursor value');
+                        return;
+                    }
+                    tail.splice(fromIdx, 2);
+                }
                 let params: Record<string, unknown> = {};
-                if (paramParts.length > 0) {
+                if (tail.length > 0) {
                     try {
-                        params = JSON.parse(paramParts.join(' '));
+                        params = JSON.parse(tail.join(' '));
                     } catch (error) {
                         out(`invalid JSON params: ${(error as Error).message}`);
                         return;
                     }
                 }
-                const sub = await manager.subscribe(name, params, { delivery: mode });
+                const sub = await manager.subscribe(name, params, { delivery: mode, cursor: fromCursor });
                 subs.push(sub);
-                out(`subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}`);
+                out(`subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}${fromCursor !== undefined ? ` from=${fromCursor}` : ''}`);
                 void (async () => {
                     try {
                         for await (const ev of sub) printOccurrence(sub.delivery, ev);
@@ -241,7 +251,16 @@ async function main(): Promise<void> {
             case 'unsub': {
                 const ref = rest[0];
                 if (!ref) {
-                    out('usage: unsub <index|id>');
+                    if (subs.length === 0) {
+                        out('  (no subscriptions)');
+                        return;
+                    }
+                    const all = [...subs];
+                    for (const sub of all) {
+                        await sub.cancel();
+                        webhookSecrets.delete(sub.id);
+                        out(`unsubscribed ${sub.id}`);
+                    }
                     return;
                 }
                 const idx = Number.parseInt(ref, 10);

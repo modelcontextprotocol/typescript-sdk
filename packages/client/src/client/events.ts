@@ -60,6 +60,13 @@ export interface SubscribeOptions {
      * {@linkcode EventSubscription.cancel}.
      */
     signal?: AbortSignal;
+    /**
+     * Resume from a known cursor. If set, the initial `events/subscribe` /
+     * `events/stream` / `events/poll` request carries this cursor so the server
+     * can replay buffered events from that point. Without it, delivery starts
+     * from the current head ("now").
+     */
+    cursor?: string;
 }
 
 /**
@@ -298,6 +305,7 @@ export class ClientEventManager {
             this._subscriptions.delete(id);
             await this._teardown(sub);
         });
+        if (options.cursor !== undefined) sub.cursor = options.cursor;
 
         options.signal?.addEventListener('abort', () => void sub.cancel(), { once: true });
 
