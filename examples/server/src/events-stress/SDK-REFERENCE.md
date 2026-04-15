@@ -38,7 +38,7 @@ server.registerEvent(
             onUnsubscribe: async (subId, params, ctx) => { /* tear down */ }
         },
         matches: (params, data) => true,            // filter for broadcast emit()
-        bufferEmits: { capacity: 500 }              // opt-in: emit() visible to poll
+        buffer: { capacity: 500 }                   // override default 1000-entry log capacity
     },
     // The check callback — the one function that backs all delivery modes.
     async (params, cursor, ctx) => {
@@ -77,7 +77,7 @@ server.emitEvent('source.event_name', { id: 'evt-1', ... });
 server.emitEvent('source.event_name', { ... }, { subscriptionId: 'sub_abc' });
 ```
 
-**If you want poll clients to see emits**, set `bufferEmits: { capacity: N }` on the event config. The SDK buffers broadcast emits in a ring buffer and merges them into poll responses.
+**Poll clients see emits automatically** — the unified event log is always on (default capacity 1000). Override with `buffer: { capacity: N }` for high-volume events.
 
 ### `server.terminateEventSubscription(subId, reason?)`
 
@@ -88,7 +88,7 @@ Kill a single active push/webhook subscription (e.g., user's access revoked).
 | Upstream                                                                          | Pattern                                                                                                                                                                               |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Poll-only API with cursor (Gmail historyId, Stripe `/events`)                     | Check callback only. No `emit()`.                                                                                                                                                     |
-| Webhook inbound (GitHub, PagerDuty, Shopify)                                      | HTTP route verifies HMAC → `server.emitEvent(...)`. Check callback returns `{ events: [], cursor: 'emit-only', nextPollSeconds: N }`. Add `bufferEmits` so poll clients see them.     |
+| Webhook inbound (GitHub, PagerDuty, Shopify)                                      | HTTP route verifies HMAC → `server.emitEvent(...)`. Check callback returns `{ events: [], cursor: 'emit-only', nextPollSeconds: N }`. Buffer is always-on; tune `buffer: { capacity: N }` for high volume. |
 | Outbound WebSocket/gRPC stream (Slack Socket Mode, Salesforce Pub/Sub, k8s watch) | Open stream in `onSubscribe` (refcounted), push via `emitEvent()` in message handler, close in `onUnsubscribe`.                                                                       |
 | Dual-path (webhook + cursor API)                                                  | Check callback reads the durable cursor API. Webhook handler calls `emitEvent()` for low-latency. Client gets whichever arrives first; `eventId` dedup at the client handles overlap. |
 
