@@ -10,8 +10,11 @@
 //     pushed onto `target.constructor.prototype.__mcpTools`.
 //   - Standard decorators: `(value, context)`, metadata written to the
 //     `context.metadata` object — which the runtime hangs off the class
-//     at `Symbol.metadata` after class initialisation. Inheritance along
-//     the prototype chain works for free.
+//     at `Symbol.metadata` after class initialisation. A subclass's
+//     metadata object inherits from the parent's via the prototype
+//     chain, so subclasses see base-class entries — but writes must be
+//     copy-on-write to avoid mutating the parent's arrays in place
+//     (see `ownArray()` below).
 //
 // `experimentalDecorators` is a project-wide TypeScript setting, so this
 // file compiles under a dedicated `tsconfig.standard-decorators.json`
@@ -80,17 +83,29 @@ type McpClassMetadata = {
 //
 // `context.metadata` is a per-class object shared by every decorator on
 // the same class. The runtime attaches it to the constructor at
-// `Symbol.metadata` once initialisation finishes, and it inherits along
-// the prototype chain so subclasses see base-class decorators for free.
+// `Symbol.metadata` once initialisation finishes. For a subclass, the
+// runtime creates `Object.create(parent[Symbol.metadata])`, so *reads*
+// transparently walk the prototype chain — subclasses see base-class
+// entries for free — but *writes* must be own-properties or they silently
+// mutate the parent's array. `ownArray()` below enforces copy-on-write:
+// on first write in a given class it clones the inherited array, so
+// subclasses end up with `[...parentEntries, ...ownEntries]` and the
+// parent stays untouched.
 
 function metaOf(context: ClassMethodDecoratorContext): McpClassMetadata {
     return context.metadata as McpClassMetadata;
 }
 
+function ownArray<K extends keyof McpClassMetadata>(meta: McpClassMetadata, key: K): NonNullable<McpClassMetadata[K]> {
+    if (!Object.hasOwn(meta, key)) {
+        meta[key] = [...(meta[key] ?? [])] as McpClassMetadata[K];
+    }
+    return meta[key] as NonNullable<McpClassMetadata[K]>;
+}
+
 export function McpTool<S extends AnyZodObject | undefined = undefined>(config: ToolConfig<S>) {
     return (value: ToolCallback<S>, context: ClassMethodDecoratorContext): void => {
-        const meta = metaOf(context);
-        (meta.__mcpTools ??= []).push({
+        ownArray(metaOf(context), '__mcpTools').push({
             config: config as ToolConfig<AnyZodObject>,
             method: value as unknown as ToolCallback<AnyZodObject>
         });
@@ -99,8 +114,7 @@ export function McpTool<S extends AnyZodObject | undefined = undefined>(config: 
 
 export function McpPrompt<S extends AnyZodObject | undefined = undefined>(config: PromptConfig<S>) {
     return (value: PromptCallback<S>, context: ClassMethodDecoratorContext): void => {
-        const meta = metaOf(context);
-        (meta.__mcpPrompts ??= []).push({
+        ownArray(metaOf(context), '__mcpPrompts').push({
             config: config as PromptConfig<AnyZodObject>,
             method: value as unknown as PromptCallback<AnyZodObject>
         });
@@ -109,15 +123,13 @@ export function McpPrompt<S extends AnyZodObject | undefined = undefined>(config
 
 export function McpResource(config: ResourceConfig) {
     return (value: ReadResourceCallback, context: ClassMethodDecoratorContext): void => {
-        const meta = metaOf(context);
-        (meta.__mcpResources ??= []).push({ config, method: value });
+        ownArray(metaOf(context), '__mcpResources').push({ config, method: value });
     };
 }
 
 export function McpResourceTemplate(config: ResourceTemplateConfig) {
     return (value: ReadResourceTemplateCallback, context: ClassMethodDecoratorContext): void => {
-        const meta = metaOf(context);
-        (meta.__mcpResourceTemplates ??= []).push({ config, method: value });
+        ownArray(metaOf(context), '__mcpResourceTemplates').push({ config, method: value });
     };
 }
 

@@ -37,8 +37,10 @@ import * as z from 'zod/v4';
 //
 // Each config is derived from the matching MCP spec type — `Tool`,
 // `Prompt`, `Resource`, `ResourceTemplateType` — via `Omit<…, identity>`.
-// That way any spec-level field (icons, annotations, size, _meta, …)
-// shows up in the decorator config automatically.
+// That way any spec-level field (annotations, `_meta`, `size`, …) shows
+// up in the decorator config automatically. Caveat: What properties get
+// registered will ultimately depend on how the internals of the registerTool,
+// registerPrompt, registerResource method work.
 //
 // Schema fields (`inputSchema` / `outputSchema` / `argsSchema`) are the
 // exception: we replace the spec's JSON-Schema shape with a generic
@@ -83,16 +85,30 @@ type ClassMeta = {
 // schema. We then widen to `AnyZodObject` when storing on the prototype —
 // the per-method generic can't survive a heterogeneous array, but the
 // check has already happened at the use site.
+//
+// The per-class arrays are stored as own-properties on the class's
+// prototype. Because `B.prototype`'s `[[Prototype]]` is `A.prototype`, a
+// naive `proto.__mcpTools ??= []` on a subclass would read through the
+// chain, find the parent's array, short-circuit, and mutate it in
+// place — leaking subclass tools into the parent. `ownArray()` clones
+// the inherited array on first write so each class gets its own copy
+// and subclasses end up with `[...parentEntries, ...ownEntries]`.
 
 function protoOf(target: object): ClassMeta {
     return (target as { constructor: { prototype: ClassMeta } }).constructor.prototype;
 }
 
+function ownArray<K extends keyof ClassMeta>(proto: ClassMeta, key: K): NonNullable<ClassMeta[K]> {
+    if (!Object.hasOwn(proto, key)) {
+        proto[key] = [...(proto[key] ?? [])] as ClassMeta[K];
+    }
+    return proto[key] as NonNullable<ClassMeta[K]>;
+}
+
 export function McpTool<S extends AnyZodObject | undefined = undefined>(config: ToolConfig<S>) {
     return <M extends ToolCallback<S>>(target: object, _key: string | symbol, descriptor: TypedPropertyDescriptor<M>): void => {
         if (!descriptor.value) throw new Error(`@McpTool: method is undefined`);
-        const proto = protoOf(target);
-        (proto.__mcpTools ??= []).push({
+        ownArray(protoOf(target), '__mcpTools').push({
             config: config as ToolConfig<AnyZodObject>,
             method: descriptor.value as unknown as ToolCallback<AnyZodObject>
         });
@@ -102,8 +118,7 @@ export function McpTool<S extends AnyZodObject | undefined = undefined>(config: 
 export function McpPrompt<S extends AnyZodObject | undefined = undefined>(config: PromptConfig<S>) {
     return <M extends PromptCallback<S>>(target: object, _key: string | symbol, descriptor: TypedPropertyDescriptor<M>): void => {
         if (!descriptor.value) throw new Error(`@McpPrompt: method is undefined`);
-        const proto = protoOf(target);
-        (proto.__mcpPrompts ??= []).push({
+        ownArray(protoOf(target), '__mcpPrompts').push({
             config: config as PromptConfig<AnyZodObject>,
             method: descriptor.value as unknown as PromptCallback<AnyZodObject>
         });
@@ -113,8 +128,7 @@ export function McpPrompt<S extends AnyZodObject | undefined = undefined>(config
 export function McpResource(config: ResourceConfig) {
     return <M extends ReadResourceCallback>(target: object, _key: string | symbol, descriptor: TypedPropertyDescriptor<M>): void => {
         if (!descriptor.value) throw new Error(`@McpResource: method is undefined`);
-        const proto = protoOf(target);
-        (proto.__mcpResources ??= []).push({ config, method: descriptor.value });
+        ownArray(protoOf(target), '__mcpResources').push({ config, method: descriptor.value });
     };
 }
 
@@ -125,8 +139,7 @@ export function McpResourceTemplate(config: ResourceTemplateConfig) {
         descriptor: TypedPropertyDescriptor<M>
     ): void => {
         if (!descriptor.value) throw new Error(`@McpResourceTemplate: method is undefined`);
-        const proto = protoOf(target);
-        (proto.__mcpResourceTemplates ??= []).push({ config, method: descriptor.value });
+        ownArray(protoOf(target), '__mcpResourceTemplates').push({ config, method: descriptor.value });
     };
 }
 
