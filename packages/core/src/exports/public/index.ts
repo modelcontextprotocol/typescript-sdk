@@ -45,6 +45,7 @@ export type {
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
+    RequestHandlerExtra,
     RequestOptions,
     ServerContext
 } from '../../shared/protocol.js';
