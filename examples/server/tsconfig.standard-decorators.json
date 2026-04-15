@@ -1,0 +1,12 @@
+{
+    "extends": "./tsconfig.json",
+    "include": ["src/classDecoratorsExample.ts"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "composite": true,
+        "rootDir": ".",
+        "experimentalDecorators": false,
+        "emitDecoratorMetadata": false,
+        "tsBuildInfoFile": "./dist/.tsbuildinfo-standard-decorators"
+    }
+}

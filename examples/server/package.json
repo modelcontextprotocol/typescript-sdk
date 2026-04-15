@@ -20,7 +20,7 @@
         "mcp"
     ],
     "scripts": {
-        "typecheck": "tsgo -p tsconfig.json --noEmit",
+        "typecheck": "tsgo -p tsconfig.json --noEmit && tsgo -p tsconfig.standard-decorators.json --noEmit",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
         "prepack": "pnpm run build:esm && pnpm run build:cjs",
