@@ -2311,7 +2311,7 @@ export const StreamEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
  * A long-lived request that opens a push channel for event delivery.
  * The server confirms each subscription via `notifications/events/active`, reports
  * per-subscription errors via `notifications/events/error`, and delivers events
- * via `notifications/event`. The request terminates via connection close (HTTP)
+ * via `notifications/events/event`. The request terminates via connection close (HTTP)
  * or `notifications/cancelled` (stdio).
  */
 export const StreamEventsRequestSchema = RequestSchema.extend({
