@@ -53,7 +53,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
-| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
+| `@modelcontextprotocol/sdk/server/sse.js`            | `@modelcontextprotocol/node/sse` (deprecated; new code should use `NodeStreamableHTTPServerTransport`)                                                                                                             |
 | `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers removed (use external IdP/OAuth library)                                             |
 | `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                 |
 
@@ -317,7 +317,7 @@ new URL(ctx.http?.req?.url).searchParams.get('debug')
 
 ### SSE server transport
 
-`SSEServerTransport` removed entirely. Migrate to `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`). Client-side `SSEClientTransport` still available for connecting to legacy servers.
+`SSEServerTransport` is available as a deprecated compat shim under `@modelcontextprotocol/node/sse`. New code should use `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`). Client-side `SSEClientTransport` still available for connecting to legacy servers.
 
 ### Server-side auth
 
@@ -526,7 +526,7 @@ Access validators explicitly:
 5. **Wrap all raw Zod shapes with `z.object()`**: Change `inputSchema: { name: z.string() }` → `inputSchema: z.object({ name: z.string() })`. Same for `outputSchema` in tools and `argsSchema` in prompts.
 6. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
 7. If using `hostHeaderValidation` from server, update import and signature per section 8
-8. If using server SSE transport, migrate to Streamable HTTP
+8. If using server SSE transport, import `SSEServerTransport` from `@modelcontextprotocol/node/sse` (deprecated) or migrate to Streamable HTTP
 9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`) → `@modelcontextprotocol/express`; AS helpers → external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
 11. Verify: build with `tsc` / run tests
