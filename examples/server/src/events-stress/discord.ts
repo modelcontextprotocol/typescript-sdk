@@ -303,6 +303,15 @@ class Authz {
         const userToken = this._tokens.get(principal);
         if (!userToken) throw new Error(`user not authorised: no Discord token registered for principal ${principal}`);
 
+        // Require at least one scoping parameter so a subscribe without filters
+        // can't silently match every event regardless of access. Per-event authz
+        // (filterDelivery) is still the ultimate gate against the event's actual
+        // guild/channel, since the subscriber's filter narrows scope but doesn't
+        // prove access.
+        if (!params.guildId && !params.channelId) {
+            throw new Error('forbidden: subscription must specify guildId or channelId');
+        }
+
         if (params.guildId) {
             const guilds = await this._guildsFor(principal, userToken);
             if (!guilds.has(params.guildId)) throw new Error(`forbidden: user not in guild ${params.guildId}`);
@@ -346,16 +355,20 @@ class Authz {
                 continue;
             }
             try {
-                if (entry.guildId) {
+                // Authorise against the event's actual location, not just the
+                // subscriber's filter. If the filter says "guild G" but the
+                // event is in channel C of G, we still need to verify the user
+                // can read C — being in G alone isn't enough.
+                if (params.eventGuildId) {
                     const guilds = await this._guildsFor(entry.principal, userToken);
-                    if (!guilds.has(entry.guildId)) {
+                    if (!guilds.has(params.eventGuildId)) {
                         revoked.push(subId);
                         continue;
                     }
                 }
-                if (entry.channelId) {
-                    const perms = await this._channelPermsFor(entry.principal, entry.channelId);
-                    if (!(perms & PERM_VIEW_CHANNEL)) {
+                if (params.eventChannelId) {
+                    const perms = await this._channelPermsFor(entry.principal, params.eventChannelId);
+                    if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) {
                         revoked.push(subId);
                         continue;
                     }
