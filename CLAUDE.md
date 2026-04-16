@@ -67,7 +67,7 @@ The SDK is organized into three main layers:
 The SDK has a two-layer export structure to separate internal code from the public API:
 
 - **`@modelcontextprotocol/core`** (main entry, `packages/core/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
-- **`@modelcontextprotocol/core/public`** (`packages/core/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
+- **`@modelcontextprotocol/core/public`** (`packages/core/src/exports/public/index.ts`) — Curated public API. Exports TypeScript types, error classes, constants, guards, and the `Protocol` class. Re-exported by client and server packages.
 - **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core/public`.
 
 When modifying exports:
