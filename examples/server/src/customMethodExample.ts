@@ -2,9 +2,10 @@
 /**
  * Registering vendor-specific (non-spec) JSON-RPC methods on a `Server`.
  *
- * Custom methods use the Zod-schema form of `setRequestHandler` / `setNotificationHandler`:
- * pass a Zod object schema whose `method` field is `z.literal('<method>')`. The same overload
- * is available on `Client` (for server→client custom methods).
+ * Custom methods use the 3-arg form of `setRequestHandler` / `setNotificationHandler`:
+ * pass the method string, a params schema, and the handler. The same overload is
+ * available on `Client` (for server→client custom methods) — you do NOT need a raw
+ * `Protocol` instance for this.
  *
  * To call these from the client side, use:
  *   await client.request({ method: 'acme/search', params: { query: 'widgets' } }, SearchResult)
@@ -15,28 +16,21 @@
 import { Server, StdioServerTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
-const SearchRequest = z.object({
-    method: z.literal('acme/search'),
-    params: z.object({ query: z.string() })
-});
-
-const TickNotification = z.object({
-    method: z.literal('acme/tick'),
-    params: z.object({ n: z.number() })
-});
+const SearchParams = z.object({ query: z.string() });
+const TickParams = z.object({ n: z.number() });
 
 const server = new Server({ name: 'custom-method-server', version: '1.0.0' }, { capabilities: {} });
 
-server.setRequestHandler(SearchRequest, async (request, ctx) => {
-    console.log('[server] acme/search query=' + request.params.query);
+server.setRequestHandler('acme/search', SearchParams, async (params, ctx) => {
+    console.log('[server] acme/search query=' + params.query);
     await ctx.mcpReq.notify({ method: 'acme/searchProgress', params: { stage: 'start', pct: 0 } });
-    const hits = [request.params.query, request.params.query + '-result'];
+    const hits = [params.query, params.query + '-result'];
     await ctx.mcpReq.notify({ method: 'acme/searchProgress', params: { stage: 'done', pct: 100 } });
     return { hits };
 });
 
-server.setNotificationHandler(TickNotification, n => {
-    console.log('[server] acme/tick n=' + n.params.n);
+server.setNotificationHandler('acme/tick', TickParams, p => {
+    console.log('[server] acme/tick n=' + p.n);
 });
 
 await server.connect(new StdioServerTransport());
