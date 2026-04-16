@@ -49,6 +49,7 @@ export type {
     ServerContext
 } from '../../shared/protocol.js';
 export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
+export type { ZodLikeRequestSchema } from '../../util/compatSchema.js';
 
 // Task manager types (NOT TaskManager class itself — internal)
 export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
