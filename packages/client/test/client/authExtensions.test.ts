@@ -448,6 +448,35 @@ describe('createPrivateKeyJwtAuth', () => {
         expect(decoded.sub).toBe('client-id');
     });
 
+    it('does not allow custom claims to override standard JWT claims', async () => {
+        const addClientAuth = createPrivateKeyJwtAuth({
+            issuer: 'client-id',
+            subject: 'client-id',
+            privateKey: 'a-string-secret-at-least-256-bits-long',
+            alg: 'HS256',
+            audience: 'https://aud.example.com',
+            claims: {
+                iss: 'override-issuer',
+                sub: 'override-subject',
+                aud: 'https://override.example.com',
+                tenant_id: 'org-123'
+            }
+        });
+
+        const params = new URLSearchParams();
+        await addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined);
+
+        const assertion = params.get('client_assertion');
+        expect(assertion).toBeTruthy();
+
+        const jose = await import('jose');
+        const decoded = jose.decodeJwt(assertion!);
+        expect(decoded.iss).toBe('client-id');
+        expect(decoded.sub).toBe('client-id');
+        expect(decoded.aud).toBe('https://aud.example.com');
+        expect(decoded.tenant_id).toBe('org-123');
+    });
+
     it('passes custom claims through PrivateKeyJwtProvider', async () => {
         const provider = new PrivateKeyJwtProvider({
             clientId: 'client-id',
