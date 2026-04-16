@@ -53,6 +53,7 @@
 
 import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import type { ServerContext } from '@modelcontextprotocol/core';
+import { EVENT_UNAUTHORIZED, TOO_MANY_SUBSCRIPTIONS, ProtocolError } from '@modelcontextprotocol/core';
 import { Client as DiscordClient, Events, GatewayIntentBits, Partials } from 'discord.js';
 import * as z from 'zod/v4';
 
@@ -296,12 +297,16 @@ class Authz {
     /** Throws on denial. Called from `onSubscribe`. */
     async authorise(subId: string, params: Filter, ctx: ServerContext): Promise<void> {
         const principal = Authz.principalFor(ctx);
-        if (this._subs.size >= MAX_TOTAL_SUBS) throw new Error('server subscription capacity exceeded');
+        if (this._subs.size >= MAX_TOTAL_SUBS) {
+            throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, 'server subscription capacity exceeded');
+        }
         if ((this._subsByPrincipal.get(principal) ?? 0) >= MAX_SUBS_PER_PRINCIPAL) {
-            throw new Error('per-principal subscription limit reached');
+            throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, 'per-principal subscription limit reached');
         }
         const userToken = this._tokens.get(principal);
-        if (!userToken) throw new Error(`user not authorised: no Discord token registered for principal ${principal}`);
+        if (!userToken) {
+            throw new ProtocolError(EVENT_UNAUTHORIZED, `no Discord token registered for principal ${principal}`);
+        }
 
         // Require at least one scoping parameter so a subscribe without filters
         // can't silently match every event regardless of access. Per-event authz
@@ -309,17 +314,19 @@ class Authz {
         // guild/channel, since the subscriber's filter narrows scope but doesn't
         // prove access.
         if (!params.guildId && !params.channelId) {
-            throw new Error('forbidden: subscription must specify guildId or channelId');
+            throw new ProtocolError(EVENT_UNAUTHORIZED, 'subscription must specify guildId or channelId');
         }
 
         if (params.guildId) {
             const guilds = await this._guildsFor(principal, userToken);
-            if (!guilds.has(params.guildId)) throw new Error(`forbidden: user not in guild ${params.guildId}`);
+            if (!guilds.has(params.guildId)) {
+                throw new ProtocolError(EVENT_UNAUTHORIZED, `user not in guild ${params.guildId}`);
+            }
         }
         if (params.channelId) {
             const perms = await this._channelPermsFor(principal, params.channelId);
             if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) {
-                throw new Error(`forbidden: user cannot read channel ${params.channelId}`);
+                throw new ProtocolError(EVENT_UNAUTHORIZED, `user cannot read channel ${params.channelId}`);
             }
         }
         this._subs.set(subId, { principal, guildId: params.guildId, channelId: params.channelId });
@@ -520,7 +527,14 @@ export function createServer(discord?: DiscordClient): McpServer {
 
     const channelHooks = {
         onSubscribe: async (subId: string, params: Filter, ctx: ServerContext) => {
-            await authz.authorise(subId, params, ctx);
+            console.error(`[authz] onSubscribe fired id=${subId} params=${JSON.stringify(params)} principal=${ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? 'stdio-anonymous'}`);
+            try {
+                await authz.authorise(subId, params, ctx);
+                console.error(`[authz] OK id=${subId}`);
+            } catch (error) {
+                console.error(`[authz] DENY id=${subId}: ${(error as Error).message}`);
+                throw error;
+            }
         },
         onUnsubscribe: async (subId: string) => {
             authz.release(subId);

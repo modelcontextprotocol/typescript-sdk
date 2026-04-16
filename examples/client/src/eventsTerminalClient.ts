@@ -151,11 +151,13 @@ async function main(): Promise<void> {
         out(`connecting via HTTP: ${mcpUrl}`);
         await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl)));
     } else {
-        out('connecting via stdio: spawning eventsExample.ts --webhook');
+        const serverScript = process.env.MCP_SERVER_SCRIPT ?? 'src/eventsExample.ts';
+        const serverArgs = process.env.MCP_SERVER_ARGS ? process.env.MCP_SERVER_ARGS.split(' ') : ['--webhook'];
+        out(`connecting via stdio: spawning ${serverScript} ${serverArgs.join(' ')}`);
         await client.connect(
             new StdioClientTransport({
                 command: 'pnpm',
-                args: ['--filter', '@modelcontextprotocol/examples-server', 'exec', 'tsx', 'src/eventsExample.ts', '--webhook'],
+                args: ['--filter', '@modelcontextprotocol/examples-server', 'exec', 'tsx', serverScript, ...serverArgs],
                 env: { ...process.env, COREPACK_NPM_REGISTRY: 'https://registry.npmjs.org' }
             })
         );
@@ -240,10 +242,20 @@ async function main(): Promise<void> {
                 subs.push(sub);
                 out(`subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}${fromCursor !== undefined ? ` from=${fromCursor}` : ''}`);
                 void (async () => {
+                    let gotAnyEvent = false;
                     try {
-                        for await (const ev of sub) printOccurrence(sub.delivery, ev);
+                        for await (const ev of sub) {
+                            gotAnyEvent = true;
+                            printOccurrence(sub.delivery, ev);
+                        }
                     } catch (error) {
-                        out(`  [${sub.delivery}] subscription ${sub.id.slice(0, 8)}… ended: ${(error as Error).message}`);
+                        const err = error as Error & { code?: number };
+                        const label = gotAnyEvent ? 'ended' : 'REJECTED';
+                        const code = err.code !== undefined ? ` (code ${err.code})` : '';
+                        out(`  [${sub.delivery}] subscription ${sub.id.slice(0, 8)}… ${label}${code}: ${err.message}`);
+                        // Remove from active subs list so `subs` and `unsub` don't list a dead one.
+                        const idx = subs.indexOf(sub);
+                        if (idx >= 0) subs.splice(idx, 1);
                     }
                 })();
                 return;

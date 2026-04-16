@@ -809,7 +809,11 @@ export class ServerEventManager {
         const wireCursor = spec.cursor ?? null;
         const isFirstPoll = !existingState && wireCursor === null;
         if (isFirstPoll && event.hooks?.onSubscribe) {
-            await event.hooks.onSubscribe(spec.id, paramsResult.params, ctx);
+            try {
+                await event.hooks.onSubscribe(spec.id, paramsResult.params, ctx);
+            } catch (error) {
+                return { id: spec.id, error: this._toSubscriptionError(error) };
+            }
         }
 
         // Determine replay-from seq:
@@ -952,7 +956,12 @@ export class ServerEventManager {
             }
 
             if (wireCursor === null && event.hooks?.onSubscribe) {
-                await event.hooks.onSubscribe(spec.id, paramsResult.params, stream.ctx);
+                try {
+                    await event.hooks.onSubscribe(spec.id, paramsResult.params, stream.ctx);
+                } catch (error) {
+                    this._sendErrorNotification(stream, spec.id, this._toSubscriptionError(error));
+                    continue;
+                }
             }
 
             const active: ActiveSubscription = {
@@ -1132,7 +1141,13 @@ export class ServerEventManager {
         if (isNew) {
             this._webhookSubs.set(key, sub);
             if (event.hooks?.onSubscribe) {
-                await event.hooks.onSubscribe(params.id, paramsResult.params, ctx);
+                try {
+                    await event.hooks.onSubscribe(params.id, paramsResult.params, ctx);
+                } catch (error) {
+                    // Roll back the partially-registered sub before surfacing the error.
+                    this._webhookSubs.delete(key);
+                    throw error;
+                }
             }
         }
 
