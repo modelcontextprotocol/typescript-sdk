@@ -1038,13 +1038,13 @@ describe('Zod v4', () => {
             expect(transport.sessionId).toBe(REPLAY_SESSION_ID);
         });
 
-        it('should invoke oninitialized with replayed data', async () => {
+        it('should invoke oninitializationreplay with replayed data', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({
                 replayInitialization: () => REPLAY_DATA
             });
 
-            const oninitializedSpy = vi.fn();
-            transport.oninitialized = oninitializedSpy;
+            const oninitializationreplaySpy = vi.fn();
+            transport.oninitializationreplay = oninitializationreplaySpy;
 
             const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
             await mcpServer.connect(transport);
@@ -1055,10 +1055,10 @@ describe('Zod v4', () => {
             await transport.handleRequest(request);
 
             // The server's connect() chains its own hook, so verify the original was also called
-            expect(oninitializedSpy).toHaveBeenCalledWith(REPLAY_DATA);
+            expect(oninitializationreplaySpy).toHaveBeenCalledWith(REPLAY_DATA);
         });
 
-        it('should seed server capabilities via oninitialized hook', async () => {
+        it('should seed server capabilities via oninitializationreplay hook', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({
                 replayInitialization: () => REPLAY_DATA
             });

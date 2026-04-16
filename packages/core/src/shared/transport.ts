@@ -128,7 +128,7 @@ export interface Transport {
      * {@linkcode @modelcontextprotocol/server!server/server.Server.connect | connect()} to
      * seed client capabilities and version info.
      */
-    oninitialized?: ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined;
+    oninitializationreplay?: ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined;
 
     /**
      * The session ID generated for this connection.

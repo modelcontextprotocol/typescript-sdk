@@ -279,7 +279,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
-    oninitialized?: (data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void;
+    oninitializationreplay?: (data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void;
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
@@ -892,7 +892,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Called once in `handleRequest()` before method dispatch.
      *
      * No-op when already initialized, no callback provided, or no session ID header.
-     * On success, sets `sessionId` and `_initialized`, then invokes `oninitialized`
+     * On success, sets `sessionId` and `_initialized`, then invokes `oninitializationreplay`
      * so the server can seed client capabilities and version info.
      */
     private async _tryReplayInitialization(req: Request): Promise<Response | undefined> {
@@ -912,7 +912,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             this.sessionId = sessionId;
             this._initialized = true;
-            this.oninitialized?.(result);
+            this.oninitializationreplay?.(result);
             return undefined;
         } finally {
             this._replayInProgress = false;

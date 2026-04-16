@@ -142,13 +142,13 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
-     * Attaches to the given transport, hooking the `oninitialized` callback
+     * Attaches to the given transport, hooking the `oninitializationreplay` callback
      * to seed client capabilities and version info from replayed sessions.
      */
     override async connect(transport: Transport): Promise<void> {
-        const _oninitialized = transport.oninitialized;
-        transport.oninitialized = data => {
-            _oninitialized?.(data);
+        const _oninitializationreplay = transport.oninitializationreplay;
+        transport.oninitializationreplay = data => {
+            _oninitializationreplay?.(data);
             this._clientCapabilities ??= data.clientCapabilities;
             this._clientVersion ??= data.clientVersion;
         };

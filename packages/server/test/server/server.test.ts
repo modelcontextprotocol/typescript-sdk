@@ -40,18 +40,18 @@ describe('Server', () => {
         });
     });
 
-    describe('connect — oninitialized hook', () => {
+    describe('connect — oninitializationreplay hook', () => {
         const testCapabilities: ClientCapabilities = { sampling: {} };
         const testVersion: Implementation = { name: 'test-client', version: '2.0.0' };
 
-        it('should seed getClientCapabilities() when transport.oninitialized is called', async () => {
+        it('should seed getClientCapabilities() when transport.oninitializationreplay is called', async () => {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
 
             const [, serverTransport] = InMemoryTransport.createLinkedPair();
             await server.connect(serverTransport);
 
-            // Simulate transport calling oninitialized (as _tryReplayInitialization would)
-            serverTransport.oninitialized?.({
+            // Simulate transport calling oninitializationreplay (as _tryReplayInitialization would)
+            serverTransport.oninitializationreplay?.({
                 clientCapabilities: testCapabilities,
                 clientVersion: testVersion
             });
@@ -62,7 +62,7 @@ describe('Server', () => {
             await server.close();
         });
 
-        it('should return undefined for getClientCapabilities() when oninitialized is not called', async () => {
+        it('should return undefined for getClientCapabilities() when oninitializationreplay is not called', async () => {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
 
             const [, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -80,8 +80,8 @@ describe('Server', () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await server.connect(serverTransport);
 
-            // First: seed via oninitialized
-            serverTransport.oninitialized?.({
+            // First: seed via oninitializationreplay
+            serverTransport.oninitializationreplay?.({
                 clientCapabilities: testCapabilities,
                 clientVersion: testVersion
             });
@@ -116,18 +116,18 @@ describe('Server', () => {
             await server.close();
         });
 
-        it('should chain with an existing transport.oninitialized callback', async () => {
+        it('should chain with an existing transport.oninitializationreplay callback', async () => {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
 
             const [, serverTransport] = InMemoryTransport.createLinkedPair();
 
             const existingCallback = vi.fn();
-            serverTransport.oninitialized = existingCallback;
+            serverTransport.oninitializationreplay = existingCallback;
 
             await server.connect(serverTransport);
 
             const data = { clientCapabilities: testCapabilities, clientVersion: testVersion };
-            serverTransport.oninitialized?.(data);
+            serverTransport.oninitializationreplay?.(data);
 
             // Both the existing callback and the server's hook should have fired
             expect(existingCallback).toHaveBeenCalledWith(data);

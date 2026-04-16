@@ -141,12 +141,14 @@ export class NodeStreamableHTTPServerTransport implements Transport {
     /**
      * Sets callback for session initialization replay.
      */
-    set oninitialized(handler: ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined) {
-        this._webStandardTransport.oninitialized = handler;
+    set oninitializationreplay(
+        handler: ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined
+    ) {
+        this._webStandardTransport.oninitializationreplay = handler;
     }
 
-    get oninitialized(): ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined {
-        return this._webStandardTransport.oninitialized;
+    get oninitializationreplay(): ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined {
+        return this._webStandardTransport.oninitializationreplay;
     }
 
     /**

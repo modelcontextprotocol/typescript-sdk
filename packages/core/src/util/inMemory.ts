@@ -18,7 +18,7 @@ export class InMemoryTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
-    oninitialized?: (data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void;
+    oninitializationreplay?: (data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void;
     sessionId?: string;
 
     /**
