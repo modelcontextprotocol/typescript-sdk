@@ -15,7 +15,6 @@
             "@modelcontextprotocol/server/validators/cf-worker": ["./node_modules/@modelcontextprotocol/server/src/validators/cfWorker.ts"],
             "@modelcontextprotocol/node": ["./node_modules/@modelcontextprotocol/node/src/index.ts"],
             "@modelcontextprotocol/node/sse": ["./node_modules/@modelcontextprotocol/node/src/sse.ts"],
-            "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],
             "@modelcontextprotocol/server-auth-legacy": ["./node_modules/@modelcontextprotocol/server-auth-legacy/src/index.ts"],
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],

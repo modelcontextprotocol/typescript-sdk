@@ -6,11 +6,11 @@ import { McpError, ErrorCode, type CallToolRequest } from '../src/types.js';
 import { Server } from '../src/server/index.js';
 import { Client } from '../src/client/index.js';
 import { McpServer } from '../src/server/mcp.js';
-import { InvalidTokenError } from '../src/server/auth/errors.js';
+import { InvalidTokenError, OAuthError as LegacyOAuthError } from '../src/server/auth/errors.js';
 import { StreamableHTTPServerTransport } from '../src/server/streamableHttp.js';
 import type { Transport } from '../src/shared/transport.js';
 import type { RequestHandlerExtra } from '../src/shared/protocol.js';
-import { OAuthError, OAuthErrorCode, ProtocolError } from '../src/index.js';
+import { ProtocolError } from '../src/index.js';
 
 describe('@modelcontextprotocol/sdk meta-package', () => {
     let warnSpy: MockInstance;
@@ -31,10 +31,10 @@ describe('@modelcontextprotocol/sdk meta-package', () => {
         // ./server/mcp.js
         expect(typeof McpServer).toBe('function');
 
-        // ./server/auth/errors.js — OAuth subclasses
+        // ./server/auth/errors.js — v1 OAuth subclasses (legacy hierarchy, shared with sibling auth subpaths)
         const tokenErr = new InvalidTokenError('bad');
-        expect(tokenErr).toBeInstanceOf(OAuthError);
-        expect(tokenErr.code).toBe(OAuthErrorCode.InvalidToken);
+        expect(tokenErr).toBeInstanceOf(LegacyOAuthError);
+        expect(tokenErr.errorCode).toBe('invalid_token');
 
         // ./server/streamableHttp.js — alias to NodeStreamableHTTPServerTransport
         expect(typeof StreamableHTTPServerTransport).toBe('function');
