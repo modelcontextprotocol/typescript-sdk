@@ -979,16 +979,11 @@ export class ServerEventManager {
                 continue;
             }
 
-            const wireCursor = spec.cursor ?? null;
-            const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, spec.id);
-            if ('error' in replay) {
-                this._sendErrorNotification(stream, spec.id, replay.error);
-                continue;
-            }
-
-            // Fire onSubscribe for every spec the stream receives — resume
-            // via cursor is still a fresh subscription (new spec.id) from the
-            // server's perspective and app hooks (authz) need to run.
+            // Fire onSubscribe before replay so app hooks (e.g. authz that
+            // registers the sub for matches()) are in place by the time
+            // _replayAfterCursor runs its matches() filter. Resume via cursor
+            // is still a fresh subscription (new spec.id) from the server's
+            // perspective.
             if (event.hooks?.onSubscribe) {
                 try {
                     await event.hooks.onSubscribe(spec.id, paramsResult.params, stream.ctx);
@@ -996,6 +991,13 @@ export class ServerEventManager {
                     this._sendErrorNotification(stream, spec.id, this._toSubscriptionError(error));
                     continue;
                 }
+            }
+
+            const wireCursor = spec.cursor ?? null;
+            const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, spec.id);
+            if ('error' in replay) {
+                this._sendErrorNotification(stream, spec.id, replay.error);
+                continue;
             }
 
             const active: ActiveSubscription = {
