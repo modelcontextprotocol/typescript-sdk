@@ -100,8 +100,8 @@ The v1 names below are still exported as `@deprecated` aliases. Migrate to the v
 | `ResourceReference`                                      | `ResourceTemplateReference`                                                                                     |
 | `ResourceReferenceSchema`                                | `ResourceTemplateReferenceSchema`                                                                               |
 | `ResourceTemplate` (the protocol _type_)                 | `ResourceTemplateType` (`ResourceTemplate` is now the server template _class_)                                  |
-| `IsomorphicHeaders`                                      | REMOVED (use Web Standard `Headers`)                                                                            |
-| `RequestInfo` (custom SDK type)                          | REMOVED (use Web Standard `Request` via `ctx.http?.req`)                                                        |
+| `IsomorphicHeaders`                                      | `Headers` (Web Standard)                                                                                        |
+| `RequestInfo` (custom SDK type)                          | `Request` (Web Standard, via `ctx.http?.req`)                                                                   |
 | `ZodRawShapeCompat`                                      | `StandardSchemaWithJSON`                                                                                        |
 | `AuthInfo` (from `server/auth/types.js`)                 | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`)               |
 | `OAuthProtectedResourceMetadata` (from `shared/auth.js`) | `OAuthProtectedResourceMetadata` (re-exported by `@modelcontextprotocol/client` / `server`)                     |
@@ -112,8 +112,9 @@ The v1 names below are still exported as `@deprecated` aliases. Migrate to the v
 | `ErrorCode`                                              | `ProtocolErrorCode`                                                                                             |
 | `ErrorCode.RequestTimeout`                               | `SdkErrorCode.RequestTimeout`                                                                                   |
 | `ErrorCode.ConnectionClosed`                             | `SdkErrorCode.ConnectionClosed`                                                                                 |
-| `StreamableHTTPError`                                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`)                                                        |
-| `WebSocketClientTransport`                               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
+| `StreamableHTTPError`                                    | `SdkError` with `SdkErrorCode.ClientHttp*`                                                                      |
+
+`WebSocketClientTransport` is **removed** (no deprecated alias). Use `StreamableHTTPClientTransport` or `StdioClientTransport`.
 
 All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`, `OAuthTokensSchema`) are no longer part of the public API. For runtime validation: use
 `parseJSONRPCMessage(raw)` for transport framing, `isCallToolResult(v)` for the common case, or `specTypeSchema('<Name>')` / `isSpecType('<Name>', v)` for any other spec type. The raw Zod constants remain available at `@modelcontextprotocol/server/zod-schemas` as a compatibility

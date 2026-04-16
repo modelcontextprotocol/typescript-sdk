@@ -292,9 +292,7 @@ const debug = url.searchParams.get('debug');
 
 ### `McpServer.tool()`, `.prompt()`, `.resource()` deprecated
 
-These variadic methods are still available as `@deprecated` overloads that forward to `registerTool`/`registerPrompt`/`registerResource`. Migrate when convenient:
-
-The deprecated variadic-overload methods have been removed. Use `registerTool`, `registerPrompt`, and `registerResource` instead. These use an explicit config object rather than positional arguments.
+These variadic methods are still available as `@deprecated` overloads that forward to `registerTool`/`registerPrompt`/`registerResource`. The new methods use an explicit config object rather than positional arguments. Migrate when convenient:
 
 **Before (v1):**
 
@@ -854,7 +852,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                   |
 | `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                 |
 
-#### `StreamableHTTPError` removed
+#### `StreamableHTTPError` deprecated
 
 `StreamableHTTPError` is now a subclass of `SdkError` (so `instanceof SdkError` and `instanceof StreamableHTTPError` both work). HTTP transport errors carry specific `SdkErrorCode` values for granular handling. Note: `error.code` is now an `SdkErrorCode` string; the HTTP status is on `error.status`.
 
