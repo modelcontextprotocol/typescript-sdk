@@ -33,6 +33,13 @@ describe('McpServer v1-compat variadic shims', () => {
             const reg = server.tool('x', () => ({ content: [{ type: 'text', text: 'ok' }] }));
             expect(reg.inputSchema).toBeUndefined();
         });
+
+        it('treats empty object as raw shape, not annotations (matches v1)', () => {
+            const server = new McpServer({ name: 't', version: '1' });
+            const reg = server.tool('x', {}, () => ({ content: [{ type: 'text', text: 'ok' }] }));
+            expect(reg.inputSchema).toBeDefined();
+            expect(reg.annotations).toBeUndefined();
+        });
     });
 
     describe('.prompt()', () => {

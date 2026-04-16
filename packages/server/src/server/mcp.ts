@@ -1219,8 +1219,8 @@ export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args ex
 function isZodRawShape(obj: unknown): obj is ZodRawShape {
     if (typeof obj !== 'object' || obj === null) return false;
     if (isStandardSchema(obj)) return false;
-    const values = Object.values(obj);
-    return values.length > 0 && values.every(v => isStandardSchema(v));
+    // [].every() is true, so an empty object is a valid raw shape (matches v1).
+    return Object.values(obj).every(v => isStandardSchema(v));
 }
 
 /**
