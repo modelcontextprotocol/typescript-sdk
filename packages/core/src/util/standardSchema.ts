@@ -139,9 +139,10 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
 }
 
 /**
- * Detects a "raw shape" — a plain object whose values are Zod (or other
- * Standard Schema) field schemas, e.g. `{ name: z.string() }`. Powers the
- * auto-wrap in {@linkcode normalizeRawShapeSchema}.
+ * Detects a "raw shape" — a plain object whose values are Zod field schemas,
+ * e.g. `{ name: z.string() }`. Powers the auto-wrap in
+ * {@linkcode normalizeRawShapeSchema}, which wraps with `z.object()`, so only
+ * Zod values are supported even though the predicate accepts any Standard Schema.
  *
  * @internal
  */
