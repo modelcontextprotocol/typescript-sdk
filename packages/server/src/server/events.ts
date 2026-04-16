@@ -558,7 +558,12 @@ export class ServerEventManager {
         // sub runs sequentially, preserving per-sub ordering for this event.
         // Across emits with async matches, apps that need strict ordering
         // should keep authz decisions cache-hot so matches resolves sync.
-        void this._fanOut(event, eventName, occurrence);
+        this._fanOut(event, eventName, occurrence).catch(err => {
+            // User-provided async matches() or delivery hooks may reject;
+            // isolate from the caller's emit() path. Log so it's debuggable
+            // rather than surfacing as an unhandled promise rejection.
+            console.error(`[events] fan-out for ${eventName} failed:`, err);
+        });
     }
 
     /** Appends to the event log with dedup-by-cursor; evicts oldest on overflow. */
