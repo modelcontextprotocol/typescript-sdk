@@ -75,7 +75,15 @@ export function createServer(webhooksOverride?: Webhooks): McpServer {
     const secret = webhooksOverride ? 'test-override' : requireEnv('GITHUB_WEBHOOK_SECRET');
     const webhooks = webhooksOverride ?? new Webhooks({ secret });
 
-    const server = new McpServer({ name: 'github-events', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 15_000 } } });
+    const server = new McpServer(
+        { name: 'github-events', version: '1.0.0' },
+        {
+            events: {
+                push: { heartbeatIntervalMs: 15_000 },
+                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true } }
+            }
+        }
+    );
 
     server.registerEvent(
         'github.pull_request',

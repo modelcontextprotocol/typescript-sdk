@@ -95,7 +95,15 @@ function createRealSlackClients(): SlackClients {
 // --- server ------------------------------------------------------------------
 
 export function createServer(clients?: SlackClients): McpServer {
-    const server = new McpServer({ name: 'slack-events', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 10_000 } } });
+    const server = new McpServer(
+        { name: 'slack-events', version: '1.0.0' },
+        {
+            events: {
+                push: { heartbeatIntervalMs: 10_000 },
+                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true } }
+            }
+        }
+    );
 
     const slack = clients ?? createRealSlackClients();
 

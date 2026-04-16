@@ -69,7 +69,15 @@ function decodeCursor(cursor: string): { historyId: string; pageToken?: string }
 // --- Server ----------------------------------------------------------------
 
 export function createServer(gmail: gmail_v1.Gmail = defaultGmailClient()): McpServer {
-    const server = new McpServer({ name: 'gmail-events', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 15_000 } } });
+    const server = new McpServer(
+        { name: 'gmail-events', version: '1.0.0' },
+        {
+            events: {
+                push: { heartbeatIntervalMs: 15_000 },
+                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true } }
+            }
+        }
+    );
 
     const subscribeParams = z.object({
         /** Optional Gmail label to narrow the history query (e.g. "INBOX", "IMPORTANT"). */

@@ -147,7 +147,15 @@ const DEFAULT_NS = process.env.K8S_NAMESPACE ?? 'default';
 
 export function createServer(deps?: K8sDeps): McpServer {
     const k8s = deps ?? createK8sDeps();
-    const server = new McpServer({ name: 'k8s-events', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 10_000 } } });
+    const server = new McpServer(
+        { name: 'k8s-events', version: '1.0.0' },
+        {
+            events: {
+                push: { heartbeatIntervalMs: 10_000 },
+                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true } }
+            }
+        }
+    );
 
     const inputSchema = z.object({
         namespace: z.string().default(DEFAULT_NS),

@@ -106,7 +106,15 @@ export function createServer(shopifyOverride?: Shopify): McpServer {
         accessToken: requireEnv('SHOPIFY_ACCESS_TOKEN')
     });
 
-    const server = new McpServer({ name: 'shopify-events', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 15_000 } } });
+    const server = new McpServer(
+        { name: 'shopify-events', version: '1.0.0' },
+        {
+            events: {
+                push: { heartbeatIntervalMs: 15_000 },
+                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true } }
+            }
+        }
+    );
 
     // --- Webhook registration lifecycle -------------------------------------
     //

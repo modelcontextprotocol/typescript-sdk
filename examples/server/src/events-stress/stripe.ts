@@ -76,7 +76,15 @@ export function createServer(stripeOverride?: Stripe): McpServer {
 
     const stripe = stripeOverride ?? new Stripe(secretKey);
 
-    const server = new McpServer({ name: 'stripe-events', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 15_000 } } });
+    const server = new McpServer(
+        { name: 'stripe-events', version: '1.0.0' },
+        {
+            events: {
+                push: { heartbeatIntervalMs: 15_000 },
+                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true } }
+            }
+        }
+    );
 
     const inputSchema = z.object({
         expand: z.boolean().default(false).describe('If true, embed the full Stripe object in each event payload')
