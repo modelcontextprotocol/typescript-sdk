@@ -313,7 +313,7 @@ ctx.http?.req?.headers.get('mcp-session-id')
 new URL(ctx.http?.req?.url).searchParams.get('debug')
 ```
 
-## 8. Removed Server Features
+## 8. Deprecated/Removed Server Features
 
 ### SSE server transport
 
