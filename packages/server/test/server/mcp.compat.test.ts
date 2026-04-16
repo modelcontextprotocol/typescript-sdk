@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-deprecated */
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { McpServer, ResourceTemplate } from '../../src/server/mcp.js';
 
 describe('McpServer v1-compat variadic shims', () => {

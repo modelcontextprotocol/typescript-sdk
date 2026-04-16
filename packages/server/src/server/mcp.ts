@@ -39,7 +39,7 @@ import {
     validateAndWarnToolName,
     validateStandardSchema
 } from '@modelcontextprotocol/core';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';

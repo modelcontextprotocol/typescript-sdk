@@ -12,6 +12,7 @@ export type {
     AnyToolHandler,
     BaseToolCallback,
     CompleteResourceTemplateCallback,
+    InferRawShape,
     LegacyPromptCallback,
     LegacyToolCallback,
     ListResourcesCallback,
