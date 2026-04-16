@@ -791,7 +791,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
     ): Promise<ResultTypeMap[M]>;
-    /** @deprecated The result schema is resolved internally; use `request(req)`. */
+    /** @deprecated For spec methods, the result schema is resolved automatically; use `request(req)`. */
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
     request(request: Request, optionsOrSchema?: RequestOptions | AnySchema, maybeOptions?: RequestOptions): Promise<unknown> {
         if (optionsOrSchema && '~standard' in optionsOrSchema) {
