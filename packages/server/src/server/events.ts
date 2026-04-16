@@ -835,8 +835,11 @@ export class ServerEventManager {
         const pollKey = this._pollStateKey(ctx, spec.name, spec.id);
         const existingState = this._pollState.get(pollKey);
         const wireCursor = spec.cursor ?? null;
-        const isFirstPoll = !existingState && wireCursor === null;
-        if (isFirstPoll && event.hooks?.onSubscribe) {
+        // Fire onSubscribe the first time we see this subscription id in the
+        // poll state, regardless of cursor. A `sub --from <cursor>` is still
+        // a fresh subscription from the server's perspective — it just wants
+        // replay from a prior point. App-level hooks (e.g. authz) need to run.
+        if (!existingState && event.hooks?.onSubscribe) {
             try {
                 await event.hooks.onSubscribe(spec.id, paramsResult.params, ctx);
             } catch (error) {
@@ -983,7 +986,10 @@ export class ServerEventManager {
                 continue;
             }
 
-            if (wireCursor === null && event.hooks?.onSubscribe) {
+            // Fire onSubscribe for every spec the stream receives — resume
+            // via cursor is still a fresh subscription (new spec.id) from the
+            // server's perspective and app hooks (authz) need to run.
+            if (event.hooks?.onSubscribe) {
                 try {
                     await event.hooks.onSubscribe(spec.id, paramsResult.params, stream.ctx);
                 } catch (error) {
