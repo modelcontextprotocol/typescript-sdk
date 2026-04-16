@@ -38,17 +38,21 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
-// Protocol types (NOT the Protocol class itself or mergeCapabilities)
+// Protocol class (abstract — subclass for custom vocabularies) + types. NOT mergeCapabilities.
 export type {
     BaseContext,
     ClientContext,
+    McpSpec,
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
+    ProtocolSpec,
     RequestOptions,
-    ServerContext
+    ServerContext,
+    SpecNotifications,
+    SpecRequests
 } from '../../shared/protocol.js';
-export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
+export { DEFAULT_REQUEST_TIMEOUT_MSEC, Protocol } from '../../shared/protocol.js';
 export type { ZodLikeRequestSchema } from '../../util/compatSchema.js';
 
 // Task manager types (NOT TaskManager class itself — internal)
