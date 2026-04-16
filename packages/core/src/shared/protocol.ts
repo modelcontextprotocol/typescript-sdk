@@ -1030,7 +1030,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
     ): void;
-    /** @deprecated Pass the method string instead. */
+    /** @deprecated For spec methods, pass the method string instead. */
     setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ContextT) => Result | Promise<Result>
@@ -1096,7 +1096,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
     ): void;
-    /** @deprecated Pass the method string instead. */
+    /** @deprecated For spec methods, pass the method string instead. */
     setNotificationHandler<T extends ZodLikeRequestSchema>(
         notificationSchema: T,
         handler: (notification: ReturnType<T['parse']>) => void | Promise<void>
