@@ -320,7 +320,9 @@ export type ClientContext = BaseContext & LegacyContextFields;
  *
  * v1 name for the handler context. v2 also exposes the same data under
  * `ctx.mcpReq` / `ctx.http`; the flat fields remain available so existing
- * handlers compile and run unchanged. See {@linkcode BaseContext}.
+ * handlers using them compile and run unchanged. HTTP-transport-specific fields
+ * (`requestInfo`, `closeSSEStream`, `closeStandaloneSSEStream`) are not shimmed
+ * and require migration to `ctx.http?.req` / `ctx.http?.closeSSE`. See {@linkcode BaseContext}.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- phantom params kept for v1 source compatibility
 export type RequestHandlerExtra<_Req = unknown, _Notif = unknown> = ServerContext;
