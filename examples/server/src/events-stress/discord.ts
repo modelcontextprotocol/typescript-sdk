@@ -1,12 +1,28 @@
 /**
- * Discord — MCP Events server (production-ready).
+ * Discord — MCP Events server (production-ready, multi-tenant authz).
  *
- * Exposes Discord Gateway events as MCP events: new messages, reactions, and
- * member joins. A single shared Gateway WebSocket connection feeds all
- * subscriptions via `server.emitEvent()`; filtering by channel/guild is
- * applied client-side via the `matches` callback. No per-subscription upstream
- * setup is needed — the Gateway delivers all events for guilds the bot has
- * joined once connected.
+ * Exposes Discord Gateway events (messages, reactions, member joins) as MCP
+ * events and gates delivery on the **subscribing user's** Discord permissions,
+ * not just the bot's. This is the pattern a hosted multi-tenant Discord MCP
+ * service would use: one Gateway connection per bot-install, fan out per
+ * subscriber subject to that subscriber's own guild/channel access.
+ *
+ * ## Authz model
+ *
+ * 1. On subscribe, `onSubscribe` resolves the MCP principal to a Discord user
+ *    access token (via {@linkcode UserTokenStore}) and checks that the user
+ *    can see the requested guild/channel before registering the subscription.
+ * 2. On each incoming Gateway event, delivery iterates the registered sub
+ *    table, re-checks cached permissions per subscriber, and uses **targeted**
+ *    `emitEvent({ subscriptionId })` to send only to still-authorised subs. No
+ *    broadcast emit.
+ * 3. When Discord signals role/channel/membership change, affected cache keys
+ *    are invalidated; the next event re-checks authz and terminates subs that
+ *    lost access via {@linkcode McpServer.terminateEventSubscription}.
+ *
+ * In stdio mode there is no HTTP auth, so the "principal" falls back to the
+ * MCP session id; a real deployment uses an HTTP transport with OAuth so that
+ * `ctx.http.authInfo.clientId` carries a stable per-user identity.
  *
  * ## Setup
  *
@@ -16,7 +32,11 @@
  * 4. OAuth2 → URL Generator → scopes: `bot` → permissions: Read Messages,
  *    Read Message History
  * 5. Open the generated URL to add the bot to your server
- * 6. Optional: set `DISCORD_GUILD_ID` to restrict events to one server
+ * 6. For demo purposes, seed `DEMO_USER_TOKENS` with a JSON object mapping
+ *    each MCP principal (stdio: session id; HTTP: OAuth clientId) to that
+ *    user's Discord access token (`Bearer <token>` or raw token string).
+ *    In production this is replaced by a real Discord OAuth flow wired to
+ *    MCP auth middleware — the same principal key, a real token provider.
  *
  * ## Environment variables
  *
@@ -24,6 +44,7 @@
  * |---------------------|----------|--------------------------------------------------|
  * | `DISCORD_BOT_TOKEN` | yes      | Bot token from the Discord developer portal      |
  * | `DISCORD_GUILD_ID`  | no       | If set, ignore events from all other guilds      |
+ * | `DEMO_USER_TOKENS`  | demo     | JSON `{ "<principal>": "<user access token>" }`  |
  *
  * ## Run
  *
@@ -31,6 +52,7 @@
  */
 
 import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import type { ServerContext } from '@modelcontextprotocol/core';
 import { Client as DiscordClient, Events, GatewayIntentBits, Partials } from 'discord.js';
 import * as z from 'zod/v4';
 
@@ -74,14 +96,318 @@ const memberPayload = z.object({
 });
 
 // --- event helpers -----------------------------------------------------------
-// All three events are emit-only: the Gateway has no "list since T" API
-// for these streams, so the check callback is a stub and `buffer`
-// is the sole path for poll-mode clients.
 
 const matchesChannel = (params: Filter, data: Record<string, unknown>) =>
     (!params.guildId || params.guildId === data.guildId) && (!params.channelId || params.channelId === data.channelId);
 
 const emitOnlyCheck = async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 });
+
+// --- authz primitives --------------------------------------------------------
+
+// Discord permission bits (bigint; Discord returns them as strings).
+const PERM_ADMINISTRATOR = 1n << 3n;
+const PERM_VIEW_CHANNEL = 1n << 10n;
+const PERM_READ_MESSAGE_HISTORY = 1n << 16n;
+
+/** Size caps prevent DoS via unique-key spraying (subscriber-controlled inputs). */
+const MAX_CACHE_ENTRIES = 10_000;
+const MAX_SUBS_PER_PRINCIPAL = 100;
+const MAX_TOTAL_SUBS = 10_000;
+
+interface CacheEntry<T> {
+    value: T;
+    expiresAt: number;
+}
+
+/**
+ * Bounded TTL cache. Plain {@linkcode Map} retains insertion order, so when
+ * adding past the size cap we evict the oldest entry to guard against
+ * subscriber-controlled keys (channelId, principal) growing the map forever.
+ */
+class TtlCache<T> {
+    private _store = new Map<string, CacheEntry<T>>();
+    constructor(
+        private readonly _ttlMs: number,
+        private readonly _maxEntries: number = MAX_CACHE_ENTRIES
+    ) {}
+    get(key: string): T | undefined {
+        const hit = this._store.get(key);
+        if (!hit) return undefined;
+        if (hit.expiresAt < Date.now()) {
+            this._store.delete(key);
+            return undefined;
+        }
+        return hit.value;
+    }
+    set(key: string, value: T): void {
+        if (this._store.has(key)) this._store.delete(key);
+        this._store.set(key, { value, expiresAt: Date.now() + this._ttlMs });
+        while (this._store.size > this._maxEntries) {
+            const oldest = this._store.keys().next().value;
+            if (oldest === undefined) break;
+            this._store.delete(oldest);
+        }
+    }
+    invalidate(key: string): void {
+        this._store.delete(key);
+    }
+    invalidatePrefix(prefix: string): void {
+        for (const k of this._store.keys()) if (k.startsWith(prefix)) this._store.delete(k);
+    }
+}
+
+/**
+ * Demo-only token source. Maps MCP principal (stable per-user identity) →
+ * Discord user access token. In production this wraps an OAuth store; the
+ * interface is the same so downstream code is unchanged.
+ */
+class UserTokenStore {
+    private readonly _tokens: Map<string, string>;
+    constructor(raw: string | undefined) {
+        this._tokens = new Map();
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Record<string, string>;
+        for (const [k, v] of Object.entries(parsed)) this._tokens.set(k, v);
+    }
+    get(principal: string): string | undefined {
+        return this._tokens.get(principal);
+    }
+}
+
+interface DiscordGuild {
+    id: string;
+}
+
+interface DiscordRole {
+    id: string;
+    permissions: string;
+}
+
+interface DiscordChannelOverwrite {
+    id: string;
+    /** 0 = role, 1 = member. */
+    type: 0 | 1;
+    allow: string;
+    deny: string;
+}
+
+interface DiscordChannel {
+    id: string;
+    guild_id?: string;
+    permission_overwrites?: DiscordChannelOverwrite[];
+}
+
+interface DiscordMember {
+    user?: { id: string };
+    roles: string[];
+}
+
+/** Thin wrapper over the two Discord REST endpoints we need. */
+class DiscordApi {
+    constructor(private readonly _botToken: string) {}
+
+    private async _call<T>(path: string, auth: string): Promise<T> {
+        const res = await fetch(`https://discord.com/api/v10${path}`, {
+            headers: { Authorization: auth }
+        });
+        if (!res.ok) throw new Error(`discord ${path} ${res.status}`);
+        return (await res.json()) as T;
+    }
+
+    async listUserGuilds(userToken: string): Promise<DiscordGuild[]> {
+        const auth = userToken.startsWith('Bearer ') ? userToken : `Bearer ${userToken}`;
+        return this._call<DiscordGuild[]>('/users/@me/guilds', auth);
+    }
+
+    /**
+     * Compute effective permission bits for `userId` in `channelId` using bot
+     * credentials. See https://discord.com/developers/docs/topics/permissions.
+     */
+    async getChannelPermsForUser(channelId: string, userId: string): Promise<bigint> {
+        const botAuth = `Bot ${this._botToken}`;
+        const channel = await this._call<DiscordChannel>(`/channels/${channelId}`, botAuth);
+        if (!channel.guild_id) return 0n;
+        const guildId = channel.guild_id;
+        const [member, roles] = await Promise.all([
+            this._call<DiscordMember>(`/guilds/${guildId}/members/${userId}`, botAuth),
+            this._call<DiscordRole[]>(`/guilds/${guildId}/roles`, botAuth)
+        ]);
+        const roleById = new Map(roles.map(r => [r.id, r]));
+        const everyone = roleById.get(guildId);
+        let base = everyone ? BigInt(everyone.permissions) : 0n;
+        for (const roleId of member.roles) {
+            const role = roleById.get(roleId);
+            if (role) base |= BigInt(role.permissions);
+        }
+        if (base & PERM_ADMINISTRATOR) return ~0n;
+        const overwrites = channel.permission_overwrites ?? [];
+        const everyoneOw = overwrites.find(o => o.id === guildId);
+        if (everyoneOw) {
+            base &= ~BigInt(everyoneOw.deny);
+            base |= BigInt(everyoneOw.allow);
+        }
+        let roleDeny = 0n;
+        let roleAllow = 0n;
+        for (const ow of overwrites) {
+            if (ow.type === 0 && ow.id !== guildId && member.roles.includes(ow.id)) {
+                roleDeny |= BigInt(ow.deny);
+                roleAllow |= BigInt(ow.allow);
+            }
+        }
+        base &= ~roleDeny;
+        base |= roleAllow;
+        const memberOw = overwrites.find(o => o.type === 1 && o.id === userId);
+        if (memberOw) {
+            base &= ~BigInt(memberOw.deny);
+            base |= BigInt(memberOw.allow);
+        }
+        return base;
+    }
+}
+
+/** Per-subscription authz context, populated in onSubscribe. */
+interface SubAuthzEntry {
+    principal: string;
+    guildId?: string;
+    channelId?: string;
+}
+
+/**
+ * Authz coordinator: token store + API client + permission cache + per-sub
+ * lookup table. Owns revocation on upstream change events.
+ */
+class Authz {
+    private readonly _guildCache = new TtlCache<Set<string>>(60_000);
+    private readonly _permCache = new TtlCache<bigint>(60_000);
+    /** `subscriptionId → entry`. Bounded to prevent subscribe-flood DoS. */
+    private readonly _subs = new Map<string, SubAuthzEntry>();
+    /** `principal → count of active subs`. */
+    private readonly _subsByPrincipal = new Map<string, number>();
+
+    constructor(
+        private readonly _tokens: UserTokenStore,
+        private readonly _api: DiscordApi
+    ) {}
+
+    static principalFor(ctx: ServerContext): string {
+        return ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? 'stdio-anonymous';
+    }
+
+    /** Throws on denial. Called from `onSubscribe`. */
+    async authorise(subId: string, params: Filter, ctx: ServerContext): Promise<void> {
+        const principal = Authz.principalFor(ctx);
+        if (this._subs.size >= MAX_TOTAL_SUBS) throw new Error('server subscription capacity exceeded');
+        if ((this._subsByPrincipal.get(principal) ?? 0) >= MAX_SUBS_PER_PRINCIPAL) {
+            throw new Error('per-principal subscription limit reached');
+        }
+        const userToken = this._tokens.get(principal);
+        if (!userToken) throw new Error(`user not authorised: no Discord token registered for principal ${principal}`);
+
+        if (params.guildId) {
+            const guilds = await this._guildsFor(principal, userToken);
+            if (!guilds.has(params.guildId)) throw new Error(`forbidden: user not in guild ${params.guildId}`);
+        }
+        if (params.channelId) {
+            const perms = await this._channelPermsFor(principal, params.channelId);
+            if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) {
+                throw new Error(`forbidden: user cannot read channel ${params.channelId}`);
+            }
+        }
+        this._subs.set(subId, { principal, guildId: params.guildId, channelId: params.channelId });
+        this._subsByPrincipal.set(principal, (this._subsByPrincipal.get(principal) ?? 0) + 1);
+    }
+
+    release(subId: string): void {
+        const entry = this._subs.get(subId);
+        if (!entry) return;
+        this._subs.delete(subId);
+        const count = (this._subsByPrincipal.get(entry.principal) ?? 1) - 1;
+        if (count <= 0) this._subsByPrincipal.delete(entry.principal);
+        else this._subsByPrincipal.set(entry.principal, count);
+    }
+
+    /**
+     * Iterate subs matching a gateway event. For each, lazy-verify cached
+     * perms; returns the set of still-authorised subscriptionIds plus the set
+     * of subIds whose access was revoked (caller should terminate them).
+     */
+    async filterDelivery(params: {
+        eventGuildId: string | null;
+        eventChannelId?: string;
+    }): Promise<{ allowed: string[]; revoked: string[] }> {
+        const allowed: string[] = [];
+        const revoked: string[] = [];
+        for (const [subId, entry] of this._subs) {
+            if (entry.guildId && entry.guildId !== params.eventGuildId) continue;
+            if (entry.channelId && entry.channelId !== params.eventChannelId) continue;
+            const userToken = this._tokens.get(entry.principal);
+            if (!userToken) {
+                revoked.push(subId);
+                continue;
+            }
+            try {
+                if (entry.guildId) {
+                    const guilds = await this._guildsFor(entry.principal, userToken);
+                    if (!guilds.has(entry.guildId)) {
+                        revoked.push(subId);
+                        continue;
+                    }
+                }
+                if (entry.channelId) {
+                    const perms = await this._channelPermsFor(entry.principal, entry.channelId);
+                    if (!(perms & PERM_VIEW_CHANNEL)) {
+                        revoked.push(subId);
+                        continue;
+                    }
+                }
+                allowed.push(subId);
+            } catch {
+                // Upstream check failed — be conservative and revoke.
+                revoked.push(subId);
+            }
+        }
+        return { allowed, revoked };
+    }
+
+    invalidateGuildsFor(principal: string): void {
+        this._guildCache.invalidate(`guilds:${principal}`);
+    }
+    invalidatePrincipalPerms(principal: string): void {
+        this._permCache.invalidatePrefix(`chperm:${principal}:`);
+    }
+    invalidateChannelPerms(channelId: string): void {
+        // Match suffix rather than prefix; iterate all. Small cache, cheap enough.
+        this._permCache.invalidatePrefix('chperm:');
+    }
+
+    private async _guildsFor(principal: string, userToken: string): Promise<Set<string>> {
+        const key = `guilds:${principal}`;
+        const cached = this._guildCache.get(key);
+        if (cached) return cached;
+        const guilds = await this._api.listUserGuilds(userToken);
+        const ids = new Set(guilds.map(g => g.id));
+        this._guildCache.set(key, ids);
+        return ids;
+    }
+
+    private async _channelPermsFor(principal: string, channelId: string): Promise<bigint> {
+        const userToken = this._tokens.get(principal);
+        if (!userToken) return 0n;
+        const key = `chperm:${principal}:${channelId}`;
+        const cached = this._permCache.get(key);
+        if (cached !== undefined) return cached;
+        // We need the Discord user id; derive from token via a simple
+        // `/users/@me` call (cached separately would be ideal but we piggyback
+        // on the perms cache TTL).
+        const auth = userToken.startsWith('Bearer ') ? userToken : `Bearer ${userToken}`;
+        const me = (await (await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: auth } })).json()) as {
+            id: string;
+        };
+        const perms = await this._api.getChannelPermsForUser(channelId, me.id);
+        this._permCache.set(key, perms);
+        return perms;
+    }
+}
 
 // --- server ------------------------------------------------------------------
 
@@ -99,18 +425,30 @@ export function createServer(discord?: DiscordClient): McpServer {
                 GatewayIntentBits.GuildMembers,
                 GatewayIntentBits.GuildMessageReactions
             ],
-            // Partials let us receive reaction events for uncached messages.
             partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
         });
 
     const server = new McpServer({ name: 'discord-events', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 10_000 } } });
 
-    // --- Gateway → emitEvent wiring ---
+    const authz = new Authz(new UserTokenStore(process.env.DEMO_USER_TOKENS), new DiscordApi(token ?? 'unused-when-injected'));
+
+    // --- targeted delivery helper ---
+
+    async function deliver(eventName: string, eventGuildId: string | null, eventChannelId: string | undefined, payload: Record<string, unknown>) {
+        const { allowed, revoked } = await authz.filterDelivery({ eventGuildId, eventChannelId });
+        for (const subId of allowed) server.emitEvent(eventName, payload, { subscriptionId: subId });
+        for (const subId of revoked) {
+            server.terminateEventSubscription(subId, 'discord authz revoked');
+            authz.release(subId);
+        }
+    }
+
+    // --- Gateway → targeted emit wiring ---
 
     client.on(Events.MessageCreate, msg => {
         if (msg.author.bot) return;
         if (guildFilter && msg.guildId !== guildFilter) return;
-        server.emitEvent('discord.message_create', {
+        void deliver('discord.message_create', msg.guildId, msg.channelId, {
             id: msg.id,
             guildId: msg.guildId,
             channelId: msg.channelId,
@@ -124,7 +462,7 @@ export function createServer(discord?: DiscordClient): McpServer {
     client.on(Events.MessageReactionAdd, (reaction, user) => {
         const guildId = reaction.message.guildId;
         if (guildFilter && guildId !== guildFilter) return;
-        server.emitEvent('discord.reaction_add', {
+        void deliver('discord.reaction_add', guildId, reaction.message.channelId, {
             messageId: reaction.message.id,
             guildId,
             channelId: reaction.message.channelId,
@@ -135,12 +473,30 @@ export function createServer(discord?: DiscordClient): McpServer {
 
     client.on(Events.GuildMemberAdd, member => {
         if (guildFilter && member.guild.id !== guildFilter) return;
-        server.emitEvent('discord.member_join', {
+        void deliver('discord.member_join', member.guild.id, undefined, {
             guildId: member.guild.id,
             userId: member.user.id,
             userTag: member.user.tag,
             joinedAt: member.joinedAt?.toISOString() ?? null
         });
+    });
+
+    // --- cache invalidation on upstream permission changes ---
+
+    client.on(Events.GuildMemberRemove, member => {
+        // Any principal whose user id corresponds to this member could have
+        // lost access; the token store doesn't expose reverse lookup, so we
+        // conservatively drop all per-channel caches and all guild caches.
+        // Next event re-validates and terminates losers.
+        authz.invalidateChannelPerms(member.guild.id);
+        authz.invalidatePrincipalPerms('');
+    });
+    client.on(Events.ChannelUpdate, channel => {
+        if ('id' in channel) authz.invalidateChannelPerms(channel.id);
+    });
+    client.on(Events.GuildRoleUpdate, role => {
+        // Role perms changed — per-channel effective perms may have shifted.
+        authz.invalidateChannelPerms(role.guild.id);
     });
 
     client.once(Events.ClientReady, c => {
@@ -149,13 +505,23 @@ export function createServer(discord?: DiscordClient): McpServer {
 
     // --- MCP event registrations ---
 
+    const channelHooks = {
+        onSubscribe: async (subId: string, params: Filter, ctx: ServerContext) => {
+            await authz.authorise(subId, params, ctx);
+        },
+        onUnsubscribe: async (subId: string) => {
+            authz.release(subId);
+        }
+    };
+
     server.registerEvent(
         'discord.message_create',
         {
-            description: 'A new message was posted in a text channel',
+            description: 'A new message was posted in a text channel (gated by subscriber access)',
             inputSchema: filterSchema,
             payloadSchema: messagePayload,
             matches: matchesChannel,
+            hooks: channelHooks,
             buffer: { capacity: 500 }
         },
         emitOnlyCheck
@@ -164,10 +530,11 @@ export function createServer(discord?: DiscordClient): McpServer {
     server.registerEvent(
         'discord.reaction_add',
         {
-            description: 'A reaction was added to a message',
+            description: 'A reaction was added to a message (gated by subscriber access)',
             inputSchema: filterSchema,
             payloadSchema: reactionPayload,
             matches: matchesChannel,
+            hooks: channelHooks,
             buffer: { capacity: 500 }
         },
         emitOnlyCheck
@@ -176,17 +543,17 @@ export function createServer(discord?: DiscordClient): McpServer {
     server.registerEvent(
         'discord.member_join',
         {
-            description: 'A user joined a guild',
+            description: 'A user joined a guild (gated by subscriber guild membership)',
             inputSchema: filterSchema.pick({ guildId: true }),
             payloadSchema: memberPayload,
             matches: (params, data) => !params.guildId || params.guildId === data.guildId,
+            hooks: channelHooks,
             buffer: { capacity: 500 }
         },
         emitOnlyCheck
     );
 
     // --- Lifecycle ---
-    // Open the shared Gateway WS now (once per process); close on server.close().
     if (token) {
         client.login(token).catch(error => {
             throw new Error(`discord login failed: ${error}`);
