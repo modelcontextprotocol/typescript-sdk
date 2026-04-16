@@ -28,6 +28,10 @@
             "types": "./dist/zodSchemas.d.mts",
             "import": "./dist/zodSchemas.mjs"
         },
+        "./stdio": {
+            "types": "./dist/stdio.d.mts",
+            "import": "./dist/stdio.mjs"
+        },
         "./validators/cf-worker": {
             "types": "./dist/validators/cfWorker.d.mts",
             "import": "./dist/validators/cfWorker.mjs"
