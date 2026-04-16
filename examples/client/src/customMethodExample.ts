@@ -3,8 +3,11 @@
  * Calling vendor-specific (non-spec) JSON-RPC methods from a `Client`.
  *
  * - Send a custom request: `client.request({ method, params }, resultSchema)`
- * - Send a custom notification: `client.notification({ method, params })`
- * - Receive a custom notification: `client.setNotificationHandler(ZodSchemaWithMethodLiteral, handler)`
+ * - Send a custom notification: `client.notification({ method, params })` (unchanged from v1)
+ * - Receive a custom notification: 3-arg `client.setNotificationHandler(method, paramsSchema, handler)`
+ *
+ * These overloads are on `Client` and `Server` directly — you do NOT need a raw
+ * `Protocol` instance for custom methods.
  *
  * Pair with the server in examples/server/src/customMethodExample.ts.
  */
@@ -13,16 +16,12 @@ import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
 import { z } from 'zod';
 
 const SearchResult = z.object({ hits: z.array(z.string()) });
-
-const ProgressNotification = z.object({
-    method: z.literal('acme/searchProgress'),
-    params: z.object({ stage: z.string(), pct: z.number() })
-});
+const ProgressParams = z.object({ stage: z.string(), pct: z.number() });
 
 const client = new Client({ name: 'custom-method-client', version: '1.0.0' }, { capabilities: {} });
 
-client.setNotificationHandler(ProgressNotification, n => {
-    console.log(`[client] progress: ${n.params.stage} ${n.params.pct}%`);
+client.setNotificationHandler('acme/searchProgress', ProgressParams, p => {
+    console.log(`[client] progress: ${p.stage} ${p.pct}%`);
 });
 
 await client.connect(new StdioClientTransport({ command: 'npx', args: ['tsx', '../server/src/customMethodExample.ts'] }));

@@ -32,6 +32,7 @@ import type {
     Result,
     ResultTypeMap,
     ServerCapabilities,
+    StandardSchemaV1,
     SubscribeRequest,
     TaskManagerOptions,
     Tool,
@@ -343,22 +344,34 @@ export class Client extends Protocol<ClientContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
+    public override setRequestHandler<P extends StandardSchemaV1>(
+        method: string,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ClientContext) => Result | Promise<Result>
+    ): void;
     /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ClientContext) => Result | Promise<Result>
     ): void;
-    public override setRequestHandler(methodOrSchema: string | ZodLikeRequestSchema, schemaHandler: unknown): void {
+    public override setRequestHandler(
+        methodOrSchema: string | ZodLikeRequestSchema,
+        schemaOrHandler: unknown,
+        maybeHandler?: (params: unknown, ctx: ClientContext) => unknown
+    ): void {
         let method: string;
         let handler: (request: Request, ctx: ClientContext) => ClientResult | Promise<ClientResult>;
         if (isZodLikeSchema(methodOrSchema)) {
             const schema = methodOrSchema;
-            const userHandler = schemaHandler as (request: unknown, ctx: ClientContext) => Result | Promise<Result>;
+            const userHandler = schemaOrHandler as (request: unknown, ctx: ClientContext) => Result | Promise<Result>;
             method = extractMethodLiteral(schema);
             handler = (req, ctx) => userHandler(schema.parse(req), ctx);
+        } else if (maybeHandler === undefined) {
+            method = methodOrSchema;
+            handler = schemaOrHandler as (request: Request, ctx: ClientContext) => ClientResult | Promise<ClientResult>;
         } else {
             method = methodOrSchema;
-            handler = schemaHandler as (request: Request, ctx: ClientContext) => ClientResult | Promise<ClientResult>;
+            handler = this._wrapParamsSchemaHandler(method, schemaOrHandler as StandardSchemaV1, maybeHandler);
         }
         if (method === 'elicitation/create') {
             const wrappedHandler = async (request: Request, ctx: ClientContext): Promise<ClientResult> => {
