@@ -31,6 +31,7 @@ import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
     isStandardSchema,
+    normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
@@ -875,6 +876,31 @@ export class McpServer {
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
+    ): RegisteredTool;
+    /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `inputSchema`/`outputSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
+    registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape | StandardSchemaWithJSON | undefined = undefined>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            inputSchema?: InputArgs;
+            outputSchema?: OutputArgs;
+            annotations?: ToolAnnotations;
+            _meta?: Record<string, unknown>;
+        },
+        cb: LegacyToolCallback<InputArgs>
+    ): RegisteredTool;
+    registerTool(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            inputSchema?: StandardSchemaWithJSON | ZodRawShape;
+            outputSchema?: StandardSchemaWithJSON | ZodRawShape;
+            annotations?: ToolAnnotations;
+            _meta?: Record<string, unknown>;
+        },
+        cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
     ): RegisteredTool {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
@@ -886,8 +912,8 @@ export class McpServer {
             name,
             title,
             description,
-            inputSchema,
-            outputSchema,
+            normalizeRawShapeSchema(inputSchema),
+            normalizeRawShapeSchema(outputSchema),
             annotations,
             { taskSupport: 'forbidden' },
             _meta,
@@ -930,6 +956,27 @@ export class McpServer {
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
+    ): RegisteredPrompt;
+    /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `argsSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
+    registerPrompt<Args extends ZodRawShape>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: Args;
+            _meta?: Record<string, unknown>;
+        },
+        cb: LegacyPromptCallback<Args>
+    ): RegisteredPrompt;
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: StandardSchemaWithJSON | ZodRawShape;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
@@ -941,7 +988,7 @@ export class McpServer {
             name,
             title,
             description,
-            argsSchema,
+            normalizeRawShapeSchema(argsSchema),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             _meta
         );

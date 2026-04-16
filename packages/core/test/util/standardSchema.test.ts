@@ -1,6 +1,26 @@
 import * as z from 'zod/v4';
 
-import { standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
+import { isZodRawShape, normalizeRawShapeSchema, standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
+
+describe('isZodRawShape', () => {
+    test('treats empty object as a raw shape (matches v1)', () => {
+        expect(isZodRawShape({})).toBe(true);
+    });
+    test('detects raw shape with zod fields', () => {
+        expect(isZodRawShape({ a: z.string() })).toBe(true);
+    });
+    test('rejects a Standard Schema instance', () => {
+        expect(isZodRawShape(z.object({ a: z.string() }))).toBe(false);
+    });
+});
+
+describe('normalizeRawShapeSchema', () => {
+    test('wraps empty raw shape into z.object({})', () => {
+        const wrapped = normalizeRawShapeSchema({});
+        expect(wrapped).toBeDefined();
+        expect(standardSchemaToJsonSchema(wrapped!, 'input').type).toBe('object');
+    });
+});
 
 describe('standardSchemaToJsonSchema', () => {
     test('emits type:object for plain z.object schemas', () => {
