@@ -201,6 +201,61 @@ describe('Events', () => {
             expect(r.results[0]!.events!.map(e => e.data.value)).toEqual([3, 4, 5]);
         });
 
+        it('awaits an async matches() hook before delivering', async () => {
+            const { state, check } = makeCounterEvent(0.01);
+            const matchesCalls: number[] = [];
+            server.registerEvent(
+                'counter.tick',
+                {
+                    inputSchema: z.object({ minValue: z.number().default(0) }),
+                    matches: async (_params, data) => {
+                        const v = (data as { value: number }).value;
+                        matchesCalls.push(v);
+                        await new Promise(r => setTimeout(r, 5));
+                        return v % 2 === 0;
+                    }
+                },
+                check
+            );
+
+            await connectPair(server, client);
+            // Bootstrap from "now" so the next poll sees fresh events.
+            await client.pollEvents({
+                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 0 }, cursor: null }]
+            });
+            state.value = 4;
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 0 }, cursor: null }]
+            });
+            expect(r.results[0]!.events!.map(e => e.data.value)).toEqual([2, 4]);
+            expect(matchesCalls).toEqual([1, 2, 3, 4]);
+        });
+
+        it('drops events when async matches() returns false', async () => {
+            const { state, check } = makeCounterEvent(0.01);
+            server.registerEvent(
+                'counter.tick',
+                {
+                    inputSchema: z.object({ minValue: z.number().default(0) }),
+                    matches: async () => {
+                        await new Promise(r => setTimeout(r, 1));
+                        return false;
+                    }
+                },
+                check
+            );
+
+            await connectPair(server, client);
+            await client.pollEvents({
+                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 0 }, cursor: null }]
+            });
+            state.value = 3;
+            const r = await client.pollEvents({
+                subscriptions: [{ id: 'sub1', name: 'counter.tick', params: { minValue: 0 }, cursor: null }]
+            });
+            expect(r.results[0]!.events ?? []).toHaveLength(0);
+        });
+
         it('returns per-subscription error for unknown event types without failing the request', async () => {
             const { check } = makeCounterEvent();
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);

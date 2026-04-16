@@ -133,16 +133,20 @@ export interface EventSubscriptionHooks<Params = Record<string, unknown>> {
  * Per-subscription delivery filter for broadcast emits.
  *
  * Called once per (event, subscription) pair before delivery. Return `true`
- * to deliver, `false` to skip. The `ctx.subscriptionId` lets the callback
- * correlate with side state (e.g. a per-sub authz cache) so the same event
- * can be filtered differently across subscriptions whose params are
- * identical.
+ * to deliver, `false` to skip. May return a `Promise<boolean>` so the
+ * callback can do async work (e.g. an upstream permission check) before
+ * deciding — the SDK awaits the result before delivering, giving the hook
+ * the full responsibility for gating.
+ *
+ * The `ctx.subscriptionId` lets the callback correlate with side state
+ * (e.g. a per-sub authz cache) so the same event can be filtered
+ * differently across subscriptions whose params are identical.
  */
 export type EventMatchCallback<Params = Record<string, unknown>> = (
     params: Params,
     data: Record<string, unknown>,
     ctx: { subscriptionId: string }
-) => boolean;
+) => boolean | Promise<boolean>;
 
 /**
  * Configuration for {@linkcode server/mcp.McpServer.registerEvent | McpServer.registerEvent()}.
@@ -549,7 +553,12 @@ export class ServerEventManager {
         }
 
         const occurrence = this._appendToLog(event, eventName, data, options.cursor);
-        this._fanOut(event, eventName, occurrence);
+        // matches() may be async (e.g. upstream authz check), so fan-out is
+        // fire-and-forget. Within a single emit, matches-then-deliver for each
+        // sub runs sequentially, preserving per-sub ordering for this event.
+        // Across emits with async matches, apps that need strict ordering
+        // should keep authz decisions cache-hot so matches resolves sync.
+        void this._fanOut(event, eventName, occurrence);
     }
 
     /** Appends to the event log with dedup-by-cursor; evicts oldest on overflow. */
@@ -583,17 +592,17 @@ export class ServerEventManager {
         return `seq-${event.log.autoCursorCounter++}`;
     }
 
-    private _fanOut(event: InternalRegisteredEvent, eventName: string, occurrence: EventOccurrence): void {
+    private async _fanOut(event: InternalRegisteredEvent, eventName: string, occurrence: EventOccurrence): Promise<void> {
         for (const stream of this._pushStreams) {
             for (const sub of stream.subscriptions.values()) {
                 if (sub.eventName !== eventName) continue;
-                if (event.matches && !event.matches(sub.params, occurrence.data, { subscriptionId: sub.id })) continue;
+                if (event.matches && !(await event.matches(sub.params, occurrence.data, { subscriptionId: sub.id }))) continue;
                 this._deliverToPush(stream, sub, occurrence);
             }
         }
         for (const sub of this._webhookSubs.values()) {
             if (sub.eventName !== eventName) continue;
-            if (event.matches && !event.matches(sub.params, occurrence.data, { subscriptionId: sub.id })) continue;
+            if (event.matches && !(await event.matches(sub.params, occurrence.data, { subscriptionId: sub.id }))) continue;
             void this._deliverWebhook(sub, occurrence);
         }
     }
@@ -751,12 +760,12 @@ export class ServerEventManager {
      * - `cursor` not found → CursorExpired (the buffer has wrapped past it, or
      *   the cursor was never minted)
      */
-    private _replayAfterCursor(
+    private async _replayAfterCursor(
         event: InternalRegisteredEvent,
         params: Record<string, unknown>,
         cursor: string | null,
         subscriptionId: string
-    ): { events: EventOccurrence[] } | { error: EventSubscriptionError } {
+    ): Promise<{ events: EventOccurrence[] } | { error: EventSubscriptionError }> {
         if (cursor === null) return { events: [] };
         const seq = event.log.cursorMap.get(cursor);
         if (seq === undefined) {
@@ -765,7 +774,7 @@ export class ServerEventManager {
         const events: EventOccurrence[] = [];
         for (const entry of event.log.entries) {
             if (entry.seq <= seq) continue;
-            if (event.matches && !event.matches(params, entry.occurrence.data, { subscriptionId })) continue;
+            if (event.matches && !(await event.matches(params, entry.occurrence.data, { subscriptionId }))) continue;
             events.push(entry.occurrence);
         }
         return { events };
@@ -861,12 +870,12 @@ export class ServerEventManager {
         }
 
         // 1. Replay log entries with seq > replayFromSeq, filtered by matches.
-        const matchFilter = (occ: EventOccurrence) =>
-            !event.matches || event.matches(paramsResult.params, occ.data, { subscriptionId: spec.id });
         const replayEvents: EventOccurrence[] = [];
         for (const entry of event.log.entries) {
             if (entry.seq <= replayFromSeq) continue;
-            if (matchFilter(entry.occurrence)) replayEvents.push(entry.occurrence);
+            if (!event.matches || (await event.matches(paramsResult.params, entry.occurrence.data, { subscriptionId: spec.id }))) {
+                replayEvents.push(entry.occurrence);
+            }
         }
 
         // 2. Run a check() tick to discover new events; they enter the log and
@@ -880,7 +889,7 @@ export class ServerEventManager {
         const replayCursors = new Set(replayEvents.map(e => e.cursor));
         for (const occ of tick.events) {
             if (replayCursors.has(occ.cursor)) continue;
-            if (!matchFilter(occ)) continue;
+            if (event.matches && !(await event.matches(paramsResult.params, occ.data, { subscriptionId: spec.id }))) continue;
             replayEvents.push(occ);
         }
 
@@ -963,7 +972,7 @@ export class ServerEventManager {
             }
 
             const wireCursor = spec.cursor ?? null;
-            const replay = this._replayAfterCursor(event, paramsResult.params, wireCursor, spec.id);
+            const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, spec.id);
             if ('error' in replay) {
                 this._sendErrorNotification(stream, spec.id, replay.error);
                 continue;
@@ -1003,7 +1012,7 @@ export class ServerEventManager {
                     active.internalCheckCursor = tick.nextInternalCheckCursor;
                     initialNextPoll = tick.nextPollSeconds;
                     for (const occ of tick.events) {
-                        if (event.matches && !event.matches(active.params, occ.data, { subscriptionId: active.id })) continue;
+                        if (event.matches && !(await event.matches(active.params, occ.data, { subscriptionId: active.id }))) continue;
                         this._deliverToPush(stream, active, occ);
                     }
                 }
@@ -1043,7 +1052,7 @@ export class ServerEventManager {
             sub.internalCheckCursor = result.nextInternalCheckCursor;
             // Filter check-derived events through this sub's matches and deliver.
             for (const occ of result.events) {
-                if (event.matches && !event.matches(sub.params, occ.data, { subscriptionId: sub.id })) continue;
+                if (event.matches && !(await event.matches(sub.params, occ.data, { subscriptionId: sub.id }))) continue;
                 this._deliverToPush(stream, sub, occ);
             }
             if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
@@ -1119,7 +1128,7 @@ export class ServerEventManager {
             cursor = existing.cursor;
         } else {
             const wireCursor = params.cursor ?? null;
-            const replay = this._replayAfterCursor(event, paramsResult.params, wireCursor, params.id);
+            const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, params.id);
             if ('error' in replay) {
                 throw new ProtocolError(replay.error.code, replay.error.message, replay.error.data);
             }
@@ -1177,7 +1186,7 @@ export class ServerEventManager {
             sub.internalCheckCursor = tick.nextInternalCheckCursor;
             nextPollSeconds = tick.nextPollSeconds;
             for (const occ of tick.events) {
-                if (event.matches && !event.matches(sub.params, occ.data, { subscriptionId: sub.id })) continue;
+                if (event.matches && !(await event.matches(sub.params, occ.data, { subscriptionId: sub.id }))) continue;
                 sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, occ);
             }
@@ -1233,7 +1242,7 @@ export class ServerEventManager {
             }
             sub.internalCheckCursor = result.nextInternalCheckCursor;
             for (const occ of result.events) {
-                if (event.matches && !event.matches(sub.params, occ.data, { subscriptionId: sub.id })) continue;
+                if (event.matches && !(await event.matches(sub.params, occ.data, { subscriptionId: sub.id }))) continue;
                 sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, occ);
             }

@@ -11,21 +11,21 @@
  *
  * 1. On subscribe, `onSubscribe` resolves the MCP principal to a Discord user
  *    access token (via {@linkcode UserTokenStore}) and checks that the user
- *    can see the requested guild/channel before registering the subscription.
- *    A per-(principal,channelId) TTL cache remembers the positive decision.
+ *    is in the requested guild / can read the requested channel.
  * 2. On each incoming Gateway event, the server broadcasts via
  *    `emitEvent(name, data)` (no `subscriptionId`). Broadcasts enter the
  *    SDK's unified event log, so `--from <cursor>` replay works for free.
- * 3. The event's `matches(params, data, {subscriptionId})` hook is the
- *    per-delivery gate: it checks the subscriber's cached perms before
- *    approving delivery. Cache-hit "has access" → deliver; cache-hit "no
- *    access" → reject and schedule termination; cache miss (TTL expired)
- *    → FAIL CLOSED (reject this event), schedule an async refresh, and on
- *    positive refresh subsequent events deliver again.
- * 4. Known stale window: up to the TTL (60s) between an upstream permission
- *    change and the cache refresh that observes it. There are no gateway
- *    revocation watchers — cache entries self-expire and revocation is
- *    caught on the next delivery attempt.
+ * 3. The event's async `matches(params, data, {subscriptionId})` hook is the
+ *    per-delivery gate: it `await`s an authz check against the event's
+ *    actual guild/channel before approving delivery. First call per channel
+ *    hits Discord (~1 API round-trip); subsequent calls hit the cache and
+ *    resolve without I/O. A guild-scoped sub legitimately receives events
+ *    from many channels — events from channels the user can't read are
+ *    silently dropped, the sub stays alive.
+ * 4. Stale window: up to the cache TTL (60s) between an upstream permission
+ *    change and the next refresh that observes it. There are no gateway
+ *    revocation watchers — cache entries self-expire and the next event on
+ *    a channel triggers re-evaluation after expiry.
  *
  * In stdio mode there is no HTTP auth, so the "principal" falls back to the
  * MCP session id; a real deployment uses an HTTP transport with OAuth so that
@@ -232,15 +232,34 @@ class DiscordApi {
      * Compute effective permission bits for `userId` in `channelId` using bot
      * credentials. See https://discord.com/developers/docs/topics/permissions.
      */
-    async getChannelPermsForUser(channelId: string, userId: string): Promise<bigint> {
+    /**
+     * Compute effective permission bits for `userId` across every channel in
+     * `guildId` using bot credentials. Issues three Discord API calls total
+     * (channels, member, roles) regardless of guild size, then computes each
+     * channel's perms locally from the inline overwrites. Useful for priming
+     * a per-(principal,channel) cache at subscribe time.
+     */
+    async getGuildChannelPermsForUser(guildId: string, userId: string): Promise<Map<string, bigint>> {
         const botAuth = `Bot ${this._botToken}`;
-        const channel = await this._call<DiscordChannel>(`/channels/${channelId}`, botAuth);
-        if (!channel.guild_id) return 0n;
-        const guildId = channel.guild_id;
-        const [member, roles] = await Promise.all([
+        const [channels, member, roles] = await Promise.all([
+            this._call<DiscordChannel[]>(`/guilds/${guildId}/channels`, botAuth),
             this._call<DiscordMember>(`/guilds/${guildId}/members/${userId}`, botAuth),
             this._call<DiscordRole[]>(`/guilds/${guildId}/roles`, botAuth)
         ]);
+        const out = new Map<string, bigint>();
+        for (const channel of channels) {
+            out.set(channel.id, this._computePerms(channel, guildId, member, roles, userId));
+        }
+        return out;
+    }
+
+    private _computePerms(
+        channel: DiscordChannel,
+        guildId: string,
+        member: DiscordMember,
+        roles: DiscordRole[],
+        userId: string
+    ): bigint {
         const roleById = new Map(roles.map(r => [r.id, r]));
         const everyone = roleById.get(guildId);
         let base = everyone ? BigInt(everyone.permissions) : 0n;
@@ -271,6 +290,18 @@ class DiscordApi {
             base |= BigInt(memberOw.allow);
         }
         return base;
+    }
+
+    async getChannelPermsForUser(channelId: string, userId: string): Promise<bigint> {
+        const botAuth = `Bot ${this._botToken}`;
+        const channel = await this._call<DiscordChannel>(`/channels/${channelId}`, botAuth);
+        if (!channel.guild_id) return 0n;
+        const guildId = channel.guild_id;
+        const [member, roles] = await Promise.all([
+            this._call<DiscordMember>(`/guilds/${guildId}/members/${userId}`, botAuth),
+            this._call<DiscordRole[]>(`/guilds/${guildId}/roles`, botAuth)
+        ]);
+        return this._computePerms(channel, guildId, member, roles, userId);
     }
 }
 
@@ -351,80 +382,35 @@ class Authz {
     }
 
     /**
-     * Sync cache probe used from `matches` to decide whether to deliver an
-     * event to a specific subscription.
+     * Per-event authorization decision. Called by the async `matches` hook
+     * for each delivery. Uses cached perms when available; on cache miss
+     * fetches from Discord (one round-trip the first time an event is seen
+     * on a new channel, cached thereafter).
      *
-     * Returns:
-     * - `allow` — cached decision says the subscriber can see the event's
-     *   actual guild + channel
-     * - `deny`  — cached decision says no; caller should terminate the sub
-     * - `miss`  — no usable cache entry (fresh subscribe hasn't seen this
-     *   channel yet, or TTL expired). Caller fails closed and kicks off an
-     *   async refresh via {@link refreshAccess}.
+     * A guild-scoped sub can legitimately receive events from channels the
+     * user can't read — those just return `false` here and are dropped. No
+     * termination; the sub stays alive for channels the user can still see.
      */
-    checkCachedAccess(
-        subId: string,
-        eventGuildId: string | null,
-        eventChannelId: string | undefined
-    ): 'allow' | 'deny' | 'miss' {
+    async canAccess(subId: string, eventGuildId: string | null, eventChannelId: string | undefined): Promise<boolean> {
         const entry = this._subs.get(subId);
-        if (!entry) return 'deny';
-        if (eventGuildId) {
-            const guilds = this._guildCache.get(`guilds:${entry.principal}`);
-            if (guilds === undefined) return 'miss';
-            if (!guilds.has(eventGuildId)) return 'deny';
-        }
-        if (eventChannelId) {
-            const perms = this._permCache.get(`chperm:${entry.principal}:${eventChannelId}`);
-            if (perms === undefined) return 'miss';
-            if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) return 'deny';
-        }
-        return 'allow';
-    }
-
-    /**
-     * Async upstream refresh. On deny → terminate the sub. Used from `matches`
-     * fire-and-forget after a `miss` return. `onTerminate` is the caller's
-     * bridge to `McpServer.terminateEventSubscription` so `Authz` doesn't need
-     * a server handle.
-     */
-    refreshAccess(
-        subId: string,
-        eventGuildId: string | null,
-        eventChannelId: string | undefined,
-        onTerminate: (subId: string, reason: string) => void
-    ): void {
-        const entry = this._subs.get(subId);
-        if (!entry) return;
+        if (!entry) return false;
         const userToken = this._tokens.get(entry.principal);
-        if (!userToken) {
-            onTerminate(subId, 'discord authz: token gone');
-            this.release(subId);
-            return;
-        }
-        void (async () => {
-            try {
-                if (eventGuildId) {
-                    const guilds = await this._guildsFor(entry.principal, userToken);
-                    if (!guilds.has(eventGuildId)) {
-                        onTerminate(subId, 'discord authz: guild access revoked');
-                        this.release(subId);
-                        return;
-                    }
-                }
-                if (eventChannelId) {
-                    const perms = await this._channelPermsFor(entry.principal, eventChannelId);
-                    if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) {
-                        onTerminate(subId, 'discord authz: channel access revoked');
-                        this.release(subId);
-                    }
-                }
-            } catch {
-                // Upstream check failed — be conservative.
-                onTerminate(subId, 'discord authz: upstream check failed');
-                this.release(subId);
+        if (!userToken) return false;
+        try {
+            if (eventGuildId) {
+                const guilds = await this._guildsFor(entry.principal, userToken);
+                if (!guilds.has(eventGuildId)) return false;
             }
-        })();
+            if (eventChannelId) {
+                const perms = await this._channelPermsFor(entry.principal, eventChannelId);
+                if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) return false;
+            }
+            return true;
+        } catch {
+            // Upstream check failed: deny this event. The next event will
+            // retry (no cache is populated on this path).
+            return false;
+        }
     }
 
     private async _guildsFor(principal: string, userToken: string): Promise<Set<string>> {
@@ -480,30 +466,15 @@ export function createServer(discord?: DiscordClient): McpServer {
     const authz = new Authz(new UserTokenStore(process.env.DEMO_USER_TOKENS), new DiscordApi(token ?? 'unused-when-injected'));
 
     // Authz-aware matches closure. Runs once per (event, subscription) pair:
-    //   1. base filter — does sub's params match the event's guild/channel?
-    //   2. sync cache probe — does the subscriber still have upstream access?
-    //      hit-allow → deliver
-    //      hit-deny  → reject + async-terminate
-    //      miss      → fail-closed (reject this event) + async refresh;
-    //                  if refresh comes back denied, terminate the sub
-    const matchesChannel = (params: Filter, data: Record<string, unknown>, ctx: { subscriptionId: string }) => {
+    //   1. base filter — does the sub's params match the event's guild/channel?
+    //   2. async authz check — does the subscriber have upstream access to
+    //      this event's actual channel? First call per channel hits Discord;
+    //      subsequent calls hit the TTL cache synchronously.
+    const matchesChannel = async (params: Filter, data: Record<string, unknown>, ctx: { subscriptionId: string }) => {
         if (!filterMatches(params, data)) return false;
         const evGuildId = typeof data.guildId === 'string' ? data.guildId : null;
         const evChannelId = typeof data.channelId === 'string' ? data.channelId : undefined;
-        const decision = authz.checkCachedAccess(ctx.subscriptionId, evGuildId, evChannelId);
-        if (decision === 'allow') return true;
-        if (decision === 'deny') {
-            setImmediate(() => {
-                server.terminateEventSubscription(ctx.subscriptionId, 'discord authz: access revoked');
-                authz.release(ctx.subscriptionId);
-            });
-            return false;
-        }
-        // miss — schedule refresh; subsequent events with a primed cache deliver.
-        authz.refreshAccess(ctx.subscriptionId, evGuildId, evChannelId, (subId, reason) => {
-            server.terminateEventSubscription(subId, reason);
-        });
-        return false;
+        return authz.canAccess(ctx.subscriptionId, evGuildId, evChannelId);
     };
 
     // --- Gateway → broadcast emit wiring ---
@@ -556,14 +527,7 @@ export function createServer(discord?: DiscordClient): McpServer {
 
     const channelHooks = {
         onSubscribe: async (subId: string, params: Filter, ctx: ServerContext) => {
-            console.error(`[authz] onSubscribe fired id=${subId} params=${JSON.stringify(params)} principal=${ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? 'stdio-anonymous'}`);
-            try {
-                await authz.authorise(subId, params, ctx);
-                console.error(`[authz] OK id=${subId}`);
-            } catch (error) {
-                console.error(`[authz] DENY id=${subId}: ${(error as Error).message}`);
-                throw error;
-            }
+            await authz.authorise(subId, params, ctx);
         },
         onUnsubscribe: async (subId: string) => {
             authz.release(subId);
