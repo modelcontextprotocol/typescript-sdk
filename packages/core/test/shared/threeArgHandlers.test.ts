@@ -49,7 +49,7 @@ describe('setRequestHandler — three-arg paramsSchema form', () => {
             seen = p;
             return {};
         });
-        await a.request({ method: 'acme/noop' }, z.object({}));
+        await a.request({ method: 'acme/noop', params: { _meta: { trace: 'x' } } }, z.object({}));
         expect(seen).toEqual({});
     });
 });
