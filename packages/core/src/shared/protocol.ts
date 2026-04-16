@@ -306,6 +306,8 @@ export type ServerContext = BaseContext & {
 export type ClientContext = BaseContext & LegacyContextFields;
 
 /**
+ * @deprecated Use {@linkcode ServerContext} (server side) or {@linkcode ClientContext} (client side).
+ *
  * v1 name for the handler context. v2 also exposes the same data under
  * `ctx.mcpReq` / `ctx.http`; the flat fields remain available so existing
  * handlers compile and run unchanged. See {@linkcode BaseContext}.
