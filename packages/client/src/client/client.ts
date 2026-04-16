@@ -342,6 +342,7 @@ export class Client extends Protocol<ClientContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
+    /** @deprecated Pass the method string instead. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ClientContext) => Result | Promise<Result>
@@ -885,7 +886,7 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult>;
-    /** Result schema is resolved automatically; the second argument is accepted for v1 source compatibility and ignored. */
+    /** @deprecated The result schema is resolved internally; use `callTool(params)`. The second argument is accepted for v1 source compatibility and ignored. */
     async callTool(params: CallToolRequest['params'], resultSchema: unknown, options?: RequestOptions): Promise<CallToolResult>;
     async callTool(
         params: CallToolRequest['params'],
