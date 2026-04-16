@@ -31,7 +31,8 @@ import type {
     ServerResult,
     TaskManagerOptions,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     assertClientRequestTaskCapability,
@@ -138,6 +139,21 @@ export class Server extends Protocol<ServerContext> {
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    /**
+     * Attaches to the given transport, hooking the `oninitialized` callback
+     * to seed client capabilities and version info from replayed sessions.
+     */
+    override async connect(transport: Transport): Promise<void> {
+        const _oninitialized = transport.oninitialized;
+        transport.oninitialized = data => {
+            _oninitialized?.(data);
+            this._clientCapabilities ??= data.clientCapabilities;
+            this._clientVersion ??= data.clientVersion;
+        };
+
+        await super.connect(transport);
     }
 
     private _registerLoggingHandler(): void {

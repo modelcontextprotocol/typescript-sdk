@@ -10,7 +10,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    ClientCapabilities,
+    Implementation,
+    JSONRPCMessage,
+    MessageExtraInfo,
+    RequestId,
+    Transport
+} from '@modelcontextprotocol/core';
 import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
@@ -128,6 +136,17 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 
     get onmessage(): ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined {
         return this._webStandardTransport.onmessage;
+    }
+
+    /**
+     * Sets callback for session initialization replay.
+     */
+    set oninitialized(handler: ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined) {
+        this._webStandardTransport.oninitialized = handler;
+    }
+
+    get oninitialized(): ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined {
+        return this._webStandardTransport.oninitialized;
     }
 
     /**

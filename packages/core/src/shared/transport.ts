@@ -1,4 +1,4 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
+import type { ClientCapabilities, Implementation, JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -115,6 +115,20 @@ export interface Transport {
      * The {@linkcode MessageExtraInfo.request | request} can be used to get the original request information (headers, etc.)
      */
     onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
+
+    /**
+     * Callback invoked when session initialization state is restored by the transport.
+     *
+     * For transports that support stateless session replay (e.g.,
+     * {@linkcode @modelcontextprotocol/server!server/streamableHttp.WebStandardStreamableHTTPServerTransport | WebStandardStreamableHTTPServerTransport}),
+     * this is called when a non-initialize request triggers session restoration
+     * via the transport's `replayInitialization` callback.
+     *
+     * The {@linkcode @modelcontextprotocol/server!server/server.Server | Server} hooks this during
+     * {@linkcode @modelcontextprotocol/server!server/server.Server.connect | connect()} to
+     * seed client capabilities and version info.
+     */
+    oninitialized?: ((data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void) | undefined;
 
     /**
      * The session ID generated for this connection.

@@ -1,4 +1,4 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import type { ClientCapabilities, Implementation, JSONRPCMessage } from '@modelcontextprotocol/core';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
 import { Server } from '../../src/server/server.js';
 
@@ -35,6 +35,103 @@ describe('Server', () => {
             await responsePromise;
 
             expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+    });
+
+    describe('connect — oninitialized hook', () => {
+        const testCapabilities: ClientCapabilities = { sampling: {} };
+        const testVersion: Implementation = { name: 'test-client', version: '2.0.0' };
+
+        it('should seed getClientCapabilities() when transport.oninitialized is called', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+
+            const [, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+
+            // Simulate transport calling oninitialized (as _tryReplayInitialization would)
+            serverTransport.oninitialized?.({
+                clientCapabilities: testCapabilities,
+                clientVersion: testVersion
+            });
+
+            expect(server.getClientCapabilities()).toEqual(testCapabilities);
+            expect(server.getClientVersion()).toEqual(testVersion);
+
+            await server.close();
+        });
+
+        it('should return undefined for getClientCapabilities() when oninitialized is not called', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+
+            const [, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+
+            expect(server.getClientCapabilities()).toBeUndefined();
+            expect(server.getClientVersion()).toBeUndefined();
+
+            await server.close();
+        });
+
+        it('should be overwritten by a real initialize handshake', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+
+            // First: seed via oninitialized
+            serverTransport.oninitialized?.({
+                clientCapabilities: testCapabilities,
+                clientVersion: testVersion
+            });
+
+            expect(server.getClientCapabilities()).toEqual(testCapabilities);
+
+            // Then: real initialize overwrites
+            const responsePromise = new Promise<JSONRPCMessage>(resolve => {
+                clientTransport.onmessage = msg => resolve(msg);
+            });
+            await clientTransport.start();
+
+            const realCapabilities: ClientCapabilities = { elicitation: { form: {} } };
+            const realVersion: Implementation = { name: 'real-client', version: '3.0.0' };
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: realCapabilities,
+                    clientInfo: realVersion
+                }
+            } as JSONRPCMessage);
+
+            await responsePromise;
+
+            expect(server.getClientCapabilities()).toEqual(realCapabilities);
+            expect(server.getClientVersion()).toEqual(realVersion);
+
+            await server.close();
+        });
+
+        it('should chain with an existing transport.oninitialized callback', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+
+            const [, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            const existingCallback = vi.fn();
+            serverTransport.oninitialized = existingCallback;
+
+            await server.connect(serverTransport);
+
+            const data = { clientCapabilities: testCapabilities, clientVersion: testVersion };
+            serverTransport.oninitialized?.(data);
+
+            // Both the existing callback and the server's hook should have fired
+            expect(existingCallback).toHaveBeenCalledWith(data);
+            expect(server.getClientCapabilities()).toEqual(testCapabilities);
 
             await server.close();
         });
