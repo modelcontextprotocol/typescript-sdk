@@ -1,4 +1,4 @@
-import { mcpAuthRouter, AuthRouterOptions } from '../src/router.js';
+import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../src/router.js';
 import { OAuthServerProvider, AuthorizationParams } from '../src/provider.js';
 import { OAuthRegisteredClientsStore } from '../src/clients.js';
 import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
@@ -366,6 +366,98 @@ describe('MCP Auth Router', () => {
                 token: 'token_to_revoke'
             });
             expect(revokeResponse.status).toBe(404);
+        });
+    });
+});
+
+describe('MCP Auth Metadata Router', () => {
+    const mockOAuthMetadata: OAuthMetadata = {
+        issuer: 'https://auth.example.com/',
+        authorization_endpoint: 'https://auth.example.com/authorize',
+        token_endpoint: 'https://auth.example.com/token',
+        response_types_supported: ['code'],
+        grant_types_supported: ['authorization_code', 'refresh_token'],
+        code_challenge_methods_supported: ['S256'],
+        token_endpoint_auth_methods_supported: ['client_secret_post']
+    };
+
+    describe('Router creation', () => {
+        it('successfully creates router with valid options', () => {
+            const options: AuthMetadataOptions = {
+                oauthMetadata: mockOAuthMetadata,
+                resourceServerUrl: new URL('https://api.example.com')
+            };
+
+            expect(() => mcpAuthMetadataRouter(options)).not.toThrow();
+        });
+    });
+
+    describe('Metadata endpoints', () => {
+        let app: express.Express;
+
+        beforeEach(() => {
+            app = express();
+            const options: AuthMetadataOptions = {
+                oauthMetadata: mockOAuthMetadata,
+                resourceServerUrl: new URL('https://api.example.com'),
+                serviceDocumentationUrl: new URL('https://docs.example.com'),
+                scopesSupported: ['read', 'write'],
+                resourceName: 'Test API'
+            };
+            app.use(mcpAuthMetadataRouter(options));
+        });
+
+        it('returns OAuth authorization server metadata', async () => {
+            const response = await supertest(app).get('/.well-known/oauth-authorization-server');
+
+            expect(response.status).toBe(200);
+
+            // Verify metadata points to authorization server
+            expect(response.body.issuer).toBe('https://auth.example.com/');
+            expect(response.body.authorization_endpoint).toBe('https://auth.example.com/authorize');
+            expect(response.body.token_endpoint).toBe('https://auth.example.com/token');
+            expect(response.body.response_types_supported).toEqual(['code']);
+            expect(response.body.grant_types_supported).toEqual(['authorization_code', 'refresh_token']);
+            expect(response.body.code_challenge_methods_supported).toEqual(['S256']);
+            expect(response.body.token_endpoint_auth_methods_supported).toEqual(['client_secret_post']);
+        });
+
+        it('returns OAuth protected resource metadata', async () => {
+            const response = await supertest(app).get('/.well-known/oauth-protected-resource');
+
+            expect(response.status).toBe(200);
+
+            // Verify protected resource metadata
+            expect(response.body.resource).toBe('https://api.example.com/');
+            expect(response.body.authorization_servers).toEqual(['https://auth.example.com/']);
+            expect(response.body.scopes_supported).toEqual(['read', 'write']);
+            expect(response.body.resource_name).toBe('Test API');
+            expect(response.body.resource_documentation).toBe('https://docs.example.com/');
+        });
+
+        it('works with minimal configuration', async () => {
+            const minimalApp = express();
+            const options: AuthMetadataOptions = {
+                oauthMetadata: mockOAuthMetadata,
+                resourceServerUrl: new URL('https://api.example.com')
+            };
+            minimalApp.use(mcpAuthMetadataRouter(options));
+
+            const authResponse = await supertest(minimalApp).get('/.well-known/oauth-authorization-server');
+
+            expect(authResponse.status).toBe(200);
+            expect(authResponse.body.issuer).toBe('https://auth.example.com/');
+            expect(authResponse.body.service_documentation).toBeUndefined();
+            expect(authResponse.body.scopes_supported).toBeUndefined();
+
+            const resourceResponse = await supertest(minimalApp).get('/.well-known/oauth-protected-resource');
+
+            expect(resourceResponse.status).toBe(200);
+            expect(resourceResponse.body.resource).toBe('https://api.example.com/');
+            expect(resourceResponse.body.authorization_servers).toEqual(['https://auth.example.com/']);
+            expect(resourceResponse.body.scopes_supported).toBeUndefined();
+            expect(resourceResponse.body.resource_name).toBeUndefined();
+            expect(resourceResponse.body.resource_documentation).toBeUndefined();
         });
     });
 });
