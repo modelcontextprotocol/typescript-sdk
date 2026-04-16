@@ -182,7 +182,8 @@ export async function validateStandardSchema<T extends StandardSchemaV1>(
 
 /**
  * Parses data against any Standard Schema. Async because Standard Schema's `validate` may return
- * a Promise. The error is wrapped as an `Error` so callers can interpolate `.message` directly.
+ * a Promise. The error is wrapped as an `Error` whose `.message` is the formatted issues string
+ * from {@linkcode validateStandardSchema}, so callers can interpolate it directly.
  *
  * Use this for user-supplied schemas (e.g. the 3-arg `setRequestHandler(method, paramsSchema, h)`
  * form). For internal SDK Zod schemas, prefer the synchronous `parseSchema` in `./schema.js`.
