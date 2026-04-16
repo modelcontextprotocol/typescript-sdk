@@ -894,9 +894,6 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../client
-      '@modelcontextprotocol/express':
-        specifier: workspace:^
-        version: link:../middleware/express
       '@modelcontextprotocol/node':
         specifier: workspace:^
         version: link:../middleware/node
@@ -906,6 +903,12 @@ importers:
       '@modelcontextprotocol/server-auth-legacy':
         specifier: workspace:^
         version: link:../server-auth-legacy
+      express:
+        specifier: ^4.18.0 || ^5.0.0
+        version: 5.2.1
+      hono:
+        specifier: '*'
+        version: 4.12.9
     devDependencies:
       '@modelcontextprotocol/core':
         specifier: workspace:^
