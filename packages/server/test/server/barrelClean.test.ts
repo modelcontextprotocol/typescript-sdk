@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
-const NODE_ONLY = /\b(node:stream|node:child_process)\b/;
+const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
 
 function chunkImportsOf(entryPath: string): string[] {
     const visited = new Set<string>();
