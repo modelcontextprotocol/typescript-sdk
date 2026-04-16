@@ -12,13 +12,20 @@
  * 1. On subscribe, `onSubscribe` resolves the MCP principal to a Discord user
  *    access token (via {@linkcode UserTokenStore}) and checks that the user
  *    can see the requested guild/channel before registering the subscription.
- * 2. On each incoming Gateway event, delivery iterates the registered sub
- *    table, re-checks cached permissions per subscriber, and uses **targeted**
- *    `emitEvent({ subscriptionId })` to send only to still-authorised subs. No
- *    broadcast emit.
- * 3. When Discord signals role/channel/membership change, affected cache keys
- *    are invalidated; the next event re-checks authz and terminates subs that
- *    lost access via {@linkcode McpServer.terminateEventSubscription}.
+ *    A per-(principal,channelId) TTL cache remembers the positive decision.
+ * 2. On each incoming Gateway event, the server broadcasts via
+ *    `emitEvent(name, data)` (no `subscriptionId`). Broadcasts enter the
+ *    SDK's unified event log, so `--from <cursor>` replay works for free.
+ * 3. The event's `matches(params, data, {subscriptionId})` hook is the
+ *    per-delivery gate: it checks the subscriber's cached perms before
+ *    approving delivery. Cache-hit "has access" → deliver; cache-hit "no
+ *    access" → reject and schedule termination; cache miss (TTL expired)
+ *    → FAIL CLOSED (reject this event), schedule an async refresh, and on
+ *    positive refresh subsequent events deliver again.
+ * 4. Known stale window: up to the TTL (60s) between an upstream permission
+ *    change and the cache refresh that observes it. There are no gateway
+ *    revocation watchers — cache entries self-expire and revocation is
+ *    caught on the next delivery attempt.
  *
  * In stdio mode there is no HTTP auth, so the "principal" falls back to the
  * MCP session id; a real deployment uses an HTTP transport with OAuth so that
@@ -98,7 +105,8 @@ const memberPayload = z.object({
 
 // --- event helpers -----------------------------------------------------------
 
-const matchesChannel = (params: Filter, data: Record<string, unknown>) =>
+// Base filter; authz-aware version is built in createServer() (needs authz + server).
+const filterMatches = (params: Filter, data: Record<string, unknown>) =>
     (!params.guildId || params.guildId === data.guildId) && (!params.channelId || params.channelId === data.channelId);
 
 const emitOnlyCheck = async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 });
@@ -343,61 +351,80 @@ class Authz {
     }
 
     /**
-     * Iterate subs matching a gateway event. For each, lazy-verify cached
-     * perms; returns the set of still-authorised subscriptionIds plus the set
-     * of subIds whose access was revoked (caller should terminate them).
+     * Sync cache probe used from `matches` to decide whether to deliver an
+     * event to a specific subscription.
+     *
+     * Returns:
+     * - `allow` — cached decision says the subscriber can see the event's
+     *   actual guild + channel
+     * - `deny`  — cached decision says no; caller should terminate the sub
+     * - `miss`  — no usable cache entry (fresh subscribe hasn't seen this
+     *   channel yet, or TTL expired). Caller fails closed and kicks off an
+     *   async refresh via {@link refreshAccess}.
      */
-    async filterDelivery(params: {
-        eventGuildId: string | null;
-        eventChannelId?: string;
-    }): Promise<{ allowed: string[]; revoked: string[] }> {
-        const allowed: string[] = [];
-        const revoked: string[] = [];
-        for (const [subId, entry] of this._subs) {
-            if (entry.guildId && entry.guildId !== params.eventGuildId) continue;
-            if (entry.channelId && entry.channelId !== params.eventChannelId) continue;
-            const userToken = this._tokens.get(entry.principal);
-            if (!userToken) {
-                revoked.push(subId);
-                continue;
-            }
-            try {
-                // Authorise against the event's actual location, not just the
-                // subscriber's filter. If the filter says "guild G" but the
-                // event is in channel C of G, we still need to verify the user
-                // can read C — being in G alone isn't enough.
-                if (params.eventGuildId) {
-                    const guilds = await this._guildsFor(entry.principal, userToken);
-                    if (!guilds.has(params.eventGuildId)) {
-                        revoked.push(subId);
-                        continue;
-                    }
-                }
-                if (params.eventChannelId) {
-                    const perms = await this._channelPermsFor(entry.principal, params.eventChannelId);
-                    if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) {
-                        revoked.push(subId);
-                        continue;
-                    }
-                }
-                allowed.push(subId);
-            } catch {
-                // Upstream check failed — be conservative and revoke.
-                revoked.push(subId);
-            }
+    checkCachedAccess(
+        subId: string,
+        eventGuildId: string | null,
+        eventChannelId: string | undefined
+    ): 'allow' | 'deny' | 'miss' {
+        const entry = this._subs.get(subId);
+        if (!entry) return 'deny';
+        if (eventGuildId) {
+            const guilds = this._guildCache.get(`guilds:${entry.principal}`);
+            if (guilds === undefined) return 'miss';
+            if (!guilds.has(eventGuildId)) return 'deny';
         }
-        return { allowed, revoked };
+        if (eventChannelId) {
+            const perms = this._permCache.get(`chperm:${entry.principal}:${eventChannelId}`);
+            if (perms === undefined) return 'miss';
+            if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) return 'deny';
+        }
+        return 'allow';
     }
 
-    invalidateGuildsFor(principal: string): void {
-        this._guildCache.invalidate(`guilds:${principal}`);
-    }
-    invalidatePrincipalPerms(principal: string): void {
-        this._permCache.invalidatePrefix(`chperm:${principal}:`);
-    }
-    invalidateChannelPerms(channelId: string): void {
-        // Match suffix rather than prefix; iterate all. Small cache, cheap enough.
-        this._permCache.invalidatePrefix('chperm:');
+    /**
+     * Async upstream refresh. On deny → terminate the sub. Used from `matches`
+     * fire-and-forget after a `miss` return. `onTerminate` is the caller's
+     * bridge to `McpServer.terminateEventSubscription` so `Authz` doesn't need
+     * a server handle.
+     */
+    refreshAccess(
+        subId: string,
+        eventGuildId: string | null,
+        eventChannelId: string | undefined,
+        onTerminate: (subId: string, reason: string) => void
+    ): void {
+        const entry = this._subs.get(subId);
+        if (!entry) return;
+        const userToken = this._tokens.get(entry.principal);
+        if (!userToken) {
+            onTerminate(subId, 'discord authz: token gone');
+            this.release(subId);
+            return;
+        }
+        void (async () => {
+            try {
+                if (eventGuildId) {
+                    const guilds = await this._guildsFor(entry.principal, userToken);
+                    if (!guilds.has(eventGuildId)) {
+                        onTerminate(subId, 'discord authz: guild access revoked');
+                        this.release(subId);
+                        return;
+                    }
+                }
+                if (eventChannelId) {
+                    const perms = await this._channelPermsFor(entry.principal, eventChannelId);
+                    if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) {
+                        onTerminate(subId, 'discord authz: channel access revoked');
+                        this.release(subId);
+                    }
+                }
+            } catch {
+                // Upstream check failed — be conservative.
+                onTerminate(subId, 'discord authz: upstream check failed');
+                this.release(subId);
+            }
+        })();
     }
 
     private async _guildsFor(principal: string, userToken: string): Promise<Set<string>> {
@@ -452,23 +479,43 @@ export function createServer(discord?: DiscordClient): McpServer {
 
     const authz = new Authz(new UserTokenStore(process.env.DEMO_USER_TOKENS), new DiscordApi(token ?? 'unused-when-injected'));
 
-    // --- targeted delivery helper ---
-
-    async function deliver(eventName: string, eventGuildId: string | null, eventChannelId: string | undefined, payload: Record<string, unknown>) {
-        const { allowed, revoked } = await authz.filterDelivery({ eventGuildId, eventChannelId });
-        for (const subId of allowed) server.emitEvent(eventName, payload, { subscriptionId: subId });
-        for (const subId of revoked) {
-            server.terminateEventSubscription(subId, 'discord authz revoked');
-            authz.release(subId);
+    // Authz-aware matches closure. Runs once per (event, subscription) pair:
+    //   1. base filter — does sub's params match the event's guild/channel?
+    //   2. sync cache probe — does the subscriber still have upstream access?
+    //      hit-allow → deliver
+    //      hit-deny  → reject + async-terminate
+    //      miss      → fail-closed (reject this event) + async refresh;
+    //                  if refresh comes back denied, terminate the sub
+    const matchesChannel = (params: Filter, data: Record<string, unknown>, ctx: { subscriptionId: string }) => {
+        if (!filterMatches(params, data)) return false;
+        const evGuildId = typeof data.guildId === 'string' ? data.guildId : null;
+        const evChannelId = typeof data.channelId === 'string' ? data.channelId : undefined;
+        const decision = authz.checkCachedAccess(ctx.subscriptionId, evGuildId, evChannelId);
+        if (decision === 'allow') return true;
+        if (decision === 'deny') {
+            setImmediate(() => {
+                server.terminateEventSubscription(ctx.subscriptionId, 'discord authz: access revoked');
+                authz.release(ctx.subscriptionId);
+            });
+            return false;
         }
-    }
+        // miss — schedule refresh; subsequent events with a primed cache deliver.
+        authz.refreshAccess(ctx.subscriptionId, evGuildId, evChannelId, (subId, reason) => {
+            server.terminateEventSubscription(subId, reason);
+        });
+        return false;
+    };
 
-    // --- Gateway → targeted emit wiring ---
+    // --- Gateway → broadcast emit wiring ---
+    //
+    // No targeted emit: broadcasts enter the SDK's unified event log so that
+    // `--from <cursor>` resume works across reconnects. Per-subscriber authz
+    // is enforced later by the `matchesChannel` hook above.
 
     client.on(Events.MessageCreate, msg => {
         if (msg.author.bot) return;
         if (guildFilter && msg.guildId !== guildFilter) return;
-        void deliver('discord.message_create', msg.guildId, msg.channelId, {
+        server.emitEvent('discord.message_create', {
             id: msg.id,
             guildId: msg.guildId,
             channelId: msg.channelId,
@@ -482,7 +529,7 @@ export function createServer(discord?: DiscordClient): McpServer {
     client.on(Events.MessageReactionAdd, (reaction, user) => {
         const guildId = reaction.message.guildId;
         if (guildFilter && guildId !== guildFilter) return;
-        void deliver('discord.reaction_add', guildId, reaction.message.channelId, {
+        server.emitEvent('discord.reaction_add', {
             messageId: reaction.message.id,
             guildId,
             channelId: reaction.message.channelId,
@@ -493,30 +540,12 @@ export function createServer(discord?: DiscordClient): McpServer {
 
     client.on(Events.GuildMemberAdd, member => {
         if (guildFilter && member.guild.id !== guildFilter) return;
-        void deliver('discord.member_join', member.guild.id, undefined, {
+        server.emitEvent('discord.member_join', {
             guildId: member.guild.id,
             userId: member.user.id,
             userTag: member.user.tag,
             joinedAt: member.joinedAt?.toISOString() ?? null
         });
-    });
-
-    // --- cache invalidation on upstream permission changes ---
-
-    client.on(Events.GuildMemberRemove, member => {
-        // Any principal whose user id corresponds to this member could have
-        // lost access; the token store doesn't expose reverse lookup, so we
-        // conservatively drop all per-channel caches and all guild caches.
-        // Next event re-validates and terminates losers.
-        authz.invalidateChannelPerms(member.guild.id);
-        authz.invalidatePrincipalPerms('');
-    });
-    client.on(Events.ChannelUpdate, channel => {
-        if ('id' in channel) authz.invalidateChannelPerms(channel.id);
-    });
-    client.on(Events.GuildRoleUpdate, role => {
-        // Role perms changed — per-channel effective perms may have shifted.
-        authz.invalidateChannelPerms(role.guild.id);
     });
 
     client.once(Events.ClientReady, c => {

@@ -253,9 +253,14 @@ async function main(): Promise<void> {
                         const label = gotAnyEvent ? 'ended' : 'REJECTED';
                         const code = err.code !== undefined ? ` (code ${err.code})` : '';
                         out(`  [${sub.delivery}] subscription ${sub.id.slice(0, 8)}… ${label}${code}: ${err.message}`);
-                        // Remove from active subs list so `subs` and `unsub` don't list a dead one.
+                    } finally {
+                        // Always drop dead subscriptions from the local list — covers
+                        // rejection (error thrown), orderly close (iterator ends), and
+                        // client-initiated cancel (unsub also calls splice, but this
+                        // is a safety net).
                         const idx = subs.indexOf(sub);
                         if (idx >= 0) subs.splice(idx, 1);
+                        webhookSecrets.delete(sub.id);
                     }
                 })();
                 return;
@@ -268,6 +273,7 @@ async function main(): Promise<void> {
                         return;
                     }
                     const all = [...subs];
+                    subs.length = 0;
                     for (const sub of all) {
                         await sub.cancel();
                         webhookSecrets.delete(sub.id);
@@ -281,6 +287,8 @@ async function main(): Promise<void> {
                     out(`no such subscription: ${ref}`);
                     return;
                 }
+                const subIdx = subs.indexOf(sub);
+                if (subIdx >= 0) subs.splice(subIdx, 1);
                 await sub.cancel();
                 webhookSecrets.delete(sub.id);
                 out(`unsubscribed ${sub.id}`);

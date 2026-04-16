@@ -129,7 +129,20 @@ export interface EventSubscriptionHooks<Params = Record<string, unknown>> {
  * If omitted, broadcast emits are delivered to all active subscriptions of the
  * event type (no filtering).
  */
-export type EventMatchCallback<Params = Record<string, unknown>> = (params: Params, data: Record<string, unknown>) => boolean;
+/**
+ * Per-subscription delivery filter for broadcast emits.
+ *
+ * Called once per (event, subscription) pair before delivery. Return `true`
+ * to deliver, `false` to skip. The `ctx.subscriptionId` lets the callback
+ * correlate with side state (e.g. a per-sub authz cache) so the same event
+ * can be filtered differently across subscriptions whose params are
+ * identical.
+ */
+export type EventMatchCallback<Params = Record<string, unknown>> = (
+    params: Params,
+    data: Record<string, unknown>,
+    ctx: { subscriptionId: string }
+) => boolean;
 
 /**
  * Configuration for {@linkcode server/mcp.McpServer.registerEvent | McpServer.registerEvent()}.
@@ -574,13 +587,13 @@ export class ServerEventManager {
         for (const stream of this._pushStreams) {
             for (const sub of stream.subscriptions.values()) {
                 if (sub.eventName !== eventName) continue;
-                if (event.matches && !event.matches(sub.params, occurrence.data)) continue;
+                if (event.matches && !event.matches(sub.params, occurrence.data, { subscriptionId: sub.id })) continue;
                 this._deliverToPush(stream, sub, occurrence);
             }
         }
         for (const sub of this._webhookSubs.values()) {
             if (sub.eventName !== eventName) continue;
-            if (event.matches && !event.matches(sub.params, occurrence.data)) continue;
+            if (event.matches && !event.matches(sub.params, occurrence.data, { subscriptionId: sub.id })) continue;
             void this._deliverWebhook(sub, occurrence);
         }
     }
@@ -741,7 +754,8 @@ export class ServerEventManager {
     private _replayAfterCursor(
         event: InternalRegisteredEvent,
         params: Record<string, unknown>,
-        cursor: string | null
+        cursor: string | null,
+        subscriptionId: string
     ): { events: EventOccurrence[] } | { error: EventSubscriptionError } {
         if (cursor === null) return { events: [] };
         const seq = event.log.cursorMap.get(cursor);
@@ -751,7 +765,7 @@ export class ServerEventManager {
         const events: EventOccurrence[] = [];
         for (const entry of event.log.entries) {
             if (entry.seq <= seq) continue;
-            if (event.matches && !event.matches(params, entry.occurrence.data)) continue;
+            if (event.matches && !event.matches(params, entry.occurrence.data, { subscriptionId })) continue;
             events.push(entry.occurrence);
         }
         return { events };
@@ -848,7 +862,7 @@ export class ServerEventManager {
 
         // 1. Replay log entries with seq > replayFromSeq, filtered by matches.
         const matchFilter = (occ: EventOccurrence) =>
-            !event.matches || event.matches(paramsResult.params, occ.data);
+            !event.matches || event.matches(paramsResult.params, occ.data, { subscriptionId: spec.id });
         const replayEvents: EventOccurrence[] = [];
         for (const entry of event.log.entries) {
             if (entry.seq <= replayFromSeq) continue;
@@ -949,7 +963,7 @@ export class ServerEventManager {
             }
 
             const wireCursor = spec.cursor ?? null;
-            const replay = this._replayAfterCursor(event, paramsResult.params, wireCursor);
+            const replay = this._replayAfterCursor(event, paramsResult.params, wireCursor, spec.id);
             if ('error' in replay) {
                 this._sendErrorNotification(stream, spec.id, replay.error);
                 continue;
@@ -989,7 +1003,7 @@ export class ServerEventManager {
                     active.internalCheckCursor = tick.nextInternalCheckCursor;
                     initialNextPoll = tick.nextPollSeconds;
                     for (const occ of tick.events) {
-                        if (event.matches && !event.matches(active.params, occ.data)) continue;
+                        if (event.matches && !event.matches(active.params, occ.data, { subscriptionId: active.id })) continue;
                         this._deliverToPush(stream, active, occ);
                     }
                 }
@@ -1029,7 +1043,7 @@ export class ServerEventManager {
             sub.internalCheckCursor = result.nextInternalCheckCursor;
             // Filter check-derived events through this sub's matches and deliver.
             for (const occ of result.events) {
-                if (event.matches && !event.matches(sub.params, occ.data)) continue;
+                if (event.matches && !event.matches(sub.params, occ.data, { subscriptionId: sub.id })) continue;
                 this._deliverToPush(stream, sub, occ);
             }
             if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
@@ -1105,7 +1119,7 @@ export class ServerEventManager {
             cursor = existing.cursor;
         } else {
             const wireCursor = params.cursor ?? null;
-            const replay = this._replayAfterCursor(event, paramsResult.params, wireCursor);
+            const replay = this._replayAfterCursor(event, paramsResult.params, wireCursor, params.id);
             if ('error' in replay) {
                 throw new ProtocolError(replay.error.code, replay.error.message, replay.error.data);
             }
@@ -1163,7 +1177,7 @@ export class ServerEventManager {
             sub.internalCheckCursor = tick.nextInternalCheckCursor;
             nextPollSeconds = tick.nextPollSeconds;
             for (const occ of tick.events) {
-                if (event.matches && !event.matches(sub.params, occ.data)) continue;
+                if (event.matches && !event.matches(sub.params, occ.data, { subscriptionId: sub.id })) continue;
                 sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, occ);
             }
@@ -1219,7 +1233,7 @@ export class ServerEventManager {
             }
             sub.internalCheckCursor = result.nextInternalCheckCursor;
             for (const occ of result.events) {
-                if (event.matches && !event.matches(sub.params, occ.data)) continue;
+                if (event.matches && !event.matches(sub.params, occ.data, { subscriptionId: sub.id })) continue;
                 sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, occ);
             }
