@@ -43,7 +43,6 @@ pnpm tsx src/simpleStreamableHttp.ts
 
 ```bash
 pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts --oauth
-pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts --oauth --oauth-strict
 ```
 
 ## URL elicitation example (server + client)

@@ -136,11 +136,11 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
 ```
 
-### Server auth moved
+### Server auth split
 
-The full v1 `server/auth/*` tree (including `mcpAuthRouter`, `ProxyOAuthServerProvider`, `requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`, `authenticateClient`, `allowedMethods`, and associated types) is available as a frozen v1 copy in the deprecated `@modelcontextprotocol/server-auth-legacy` package.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are now first-class in `@modelcontextprotocol/express`.
 
-New code should use a dedicated IdP/OAuth library (or `better-auth` per the [examples](../examples/server/src/)) instead of running an Authorization Server from the SDK.
+Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) remain available as a frozen v1 copy in the deprecated `@modelcontextprotocol/server-auth-legacy` package. New code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
 
 Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 

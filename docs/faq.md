@@ -71,7 +71,7 @@ The SDK ships several runnable server examples under `examples/server/src`. Star
 
 ### Where are the server auth helpers?
 
-All v1 `server/auth/*` exports are available in the deprecated `@modelcontextprotocol/server-auth-legacy` package (frozen v1 copy). New code should use a dedicated IdP/OAuth library; example packages provide a demo with `better-auth`.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, etc.) remain available as a frozen v1 copy in the deprecated `@modelcontextprotocol/server-auth-legacy` package; new code should use a dedicated IdP/OAuth library. Example packages provide a demo with `better-auth`.
 
 ### Where is the server SSE transport?
 
