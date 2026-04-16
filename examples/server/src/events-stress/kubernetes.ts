@@ -61,7 +61,7 @@ function createK8sDeps(): K8sDeps {
     return { core: kc.makeApiClient(CoreV1Api), watch: new Watch(kc) };
 }
 
-// --- composite cursor --------------------------------------------------------
+// --- opaque cursor encoding --------------------------------------------------
 
 interface Cursor {
     pods: string;

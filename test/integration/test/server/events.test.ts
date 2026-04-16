@@ -271,7 +271,7 @@ describe('Events', () => {
     });
 
     describe('events/stream (push mode)', () => {
-        it('confirms subscriptions with notifications/events/active and delivers events as notifications/event', async () => {
+        it('confirms subscriptions with notifications/events/active and delivers events as notifications/events/event', async () => {
             const { state, check } = makeCounterEvent(0.01);
             server.registerEvent(
                 'counter.tick',

@@ -79,7 +79,7 @@ server.registerEvent(
         }
     },
     // Pure emit-driven: check is a no-op stub. Buffer + fan-out handle delivery.
-    async () => ({ events: [], cursor: '', nextPollSeconds: 60 })
+    async () => ({ events: [], cursor: '', nextPollSeconds: 5 })
 );
 
 // --- incident.created: emit-driven with lifecycle hooks ---
@@ -113,7 +113,7 @@ server.registerEvent(
     },
     // Emit-driven: check is a no-op. The always-on event log makes emits
     // visible to all delivery modes and supports resume via cursor.
-    async (_params, _cursor) => ({ events: [], cursor: '', nextPollSeconds: 60 })
+    async (_params, _cursor) => ({ events: [], cursor: '', nextPollSeconds: 5 })
 );
 
 // Simulate incidents arriving from upstream every 15 seconds.

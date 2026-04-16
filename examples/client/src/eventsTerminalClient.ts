@@ -67,7 +67,7 @@ function out(line: string): void {
 }
 
 function printOccurrence(mode: string, ev: EventOccurrence): void {
-    out(`  [${mode}] ${ev.name} ${ev.eventId} cursor=${ev.cursor ?? '-'} ${ev.timestamp}: ${JSON.stringify(ev.data)}`);
+    out(`  [${mode}] ${ev.name} ${ev.eventId} cursor=${ev.cursor} ${ev.timestamp}: ${JSON.stringify(ev.data)}`);
 }
 
 function help(): void {

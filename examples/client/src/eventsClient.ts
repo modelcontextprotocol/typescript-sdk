@@ -33,7 +33,10 @@ const forcedMode = modeIdx === -1 ? undefined : (process.argv[modeIdx + 1] as Ev
 
 const webhookUrlIdx = process.argv.indexOf('--webhook-url');
 const webhookUrl = webhookUrlIdx === -1 ? 'http://127.0.0.1:4000/hook' : process.argv[webhookUrlIdx + 1]!;
-const webhookSecret = 'example-secret-please-change';
+
+// Secret is server-minted and delivered via the `onSecret` callback on first
+// subscribe. We store it here so the webhook listener can verify signatures.
+let webhookSecret: string | null = null;
 
 async function main(): Promise<void> {
     // Spawn the example server as a child process.
@@ -58,7 +61,10 @@ async function main(): Promise<void> {
         forcedMode === 'webhook'
             ? {
                   url: webhookUrl,
-                  secret: webhookSecret
+                  onSecret: (secret: string) => {
+                      webhookSecret = secret;
+                      console.log(`[webhook] received server-minted secret (${secret.slice(0, 14)}...)`);
+                  }
               }
             : undefined;
 
@@ -122,6 +128,10 @@ function startWebhookReceiver(manager: ClientEventManager): void {
         });
         req.on('end', () => {
             void (async () => {
+                if (webhookSecret === null) {
+                    res.writeHead(503).end('webhook secret not yet received');
+                    return;
+                }
                 const verify = await verifyWebhookSignature(
                     webhookSecret,
                     body,

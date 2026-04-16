@@ -167,7 +167,7 @@ export function createServer(stripeOverride?: Stripe): McpServer {
                 // NOTE: emitEvent() broadcasts one payload to all subscribers, so
                 // we cannot honour each subscriber's `expand` param here. Emit the
                 // fat payload; thin-mode subscribers still receive it.
-                server.emitEvent(mcpName, toPayload(evt, true));
+                server.emitEvent(mcpName, toPayload(evt, true), { cursor: evt.id });
             }
             res.json({ received: true });
         });
