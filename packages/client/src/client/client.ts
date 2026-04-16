@@ -13,6 +13,7 @@ import type {
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
+    LegacyContextFields,
     ListChangedHandlers,
     ListChangedOptions,
     ListPromptsRequest,
@@ -245,7 +246,7 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
+    protected override buildContext(ctx: BaseContext & LegacyContextFields, _transportInfo?: MessageExtraInfo): ClientContext {
         return ctx;
     }
 
