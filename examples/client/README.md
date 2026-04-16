@@ -36,7 +36,7 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 | Client credentials (M2M)                            | Machine-to-machine OAuth client credentials example.                                      | [`src/simpleClientCredentials.ts`](src/simpleClientCredentials.ts)                         |
 | URL elicitation client                              | Drives URL-mode elicitation flows (sensitive input in a browser).                         | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                             |
 | Task interactive client                             | Demonstrates task-based execution + interactive server→client requests.                   | [`src/simpleTaskInteractiveClient.ts`](src/simpleTaskInteractiveClient.ts)                 |
-| Custom (non-standard) methods client                | Sends `acme/*` custom requests and handles custom server notifications.                   | [`src/customMethodExample.ts`](src/customMethodExample.ts)                                 |
+| Custom (non-standard) methods client                | Sends `acme/*` custom requests + notifications and handles custom progress notifications from the server. | [`src/customMethodExample.ts`](src/customMethodExample.ts)                                 |
 
 ## URL elicitation example (server + client)
 
