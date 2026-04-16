@@ -1903,4 +1903,165 @@ describe('Events', () => {
             expect(checkInvocations.some(c => c !== null)).toBe(true);
         });
     });
+
+    /**
+     * Regression tests for onSubscribe hook gating + ordering relative to replay.
+     *
+     * Bug 1: onSubscribe was gated on `wireCursor === null` in poll and push,
+     * so a `--from <cursor>` (resume) subscribe silently skipped all app-level
+     * hooks. Fixed so the hook fires for every fresh spec.id regardless of cursor.
+     *
+     * Bug 2: In the push path, `_replayAfterCursor` ran before `onSubscribe`.
+     * The replay invokes `event.matches(...)`, so any authz-in-matches pattern
+     * saw "unknown sub" for every replayed event and dropped them all. Fixed
+     * by swapping the order so onSubscribe runs first.
+     */
+    describe('onSubscribe hook on resume-with-cursor', () => {
+        it('fires onSubscribe on push subscribe with a non-null cursor', async () => {
+            const calls: { id: string; params: unknown }[] = [];
+            server.registerEvent(
+                'hooked.event',
+                {
+                    inputSchema: z.object({}),
+                    hooks: {
+                        onSubscribe: (id, params) => {
+                            calls.push({ id, params });
+                        }
+                    },
+                    buffer: { capacity: 100 }
+                },
+                async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 })
+            );
+
+            const events: EventNotification['params'][] = [];
+            client.setNotificationHandler('notifications/events/event', n => {
+                events.push(n.params);
+            });
+            const active: { id: string; cursor: string }[] = [];
+            client.setNotificationHandler('notifications/events/active', n => {
+                active.push({ id: n.params.id, cursor: n.params.cursor as string });
+            });
+
+            await connectPair(server, client);
+
+            // First subscribe (cursor: null) — baseline.
+            const c1 = new AbortController();
+            openStream(client, [{ id: 's1', name: 'hooked.event', params: {}, cursor: null }], c1);
+            await vi.waitFor(() => expect(active.find(a => a.id === 's1')).toBeDefined());
+            server.emitEvent('hooked.event', { payload: 'first' });
+            await vi.waitFor(() => expect(events.length).toBeGreaterThanOrEqual(1));
+            const capturedCursor = events[0]!.cursor!;
+            c1.abort();
+            await new Promise(r => setTimeout(r, 30));
+
+            // Second subscribe with a cursor — onSubscribe MUST still fire.
+            calls.length = 0;
+            const c2 = new AbortController();
+            openStream(client, [{ id: 's2', name: 'hooked.event', params: {}, cursor: capturedCursor }], c2);
+            await vi.waitFor(() => expect(active.find(a => a.id === 's2')).toBeDefined());
+
+            expect(calls.find(c => c.id === 's2')).toBeDefined();
+            c2.abort();
+        });
+
+        it('fires onSubscribe on poll subscribe with a non-null cursor', async () => {
+            const calls: { id: string; params: unknown }[] = [];
+            server.registerEvent(
+                'hooked.event',
+                {
+                    inputSchema: z.object({}),
+                    hooks: {
+                        onSubscribe: (id, params) => {
+                            calls.push({ id, params });
+                        }
+                    },
+                    buffer: { capacity: 100 }
+                },
+                async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 })
+            );
+
+            await connectPair(server, client);
+
+            // Bootstrap poll.
+            await client.pollEvents({
+                subscriptions: [{ id: 'p', name: 'hooked.event', params: {}, cursor: null }]
+            });
+            server.emitEvent('hooked.event', { payload: 'first' });
+            const first = await client.pollEvents({
+                subscriptions: [{ id: 'p', name: 'hooked.event', params: {}, cursor: null }]
+            });
+            const capturedCursor = first.results[0]!.events![0]!.cursor!;
+
+            // New sub id with a cursor — expect onSubscribe to fire.
+            calls.length = 0;
+            await client.pollEvents({
+                subscriptions: [{ id: 'p2', name: 'hooked.event', params: {}, cursor: capturedCursor }]
+            });
+
+            expect(calls.find(c => c.id === 'p2')).toBeDefined();
+        });
+
+        it('runs onSubscribe before replay so matches() sees the registered sub', async () => {
+            // The matches() hook is synchronous and checks a Set populated by
+            // onSubscribe. If matches runs first, the Set is empty and every
+            // replayed event is filtered out — the test sees 0 deliveries.
+            // If onSubscribe runs first (correct), all replays deliver.
+            const registered = new Set<string>();
+            server.registerEvent(
+                'gated.event',
+                {
+                    inputSchema: z.object({}),
+                    hooks: {
+                        onSubscribe: id => {
+                            registered.add(id);
+                        },
+                        onUnsubscribe: id => {
+                            registered.delete(id);
+                        }
+                    },
+                    matches: (_params, _data, ctx) => registered.has(ctx.subscriptionId),
+                    buffer: { capacity: 100 }
+                },
+                async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 })
+            );
+
+            const events: EventNotification['params'][] = [];
+            client.setNotificationHandler('notifications/events/event', n => {
+                events.push(n.params);
+            });
+            const active: { id: string; cursor: string }[] = [];
+            client.setNotificationHandler('notifications/events/active', n => {
+                active.push({ id: n.params.id, cursor: n.params.cursor as string });
+            });
+
+            await connectPair(server, client);
+
+            // Bootstrap a sub, capture cursor after first event.
+            const c1 = new AbortController();
+            openStream(client, [{ id: 's1', name: 'gated.event', params: {}, cursor: null }], c1);
+            await vi.waitFor(() => expect(active.find(a => a.id === 's1')).toBeDefined());
+            server.emitEvent('gated.event', { n: 1 });
+            await vi.waitFor(() => expect(events.find(e => e.data.n === 1)).toBeDefined());
+            const capturedCursor = events[0]!.cursor!;
+            c1.abort();
+            await new Promise(r => setTimeout(r, 30));
+
+            // Emit more while "disconnected" so there's a replay backlog.
+            server.emitEvent('gated.event', { n: 2 });
+            server.emitEvent('gated.event', { n: 3 });
+            server.emitEvent('gated.event', { n: 4 });
+            events.length = 0;
+
+            // Resume with cursor. matches() is gated on registered.has(subId),
+            // so if replay runs before onSubscribe registers 's2', all replayed
+            // events are filtered out.
+            const c2 = new AbortController();
+            openStream(client, [{ id: 's2', name: 'gated.event', params: {}, cursor: capturedCursor }], c2);
+
+            await vi.waitFor(() => expect(events.filter(e => e.id === 's2').length).toBeGreaterThanOrEqual(3));
+            const s2Events = events.filter(e => e.id === 's2');
+            expect(s2Events.map(e => e.data.n)).toEqual([2, 3, 4]);
+            c2.abort();
+        });
+    });
 });
