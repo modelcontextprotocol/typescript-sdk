@@ -4,9 +4,9 @@
  * This module defines the stable, public-facing API surface. Client and server
  * packages re-export from here so that end users only see supported symbols.
  *
- * Internal utilities (Protocol class, stdio parsing, schema helpers, etc.)
- * remain available via the internal barrel (@modelcontextprotocol/core) for
- * use by client/server packages.
+ * Internal utilities (stdio parsing, schema helpers, etc.) remain available via
+ * the internal barrel (@modelcontextprotocol/core) for use by client/server
+ * packages.
  */
 
 // Auth error classes
@@ -38,7 +38,7 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
-// Protocol class (abstract — subclass for custom vocabularies) + types. NOT mergeCapabilities.
+// Protocol class (concrete; subclass for custom vocabularies via SpecT) + types. NOT mergeCapabilities.
 export type {
     BaseContext,
     ClientContext,

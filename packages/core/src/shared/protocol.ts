@@ -310,7 +310,8 @@ type TimeoutInfo = {
  *
  * Supplying a concrete `ProtocolSpec` as `Protocol`'s second type argument gives method-name
  * autocomplete and params/result correlation on the typed overloads of `setRequestHandler`
- * and `setNotificationHandler`. The default leaves them string-keyed and untyped.
+ * and `setNotificationHandler`. `Protocol` defaults to {@linkcode McpSpec}; using the bare
+ * `ProtocolSpec` type leaves methods string-keyed and untyped.
  */
 export type ProtocolSpec = {
     requests?: Record<string, { params?: unknown; result: unknown }>;
@@ -1092,8 +1093,9 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
      *   Any method string; the supplied schema validates incoming `params`. Absent or undefined
      *   `params` are normalized to `{}` (after stripping `_meta`) before validation, so for
      *   no-params methods use `z.object({})`. `paramsSchema` may be any Standard Schema (Zod,
-     *   Valibot, ArkType, etc.). When `method` is listed in this instance's
-     *   {@linkcode ProtocolSpec}, params and result types are inferred from `SpecT`.
+     *   Valibot, ArkType, etc.). The handler's `params` type is inferred from the passed
+     *   `paramsSchema`; when `method` is listed in this instance's {@linkcode ProtocolSpec},
+     *   `paramsSchema`'s input and the handler's result type are constrained by `SpecT`.
      * - **Zod schema** — `setRequestHandler(RequestZodSchema, (request, ctx) => …)`. The method
      *   name is read from the schema's `method` literal; the handler receives the parsed request.
      */
@@ -1236,8 +1238,9 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
      * Mirrors {@linkcode setRequestHandler}: a two-arg spec-method form (handler receives the full
      * notification object), a three-arg form with a `paramsSchema` (handler receives validated
      * `params`), and a Zod-schema form (method read from the schema's `method` literal). When the
-     * three-arg form's `method` is listed in this instance's {@linkcode ProtocolSpec}, the params
-     * type is inferred from `SpecT`.
+     * three-arg form's `method` is listed in this instance's {@linkcode ProtocolSpec},
+     * `paramsSchema`'s input is constrained by `SpecT`; the handler's `params` type is always
+     * inferred from the passed schema.
      */
     setNotificationHandler<K extends SpecNotifications<SpecT>, P extends StandardSchemaV1<_Notifications<SpecT>[K]['params']>>(
         method: K,
