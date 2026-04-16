@@ -377,6 +377,15 @@ Schema to method string mapping:
 
 Request/notification params remain fully typed. Remove unused schema imports after migration.
 
+**Custom (non-standard) methods** — vendor extensions or sub-protocols whose method strings are not in the MCP spec — work on `Client`/`Server` directly using the same v1 Zod-schema form:
+
+| Form                                                         | Notes                                                                 |
+| ------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `setRequestHandler(CustomReqSchema, (req, ctx) => ...)`      | unchanged                                                             |
+| `setNotificationHandler(CustomNotifSchema, n => ...)`        | unchanged                                                             |
+| `this.request({ method: 'vendor/x', params }, ResultSchema)` | unchanged                                                             |
+| `this.notification({ method: 'vendor/x', params })`          | unchanged                                                             |
+
 ## 10. Request Handler Context Types
 
 `RequestHandlerExtra` → structured context types with nested groups. Rename `extra` → `ctx` in all handler callbacks.

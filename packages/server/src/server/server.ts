@@ -21,17 +21,20 @@ import type {
     NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
+    Request,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
     ResourceUpdatedNotification,
+    Result,
     ResultTypeMap,
     ServerCapabilities,
     ServerContext,
     ServerResult,
     TaskManagerOptions,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    ZodLikeRequestSchema
 } from '@modelcontextprotocol/core';
 import {
     assertClientRequestTaskCapability,
@@ -44,6 +47,7 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     extractTaskManagerOptions,
+    isZodLikeSchema,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -225,9 +229,21 @@ export class Server extends Protocol<ServerContext> {
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
-    ): void {
+    ): void;
+    public override setRequestHandler<T extends ZodLikeRequestSchema>(
+        requestSchema: T,
+        handler: (request: ReturnType<T['parse']>, ctx: ServerContext) => Result | Promise<Result>
+    ): void;
+    public override setRequestHandler(method: string | ZodLikeRequestSchema, schemaHandler: unknown): void {
+        if (isZodLikeSchema(method)) {
+            return this._registerCompatRequestHandler(
+                method,
+                schemaHandler as (request: unknown, ctx: ServerContext) => Result | Promise<Result>
+            );
+        }
+        const handler = schemaHandler as (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
         if (method === 'tools/call') {
-            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
+            const wrappedHandler = async (request: Request, ctx: ServerContext): Promise<ServerResult> => {
                 const validatedRequest = parseSchema(CallToolRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
@@ -264,11 +280,11 @@ export class Server extends Protocol<ServerContext> {
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler);
+            return this._setRequestHandlerByMethod(method, wrappedHandler);
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(method, handler);
+        return this._setRequestHandlerByMethod(method, handler);
     }
 
     protected assertCapabilityForMethod(method: RequestMethod): void {

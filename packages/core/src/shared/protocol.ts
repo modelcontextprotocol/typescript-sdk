@@ -44,6 +44,8 @@ import {
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types/index.js';
+import type { ZodLikeRequestSchema } from '../util/compatSchema.js';
+import { extractMethodLiteral, isZodLikeSchema } from '../util/compatSchema.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
@@ -390,8 +392,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Builds the context object for request handlers. Subclasses must override
-     * to return the appropriate context type (e.g., ServerContext adds HTTP request info).
+     * Builds the context object for request handlers.
+     *
+     * Subclasses implement this to enrich the {@linkcode BaseContext} (e.g. `Server` adds `http`
+     * and `mcpReq.log` to produce `ServerContext`).
      */
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 
@@ -757,33 +761,43 @@ export abstract class Protocol<ContextT extends BaseContext> {
     protected abstract assertRequestHandlerCapability(method: string): void;
 
     /**
-     * A method to check if the remote side supports task creation for the given method.
-     *
-     * Called when sending a task-augmented outbound request (only when enforceStrictCapabilities is true).
+     * A method to check if a task creation is supported by the remote side, for the given method to be called.
+     * This is called by request when a task-augmented request is being sent and enforceStrictCapabilities is true.
      * This should be implemented by subclasses.
      */
     protected abstract assertTaskCapability(method: string): void;
 
     /**
-     * A method to check if this side supports handling task creation for the given method.
-     *
-     * Called when receiving a task-augmented inbound request.
+     * A method to check if task creation is supported by the local side, for the given method to be handled.
+     * This is called when a task-augmented request is received.
      * This should be implemented by subclasses.
      */
     protected abstract assertTaskHandlerCapability(method: string): void;
 
     /**
-     * Sends a request and waits for a response, resolving the result schema
-     * automatically from the method name.
+     * Sends a request and waits for a response.
      *
-     * Do not use this method to emit notifications! Use {@linkcode Protocol.notification | notification()} instead.
+     * Two call forms:
+     * - **Spec method** — `request({ method: 'tools/call', params }, options?)`. The result schema
+     *   is resolved automatically from the method name and the return type is `ResultTypeMap[M]`.
+     * - **With explicit result schema** — `request({ method, params }, resultSchema, options?)`.
+     *   The result is validated against the supplied schema and typed by it. Use this for non-spec
+     *   methods, or to supply a custom result shape for a spec method.
+     *
+     * Do not use this method to emit notifications! Use
+     * {@linkcode Protocol.notification | notification()} instead.
      */
     request<M extends RequestMethod>(
         request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
-    ): Promise<ResultTypeMap[M]> {
-        const resultSchema = getResultSchema(request.method);
-        return this._requestWithSchema(request as Request, resultSchema, options) as Promise<ResultTypeMap[M]>;
+    ): Promise<ResultTypeMap[M]>;
+    request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
+    request(request: Request, optionsOrSchema?: RequestOptions | AnySchema, maybeOptions?: RequestOptions): Promise<unknown> {
+        if (optionsOrSchema && '~standard' in optionsOrSchema) {
+            return this._requestWithSchema(request, optionsOrSchema, maybeOptions);
+        }
+        const schema = getResultSchema(request.method as RequestMethod);
+        return this._requestWithSchema(request, schema, optionsOrSchema);
     }
 
     /**
@@ -809,7 +823,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             };
 
             if (!this._transport) {
-                earlyReject(new Error('Not connected'));
+                earlyReject(new SdkError(SdkErrorCode.NotConnected, 'Not connected'));
                 return;
             }
 
@@ -1001,19 +1015,54 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Registers a handler to invoke when this protocol object receives a request with the given method.
+     * Registers a handler to invoke when this protocol object receives a request with the given
+     * method. Replaces any previous handler for the same method.
      *
-     * Note that this will replace any previous request handler for the same method.
+     * Call forms:
+     * - **Spec method** — `setRequestHandler('tools/call', (request, ctx) => …)`.
+     *   The full `RequestTypeMap[M]` request object is validated by the SDK and passed to the
+     *   handler. This is the form `Client`/`Server` use and override.
+     * - **Zod schema** — `setRequestHandler(RequestZodSchema, (request, ctx) => …)`. The method
+     *   name is read from the schema's `method` literal; the handler receives the parsed request.
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
-    ): void {
-        this.assertRequestHandlerCapability(method);
-        const schema = getRequestSchema(method);
+    ): void;
+    setRequestHandler<T extends ZodLikeRequestSchema>(
+        requestSchema: T,
+        handler: (request: ReturnType<T['parse']>, ctx: ContextT) => Result | Promise<Result>
+    ): void;
+    setRequestHandler(method: string | ZodLikeRequestSchema, handler: (request: Request, ctx: ContextT) => Result | Promise<Result>): void {
+        if (isZodLikeSchema(method)) {
+            return this._registerCompatRequestHandler(method, handler as (request: unknown, ctx: ContextT) => Result | Promise<Result>);
+        }
+        this._setRequestHandlerByMethod(method, handler);
+    }
 
+    /**
+     * Dispatches the Zod-schema form of `setRequestHandler` — extracts the method literal from the
+     * schema and registers a handler that parses the full request through it. Called by
+     * `Client`/`Server` overrides to avoid forwarding through their own overload set.
+     */
+    protected _registerCompatRequestHandler(
+        requestSchema: ZodLikeRequestSchema,
+        handler: (request: unknown, ctx: ContextT) => Result | Promise<Result>
+    ): void {
+        const methodStr = extractMethodLiteral(requestSchema);
+        this.assertRequestHandlerCapability(methodStr);
+        this._requestHandlers.set(methodStr, (request, ctx) => Promise.resolve(handler(requestSchema.parse(request), ctx)));
+    }
+
+    /**
+     * Registers a request handler by method string, bypassing the public overload set.
+     * Used by `Client`/`Server` overrides to forward without `as RequestMethod` casts.
+     */
+    protected _setRequestHandlerByMethod(method: string, handler: (request: Request, ctx: ContextT) => Result | Promise<Result>): void {
+        this.assertRequestHandlerCapability(method);
+        const schema = getRequestSchema(method as RequestMethod);
         this._requestHandlers.set(method, (request, ctx) => {
-            const parsed = schema.parse(request) as RequestTypeMap[M];
+            const parsed = schema.parse(request) as Request;
             return Promise.resolve(handler(parsed, ctx));
         });
     }
@@ -1021,30 +1070,44 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Removes the request handler for the given method.
      */
-    removeRequestHandler(method: RequestMethod): void {
+    removeRequestHandler(method: string): void {
         this._requestHandlers.delete(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
-    assertCanSetRequestHandler(method: RequestMethod): void {
+    assertCanSetRequestHandler(method: string): void {
         if (this._requestHandlers.has(method)) {
             throw new Error(`A request handler for ${method} already exists, which would be overridden`);
         }
     }
 
     /**
-     * Registers a handler to invoke when this protocol object receives a notification with the given method.
+     * Registers a handler to invoke when this protocol object receives a notification with the
+     * given method. Replaces any previous handler for the same method.
      *
-     * Note that this will replace any previous notification handler for the same method.
+     * Mirrors {@linkcode setRequestHandler}: a spec-method form (handler receives the full
+     * notification object) and a Zod-schema form (method read from the schema's `method` literal).
      */
     setNotificationHandler<M extends NotificationMethod>(
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
-    ): void {
-        const schema = getNotificationSchema(method);
-
+    ): void;
+    setNotificationHandler<T extends ZodLikeRequestSchema>(
+        notificationSchema: T,
+        handler: (notification: ReturnType<T['parse']>) => void | Promise<void>
+    ): void;
+    setNotificationHandler(method: string | ZodLikeRequestSchema, handler: (notification: Notification) => void | Promise<void>): void {
+        if (isZodLikeSchema(method)) {
+            const notificationSchema = method;
+            const methodStr = extractMethodLiteral(notificationSchema);
+            this._notificationHandlers.set(methodStr, n =>
+                Promise.resolve((handler as (n: unknown) => void | Promise<void>)(notificationSchema.parse(n)))
+            );
+            return;
+        }
+        const schema = getNotificationSchema(method as NotificationMethod);
         this._notificationHandlers.set(method, notification => {
             const parsed = schema.parse(notification);
             return Promise.resolve(handler(parsed));
@@ -1054,7 +1117,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Removes the notification handler for the given method.
      */
-    removeNotificationHandler(method: NotificationMethod): void {
+    removeNotificationHandler(method: string): void {
         this._notificationHandlers.delete(method);
     }
 }
