@@ -204,7 +204,7 @@ if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) 
 ```
 
 **Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all
-Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
+Zod schemas, all callback return types. Note: `callTool()` and `request()` schema parameter is now optional (see section 11).
 
 ## 6. McpServer API Changes
 
@@ -416,9 +416,9 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `ctx.mcpReq.elicitInput(params, options?)`     | Elicit user input (form or URL)                        | `server.elicitInput(...)` from within handler        |
 | `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client                       | `server.createMessage(...)` from within handler      |
 
-## 11. Schema parameter removed from `request()`, `send()`, and `callTool()`
+## 11. Schema parameter on `request()` / `callTool()` is optional; removed from `send()`
 
-`Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` no longer take a Zod result schema argument. The SDK resolves the schema internally from the method name.
+`Protocol.request()` and `Client.callTool()` still accept a Zod result schema as the second argument (the v1 form), but it is optional for spec methods — the SDK resolves the schema internally from the method name. `BaseContext.mcpReq.send()` no longer takes a schema.
 
 ```typescript
 // v1: schema required
@@ -427,20 +427,20 @@ const result = await client.request({ method: 'tools/call', params: { ... } }, C
 const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { ... } }, ElicitResultSchema);
 const tool = await client.callTool({ name: 'my-tool', arguments: {} }, CompatibilityCallToolResultSchema);
 
-// v2: no schema argument
+// v2: schema optional on request()/callTool(); removed from mcpReq.send()
 const result = await client.request({ method: 'tools/call', params: { ... } });
 const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { ... } });
 const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
-| v1 call                                                      | v2 call                            |
-| ------------------------------------------------------------ | ---------------------------------- |
-| `client.request(req, ResultSchema)`                          | `client.request(req)`              |
-| `client.request(req, ResultSchema, options)`                 | `client.request(req, options)`     |
-| `ctx.mcpReq.send(req, ResultSchema)`                         | `ctx.mcpReq.send(req)`             |
-| `ctx.mcpReq.send(req, ResultSchema, options)`                | `ctx.mcpReq.send(req, options)`    |
-| `client.callTool(params, CompatibilityCallToolResultSchema)` | `client.callTool(params)`          |
-| `client.callTool(params, schema, options)`                   | `client.callTool(params, options)` |
+| v1 call                                                      | v2 call                                        |
+| ------------------------------------------------------------ | ---------------------------------------------- |
+| `client.request(req, ResultSchema)`                          | unchanged (schema optional), or `client.request(req)` |
+| `client.request(req, ResultSchema, options)`                 | unchanged, or `client.request(req, options)`   |
+| `ctx.mcpReq.send(req, ResultSchema)`                         | `ctx.mcpReq.send(req)`                         |
+| `ctx.mcpReq.send(req, ResultSchema, options)`                | `ctx.mcpReq.send(req, options)`                |
+| `client.callTool(params, CompatibilityCallToolResultSchema)` | unchanged (schema ignored), or `client.callTool(params)` |
+| `client.callTool(params, schema, options)`                   | unchanged, or `client.callTool(params, options)` |
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 

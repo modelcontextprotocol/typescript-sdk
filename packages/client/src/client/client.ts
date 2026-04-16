@@ -892,10 +892,12 @@ export class Client extends Protocol<ClientContext> {
         optionsOrSchema?: RequestOptions | unknown,
         maybeOptions?: RequestOptions
     ): Promise<CallToolResult> {
-        const options: RequestOptions | undefined =
-            optionsOrSchema && typeof optionsOrSchema === 'object' && 'parse' in optionsOrSchema
-                ? maybeOptions
-                : (optionsOrSchema as RequestOptions | undefined);
+        const arg2IsSchema = optionsOrSchema != null && typeof optionsOrSchema === 'object' && 'parse' in optionsOrSchema;
+        // v1 allowed `callTool(params, undefined, opts)` (resultSchema was optional-with-default);
+        // when arg2 is not a schema, prefer arg3 if present so opts aren't dropped.
+        const options: RequestOptions | undefined = arg2IsSchema
+            ? maybeOptions
+            : (maybeOptions ?? (optionsOrSchema as RequestOptions | undefined));
         // Guard: required-task tools need experimental API
         if (this.isToolTaskRequired(params.name)) {
             throw new ProtocolError(

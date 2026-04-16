@@ -27,9 +27,12 @@ const TickNotification = z.object({
 
 const server = new Server({ name: 'custom-method-server', version: '1.0.0' }, { capabilities: {} });
 
-server.setRequestHandler(SearchRequest, request => {
+server.setRequestHandler(SearchRequest, async (request, ctx) => {
     console.log('[server] acme/search query=' + request.params.query);
-    return { hits: [request.params.query, request.params.query + '-result'] };
+    await ctx.mcpReq.notify({ method: 'acme/searchProgress', params: { stage: 'start', pct: 0 } });
+    const hits = [request.params.query, request.params.query + '-result'];
+    await ctx.mcpReq.notify({ method: 'acme/searchProgress', params: { stage: 'done', pct: 100 } });
+    return { hits };
 });
 
 server.setNotificationHandler(TickNotification, n => {
