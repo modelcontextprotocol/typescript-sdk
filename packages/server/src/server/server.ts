@@ -46,6 +46,7 @@ import {
     CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    extractMethodLiteral,
     extractTaskManagerOptions,
     isZodLikeSchema,
     LATEST_PROTOCOL_VERSION,
@@ -230,19 +231,23 @@ export class Server extends Protocol<ServerContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
-    /** @deprecated Pass the method string instead. */
+    /** @deprecated For spec methods, pass the method string instead. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ServerContext) => Result | Promise<Result>
     ): void;
-    public override setRequestHandler(method: string | ZodLikeRequestSchema, schemaHandler: unknown): void {
-        if (isZodLikeSchema(method)) {
-            return this._registerCompatRequestHandler(
-                method,
-                schemaHandler as (request: unknown, ctx: ServerContext) => Result | Promise<Result>
-            );
+    public override setRequestHandler(methodOrSchema: string | ZodLikeRequestSchema, schemaHandler: unknown): void {
+        let method: string;
+        let handler: (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
+        if (isZodLikeSchema(methodOrSchema)) {
+            const schema = methodOrSchema;
+            const userHandler = schemaHandler as (request: unknown, ctx: ServerContext) => Result | Promise<Result>;
+            method = extractMethodLiteral(schema);
+            handler = (req, ctx) => userHandler(schema.parse(req), ctx);
+        } else {
+            method = methodOrSchema;
+            handler = schemaHandler as (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
         }
-        const handler = schemaHandler as (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
         if (method === 'tools/call') {
             const wrappedHandler = async (request: Request, ctx: ServerContext): Promise<ServerResult> => {
                 const validatedRequest = parseSchema(CallToolRequestSchema, request);
