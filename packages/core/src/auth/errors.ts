@@ -108,6 +108,13 @@ export class OAuthError extends Error {
     }
 
     /**
+     * @deprecated Use {@linkcode OAuthError.code | .code}.
+     */
+    get errorCode(): string {
+        return this.code;
+    }
+
+    /**
      * Converts the error to a standard OAuth error response object.
      */
     toResponseObject(): OAuthErrorResponse {

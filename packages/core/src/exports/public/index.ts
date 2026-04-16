@@ -101,6 +101,55 @@ export { ProtocolErrorCode } from '../../types/enums.js';
 // Error classes
 export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.js';
 
+// --- v1-compat aliases ---
+import { SdkErrorCode as _SdkErrorCode } from '../../errors/sdkErrors.js';
+import { ProtocolErrorCode as _ProtocolErrorCode } from '../../types/enums.js';
+/**
+ * @deprecated Use {@linkcode ProtocolErrorCode} for protocol-level (wire) errors
+ * or {@linkcode SdkErrorCode} for local SDK errors. Note `ConnectionClosed` /
+ * `RequestTimeout` moved to `SdkErrorCode` in v2 and are now thrown as `SdkError`,
+ * not `ProtocolError`.
+ */
+export const ErrorCode = {
+    ..._ProtocolErrorCode,
+    /** Now {@linkcode SdkErrorCode.ConnectionClosed}; thrown as `SdkError`, not `McpError`. */
+    ConnectionClosed: _SdkErrorCode.ConnectionClosed,
+    /** Now {@linkcode SdkErrorCode.RequestTimeout}; thrown as `SdkError`, not `McpError`. */
+    RequestTimeout: _SdkErrorCode.RequestTimeout
+} as const;
+/** @deprecated Use `ProtocolErrorCode` / `SdkErrorCode`. See {@linkcode ErrorCode} const. */
+export type ErrorCode = _ProtocolErrorCode | typeof _SdkErrorCode.ConnectionClosed | typeof _SdkErrorCode.RequestTimeout;
+export {
+    /** @deprecated Use {@linkcode ProtocolError} (or `SdkError` for transport-level errors). */
+    ProtocolError as McpError
+} from '../../types/errors.js';
+// Note: InvalidRequestError is intentionally omitted here — it collides with the
+// JSON-RPC `InvalidRequestError` interface re-exported from types.ts below. v1 users
+// imported it from `server/auth/errors.js`, which the sdk meta-package subpath provides.
+export {
+    AccessDeniedError,
+    CustomOAuthError,
+    InsufficientScopeError,
+    InvalidClientError,
+    InvalidClientMetadataError,
+    InvalidGrantError,
+    InvalidScopeError,
+    InvalidTargetError,
+    InvalidTokenError,
+    MethodNotAllowedError,
+    ServerError,
+    TemporarilyUnavailableError,
+    TooManyRequestsError,
+    UnauthorizedClientError,
+    UnsupportedGrantTypeError,
+    UnsupportedResponseTypeError,
+    UnsupportedTokenTypeError
+} from '../../errors/oauthErrorsCompat.js';
+export { StreamableHTTPError } from '../../errors/streamableHttpErrorCompat.js';
+/** @deprecated Use {@linkcode JSONRPCErrorResponse}. */
+export type { JSONRPCErrorResponse as JSONRPCError } from '../../types/spec.types.js';
+// --- end v1-compat ---
+
 // Type guards and message parsing
 export {
     assertCompleteRequestPrompt,
@@ -108,6 +157,8 @@ export {
     isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
+    /** @deprecated Use {@linkcode isJSONRPCErrorResponse}. */
+    isJSONRPCErrorResponse as isJSONRPCError,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
