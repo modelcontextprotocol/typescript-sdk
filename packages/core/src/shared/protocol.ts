@@ -791,6 +791,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
     ): Promise<ResultTypeMap[M]>;
+    /** @deprecated The result schema is resolved internally; use `request(req)`. */
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
     request(request: Request, optionsOrSchema?: RequestOptions | AnySchema, maybeOptions?: RequestOptions): Promise<unknown> {
         if (optionsOrSchema && '~standard' in optionsOrSchema) {
@@ -1029,6 +1030,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
     ): void;
+    /** @deprecated Pass the method string instead. */
     setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ContextT) => Result | Promise<Result>
@@ -1094,6 +1096,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
     ): void;
+    /** @deprecated Pass the method string instead. */
     setNotificationHandler<T extends ZodLikeRequestSchema>(
         notificationSchema: T,
         handler: (notification: ReturnType<T['parse']>) => void | Promise<void>

@@ -230,6 +230,7 @@ export class Server extends Protocol<ServerContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
+    /** @deprecated Pass the method string instead. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ServerContext) => Result | Promise<Result>
