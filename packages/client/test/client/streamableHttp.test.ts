@@ -628,6 +628,99 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
+    it('should append custom Accept header to required types on POST requests', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/vnd.example.v1+json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe(
+            'application/vnd.example.v1+json, application/json, text/event-stream'
+        );
+    });
+
+    it('should append custom Accept header to required types on GET SSE requests', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
+    it('should set default Accept header when none provided', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
+    it('should not duplicate Accept media types when user-provided value overlaps required types', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
     it('should have exponential backoff with configurable maxRetries', () => {
         // This test verifies the maxRetries and backoff calculation directly
 
