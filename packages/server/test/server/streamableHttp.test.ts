@@ -1099,9 +1099,7 @@ describe('Zod v4', () => {
 
         it('should return 404 when callback returns undefined (session unknown)', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({
-                replayInitialization: () => {
-                    return;
-                }
+                replayInitialization: () => undefined
             });
 
             const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
