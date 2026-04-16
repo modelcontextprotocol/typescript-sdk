@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { CallToolRequestSchema, InMemoryTransport } from '@modelcontextprotocol/core';
 
@@ -45,5 +46,18 @@ describe('Server.setRequestHandler — Zod-schema form parity', () => {
 
         expect(stringRes.error).toBeDefined();
         expect(schemaRes.error).toEqual(stringRes.error);
+    });
+
+    it('schema form handles non-spec methods through Server (no spec-schema crash)', async () => {
+        const Echo = z.object({ method: z.literal('acme/echo'), params: z.object({ msg: z.string() }) });
+        const { ct } = await setup(s => s.setRequestHandler(Echo, req => ({ reply: req.params.msg })));
+        const res = await new Promise<{ result?: unknown; error?: unknown }>(resolve => {
+            ct.onmessage = m => {
+                const msg = m as { result?: unknown; error?: unknown };
+                if ('result' in msg || 'error' in msg) resolve(msg);
+            };
+            ct.send({ jsonrpc: '2.0', id: 1, method: 'acme/echo', params: { msg: 'hi' } });
+        });
+        expect(res.result).toEqual({ reply: 'hi' });
     });
 });

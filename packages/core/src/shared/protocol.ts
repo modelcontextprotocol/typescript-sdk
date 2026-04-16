@@ -1064,7 +1064,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this.assertRequestHandlerCapability(method);
         const schema = getRequestSchema(method as RequestMethod);
         this._requestHandlers.set(method, (request, ctx) => {
-            const parsed = schema.parse(request) as Request;
+            const parsed = schema ? (schema.parse(request) as Request) : request;
             return Promise.resolve(handler(parsed, ctx));
         });
     }
@@ -1112,7 +1112,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
         const schema = getNotificationSchema(method as NotificationMethod);
         this._notificationHandlers.set(method, notification => {
-            const parsed = schema.parse(notification);
+            const parsed = schema ? schema.parse(notification) : notification;
             return Promise.resolve(handler(parsed));
         });
     }
