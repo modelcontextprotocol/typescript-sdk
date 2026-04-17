@@ -24,6 +24,13 @@ describe('normalizeRawShapeSchema', () => {
         expect(wrapped).toBeDefined();
         expect(standardSchemaToJsonSchema(wrapped!, 'input').type).toBe('object');
     });
+    test('passes through an already-wrapped Standard Schema unchanged', () => {
+        const schema = z.object({ a: z.string() });
+        expect(normalizeRawShapeSchema(schema)).toBe(schema);
+    });
+    test('returns undefined for undefined input', () => {
+        expect(normalizeRawShapeSchema(undefined)).toBeUndefined();
+    });
 });
 
 describe('standardSchemaToJsonSchema', () => {
