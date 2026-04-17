@@ -7,6 +7,7 @@
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
     "type": "module",
+    "types": "./dist/index.d.ts",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
