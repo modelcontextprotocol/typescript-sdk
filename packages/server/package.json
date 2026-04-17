@@ -24,6 +24,10 @@
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
         },
+        "./zod-schemas": {
+            "types": "./dist/zodSchemas.d.mts",
+            "import": "./dist/zodSchemas.mjs"
+        },
         "./validators/cf-worker": {
             "types": "./dist/validators/cfWorker.d.mts",
             "import": "./dist/validators/cfWorker.mjs"

@@ -227,6 +227,30 @@ export type BaseContext = {
      * Task context, available when task storage is configured.
      */
     task?: TaskContext;
+
+    // ─── v1 flat aliases (deprecated) ────────────────────────────────────
+    // v1's RequestHandlerExtra exposed these at the top level. v2 nests them
+    // under {@linkcode mcpReq} / {@linkcode http}. The flat forms are kept
+    // typed (and populated at runtime by McpServer.buildContext) so v1 handler
+    // code keeps compiling. Prefer the nested paths for new code.
+
+    /** @deprecated Use {@linkcode mcpReq.signal}. */
+    signal?: AbortSignal;
+    /** @deprecated Use {@linkcode mcpReq.id}. */
+    requestId?: RequestId;
+    /** @deprecated Use {@linkcode mcpReq._meta}. */
+    _meta?: RequestMeta;
+    /** @deprecated Use {@linkcode mcpReq.notify}. */
+    sendNotification?: (notification: Notification) => Promise<void>;
+    /** @deprecated Use {@linkcode mcpReq.send}. */
+    sendRequest?: <M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
+        options?: TaskRequestOptions
+    ) => Promise<ResultTypeMap[M]>;
+    /** @deprecated Use {@linkcode http.authInfo}. */
+    authInfo?: AuthInfo;
+    /** @deprecated v1 carried raw request info here. v2 surfaces the web `Request` via {@linkcode ServerContext.http}. */
+    requestInfo?: globalThis.Request;
 };
 
 /**
