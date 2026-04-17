@@ -1,332 +1,332 @@
 {
-    "name": "@modelcontextprotocol/sdk",
-    "version": "2.0.0-alpha.2",
-    "description": "Model Context Protocol implementation for TypeScript - Full SDK (re-exports client, server, and node middleware)",
-    "license": "MIT",
-    "author": "Anthropic, PBC (https://anthropic.com)",
-    "homepage": "https://modelcontextprotocol.io",
-    "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
-    "type": "module",
-    "types": "./dist/index.d.ts",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+  "name": "@modelcontextprotocol/sdk",
+  "version": "2.0.0-alpha.2",
+  "description": "Model Context Protocol implementation for TypeScript - Full SDK (re-exports client, server, and node middleware)",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
+  "homepage": "https://modelcontextprotocol.io",
+  "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "modelcontextprotocol",
+    "mcp"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
     },
-    "engines": {
-        "node": ">=20"
+    "./stdio": {
+      "types": "./dist/stdio.d.mts",
+      "import": "./dist/stdio.mjs"
     },
-    "keywords": [
-        "modelcontextprotocol",
-        "mcp"
-    ],
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.mjs"
-        },
-        "./stdio": {
-            "types": "./dist/stdio.d.ts",
-            "import": "./dist/stdio.mjs"
-        },
-        "./types.js": {
-            "types": "./dist/types.d.ts",
-            "import": "./dist/types.mjs"
-        },
-        "./types": {
-            "types": "./dist/types.d.ts",
-            "import": "./dist/types.mjs"
-        },
-        "./server/index.js": {
-            "types": "./dist/server/index.d.ts",
-            "import": "./dist/server/index.mjs"
-        },
-        "./server/index": {
-            "types": "./dist/server/index.d.ts",
-            "import": "./dist/server/index.mjs"
-        },
-        "./server/mcp.js": {
-            "types": "./dist/server/mcp.d.ts",
-            "import": "./dist/server/mcp.mjs"
-        },
-        "./server/mcp": {
-            "types": "./dist/server/mcp.d.ts",
-            "import": "./dist/server/mcp.mjs"
-        },
-        "./server/zod-compat.js": {
-            "types": "./dist/server/zod-compat.d.ts",
-            "import": "./dist/server/zod-compat.mjs"
-        },
-        "./server/zod-compat": {
-            "types": "./dist/server/zod-compat.d.ts",
-            "import": "./dist/server/zod-compat.mjs"
-        },
-        "./server/stdio.js": {
-            "types": "./dist/server/stdio.d.ts",
-            "import": "./dist/server/stdio.mjs"
-        },
-        "./server/stdio": {
-            "types": "./dist/server/stdio.d.ts",
-            "import": "./dist/server/stdio.mjs"
-        },
-        "./server/streamableHttp.js": {
-            "types": "./dist/server/streamableHttp.d.ts",
-            "import": "./dist/server/streamableHttp.mjs"
-        },
-        "./server/streamableHttp": {
-            "types": "./dist/server/streamableHttp.d.ts",
-            "import": "./dist/server/streamableHttp.mjs"
-        },
-        "./server/auth/types.js": {
-            "types": "./dist/server/auth/types.d.ts",
-            "import": "./dist/server/auth/types.mjs"
-        },
-        "./server/auth/types": {
-            "types": "./dist/server/auth/types.d.ts",
-            "import": "./dist/server/auth/types.mjs"
-        },
-        "./server/auth/errors.js": {
-            "types": "./dist/server/auth/errors.d.ts",
-            "import": "./dist/server/auth/errors.mjs"
-        },
-        "./server/auth/errors": {
-            "types": "./dist/server/auth/errors.d.ts",
-            "import": "./dist/server/auth/errors.mjs"
-        },
-        "./client": {
-            "types": "./dist/client/index.d.ts",
-            "import": "./dist/client/index.mjs"
-        },
-        "./client/index.js": {
-            "types": "./dist/client/index.d.ts",
-            "import": "./dist/client/index.mjs"
-        },
-        "./client/index": {
-            "types": "./dist/client/index.d.ts",
-            "import": "./dist/client/index.mjs"
-        },
-        "./client/stdio.js": {
-            "types": "./dist/client/stdio.d.ts",
-            "import": "./dist/client/stdio.mjs"
-        },
-        "./client/stdio": {
-            "types": "./dist/client/stdio.d.ts",
-            "import": "./dist/client/stdio.mjs"
-        },
-        "./client/streamableHttp.js": {
-            "types": "./dist/client/streamableHttp.d.ts",
-            "import": "./dist/client/streamableHttp.mjs"
-        },
-        "./client/streamableHttp": {
-            "types": "./dist/client/streamableHttp.d.ts",
-            "import": "./dist/client/streamableHttp.mjs"
-        },
-        "./client/sse.js": {
-            "types": "./dist/client/sse.d.ts",
-            "import": "./dist/client/sse.mjs"
-        },
-        "./client/sse": {
-            "types": "./dist/client/sse.d.ts",
-            "import": "./dist/client/sse.mjs"
-        },
-        "./client/auth.js": {
-            "types": "./dist/client/auth.d.ts",
-            "import": "./dist/client/auth.mjs"
-        },
-        "./client/auth": {
-            "types": "./dist/client/auth.d.ts",
-            "import": "./dist/client/auth.mjs"
-        },
-        "./shared/protocol.js": {
-            "types": "./dist/shared/protocol.d.ts",
-            "import": "./dist/shared/protocol.mjs"
-        },
-        "./shared/protocol": {
-            "types": "./dist/shared/protocol.d.ts",
-            "import": "./dist/shared/protocol.mjs"
-        },
-        "./shared/transport.js": {
-            "types": "./dist/shared/transport.d.ts",
-            "import": "./dist/shared/transport.mjs"
-        },
-        "./shared/transport": {
-            "types": "./dist/shared/transport.d.ts",
-            "import": "./dist/shared/transport.mjs"
-        },
-        "./shared/auth.js": {
-            "types": "./dist/shared/auth.d.ts",
-            "import": "./dist/shared/auth.mjs"
-        },
-        "./shared/auth": {
-            "types": "./dist/shared/auth.d.ts",
-            "import": "./dist/shared/auth.mjs"
-        },
-        "./server/auth/middleware/bearerAuth.js": {
-            "types": "./dist/server/auth/middleware/bearerAuth.d.ts",
-            "import": "./dist/server/auth/middleware/bearerAuth.mjs"
-        },
-        "./server/auth/middleware/bearerAuth": {
-            "types": "./dist/server/auth/middleware/bearerAuth.d.ts",
-            "import": "./dist/server/auth/middleware/bearerAuth.mjs"
-        },
-        "./server/auth/router.js": {
-            "types": "./dist/server/auth/router.d.ts",
-            "import": "./dist/server/auth/router.mjs"
-        },
-        "./server/auth/router": {
-            "types": "./dist/server/auth/router.d.ts",
-            "import": "./dist/server/auth/router.mjs"
-        },
-        "./server/auth/provider.js": {
-            "types": "./dist/server/auth/provider.d.ts",
-            "import": "./dist/server/auth/provider.mjs"
-        },
-        "./server/auth/provider": {
-            "types": "./dist/server/auth/provider.d.ts",
-            "import": "./dist/server/auth/provider.mjs"
-        },
-        "./server/auth/clients.js": {
-            "types": "./dist/server/auth/clients.d.ts",
-            "import": "./dist/server/auth/clients.mjs"
-        },
-        "./server/auth/clients": {
-            "types": "./dist/server/auth/clients.d.ts",
-            "import": "./dist/server/auth/clients.mjs"
-        },
-        "./inMemory.js": {
-            "types": "./dist/inMemory.d.ts",
-            "import": "./dist/inMemory.mjs"
-        },
-        "./inMemory": {
-            "types": "./dist/inMemory.d.ts",
-            "import": "./dist/inMemory.mjs"
-        },
-        "./server/completable.js": {
-            "types": "./dist/server/completable.d.ts",
-            "import": "./dist/server/completable.mjs"
-        },
-        "./server/completable": {
-            "types": "./dist/server/completable.d.ts",
-            "import": "./dist/server/completable.mjs"
-        },
-        "./server/sse.js": {
-            "types": "./dist/server/sse.d.ts",
-            "import": "./dist/server/sse.mjs"
-        },
-        "./server/sse": {
-            "types": "./dist/server/sse.d.ts",
-            "import": "./dist/server/sse.mjs"
-        },
-        "./experimental/tasks": {
-            "types": "./dist/experimental/tasks.d.ts",
-            "import": "./dist/experimental/tasks.mjs"
-        },
-        "./server": {
-            "types": "./dist/server/index.d.ts",
-            "import": "./dist/server/index.mjs"
-        },
-        "./server.js": {
-            "types": "./dist/server/index.d.ts",
-            "import": "./dist/server/index.mjs"
-        },
-        "./client.js": {
-            "types": "./dist/client/index.d.ts",
-            "import": "./dist/client/index.mjs"
-        },
-        "./server/webStandardStreamableHttp.js": {
-            "types": "./dist/server/webStandardStreamableHttp.d.ts",
-            "import": "./dist/server/webStandardStreamableHttp.mjs"
-        },
-        "./server/webStandardStreamableHttp": {
-            "types": "./dist/server/webStandardStreamableHttp.d.ts",
-            "import": "./dist/server/webStandardStreamableHttp.mjs"
-        },
-        "./shared/stdio.js": {
-            "types": "./dist/shared/stdio.d.ts",
-            "import": "./dist/shared/stdio.mjs"
-        },
-        "./shared/stdio": {
-            "types": "./dist/shared/stdio.d.ts",
-            "import": "./dist/shared/stdio.mjs"
-        },
-        "./validation/types.js": {
-            "types": "./dist/validation/types.d.ts",
-            "import": "./dist/validation/types.mjs"
-        },
-        "./validation/types": {
-            "types": "./dist/validation/types.d.ts",
-            "import": "./dist/validation/types.mjs"
-        },
-        "./validation/cfworker-provider.js": {
-            "types": "./dist/validation/cfworker-provider.d.ts",
-            "import": "./dist/validation/cfworker-provider.mjs"
-        },
-        "./validation/cfworker-provider": {
-            "types": "./dist/validation/cfworker-provider.d.ts",
-            "import": "./dist/validation/cfworker-provider.mjs"
-        },
-        "./validation/ajv-provider.js": {
-            "types": "./dist/validation/ajv-provider.d.ts",
-            "import": "./dist/validation/ajv-provider.mjs"
-        },
-        "./validation/ajv-provider": {
-            "types": "./dist/validation/ajv-provider.d.ts",
-            "import": "./dist/validation/ajv-provider.mjs"
-        }
+    "./types.js": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/types.mjs"
     },
-    "files": [
-        "dist"
-    ],
-    "scripts": {
-        "typecheck": "tsgo -p tsconfig.json --noEmit",
-        "build": "tsdown && tsc -p tsconfig.build.json",
-        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
-        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
-        "check": "pnpm run typecheck && pnpm run lint",
-        "test": "vitest run",
-        "test:watch": "vitest",
-        "prepack": "pnpm run build"
+    "./types": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/types.mjs"
     },
-    "dependencies": {
-        "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/node": "workspace:^",
-        "@modelcontextprotocol/server": "workspace:^",
-        "@modelcontextprotocol/server-auth-legacy": "workspace:^"
+    "./server/index.js": {
+      "types": "./dist/server/index.d.mts",
+      "import": "./dist/server/index.mjs"
     },
-    "peerDependencies": {
-        "express": "^4.18.0 || ^5.0.0",
-        "hono": "*"
+    "./server/index": {
+      "types": "./dist/server/index.d.mts",
+      "import": "./dist/server/index.mjs"
     },
-    "peerDependenciesMeta": {
-        "express": {
-            "optional": true
-        },
-        "hono": {
-            "optional": true
-        }
+    "./server/mcp.js": {
+      "types": "./dist/server/mcp.d.mts",
+      "import": "./dist/server/mcp.mjs"
     },
-    "devDependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@modelcontextprotocol/test-helpers": "workspace:^",
-        "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@typescript/native-preview": "catalog:devTools",
-        "eslint": "catalog:devTools",
-        "prettier": "catalog:devTools",
-        "tsdown": "catalog:devTools",
-        "typescript": "catalog:devTools",
-        "vitest": "catalog:devTools",
-        "zod": "catalog:runtimeShared"
+    "./server/mcp": {
+      "types": "./dist/server/mcp.d.mts",
+      "import": "./dist/server/mcp.mjs"
     },
-    "typesVersions": {
-        "*": {
-            "*.js": [
-                "dist/*.d.ts"
-            ],
-            "*": [
-                "dist/*.d.ts",
-                "dist/*/index.d.ts"
-            ]
-        }
+    "./server/zod-compat.js": {
+      "types": "./dist/server/zod-compat.d.mts",
+      "import": "./dist/server/zod-compat.mjs"
+    },
+    "./server/zod-compat": {
+      "types": "./dist/server/zod-compat.d.mts",
+      "import": "./dist/server/zod-compat.mjs"
+    },
+    "./server/stdio.js": {
+      "types": "./dist/server/stdio.d.mts",
+      "import": "./dist/server/stdio.mjs"
+    },
+    "./server/stdio": {
+      "types": "./dist/server/stdio.d.mts",
+      "import": "./dist/server/stdio.mjs"
+    },
+    "./server/streamableHttp.js": {
+      "types": "./dist/server/streamableHttp.d.mts",
+      "import": "./dist/server/streamableHttp.mjs"
+    },
+    "./server/streamableHttp": {
+      "types": "./dist/server/streamableHttp.d.mts",
+      "import": "./dist/server/streamableHttp.mjs"
+    },
+    "./server/auth/types.js": {
+      "types": "./dist/server/auth/types.d.mts",
+      "import": "./dist/server/auth/types.mjs"
+    },
+    "./server/auth/types": {
+      "types": "./dist/server/auth/types.d.mts",
+      "import": "./dist/server/auth/types.mjs"
+    },
+    "./server/auth/errors.js": {
+      "types": "./dist/server/auth/errors.d.mts",
+      "import": "./dist/server/auth/errors.mjs"
+    },
+    "./server/auth/errors": {
+      "types": "./dist/server/auth/errors.d.mts",
+      "import": "./dist/server/auth/errors.mjs"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.mts",
+      "import": "./dist/client/index.mjs"
+    },
+    "./client/index.js": {
+      "types": "./dist/client/index.d.mts",
+      "import": "./dist/client/index.mjs"
+    },
+    "./client/index": {
+      "types": "./dist/client/index.d.mts",
+      "import": "./dist/client/index.mjs"
+    },
+    "./client/stdio.js": {
+      "types": "./dist/client/stdio.d.mts",
+      "import": "./dist/client/stdio.mjs"
+    },
+    "./client/stdio": {
+      "types": "./dist/client/stdio.d.mts",
+      "import": "./dist/client/stdio.mjs"
+    },
+    "./client/streamableHttp.js": {
+      "types": "./dist/client/streamableHttp.d.mts",
+      "import": "./dist/client/streamableHttp.mjs"
+    },
+    "./client/streamableHttp": {
+      "types": "./dist/client/streamableHttp.d.mts",
+      "import": "./dist/client/streamableHttp.mjs"
+    },
+    "./client/sse.js": {
+      "types": "./dist/client/sse.d.mts",
+      "import": "./dist/client/sse.mjs"
+    },
+    "./client/sse": {
+      "types": "./dist/client/sse.d.mts",
+      "import": "./dist/client/sse.mjs"
+    },
+    "./client/auth.js": {
+      "types": "./dist/client/auth.d.mts",
+      "import": "./dist/client/auth.mjs"
+    },
+    "./client/auth": {
+      "types": "./dist/client/auth.d.mts",
+      "import": "./dist/client/auth.mjs"
+    },
+    "./shared/protocol.js": {
+      "types": "./dist/shared/protocol.d.mts",
+      "import": "./dist/shared/protocol.mjs"
+    },
+    "./shared/protocol": {
+      "types": "./dist/shared/protocol.d.mts",
+      "import": "./dist/shared/protocol.mjs"
+    },
+    "./shared/transport.js": {
+      "types": "./dist/shared/transport.d.mts",
+      "import": "./dist/shared/transport.mjs"
+    },
+    "./shared/transport": {
+      "types": "./dist/shared/transport.d.mts",
+      "import": "./dist/shared/transport.mjs"
+    },
+    "./shared/auth.js": {
+      "types": "./dist/shared/auth.d.mts",
+      "import": "./dist/shared/auth.mjs"
+    },
+    "./shared/auth": {
+      "types": "./dist/shared/auth.d.mts",
+      "import": "./dist/shared/auth.mjs"
+    },
+    "./server/auth/middleware/bearerAuth.js": {
+      "types": "./dist/server/auth/middleware/bearerAuth.d.mts",
+      "import": "./dist/server/auth/middleware/bearerAuth.mjs"
+    },
+    "./server/auth/middleware/bearerAuth": {
+      "types": "./dist/server/auth/middleware/bearerAuth.d.mts",
+      "import": "./dist/server/auth/middleware/bearerAuth.mjs"
+    },
+    "./server/auth/router.js": {
+      "types": "./dist/server/auth/router.d.mts",
+      "import": "./dist/server/auth/router.mjs"
+    },
+    "./server/auth/router": {
+      "types": "./dist/server/auth/router.d.mts",
+      "import": "./dist/server/auth/router.mjs"
+    },
+    "./server/auth/provider.js": {
+      "types": "./dist/server/auth/provider.d.mts",
+      "import": "./dist/server/auth/provider.mjs"
+    },
+    "./server/auth/provider": {
+      "types": "./dist/server/auth/provider.d.mts",
+      "import": "./dist/server/auth/provider.mjs"
+    },
+    "./server/auth/clients.js": {
+      "types": "./dist/server/auth/clients.d.mts",
+      "import": "./dist/server/auth/clients.mjs"
+    },
+    "./server/auth/clients": {
+      "types": "./dist/server/auth/clients.d.mts",
+      "import": "./dist/server/auth/clients.mjs"
+    },
+    "./inMemory.js": {
+      "types": "./dist/inMemory.d.mts",
+      "import": "./dist/inMemory.mjs"
+    },
+    "./inMemory": {
+      "types": "./dist/inMemory.d.mts",
+      "import": "./dist/inMemory.mjs"
+    },
+    "./server/completable.js": {
+      "types": "./dist/server/completable.d.mts",
+      "import": "./dist/server/completable.mjs"
+    },
+    "./server/completable": {
+      "types": "./dist/server/completable.d.mts",
+      "import": "./dist/server/completable.mjs"
+    },
+    "./server/sse.js": {
+      "types": "./dist/server/sse.d.mts",
+      "import": "./dist/server/sse.mjs"
+    },
+    "./server/sse": {
+      "types": "./dist/server/sse.d.mts",
+      "import": "./dist/server/sse.mjs"
+    },
+    "./experimental/tasks": {
+      "types": "./dist/experimental/tasks.d.mts",
+      "import": "./dist/experimental/tasks.mjs"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.mts",
+      "import": "./dist/server/index.mjs"
+    },
+    "./server.js": {
+      "types": "./dist/server/index.d.mts",
+      "import": "./dist/server/index.mjs"
+    },
+    "./client.js": {
+      "types": "./dist/client/index.d.mts",
+      "import": "./dist/client/index.mjs"
+    },
+    "./server/webStandardStreamableHttp.js": {
+      "types": "./dist/server/webStandardStreamableHttp.d.mts",
+      "import": "./dist/server/webStandardStreamableHttp.mjs"
+    },
+    "./server/webStandardStreamableHttp": {
+      "types": "./dist/server/webStandardStreamableHttp.d.mts",
+      "import": "./dist/server/webStandardStreamableHttp.mjs"
+    },
+    "./shared/stdio.js": {
+      "types": "./dist/shared/stdio.d.mts",
+      "import": "./dist/shared/stdio.mjs"
+    },
+    "./shared/stdio": {
+      "types": "./dist/shared/stdio.d.mts",
+      "import": "./dist/shared/stdio.mjs"
+    },
+    "./validation/types.js": {
+      "types": "./dist/validation/types.d.mts",
+      "import": "./dist/validation/types.mjs"
+    },
+    "./validation/types": {
+      "types": "./dist/validation/types.d.mts",
+      "import": "./dist/validation/types.mjs"
+    },
+    "./validation/cfworker-provider.js": {
+      "types": "./dist/validation/cfworker-provider.d.mts",
+      "import": "./dist/validation/cfworker-provider.mjs"
+    },
+    "./validation/cfworker-provider": {
+      "types": "./dist/validation/cfworker-provider.d.mts",
+      "import": "./dist/validation/cfworker-provider.mjs"
+    },
+    "./validation/ajv-provider.js": {
+      "types": "./dist/validation/ajv-provider.d.mts",
+      "import": "./dist/validation/ajv-provider.mjs"
+    },
+    "./validation/ajv-provider": {
+      "types": "./dist/validation/ajv-provider.d.mts",
+      "import": "./dist/validation/ajv-provider.mjs"
     }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "build": "tsdown",
+    "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
+    "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
+    "check": "pnpm run typecheck && pnpm run lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "workspace:^",
+    "@modelcontextprotocol/node": "workspace:^",
+    "@modelcontextprotocol/server": "workspace:^",
+    "@modelcontextprotocol/server-auth-legacy": "workspace:^"
+  },
+  "peerDependencies": {
+    "express": "^4.18.0 || ^5.0.0",
+    "hono": "*"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/core": "workspace:^",
+    "@modelcontextprotocol/eslint-config": "workspace:^",
+    "@modelcontextprotocol/test-helpers": "workspace:^",
+    "@modelcontextprotocol/tsconfig": "workspace:^",
+    "@modelcontextprotocol/vitest-config": "workspace:^",
+    "@typescript/native-preview": "catalog:devTools",
+    "eslint": "catalog:devTools",
+    "prettier": "catalog:devTools",
+    "tsdown": "catalog:devTools",
+    "typescript": "catalog:devTools",
+    "vitest": "catalog:devTools",
+    "zod": "catalog:runtimeShared"
+  },
+  "typesVersions": {
+    "*": {
+      "*.js": [
+        "dist/*.d.mts"
+      ],
+      "*": [
+        "dist/*.d.mts",
+        "dist/*/index.d.mts"
+      ]
+    }
+  }
 }

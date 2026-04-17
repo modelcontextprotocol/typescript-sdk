@@ -1,95 +1,109 @@
 {
-    "name": "@modelcontextprotocol/server",
-    "version": "2.0.0-alpha.2",
-    "description": "Model Context Protocol implementation for TypeScript - Server package",
-    "license": "MIT",
-    "author": "Anthropic, PBC (https://anthropic.com)",
-    "homepage": "https://modelcontextprotocol.io",
-    "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
-    "type": "module",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+  "name": "@modelcontextprotocol/server",
+  "version": "2.0.0-alpha.2",
+  "description": "Model Context Protocol implementation for TypeScript - Server package",
+  "license": "MIT",
+  "author": "Anthropic, PBC (https://anthropic.com)",
+  "homepage": "https://modelcontextprotocol.io",
+  "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "modelcontextprotocol",
+    "mcp",
+    "server"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
     },
-    "engines": {
-        "node": ">=20"
+    "./zod-schemas": {
+      "types": "./dist/zodSchemas.d.mts",
+      "import": "./dist/zodSchemas.mjs"
     },
-    "keywords": [
-        "modelcontextprotocol",
-        "mcp",
-        "server"
-    ],
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
-        },
-        "./zod-schemas": {
-            "types": "./dist/zodSchemas.d.mts",
-            "import": "./dist/zodSchemas.mjs"
-        },
-        "./validators/cf-worker": {
-            "types": "./dist/validators/cfWorker.d.mts",
-            "import": "./dist/validators/cfWorker.mjs"
-        },
-        "./_shims": {
-            "workerd": {
-                "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
-            },
-            "browser": {
-                "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
-            },
-            "node": {
-                "types": "./dist/shimsNode.d.mts",
-                "import": "./dist/shimsNode.mjs"
-            },
-            "default": {
-                "types": "./dist/shimsNode.d.mts",
-                "import": "./dist/shimsNode.mjs"
-            }
-        }
+    "./validators/cf-worker": {
+      "types": "./dist/validators/cfWorker.d.mts",
+      "import": "./dist/validators/cfWorker.mjs"
     },
-    "files": [
-        "dist"
-    ],
-    "scripts": {
-        "typecheck": "tsgo -p tsconfig.json --noEmit",
-        "build": "tsdown",
-        "build:watch": "tsdown --watch",
-        "prepack": "pnpm run build",
-        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
-        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
-        "check": "pnpm run typecheck && pnpm run lint",
-        "test": "vitest run",
-        "test:watch": "vitest",
-        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
-    },
-    "dependencies": {
-        "zod": "catalog:runtimeShared"
-    },
-    "devDependencies": {
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "@eslint/js": "catalog:devTools",
-        "@modelcontextprotocol/core": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@modelcontextprotocol/test-helpers": "workspace:^",
-        "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/cross-spawn": "catalog:devTools",
-        "@types/eventsource": "catalog:devTools",
-        "@typescript/native-preview": "catalog:devTools",
-        "eslint": "catalog:devTools",
-        "eslint-config-prettier": "catalog:devTools",
-        "eslint-plugin-n": "catalog:devTools",
-        "prettier": "catalog:devTools",
-        "supertest": "catalog:devTools",
-        "tsdown": "catalog:devTools",
-        "tsx": "catalog:devTools",
-        "typescript": "catalog:devTools",
-        "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools"
+    "./_shims": {
+      "workerd": {
+        "types": "./dist/shimsWorkerd.d.mts",
+        "import": "./dist/shimsWorkerd.mjs"
+      },
+      "browser": {
+        "types": "./dist/shimsWorkerd.d.mts",
+        "import": "./dist/shimsWorkerd.mjs"
+      },
+      "node": {
+        "types": "./dist/shimsNode.d.mts",
+        "import": "./dist/shimsNode.mjs"
+      },
+      "default": {
+        "types": "./dist/shimsNode.d.mts",
+        "import": "./dist/shimsNode.mjs"
+      }
     }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "build": "tsdown",
+    "build:watch": "tsdown --watch",
+    "prepack": "pnpm run build",
+    "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
+    "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
+    "check": "pnpm run typecheck && pnpm run lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "server": "tsx watch --clear-screen=false scripts/cli.ts server",
+    "client": "tsx scripts/cli.ts client"
+  },
+  "dependencies": {
+    "zod": "catalog:runtimeShared"
+  },
+  "devDependencies": {
+    "@cfworker/json-schema": "catalog:runtimeShared",
+    "@eslint/js": "catalog:devTools",
+    "@modelcontextprotocol/core": "workspace:^",
+    "@modelcontextprotocol/eslint-config": "workspace:^",
+    "@modelcontextprotocol/test-helpers": "workspace:^",
+    "@modelcontextprotocol/tsconfig": "workspace:^",
+    "@modelcontextprotocol/vitest-config": "workspace:^",
+    "@types/cross-spawn": "catalog:devTools",
+    "@types/eventsource": "catalog:devTools",
+    "@typescript/native-preview": "catalog:devTools",
+    "eslint": "catalog:devTools",
+    "eslint-config-prettier": "catalog:devTools",
+    "eslint-plugin-n": "catalog:devTools",
+    "prettier": "catalog:devTools",
+    "supertest": "catalog:devTools",
+    "tsdown": "catalog:devTools",
+    "tsx": "catalog:devTools",
+    "typescript": "catalog:devTools",
+    "typescript-eslint": "catalog:devTools",
+    "vitest": "catalog:devTools"
+  },
+  "types": "./dist/index.d.mts",
+  "typesVersions": {
+    "*": {
+      "zod-schemas": [
+        "./dist/zodSchemas.d.mts"
+      ],
+      "validators/cf-worker": [
+        "./dist/validators/cfWorker.d.mts"
+      ],
+      "*": [
+        "./dist/*.d.mts"
+      ]
+    }
+  }
 }

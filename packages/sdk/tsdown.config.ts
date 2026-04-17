@@ -41,6 +41,6 @@ export default defineConfig({
     sourcemap: true,
     target: 'esnext',
     platform: 'node',
-    dts: false,
+    dts: true,
     external: [/^@modelcontextprotocol\//]
 });

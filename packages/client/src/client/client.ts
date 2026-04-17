@@ -37,9 +37,11 @@ import type {
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
+    Result,
     ResultTypeMap,
     SchemaOutput,
     ServerCapabilities,
+    StandardSchemaV1,
     StreamDriverOptions,
     SubscribeRequest,
     TaskManager,
@@ -339,7 +341,26 @@ export class Client {
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
+    ): void;
+    /** @deprecated Pass a method string instead of a Zod request schema. */
+    setRequestHandler<S extends { shape: { method: unknown } }>(
+        schema: S,
+        handler: (
+            request: S extends StandardSchemaV1<unknown, infer O> ? O : JSONRPCRequest,
+            ctx: ClientContext
+        ) => Result | Promise<Result>
+    ): void;
+    setRequestHandler(
+        methodOrSchema: RequestMethod | { shape: { method: unknown } },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        handler: (request: any, ctx: ClientContext) => Result | Promise<Result>
     ): void {
+        const method = (
+            typeof methodOrSchema === 'string'
+                ? methodOrSchema
+                : ((methodOrSchema.shape.method as { value?: string })?.value ??
+                  (methodOrSchema.shape.method as { _def?: { value?: string } })?._def?.value)
+        ) as RequestMethod;
         this._assertRequestHandlerCapability(method);
 
         if (method === 'elicitation/create') {

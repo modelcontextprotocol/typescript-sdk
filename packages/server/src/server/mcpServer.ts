@@ -449,7 +449,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     public override setRequestHandler<S extends { shape: { method: unknown } }>(
         schema: S,
         handler: (
-            request: S extends StandardSchemaV1<never, infer O> ? O : JSONRPCRequest,
+            request: S extends StandardSchemaV1<unknown, infer O> ? O : JSONRPCRequest,
             ctx: ServerContext
         ) => Result | Promise<Result>
     ): void;
