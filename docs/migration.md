@@ -330,7 +330,7 @@ Note: the v2 signature takes a plain `string[]` instead of an options object.
 
 ### `setRequestHandler` and `setNotificationHandler` use method strings
 
-The low-level `setRequestHandler` and `setNotificationHandler` methods on `Client`, `Server`, and `Protocol` now take a method string instead of a Zod schema.
+The low-level `setRequestHandler` and `setNotificationHandler` methods on `Client`, `Server`, and `Protocol` now accept a method string in addition to the v1 Zod-schema form (both are supported).
 
 **Before (v1):**
 
@@ -407,10 +407,10 @@ server.setRequestHandler('acme/search', SearchParams, params => ({ hits: [params
 const result = await client.request({ method: 'acme/search', params: { query: 'x' } }, SearchResult);
 ```
 
-### `Protocol.request()` and `Client.callTool()` schema parameter is now optional
+### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` schema parameter is now optional
 
-The public `Protocol.request()` and `Client.callTool()` methods still accept a result schema argument, but for spec methods it is optional — the SDK resolves the correct schema internally from the method name. You no longer need to import result schemas
-like `CallToolResultSchema` or `ElicitResultSchema` when making requests. (`BaseContext.mcpReq.send()` no longer accepts a schema; drop it.)
+The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods still accept a result schema argument, but for spec methods it is optional — the SDK resolves the correct schema internally from the method name. You no longer need to import result schemas
+like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests. The schema argument remains the supported call form for custom (non-spec) methods.
 
 **`client.request()` — Before (v1):**
 

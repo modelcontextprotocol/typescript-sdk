@@ -25,7 +25,7 @@ client.setNotificationHandler('acme/searchProgress', ProgressParams, p => {
     console.log(`[client] progress: ${p.stage} ${p.pct}%`);
 });
 
-await client.connect(new StdioClientTransport({ command: 'node', args: ['../server/dist/customMethodExample.js'] }));
+await client.connect(new StdioClientTransport({ command: 'npx', args: ['tsx', '../server/src/customMethodExample.ts'] }));
 
 const r = await client.request({ method: 'acme/search', params: { query: 'widgets' } }, SearchResult);
 console.log('[client] hits=' + JSON.stringify(r.hits));
