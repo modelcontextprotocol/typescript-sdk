@@ -1285,7 +1285,9 @@ describe('Events', () => {
 
             await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
             const replays = fetchMock.mock.calls.map(c => JSON.parse(c[1]!.body as string).data.incidentId);
-            expect(replays).toEqual(['INC-2', 'INC-3']);
+            // Webhook delivery is intentionally unordered (concurrent POSTs);
+            // sort before comparing to avoid a flaky ordering race.
+            expect(replays.sort()).toEqual(['INC-2', 'INC-3']);
         });
 
         it('webhook subscribe with cursor older than buffer head returns CursorExpired', async () => {

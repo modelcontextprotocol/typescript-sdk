@@ -544,11 +544,7 @@ export class ServerEventManager {
      * (Stripe event IDs, GitHub timestamps, etc.) as cursors. When omitted, the
      * SDK auto-assigns a per-event-name monotonic sequence cursor.
      */
-    emit(
-        eventName: string,
-        data: Record<string, unknown>,
-        options: { cursor?: string; subscriptionId?: string } = {}
-    ): void {
+    emit(eventName: string, data: Record<string, unknown>, options: { cursor?: string; subscriptionId?: string } = {}): void {
         const event = this._events.get(eventName);
         if (!event || !event.enabled) return;
 
@@ -573,11 +569,11 @@ export class ServerEventManager {
         // sub runs sequentially, preserving per-sub ordering for this event.
         // Across emits with async matches, apps that need strict ordering
         // should keep authz decisions cache-hot so matches resolves sync.
-        this._fanOut(event, eventName, occurrence).catch(err => {
+        this._fanOut(event, eventName, occurrence).catch(error => {
             // User-provided async matches() or delivery hooks may reject;
             // isolate from the caller's emit() path. Log so it's debuggable
             // rather than surfacing as an unhandled promise rejection.
-            console.error(`[events] fan-out for ${eventName} failed:`, err);
+            console.error(`[events] fan-out for ${eventName} failed:`, error);
         });
     }
 
@@ -816,6 +812,7 @@ export class ServerEventManager {
         // Snapshot before iterating: matches() may be async, and a concurrent
         // emit() can `entries.shift()` the live array mid-iteration, which
         // makes the JS array iterator skip the next element silently.
+        // eslint-disable-next-line unicorn/no-useless-spread -- intentional snapshot, not redundant
         for (const entry of [...event.log.entries]) {
             if (entry.seq <= seq) continue;
             if (!(await this._safeMatches(event, params, entry.occurrence.data, subscriptionId))) continue;
@@ -942,6 +939,7 @@ export class ServerEventManager {
         const replayEvents: EventOccurrence[] = [];
         // Snapshot before iterating: matches() may be async, and a concurrent
         // emit() can `entries.shift()` mid-iteration which skips elements.
+        // eslint-disable-next-line unicorn/no-useless-spread -- intentional snapshot, not redundant
         for (const entry of [...event.log.entries]) {
             if (entry.seq <= replayFromSeq) continue;
             if (await this._safeMatches(event, paramsResult.params, entry.occurrence.data, spec.id)) {
@@ -974,7 +972,7 @@ export class ServerEventManager {
 
         const occurrences = replayEvents.slice(0, maxEvents);
         const hasMore = (tick.hasMore ?? false) || replayEvents.length > maxEvents;
-        const newCursor = occurrences.length > 0 ? occurrences[occurrences.length - 1]!.cursor : wireCursor ?? undefined;
+        const newCursor = occurrences.length > 0 ? occurrences.at(-1)!.cursor : (wireCursor ?? undefined);
 
         // Compute new lastSeenSeq from the highest-seq entry we delivered, or
         // fall back to current head if nothing was delivered (so future polls
@@ -990,7 +988,11 @@ export class ServerEventManager {
         // resolve via cursorMap; once evicted they MUST yield CursorExpired,
         // not silently fall through to existingState.
         const passthrough = newCursor !== undefined && !event.log.cursorMap.has(newCursor) ? newCursor : undefined;
-        this._setPollState(pollKey, { checkCursor: tick.nextInternalCheckCursor, lastSeenSeq: newLastSeen, lastReturnedCursor: passthrough });
+        this._setPollState(pollKey, {
+            checkCursor: tick.nextInternalCheckCursor,
+            lastSeenSeq: newLastSeen,
+            lastReturnedCursor: passthrough
+        });
         return {
             id: spec.id,
             events: occurrences,
@@ -1014,7 +1016,6 @@ export class ServerEventManager {
             this._pollState.delete(oldest);
         }
     }
-
 
     private _handleStream(params: { subscriptions: EventSubscriptionSpec[] }, ctx: ServerContext): Promise<Record<string, never>> {
         if (params.subscriptions.length > this._maxSubsPerRequest) {
@@ -1223,13 +1224,11 @@ export class ServerEventManager {
         // refresh would let a client switch from a low-privilege event to a
         // high-privilege one without re-authorisation. To change event/params,
         // unsubscribe then resubscribe.
-        if (existing) {
-            if (existing.eventName !== params.name || !shallowEqual(existing.params, paramsResult.params)) {
-                throw new ProtocolError(
-                    ProtocolErrorCode.InvalidParams,
-                    'Refresh cannot change event name or params; unsubscribe then resubscribe'
-                );
-            }
+        if (existing && (existing.eventName !== params.name || !shallowEqual(existing.params, paramsResult.params))) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                'Refresh cannot change event name or params; unsubscribe then resubscribe'
+            );
         }
 
         // Fire onSubscribe for new subscriptions BEFORE replay and BEFORE
@@ -1255,7 +1254,7 @@ export class ServerEventManager {
                 throw new ProtocolError(replay.error.code, replay.error.message, replay.error.data);
             }
             backlog = replay.events;
-            cursor = backlog.length > 0 ? backlog[backlog.length - 1]!.cursor : wireCursor;
+            cursor = backlog.length > 0 ? backlog.at(-1)!.cursor : wireCursor;
         }
 
         const expiresAt = Date.now() + ttl;
