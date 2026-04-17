@@ -388,10 +388,25 @@ Common method string replacements:
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
 
-### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
+### Custom (non-standard) protocol methods
 
-The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
-like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+Vendor-specific methods are registered directly on `Client` or `Server` using the same Zod-schema form as v1: `setRequestHandler(zodSchemaWithMethodLiteral, handler)`. `request({ method, params }, ResultSchema)` and `notification({ method, params })` are unchanged from v1.
+
+```typescript
+import { Server } from '@modelcontextprotocol/server';
+
+const server = new Server({ name: 'app', version: '1.0.0' }, { capabilities: {} });
+
+server.setRequestHandler(SearchRequestSchema, req => ({ hits: [req.params.query] }));
+
+// Calling from a Client — unchanged from v1:
+const result = await client.request({ method: 'acme/search', params: { query: 'x' } }, SearchResult);
+```
+
+### `Protocol.request()` and `Client.callTool()` schema parameter is now optional
+
+The public `Protocol.request()` and `Client.callTool()` methods still accept a result schema argument, but for spec methods it is optional — the SDK resolves the correct schema internally from the method name. You no longer need to import result schemas
+like `CallToolResultSchema` or `ElicitResultSchema` when making requests. (`BaseContext.mcpReq.send()` no longer accepts a schema; drop it.)
 
 **`client.request()` — Before (v1):**
 

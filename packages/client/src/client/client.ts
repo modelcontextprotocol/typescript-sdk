@@ -2,6 +2,7 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims'
 import type {
     BaseContext,
     CallToolRequest,
+    CallToolResult,
     ClientCapabilities,
     ClientContext,
     ClientNotification,
@@ -25,16 +26,19 @@ import type {
     NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
+    Request,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
+    Result,
     ResultTypeMap,
     ServerCapabilities,
     SubscribeRequest,
     TaskManagerOptions,
     Tool,
     Transport,
-    UnsubscribeRequest
+    UnsubscribeRequest,
+    ZodLikeRequestSchema
 } from '@modelcontextprotocol/core';
 import {
     assertClientRequestTaskCapability,
@@ -48,9 +52,11 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    extractMethodLiteral,
     extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
+    isZodLikeSchema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
@@ -337,9 +343,26 @@ export class Client extends Protocol<ClientContext> {
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
-    ): void {
+    ): void;
+    /** @deprecated For spec methods, pass the method string instead. */
+    public override setRequestHandler<T extends ZodLikeRequestSchema>(
+        requestSchema: T,
+        handler: (request: ReturnType<T['parse']>, ctx: ClientContext) => Result | Promise<Result>
+    ): void;
+    public override setRequestHandler(methodOrSchema: string | ZodLikeRequestSchema, schemaHandler: unknown): void {
+        let method: string;
+        let handler: (request: Request, ctx: ClientContext) => ClientResult | Promise<ClientResult>;
+        if (isZodLikeSchema(methodOrSchema)) {
+            const schema = methodOrSchema;
+            const userHandler = schemaHandler as (request: unknown, ctx: ClientContext) => Result | Promise<Result>;
+            method = extractMethodLiteral(schema);
+            handler = (req, ctx) => userHandler(schema.parse(req), ctx);
+        } else {
+            method = methodOrSchema;
+            handler = schemaHandler as (request: Request, ctx: ClientContext) => ClientResult | Promise<ClientResult>;
+        }
         if (method === 'elicitation/create') {
-            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
+            const wrappedHandler = async (request: Request, ctx: ClientContext): Promise<ClientResult> => {
                 const validatedRequest = parseSchema(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -405,11 +428,11 @@ export class Client extends Protocol<ClientContext> {
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler);
+            return this._setRequestHandlerByMethod(method, wrappedHandler);
         }
 
         if (method === 'sampling/createMessage') {
-            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
+            const wrappedHandler = async (request: Request, ctx: ClientContext): Promise<ClientResult> => {
                 const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
@@ -448,11 +471,11 @@ export class Client extends Protocol<ClientContext> {
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler);
+            return this._setRequestHandlerByMethod(method, wrappedHandler);
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(method, handler);
+        return this._setRequestHandlerByMethod(method, handler);
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
@@ -868,7 +891,20 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
+    async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult>;
+    /** @deprecated The result schema is resolved internally; use `callTool(params)`. The second argument is accepted for v1 source compatibility and ignored. */
+    async callTool(params: CallToolRequest['params'], resultSchema: unknown, options?: RequestOptions): Promise<CallToolResult>;
+    async callTool(
+        params: CallToolRequest['params'],
+        optionsOrSchema?: RequestOptions | unknown,
+        maybeOptions?: RequestOptions
+    ): Promise<CallToolResult> {
+        const arg2IsSchema = optionsOrSchema != null && typeof optionsOrSchema === 'object' && 'parse' in optionsOrSchema;
+        // v1 allowed `callTool(params, undefined, opts)` (resultSchema was optional-with-default);
+        // when arg2 is not a schema, prefer arg3 if present so opts aren't dropped.
+        const options: RequestOptions | undefined = arg2IsSchema
+            ? maybeOptions
+            : (maybeOptions ?? (optionsOrSchema as RequestOptions | undefined));
         // Guard: required-task tools need experimental API
         if (this.isToolTaskRequired(params.name)) {
             throw new ProtocolError(
