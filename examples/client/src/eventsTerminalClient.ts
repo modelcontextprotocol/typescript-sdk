@@ -224,7 +224,7 @@ async function main(): Promise<void> {
                 }
                 let fromCursor: string | undefined;
                 const fromIdx = tail.indexOf('--from');
-                if (fromIdx >= 0) {
+                if (fromIdx !== -1) {
                     fromCursor = tail[fromIdx + 1];
                     if (!fromCursor) {
                         out('--from requires a cursor value');
@@ -243,7 +243,7 @@ async function main(): Promise<void> {
                 }
                 const sub = await manager.subscribe(name, params, { delivery: mode, cursor: fromCursor });
                 subs.push(sub);
-                out(`subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}${fromCursor !== undefined ? ` from=${fromCursor}` : ''}`);
+                out(`subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}${fromCursor === undefined ? '' : ` from=${fromCursor}`}`);
                 void (async () => {
                     let gotAnyEvent = false;
                     try {
@@ -254,7 +254,7 @@ async function main(): Promise<void> {
                     } catch (error) {
                         const err = error as Error & { code?: number };
                         const label = gotAnyEvent ? 'ended' : 'REJECTED';
-                        const code = err.code !== undefined ? ` (code ${err.code})` : '';
+                        const code = err.code === undefined ? '' : ` (code ${err.code})`;
                         out(`  [${sub.delivery}] subscription ${sub.id.slice(0, 8)}… ${label}${code}: ${err.message}`);
                     } finally {
                         // Always drop dead subscriptions from the local list — covers
@@ -262,7 +262,7 @@ async function main(): Promise<void> {
                         // client-initiated cancel (unsub also calls splice, but this
                         // is a safety net).
                         const idx = subs.indexOf(sub);
-                        if (idx >= 0) subs.splice(idx, 1);
+                        if (idx !== -1) subs.splice(idx, 1);
                         webhookSecrets.delete(sub.id);
                     }
                 })();
@@ -291,7 +291,7 @@ async function main(): Promise<void> {
                     return;
                 }
                 const subIdx = subs.indexOf(sub);
-                if (subIdx >= 0) subs.splice(subIdx, 1);
+                if (subIdx !== -1) subs.splice(subIdx, 1);
                 await sub.cancel();
                 webhookSecrets.delete(sub.id);
                 out(`unsubscribed ${sub.id}`);

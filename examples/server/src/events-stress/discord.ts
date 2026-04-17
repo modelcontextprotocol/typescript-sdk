@@ -58,9 +58,8 @@
  *   pnpm --filter @modelcontextprotocol/examples-server exec tsx src/events-stress/discord.ts
  */
 
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
-import type { ServerContext } from '@modelcontextprotocol/core';
-import { EVENT_UNAUTHORIZED, TOO_MANY_SUBSCRIPTIONS, ProtocolError } from '@modelcontextprotocol/core';
+import type { ServerContext } from '@modelcontextprotocol/server';
+import { EVENT_UNAUTHORIZED, McpServer, ProtocolError, StdioServerTransport, TOO_MANY_SUBSCRIPTIONS } from '@modelcontextprotocol/server';
 import { Client as DiscordClient, Events, GatewayIntentBits, Partials } from 'discord.js';
 import * as z from 'zod/v4';
 
@@ -253,13 +252,7 @@ class DiscordApi {
         return out;
     }
 
-    private _computePerms(
-        channel: DiscordChannel,
-        guildId: string,
-        member: DiscordMember,
-        roles: DiscordRole[],
-        userId: string
-    ): bigint {
+    private _computePerms(channel: DiscordChannel, guildId: string, member: DiscordMember, roles: DiscordRole[], userId: string): bigint {
         const roleById = new Map(roles.map(r => [r.id, r]));
         const everyone = roleById.get(guildId);
         let base = everyone ? BigInt(everyone.permissions) : 0n;
@@ -433,9 +426,8 @@ class Authz {
         // `/users/@me` call (cached separately would be ideal but we piggyback
         // on the perms cache TTL).
         const auth = userToken.startsWith('Bearer ') ? userToken : `Bearer ${userToken}`;
-        const me = (await (await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: auth } })).json()) as {
-            id: string;
-        };
+        const res = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: auth } });
+        const me = (await res.json()) as { id: string };
         const perms = await this._api.getChannelPermsForUser(channelId, me.id);
         this._permCache.set(key, perms);
         return perms;

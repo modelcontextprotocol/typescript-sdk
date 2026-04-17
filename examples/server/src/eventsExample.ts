@@ -54,11 +54,7 @@ setInterval(() => {
     // and to any client that resumes with a prior cursor.
     // Cursor is application-provided here ("tick-N") so resume can address
     // any past tick by its natural identifier.
-    server.emitEvent(
-        'counter.tick',
-        { value: counter, timestamp: new Date().toISOString() },
-        { cursor: `tick-${counter}` }
-    );
+    server.emitEvent('counter.tick', { value: counter, timestamp: new Date().toISOString() }, { cursor: `tick-${counter}` });
 }, 1000);
 
 server.registerEvent(
