@@ -231,7 +231,7 @@ export class Server extends Protocol<ServerContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead. */
+    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ServerContext) => Result | Promise<Result>
