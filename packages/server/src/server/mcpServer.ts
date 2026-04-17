@@ -34,6 +34,7 @@ import type {
     LoggingLevel,
     LoggingMessageNotification,
     Notification,
+    NotificationMethod,
     NotificationOptions,
     Prompt,
     PromptReference,
@@ -53,6 +54,7 @@ import type {
     ServerResult,
     StandardSchemaWithJSON,
     StreamDriverOptions,
+    TaskManagerHost,
     TaskManagerOptions,
     Tool,
     ToolAnnotations,
@@ -63,8 +65,10 @@ import type {
     Variables
 } from '@modelcontextprotocol/core';
 import {
+    assertClientRequestTaskCapability,
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    assertToolsCallTaskCapability,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageResultSchema,
@@ -73,11 +77,14 @@ import {
     Dispatcher,
     ElicitResultSchema,
     EmptyResultSchema,
+    extractTaskManagerOptions,
+    getResultSchema,
     isJSONRPCRequest,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
+    NullTaskManager,
     parseSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -87,6 +94,7 @@ import {
     standardSchemaToJsonSchema,
     StreamDriver,
     SUPPORTED_PROTOCOL_VERSIONS,
+    TaskManager,
     UriTemplate,
     validateAndWarnToolName,
     validateStandardSchema
@@ -141,6 +149,7 @@ export class McpServer extends Dispatcher<ServerContext> {
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _supportedProtocolVersions: string[];
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    private _taskManager: TaskManager;
     private _loggingLevels = new Map<string | undefined, LoggingLevel>();
     private readonly LOG_LEVEL_SEVERITY = new Map(LoggingLevelSchema.options.map((level, index) => [level, index]));
 
@@ -186,6 +195,10 @@ export class McpServer extends Dispatcher<ServerContext> {
                 _options.capabilities.tasks;
             this._capabilities.tasks = wireCapabilities;
         }
+
+        const tasksOpts = extractTaskManagerOptions(_options?.capabilities?.tasks);
+        this._taskManager = tasksOpts ? new TaskManager(tasksOpts) : new NullTaskManager();
+        this._bindTaskManager();
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setRequestHandler('ping', () => ({}));
@@ -248,20 +261,20 @@ export class McpServer extends Dispatcher<ServerContext> {
      * Builds a {@linkcode StreamDriver} internally.
      */
     async connect(transport: Transport): Promise<void> {
-        if (this._driver) {
-            throw new SdkError(SdkErrorCode.AlreadyConnected, 'Server is already connected to a transport');
-        }
         const driverOpts: StreamDriverOptions = {
             supportedProtocolVersions: this._supportedProtocolVersions,
-            debouncedNotificationMethods: this._options?.debouncedNotificationMethods
+            debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
+            taskManager: this._taskManager,
+            enforceStrictCapabilities: this._options?.enforceStrictCapabilities
         };
-        this._driver = new StreamDriver(this, transport, driverOpts);
-        this._driver.onclose = () => {
-            this._driver = undefined;
+        const driver = new StreamDriver(this, transport, driverOpts);
+        this._driver = driver;
+        driver.onclose = () => {
+            if (this._driver === driver) this._driver = undefined;
             this.onclose?.();
         };
-        this._driver.onerror = error => this.onerror?.(error);
-        await this._driver.start();
+        driver.onerror = error => this.onerror?.(error);
+        await driver.start();
     }
 
     /**
@@ -296,12 +309,31 @@ export class McpServer extends Dispatcher<ServerContext> {
      */
     get experimental(): { tasks: ExperimentalMcpServerTasks } {
         if (!this._experimental) {
-            // ExperimentalMcpServerTasks is currently typed against the old mcp.ts McpServer; the
-            // structural surface it actually uses (server.registerCapabilities, _createRegisteredTool,
-            // etc.) is present on this class. Cast until tasks helper is re-typed in step 3.
-            this._experimental = { tasks: new ExperimentalMcpServerTasks(this as never) };
+            this._experimental = { tasks: new ExperimentalMcpServerTasks(this) };
         }
         return this._experimental;
+    }
+
+    /** Task orchestration. Always available; a {@linkcode NullTaskManager} when no task store is configured. */
+    get taskManager(): TaskManager {
+        return this._taskManager;
+    }
+
+    private _bindTaskManager(): void {
+        const host: TaskManagerHost = {
+            request: (r, schema, opts) => this._driverRequest(r, schema as never, opts),
+            notification: (n, opts) => this.notification(n, opts),
+            reportError: e => (this.onerror ?? (() => {}))(e),
+            removeProgressHandler: t => this._driver?.removeProgressHandler(t),
+            registerHandler: (m, h) => this.setRawRequestHandler(m, h as never),
+            sendOnResponseStream: async (msg, relatedRequestId) => {
+                await this._driver?.pipe.send(msg, { relatedRequestId });
+            },
+            enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
+            assertTaskCapability: m => this._assertTaskCapability(m),
+            assertTaskHandlerCapability: m => this._assertTaskHandlerCapability(m)
+        };
+        this._taskManager.bind(host);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -409,6 +441,7 @@ export class McpServer extends Dispatcher<ServerContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void {
+        this._assertRequestHandlerCapability(method);
         if (method === 'tools/call') {
             const wrapped = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
                 const validated = parseSchema(CallToolRequestSchema, request);
@@ -453,7 +486,21 @@ export class McpServer extends Dispatcher<ServerContext> {
     }
 
     private _driverRequest<T>(req: Request, schema: { parse(v: unknown): T }, options?: RequestOptions): Promise<T> {
+        if (this._options?.enforceStrictCapabilities === true) {
+            this._assertCapabilityForMethod(req.method as RequestMethod);
+        }
         return this._requireDriver().request(req, schema as never, options) as Promise<T>;
+    }
+
+    /**
+     * Sends a request to the connected peer and awaits the result. Result schema is
+     * resolved from the method name.
+     */
+    async request<M extends RequestMethod>(
+        req: { method: M; params?: Record<string, unknown> },
+        options?: RequestOptions
+    ): Promise<ResultTypeMap[M]> {
+        return this._driverRequest(req as Request, getResultSchema(req.method), options) as Promise<ResultTypeMap[M]>;
     }
 
     async ping(): Promise<Result> {
@@ -591,7 +638,120 @@ export class McpServer extends Dispatcher<ServerContext> {
      * Sends a notification over the connected transport. No-op when not connected.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
+        this._assertNotificationCapability(notification.method as NotificationMethod);
         await this._driver?.notification(notification, options);
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Capability assertions (v1 compat). No-ops once capabilities move per-request.
+    // ───────────────────────────────────────────────────────────────────────
+
+    private _assertCapabilityForMethod(method: RequestMethod): void {
+        switch (method) {
+            case 'sampling/createMessage':
+                if (!this._clientCapabilities?.sampling) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support sampling (required for ${method})`);
+                }
+                break;
+            case 'elicitation/create':
+                if (!this._clientCapabilities?.elicitation) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support elicitation (required for ${method})`);
+                }
+                break;
+            case 'roots/list':
+                if (!this._clientCapabilities?.roots) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support listing roots (required for ${method})`
+                    );
+                }
+                break;
+        }
+    }
+
+    private _assertNotificationCapability(method: NotificationMethod): void {
+        switch (method) {
+            case 'notifications/message':
+                if (!this._capabilities.logging) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
+                }
+                break;
+            case 'notifications/resources/updated':
+            case 'notifications/resources/list_changed':
+                if (!this._capabilities.resources) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support notifying about resources (required for ${method})`
+                    );
+                }
+                break;
+            case 'notifications/tools/list_changed':
+                if (!this._capabilities.tools) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support notifying of tool list changes (required for ${method})`
+                    );
+                }
+                break;
+            case 'notifications/prompts/list_changed':
+                if (!this._capabilities.prompts) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support notifying of prompt list changes (required for ${method})`
+                    );
+                }
+                break;
+            case 'notifications/elicitation/complete':
+                if (!this._clientCapabilities?.elicitation?.url) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Client does not support URL elicitation (required for ${method})`
+                    );
+                }
+                break;
+        }
+    }
+
+    private _assertRequestHandlerCapability(method: string): void {
+        switch (method) {
+            case 'completion/complete':
+                if (!this._capabilities.completions) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support completions (required for ${method})`);
+                }
+                break;
+            case 'logging/setLevel':
+                if (!this._capabilities.logging) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
+                }
+                break;
+            case 'prompts/get':
+            case 'prompts/list':
+                if (!this._capabilities.prompts) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support prompts (required for ${method})`);
+                }
+                break;
+            case 'resources/list':
+            case 'resources/templates/list':
+            case 'resources/read':
+                if (!this._capabilities.resources) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
+                }
+                break;
+            case 'tools/call':
+            case 'tools/list':
+                if (!this._capabilities.tools) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
+                }
+                break;
+        }
+    }
+
+    private _assertTaskCapability(method: string): void {
+        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
+    }
+
+    private _assertTaskHandlerCapability(method: string): void {
+        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
     }
 
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void> {

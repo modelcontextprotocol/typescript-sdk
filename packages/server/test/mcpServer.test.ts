@@ -240,12 +240,13 @@ describe('McpServer compat / .server / connect()', () => {
         expect(listResp.result.tools[0].name).toBe('t');
     });
 
-    it('connect() twice throws AlreadyConnected', async () => {
+    it('connect() twice replaces the active driver (v1 multi-transport pattern)', async () => {
         const s = new McpServer({ name: 's', version: '1' });
         const [a] = InMemoryTransport.createLinkedPair();
         await s.connect(a);
         const [c] = InMemoryTransport.createLinkedPair();
-        await expect(s.connect(c)).rejects.toThrow();
+        await expect(s.connect(c)).resolves.toBeUndefined();
+        expect(s.transport).toBe(c);
     });
 
     it('elicitInput() instance method throws NotConnected when no driver', async () => {

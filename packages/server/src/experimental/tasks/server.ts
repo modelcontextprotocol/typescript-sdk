@@ -24,7 +24,7 @@ import type {
 } from '@modelcontextprotocol/core';
 import { getResultSchema, GetTaskPayloadResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 
-import type { Server } from '../../server/server.js';
+import type { McpServer as Server } from '../../server/mcpServer.js';
 
 /**
  * Experimental task features for low-level MCP servers.

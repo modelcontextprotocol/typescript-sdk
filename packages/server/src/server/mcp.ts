@@ -86,7 +86,7 @@ export class McpServer {
     get experimental(): { tasks: ExperimentalMcpServerTasks } {
         if (!this._experimental) {
             this._experimental = {
-                tasks: new ExperimentalMcpServerTasks(this)
+                tasks: new ExperimentalMcpServerTasks(this as never)
             };
         }
         return this._experimental;

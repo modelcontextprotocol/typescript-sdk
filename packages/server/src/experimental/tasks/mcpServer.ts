@@ -7,8 +7,9 @@
 
 import type { StandardSchemaWithJSON, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
 
-import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
+import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcpServer.js';
 import type { ToolTaskHandler } from './interfaces.js';
+import { ExperimentalServerTasks } from './server.js';
 
 /**
  * Internal interface for accessing {@linkcode McpServer}'s private _createRegisteredTool method.
@@ -38,8 +39,13 @@ interface McpServerInternal {
  *
  * @experimental
  */
-export class ExperimentalMcpServerTasks {
-    constructor(private readonly _mcpServer: McpServer) {}
+export class ExperimentalMcpServerTasks extends ExperimentalServerTasks {
+    private readonly _mcpServer: McpServer;
+
+    constructor(mcpServer: McpServer) {
+        super(mcpServer);
+        this._mcpServer = mcpServer;
+    }
 
     /**
      * Registers a task-based tool with a config object and handler.

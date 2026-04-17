@@ -8,7 +8,7 @@ export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
 export * from './shared/stdio.js';
-export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from './shared/taskManager.js';
+export type { InboundContext, InboundResult, RequestTaskStore, TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './shared/taskManager.js';
 export { extractTaskManagerOptions, NullTaskManager, TaskManager } from './shared/taskManager.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';

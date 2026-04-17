@@ -185,7 +185,7 @@ export class Server extends Protocol<ServerContext> {
     get experimental(): { tasks: ExperimentalServerTasks } {
         if (!this._experimental) {
             this._experimental = {
-                tasks: new ExperimentalServerTasks(this)
+                tasks: new ExperimentalServerTasks(this as never)
             };
         }
         return this._experimental;
