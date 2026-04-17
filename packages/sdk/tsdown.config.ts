@@ -10,6 +10,7 @@ export default defineConfig({
         'src/experimental/tasks.ts',
         'src/server/index.ts',
         'src/server/mcp.ts',
+        'src/server/zod-compat.ts',
         'src/server/completable.ts',
         'src/server/sse.ts',
         'src/server/stdio.ts',

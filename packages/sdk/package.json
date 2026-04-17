@@ -52,6 +52,14 @@
             "types": "./dist/server/mcp.d.ts",
             "import": "./dist/server/mcp.mjs"
         },
+        "./server/zod-compat.js": {
+            "types": "./dist/server/zod-compat.d.ts",
+            "import": "./dist/server/zod-compat.mjs"
+        },
+        "./server/zod-compat": {
+            "types": "./dist/server/zod-compat.d.ts",
+            "import": "./dist/server/zod-compat.mjs"
+        },
         "./server/stdio.js": {
             "types": "./dist/server/stdio.d.ts",
             "import": "./dist/server/stdio.mjs"
