@@ -200,3 +200,26 @@ export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';
+
+// ────────────────────────────────────────────────────────────────────────────
+// v1 backwards-compatibility type aliases
+// ────────────────────────────────────────────────────────────────────────────
+
+// Note: a `ResourceTemplate = ResourceTemplateType` alias is intentionally NOT
+// exported here — it conflicts with the server's `ResourceTemplate` class under
+// tsdown bundling. The alias lives only in the `/sdk` meta-package's `types.js`.
+
+/**
+ * @deprecated Use the standard `Headers` web type. v2 transports surface
+ * request headers via `Headers` on `ctx.http?.req`.
+ */
+export type IsomorphicHeaders = Headers;
+
+/**
+ * @deprecated Use the standard `Request` web type. v2's {@linkcode ServerContext}
+ * exposes the originating HTTP request at `ctx.http?.req`.
+ */
+export type RequestInfo = globalThis.Request;
+
+// `FetchLike` keeps its v1 name and is re-exported above from
+// '../../shared/transport.js' — no alias needed.
