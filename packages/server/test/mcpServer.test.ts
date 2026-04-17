@@ -251,9 +251,9 @@ describe('McpServer compat / .server / connect()', () => {
 
     it('elicitInput() instance method throws NotConnected when no driver', async () => {
         const s = new McpServer({ name: 's', version: '1' });
-        await expect(
-            s.elicitInput({ message: 'q', requestedSchema: { type: 'object', properties: {} } })
-        ).rejects.toThrow(/not connected/i);
+        await expect(s.elicitInput({ message: 'q', requestedSchema: { type: 'object', properties: {} } })).rejects.toThrow(
+            /not connected/i
+        );
     });
 
     it('registerCapabilities throws after connect', async () => {

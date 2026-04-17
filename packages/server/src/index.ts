@@ -6,6 +6,7 @@
 //
 // Any new export added here becomes public API. Use named exports, not wildcards.
 
+export { Server } from './server/compat.js';
 export type { CompletableSchema, CompleteCallback } from './server/completable.js';
 export { completable, isCompletable } from './server/completable.js';
 export type {
@@ -25,13 +26,12 @@ export type {
     ToolCallback
 } from './server/mcpServer.js';
 export { McpServer, ResourceTemplate } from './server/mcpServer.js';
-export { Server } from './server/compat.js';
-export type { ShttpHandlerOptions } from './server/shttpHandler.js';
-export { shttpHandler } from './server/shttpHandler.js';
-export type { SessionCompatOptions } from './server/sessionCompat.js';
-export { SessionCompat } from './server/sessionCompat.js';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation.js';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation.js';
+export type { SessionCompatOptions } from './server/sessionCompat.js';
+export { SessionCompat } from './server/sessionCompat.js';
+export type { ShttpHandlerOptions } from './server/shttpHandler.js';
+export { shttpHandler } from './server/shttpHandler.js';
 export { StdioServerTransport } from './server/stdio.js';
 export type {
     EventId,

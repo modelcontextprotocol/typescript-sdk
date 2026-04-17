@@ -1,4 +1,11 @@
-import type { AuthInfo, DispatchEnv, DispatchOutput, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    DispatchEnv,
+    DispatchOutput,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest
+} from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -29,7 +36,10 @@ export interface EventStore {
      * Replays events stored after the given event ID, calling `send` for each.
      * @returns The stream ID the replayed events belong to
      */
-    replayEventsAfter(lastEventId: EventId, opts: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }): Promise<StreamId>;
+    replayEventsAfter(
+        lastEventId: EventId,
+        opts: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
+    ): Promise<StreamId>;
 }
 
 /**
@@ -163,7 +173,7 @@ export function shttpHandler(
         if (!eventStore) return;
         if (protocolVersion < '2025-11-25') return;
         const primingId = await eventStore.storeEvent(streamId, {} as JSONRPCMessage);
-        const retry = retryInterval !== undefined ? `retry: ${retryInterval}\n` : '';
+        const retry = retryInterval === undefined ? '' : `retry: ${retryInterval}\n`;
         controller.enqueue(encoder.encode(`id: ${primingId}\n${retry}data: \n\n`));
     }
 
@@ -193,22 +203,22 @@ export function shttpHandler(
         }
 
         let raw: unknown;
-        if (extra?.parsedBody !== undefined) {
-            raw = extra.parsedBody;
-        } else {
+        if (extra?.parsedBody === undefined) {
             try {
                 raw = await req.json();
-            } catch (e) {
-                onerror?.(e as Error);
+            } catch (error) {
+                onerror?.(error as Error);
                 return jsonError(400, -32_700, 'Parse error: Invalid JSON');
             }
+        } else {
+            raw = extra.parsedBody;
         }
 
         let messages: JSONRPCMessage[];
         try {
             messages = Array.isArray(raw) ? raw.map(m => JSONRPCMessageSchema.parse(m)) : [JSONRPCMessageSchema.parse(raw)];
-        } catch (e) {
-            onerror?.(e as Error);
+        } catch (error) {
+            onerror?.(error as Error);
             return jsonError(400, -32_700, 'Parse error: Invalid JSON-RPC message');
         }
 
@@ -225,11 +235,11 @@ export function shttpHandler(
             if (protoErr) return protoErr;
         }
 
-        const requests = messages.filter(isJSONRPCRequest);
-        const notifications = messages.filter(isJSONRPCNotification);
+        const requests = messages.filter(m => isJSONRPCRequest(m));
+        const notifications = messages.filter(m => isJSONRPCNotification(m));
 
         for (const n of notifications) {
-            void server.dispatchNotification(n).catch(e => onerror?.(e as Error));
+            void server.dispatchNotification(n).catch(error => onerror?.(error as Error));
         }
 
         if (requests.length === 0) {
@@ -272,8 +282,8 @@ export function shttpHandler(
                                 await emit(controller, encoder, streamId, out.message);
                             }
                         }
-                    } catch (e) {
-                        onerror?.(e as Error);
+                    } catch (error) {
+                        onerror?.(error as Error);
                     } finally {
                         try {
                             controller.close();
@@ -347,8 +357,8 @@ export function shttpHandler(
                             }
                         });
                         if (session) session.setStandaloneStream(sessionId, controller);
-                    } catch (e) {
-                        onerror?.(e as Error);
+                    } catch (error) {
+                        onerror?.(error as Error);
                         try {
                             controller.close();
                         } catch {
@@ -381,18 +391,22 @@ export function shttpHandler(
     return async (req: Request, extra?: ShttpRequestExtra): Promise<Response> => {
         try {
             switch (req.method) {
-                case 'POST':
+                case 'POST': {
                     return await handlePost(req, extra);
-                case 'GET':
+                }
+                case 'GET': {
                     return await handleGet(req);
-                case 'DELETE':
+                }
+                case 'DELETE': {
                     return await handleDelete(req);
-                default:
+                }
+                default: {
                     return jsonError(405, -32_000, 'Method not allowed.', { headers: { Allow: 'GET, POST, DELETE' } });
+                }
             }
-        } catch (e) {
-            onerror?.(e as Error);
-            return jsonError(400, -32_700, 'Parse error', { data: String(e) });
+        } catch (error) {
+            onerror?.(error as Error);
+            return jsonError(400, -32_700, 'Parse error', { data: String(error) });
         }
     };
 }

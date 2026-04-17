@@ -1,12 +1,17 @@
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims';
 import type {
+    AnySchema,
     CallToolRequest,
+    CallToolResult,
+    CancelTaskRequest,
     ClientCapabilities,
     ClientContext,
     CompleteRequest,
+    CreateTaskResult,
     GetPromptRequest,
+    GetTaskRequest,
+    GetTaskResult,
     Implementation,
-    JSONRPCNotification,
     JSONRPCRequest,
     JsonSchemaType,
     JsonSchemaValidator,
@@ -15,6 +20,7 @@ import type {
     ListPromptsRequest,
     ListResourcesRequest,
     ListResourceTemplatesRequest,
+    ListTasksRequest,
     ListToolsRequest,
     LoggingLevel,
     Notification,
@@ -24,41 +30,59 @@ import type {
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
-    Result,
     ResultTypeMap,
+    SchemaOutput,
     ServerCapabilities,
     SubscribeRequest,
+    TaskManager,
     Tool,
     Transport,
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
+    CancelTaskResultSchema,
     CompleteResultSchema,
+    Dispatcher,
     EmptyResultSchema,
     GetPromptResultSchema,
+    getResultSchema,
+    GetTaskResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
+    ListTasksResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
-    ReadResourceResultSchema,
     parseSchema,
     ProtocolError,
     ProtocolErrorCode,
+    ReadResourceResultSchema,
     SdkError,
     SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
-// TODO(ts-rebuild): replace with `from '@modelcontextprotocol/core'` once the core barrel exports Dispatcher.
-import { Dispatcher } from '@modelcontextprotocol/core';
-
-import type { AnySchema, SchemaOutput } from '@modelcontextprotocol/core';
+import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 import type { ClientFetchOptions, ClientTransport } from './clientTransport.js';
 import { isJSONRPCErrorResponse, isPipeTransport, pipeAsClientTransport } from './clientTransport.js';
+
+/**
+ * Runtime guard for the polymorphic `tools/call` (and per SEP-2557, any
+ * task-capable method) result. SEP-2557 lets servers return a task even when
+ * the client did not request one.
+ */
+function isCreateTaskResult(r: unknown): r is CreateTaskResult {
+    return (
+        typeof r === 'object' &&
+        r !== null &&
+        typeof (r as { task?: unknown }).task === 'object' &&
+        (r as { task?: unknown }).task !== null &&
+        typeof (r as { task: { taskId?: unknown } }).task.taskId === 'string'
+    );
+}
 
 /**
  * Loose envelope for the (draft) 2026-06 MRTR `input_required` result. Typed
@@ -127,6 +151,7 @@ export class Client {
     private _cachedRequiredTaskTools: Set<string> = new Set();
     private _requestMessageId = 0;
     private _pendingListChangedConfig?: ListChangedHandlers;
+    private _experimental?: { tasks: ExperimentalClientTasks };
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -236,7 +261,7 @@ export class Client {
 
     /** Low-level: send one typed request. Runs the MRTR loop. */
     async request<M extends RequestMethod>(req: { method: M; params?: RequestTypeMap[M]['params'] }, options?: RequestOptions) {
-        const schema = (await import('@modelcontextprotocol/core')).getResultSchema(req.method);
+        const schema = getResultSchema(req.method);
         return this._request({ method: req.method, params: req.params }, schema, options) as Promise<ResultTypeMap[M]>;
     }
 
@@ -287,14 +312,27 @@ export class Client {
         this._cacheToolMetadata(result.tools);
         return result;
     }
-    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
-        if (this._cachedRequiredTaskTools.has(params.name)) {
+    async callTool(
+        params: CallToolRequest['params'],
+        options?: RequestOptions & { awaitTask?: boolean }
+    ): Promise<CallToolResult | CreateTaskResult> {
+        if (this._cachedRequiredTaskTools.has(params.name) && !options?.task && !options?.awaitTask) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidRequest,
-                `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`
+                `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() or pass {awaitTask: true}.`
             );
         }
-        const result = await this._request({ method: 'tools/call', params }, CallToolResultSchema, options);
+        const raw = await this._requestRaw({ method: 'tools/call', params }, options);
+        // SEP-2557: server may return a task even when not requested.
+        if (isCreateTaskResult(raw)) {
+            if (options?.awaitTask) {
+                return this._pollTaskToCompletion(raw.task.taskId, options);
+            }
+            return raw;
+        }
+        const parsed = parseSchema(CallToolResultSchema, raw);
+        if (!parsed.success) throw parsed.error;
+        const result = parsed.data;
         const validator = this._cachedToolOutputValidators.get(params.name);
         if (validator) {
             if (!result.structuredContent && !result.isError) {
@@ -319,9 +357,88 @@ export class Client {
         return this.notification({ method: 'notifications/roots/list_changed' });
     }
 
+    // -- tasks (SEP-1686 / SEP-2557) -----------------------------------------
+    // Kept isolated: typed RPCs + the polymorphism check in callTool above. The
+    // streaming/polling helpers live in {@linkcode ExperimentalClientTasks}.
+
+    async getTask(params: GetTaskRequest['params'], options?: RequestOptions) {
+        return this._request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
+    }
+    async listTasks(params?: ListTasksRequest['params'], options?: RequestOptions) {
+        return this._request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
+    }
+    async cancelTask(params: CancelTaskRequest['params'], options?: RequestOptions) {
+        return this._request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
+    }
+
+    /**
+     * The connection's {@linkcode TaskManager}. Only present when connected over a
+     * pipe-shaped transport (the StreamDriver owns it). Request-shaped
+     * transports have no per-connection task buffer.
+     */
+    get taskManager(): TaskManager {
+        const tm = this._ct?.driver?.taskManager;
+        if (!tm) {
+            throw new SdkError(
+                SdkErrorCode.NotConnected,
+                'taskManager is only available when connected via a pipe-shaped Transport (stdio/SSE/InMemory).'
+            );
+        }
+        return tm;
+    }
+
+    /**
+     * Access experimental task helpers (callToolStream, getTaskResult, ...).
+     *
+     * @experimental
+     */
+    get experimental(): { tasks: ExperimentalClientTasks } {
+        if (!this._experimental) {
+            this._experimental = { tasks: new ExperimentalClientTasks(this as never) };
+        }
+        return this._experimental;
+    }
+
+    /** @internal structural compat for {@linkcode ExperimentalClientTasks} */
+    private isToolTask(toolName: string): boolean {
+        return this._cachedKnownTaskTools.has(toolName);
+    }
+    /** @internal structural compat for {@linkcode ExperimentalClientTasks} */
+    private getToolOutputValidator(toolName: string): JsonSchemaValidator<unknown> | undefined {
+        return this._cachedToolOutputValidators.get(toolName);
+    }
+
+    private async _pollTaskToCompletion(taskId: string, options?: RequestOptions): Promise<CallToolResult> {
+        // SEP-2557 collapses tasks/result into tasks/get; poll status, then
+        // fetch payload. Backoff is fixed-interval; the streaming variant lives
+        // in ExperimentalClientTasks.
+        const intervalMs = 500;
+        while (true) {
+            options?.signal?.throwIfAborted();
+            const r: GetTaskResult = await this.getTask({ taskId }, options);
+            const status = r.status;
+            if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                try {
+                    return await this._request({ method: 'tasks/result', params: { taskId } }, CallToolResultSchema, options);
+                } catch {
+                    return { content: [], isError: status !== 'completed' };
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, intervalMs));
+        }
+    }
+
     // -- internals -----------------------------------------------------------
 
     private async _request<T extends AnySchema>(req: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+        const raw = await this._requestRaw(req, options);
+        const parsed = parseSchema(resultSchema, raw);
+        if (!parsed.success) throw parsed.error;
+        return parsed.data as SchemaOutput<T>;
+    }
+
+    /** Like {@linkcode _request} but returns the unparsed result. Used where the result is polymorphic (e.g. SEP-2557 task results). */
+    private async _requestRaw(req: Request, options?: RequestOptions): Promise<unknown> {
         if (!this._ct) throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         let inputResponses: Record<string, unknown> = {};
         for (let round = 0; round < this._mrtrMaxRounds; round++) {
@@ -342,7 +459,7 @@ export class Client {
                 resetTimeoutOnProgress: options?.resetTimeoutOnProgress,
                 maxTotalTimeout: options?.maxTotalTimeout,
                 onprogress: options?.onprogress,
-                onnotification: n => void this._localDispatcher.dispatchNotification(n).catch(e => this.onerror?.(e))
+                onnotification: n => void this._localDispatcher.dispatchNotification(n).catch(error => this.onerror?.(error))
             };
             const resp = await this._ct.fetch(jr, opts);
             if (isJSONRPCErrorResponse(resp)) {
@@ -353,9 +470,7 @@ export class Client {
                 inputResponses = { ...inputResponses, ...(await this._serviceInputRequests(raw.InputRequests)) };
                 continue;
             }
-            const parsed = parseSchema(resultSchema, raw);
-            if (!parsed.success) throw parsed.error;
-            return parsed.data as SchemaOutput<T>;
+            return raw;
         }
         throw new ProtocolError(ProtocolErrorCode.InternalError, `MRTR exceeded ${this._mrtrMaxRounds} rounds for ${req.method}`);
     }
@@ -422,10 +537,11 @@ export class Client {
                 throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
             }
         } catch (error) {
-            if (!(error instanceof ProtocolError) || (error as ProtocolError).code !== ProtocolErrorCode.MethodNotFound) {
-                // Non-method-not-found error from discover: surface it.
-                if (error instanceof ProtocolError) throw error;
-            }
+            if (
+                (!(error instanceof ProtocolError) || (error as ProtocolError).code !== ProtocolErrorCode.MethodNotFound) && // Non-method-not-found error from discover: surface it.
+                error instanceof ProtocolError
+            )
+                throw error;
         }
         await this._initializeHandshake(options, () => {});
     }
@@ -436,7 +552,10 @@ export class Client {
         this._cachedRequiredTaskTools.clear();
         for (const tool of tools) {
             if (tool.outputSchema) {
-                this._cachedToolOutputValidators.set(tool.name, this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType));
+                this._cachedToolOutputValidators.set(
+                    tool.name,
+                    this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType)
+                );
             }
             const ts = tool.execution?.taskSupport;
             if (ts === 'required' || ts === 'optional') this._cachedKnownTaskTools.add(tool.name);
@@ -454,16 +573,25 @@ export class Client {
                 if (c.autoRefresh === false) return c.onChanged(null, null);
                 try {
                     c.onChanged(null, (await fetch()) as never);
-                } catch (e) {
-                    c.onChanged(e instanceof Error ? e : new Error(String(e)), null);
+                } catch (error) {
+                    c.onChanged(error instanceof Error ? error : new Error(String(error)), null);
                 }
             });
         };
-        wire('tools', 'notifications/tools/list_changed', async () => (await this.listTools()).tools);
-        wire('prompts', 'notifications/prompts/list_changed', async () => (await this.listPrompts()).prompts ?? []);
-        wire('resources', 'notifications/resources/list_changed', async () => (await this.listResources()).resources ?? []);
+        wire('tools', 'notifications/tools/list_changed', async () => {
+            const r = await this.listTools();
+            return r.tools;
+        });
+        wire('prompts', 'notifications/prompts/list_changed', async () => {
+            const r = await this.listPrompts();
+            return r.prompts ?? [];
+        });
+        wire('resources', 'notifications/resources/list_changed', async () => {
+            const r = await this.listResources();
+            return r.resources ?? [];
+        });
     }
 }
 
-export type { ClientTransport, ClientFetchOptions } from './clientTransport.js';
-export { pipeAsClientTransport, isPipeTransport } from './clientTransport.js';
+export type { ClientFetchOptions, ClientTransport } from './clientTransport.js';
+export { isPipeTransport, pipeAsClientTransport } from './clientTransport.js';

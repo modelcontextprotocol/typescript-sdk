@@ -3,7 +3,6 @@ import type {
     BaseContext,
     BaseMetadata,
     CallToolRequest,
-    MessageExtraInfo,
     CallToolResult,
     ClientCapabilities,
     CompleteRequestPrompt,
@@ -34,6 +33,7 @@ import type {
     ListToolsResult,
     LoggingLevel,
     LoggingMessageNotification,
+    MessageExtraInfo,
     Notification,
     NotificationMethod,
     NotificationOptions,
@@ -352,8 +352,7 @@ export class McpServer extends Dispatcher<ServerContext> {
             ...base,
             mcpReq: {
                 ...base.mcpReq,
-                log: (level, data, logger) =>
-                    base.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } }),
+                log: (level, data, logger) => base.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } }),
                 elicitInput: (params, options) => this._elicitInputViaCtx(base, params, options),
                 requestSampling: (params, options) => this._createMessageViaCtx(base, params, options)
             },
@@ -476,9 +475,7 @@ export class McpServer extends Dispatcher<ServerContext> {
         methodOrSchema: RequestMethod | { shape: { method: unknown } },
         handler: (request: never, ctx: ServerContext) => Result | Promise<Result>
     ): void {
-        const method = (
-            typeof methodOrSchema === 'string' ? methodOrSchema : extractMethodFromSchema(methodOrSchema)
-        ) as RequestMethod;
+        const method = (typeof methodOrSchema === 'string' ? methodOrSchema : extractMethodFromSchema(methodOrSchema)) as RequestMethod;
         this._assertRequestHandlerCapability(method);
         const h = handler as (request: JSONRPCRequest, ctx: ServerContext) => Result | Promise<Result>;
         if (method === 'tools/call') {
@@ -687,17 +684,19 @@ export class McpServer extends Dispatcher<ServerContext> {
 
     private _assertCapabilityForMethod(method: RequestMethod): void {
         switch (method) {
-            case 'sampling/createMessage':
+            case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support sampling (required for ${method})`);
                 }
                 break;
-            case 'elicitation/create':
+            }
+            case 'elicitation/create': {
                 if (!this._clientCapabilities?.elicitation) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support elicitation (required for ${method})`);
                 }
                 break;
-            case 'roots/list':
+            }
+            case 'roots/list': {
                 if (!this._clientCapabilities?.roots) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
@@ -705,18 +704,20 @@ export class McpServer extends Dispatcher<ServerContext> {
                     );
                 }
                 break;
+            }
         }
     }
 
     private _assertNotificationCapability(method: NotificationMethod): void {
         switch (method) {
-            case 'notifications/message':
+            case 'notifications/message': {
                 if (!this._capabilities.logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
                 }
                 break;
+            }
             case 'notifications/resources/updated':
-            case 'notifications/resources/list_changed':
+            case 'notifications/resources/list_changed': {
                 if (!this._capabilities.resources) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
@@ -724,7 +725,8 @@ export class McpServer extends Dispatcher<ServerContext> {
                     );
                 }
                 break;
-            case 'notifications/tools/list_changed':
+            }
+            case 'notifications/tools/list_changed': {
                 if (!this._capabilities.tools) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
@@ -732,7 +734,8 @@ export class McpServer extends Dispatcher<ServerContext> {
                     );
                 }
                 break;
-            case 'notifications/prompts/list_changed':
+            }
+            case 'notifications/prompts/list_changed': {
                 if (!this._capabilities.prompts) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
@@ -740,7 +743,8 @@ export class McpServer extends Dispatcher<ServerContext> {
                     );
                 }
                 break;
-            case 'notifications/elicitation/complete':
+            }
+            case 'notifications/elicitation/complete': {
                 if (!this._clientCapabilities?.elicitation?.url) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
@@ -748,42 +752,48 @@ export class McpServer extends Dispatcher<ServerContext> {
                     );
                 }
                 break;
+            }
         }
     }
 
     private _assertRequestHandlerCapability(method: string): void {
         switch (method) {
-            case 'completion/complete':
+            case 'completion/complete': {
                 if (!this._capabilities.completions) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support completions (required for ${method})`);
                 }
                 break;
-            case 'logging/setLevel':
+            }
+            case 'logging/setLevel': {
                 if (!this._capabilities.logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
                 }
                 break;
+            }
             case 'prompts/get':
-            case 'prompts/list':
+            case 'prompts/list': {
                 if (!this._capabilities.prompts) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support prompts (required for ${method})`);
                 }
                 break;
+            }
             case 'resources/list':
             case 'resources/templates/list':
             case 'resources/read':
             case 'resources/subscribe':
-            case 'resources/unsubscribe':
+            case 'resources/unsubscribe': {
                 if (!this._capabilities.resources) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
                 }
                 break;
+            }
             case 'tools/call':
-            case 'tools/list':
+            case 'tools/list': {
                 if (!this._capabilities.tools) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
                 }
                 break;
+            }
         }
     }
 
@@ -996,8 +1006,9 @@ export class McpServer extends Dispatcher<ServerContext> {
                     assertCompleteRequestResourceTemplate(request);
                     return this.handleResourceCompletion(request, request.params.ref);
                 }
-                default:
+                default: {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid completion reference: ${request.params.ref}`);
+                }
             }
         });
         this._completionHandlerInitialized = true;
@@ -1402,7 +1413,11 @@ export class McpServer extends Dispatcher<ServerContext> {
     /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
     tool(name: string, description: string, cb: ToolCallback): RegisteredTool;
     /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
-    tool<Args extends ZodRawShapeCompat>(name: string, paramsSchemaOrAnnotations: Args | ToolAnnotations, cb: LegacyToolCallback<Args>): RegisteredTool;
+    tool<Args extends ZodRawShapeCompat>(
+        name: string,
+        paramsSchemaOrAnnotations: Args | ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
     /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
     tool<Args extends ZodRawShapeCompat>(
         name: string,
@@ -1411,7 +1426,12 @@ export class McpServer extends Dispatcher<ServerContext> {
         cb: LegacyToolCallback<Args>
     ): RegisteredTool;
     /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
-    tool<Args extends ZodRawShapeCompat>(name: string, paramsSchema: Args, annotations: ToolAnnotations, cb: LegacyToolCallback<Args>): RegisteredTool;
+    tool<Args extends ZodRawShapeCompat>(
+        name: string,
+        paramsSchema: Args,
+        annotations: ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
     /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
     tool<Args extends ZodRawShapeCompat>(
         name: string,
@@ -1441,7 +1461,17 @@ export class McpServer extends Dispatcher<ServerContext> {
             }
         }
         const cb = rest[0] as ToolCallback<StandardSchemaWithJSON | undefined>;
-        return this._createRegisteredTool(name, undefined, description, inputSchema, undefined, annotations, { taskSupport: 'forbidden' }, undefined, cb);
+        return this._createRegisteredTool(
+            name,
+            undefined,
+            description,
+            inputSchema,
+            undefined,
+            annotations,
+            { taskSupport: 'forbidden' },
+            undefined,
+            cb
+        );
     }
 
     /** @deprecated Use {@linkcode McpServer.registerPrompt | registerPrompt()} instead. */
@@ -1451,7 +1481,12 @@ export class McpServer extends Dispatcher<ServerContext> {
     /** @deprecated Use {@linkcode McpServer.registerPrompt | registerPrompt()} instead. */
     prompt<Args extends ZodRawShapeCompat>(name: string, argsSchema: Args, cb: LegacyPromptCallback<Args>): RegisteredPrompt;
     /** @deprecated Use {@linkcode McpServer.registerPrompt | registerPrompt()} instead. */
-    prompt<Args extends ZodRawShapeCompat>(name: string, description: string, argsSchema: Args, cb: LegacyPromptCallback<Args>): RegisteredPrompt;
+    prompt<Args extends ZodRawShapeCompat>(
+        name: string,
+        description: string,
+        argsSchema: Args,
+        cb: LegacyPromptCallback<Args>
+    ): RegisteredPrompt;
     prompt(name: string, ...rest: unknown[]): RegisteredPrompt {
         if (this._registeredPrompts[name]) throw new Error(`Prompt ${name} is already registered`);
         let description: string | undefined;
@@ -1472,7 +1507,12 @@ export class McpServer extends Dispatcher<ServerContext> {
     /** @deprecated Use {@linkcode McpServer.registerResource | registerResource()} instead. */
     resource(name: string, template: ResourceTemplate, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
     /** @deprecated Use {@linkcode McpServer.registerResource | registerResource()} instead. */
-    resource(name: string, template: ResourceTemplate, metadata: ResourceMetadata, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
+    resource(
+        name: string,
+        template: ResourceTemplate,
+        metadata: ResourceMetadata,
+        readCallback: ReadResourceTemplateCallback
+    ): RegisteredResourceTemplate;
     resource(name: string, uriOrTemplate: string | ResourceTemplate, ...rest: unknown[]): RegisteredResource | RegisteredResourceTemplate {
         let metadata: ResourceMetadata | undefined;
         if (typeof rest[0] === 'object') metadata = rest.shift() as ResourceMetadata;
@@ -1485,7 +1525,13 @@ export class McpServer extends Dispatcher<ServerContext> {
             return r;
         }
         if (this._registeredResourceTemplates[name]) throw new Error(`Resource template ${name} is already registered`);
-        const r = this._createRegisteredResourceTemplate(name, undefined, uriOrTemplate, metadata, readCallback as ReadResourceTemplateCallback);
+        const r = this._createRegisteredResourceTemplate(
+            name,
+            undefined,
+            uriOrTemplate,
+            metadata,
+            readCallback as ReadResourceTemplateCallback
+        );
         this.setResourceRequestHandlers();
         this.sendResourceListChanged();
         return r;
@@ -1672,7 +1718,7 @@ const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} };
 const EMPTY_COMPLETION_RESULT: CompleteResult = { completion: { values: [], hasMore: false } };
 
 function jsonResponse(status: number, body: unknown): Response {
-    return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    return Response.json(body, { status, headers: { 'content-type': 'application/json' } });
 }
 
 function createCompletionResult(suggestions: readonly unknown[]): CompleteResult {
@@ -1747,7 +1793,7 @@ function extractMethodFromSchema(schema: { shape: { method: unknown } }): string
     const lit = schema.shape.method as { value?: unknown; _zod?: { def?: { values?: unknown[] } } };
     const v = lit?.value ?? lit?._zod?.def?.values?.[0];
     if (typeof v !== 'string') {
-        throw new Error('setRequestHandler(schema, handler): schema.shape.method must be a z.literal(string)');
+        throw new TypeError('setRequestHandler(schema, handler): schema.shape.method must be a z.literal(string)');
     }
     return v;
 }
@@ -1761,7 +1807,7 @@ function isZodRawShapeCompat(v: unknown): v is ZodRawShapeCompat {
     if (isStandardSchema(v)) return false;
     const values = Object.values(v as object);
     if (values.length === 0) return true;
-    return values.some(isZodTypeLike);
+    return values.some(v => isZodTypeLike(v));
 }
 
 /**

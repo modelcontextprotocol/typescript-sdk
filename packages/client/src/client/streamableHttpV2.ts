@@ -1,4 +1,10 @@
-import type { FetchLike, JSONRPCErrorResponse, JSONRPCNotification, JSONRPCRequest, JSONRPCResultResponse } from '@modelcontextprotocol/core';
+import type {
+    FetchLike,
+    JSONRPCErrorResponse,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse
+} from '@modelcontextprotocol/core';
 import {
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
@@ -276,7 +282,8 @@ export class StreamableHttpClientTransportV2 implements ClientTransport {
 
     private _routeNotification(msg: JSONRPCNotification, opts: ClientFetchOptions): void {
         if (msg.method === 'notifications/progress' && opts.onprogress) {
-            const { progressToken: _t, ...progress } = (msg.params ?? {}) as Record<string, unknown>;
+            const { progressToken: _progressToken, ...progress } = (msg.params ?? {}) as Record<string, unknown>;
+            void _progressToken;
             opts.onprogress(progress as never);
             return;
         }

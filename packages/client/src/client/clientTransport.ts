@@ -1,4 +1,5 @@
 import type {
+    Dispatcher,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -6,14 +7,10 @@ import type {
     Notification,
     Progress,
     Request,
+    RequestOptions,
     Transport
 } from '@modelcontextprotocol/core';
-import { getResultSchema, isJSONRPCErrorResponse } from '@modelcontextprotocol/core';
-
-// TODO(ts-rebuild): replace with `from '@modelcontextprotocol/core'` once the core barrel exports these.
-// Dispatcher/StreamDriver are written by a sibling fork to packages/core/src/shared/{dispatcher,streamDriver}.ts.
-import type { Dispatcher, RequestOptions } from '@modelcontextprotocol/core';
-import { StreamDriver } from '@modelcontextprotocol/core';
+import { getResultSchema, StreamDriver } from '@modelcontextprotocol/core';
 
 /**
  * Per-call options for {@linkcode ClientTransport.fetch}.
@@ -86,6 +83,7 @@ export function isPipeTransport(t: Transport | ClientTransport): t is Transport 
  * {@linkcode StreamDriver}. The supplied {@linkcode Dispatcher} services any
  * server-initiated requests (sampling, elicitation, roots) that arrive on the pipe.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- adapter is context-agnostic; the caller's Dispatcher subclass owns ContextT
 export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<any>): ClientTransport {
     const driver = new StreamDriver(dispatcher, pipe);
     let started = false;
@@ -128,10 +126,9 @@ export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<an
         },
         async *subscribe() {
             await ensureStarted();
-            let push: ((n: JSONRPCNotification) => void) | undefined;
             const queue: JSONRPCNotification[] = [];
             let wake: (() => void) | undefined;
-            push = n => {
+            const push = (n: JSONRPCNotification) => {
                 queue.push(n);
                 wake?.();
             };
@@ -153,4 +150,5 @@ export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<an
 }
 
 /** Re-exported so callers can detect protocol-level errors uniformly. */
-export { isJSONRPCErrorResponse };
+
+export { isJSONRPCErrorResponse } from '@modelcontextprotocol/core';

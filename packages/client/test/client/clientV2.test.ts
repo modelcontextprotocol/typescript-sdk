@@ -1,4 +1,6 @@
 import type {
+    CallToolResult,
+    CreateTaskResult,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -100,7 +102,7 @@ describe('Client (V2)', () => {
             const { c } = await connected(r =>
                 r.method === 'tools/call' ? ok(r.id, { content: [{ type: 'text', text: 'hi' }] }) : err(r.id, -32601, 'nope')
             );
-            const result = await c.callTool({ name: 'x', arguments: {} });
+            const result = (await c.callTool({ name: 'x', arguments: {} })) as CallToolResult;
             expect(result.content[0]).toEqual({ type: 'text', text: 'hi' });
         });
 
@@ -175,7 +177,7 @@ describe('Client (V2)', () => {
             const c = new Client({ name: 'c', version: '1' }, { capabilities: { elicitation: {} } });
             c.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: { x: 1 } }));
             await c.connect(ct);
-            const result = await c.callTool({ name: 't', arguments: {} });
+            const result = (await c.callTool({ name: 't', arguments: {} })) as CallToolResult;
             expect(result.content[0]).toEqual({ type: 'text', text: 'done' });
             expect(round).toBe(2);
             const second = sent.filter(r => r.method === 'tools/call')[1];
@@ -279,6 +281,77 @@ describe('Client (V2)', () => {
             await c.connect(ct);
             await c.callTool({ name: 't', arguments: {} });
             expect(got).toHaveLength(1);
+        });
+    });
+
+    describe('tasks (SEP-1686 / SEP-2557)', () => {
+        async function connected(handler: (req: JSONRPCRequest) => FetchResp | Promise<FetchResp>) {
+            const m = mockTransport(req => {
+                if (req.method === 'server/discover') return ok(req.id, { capabilities: { tools: {}, tasks: { tools: { call: true } } } });
+                return handler(req);
+            });
+            const c = new Client({ name: 'c', version: '1' });
+            await c.connect(m.ct);
+            return { c, ...m };
+        }
+
+        it('experimental.tasks getter exists and is lazily constructed once', async () => {
+            const { c } = await connected(r => ok(r.id, {}));
+            const a = c.experimental.tasks;
+            const b = c.experimental.tasks;
+            expect(a).toBe(b);
+            expect(typeof a.callToolStream).toBe('function');
+        });
+
+        it('callTool returns CreateTaskResult unchanged when server returns a task (SEP-2557 unsolicited)', async () => {
+            const taskResult = { task: { taskId: 't-1', status: 'working', createdAt: '2026-01-01T00:00:00Z' } };
+            const { c } = await connected(r => (r.method === 'tools/call' ? ok(r.id, taskResult) : err(r.id, -32601, '')));
+            const result = (await c.callTool({ name: 'slow', arguments: {} })) as CreateTaskResult;
+            expect(result.task.taskId).toBe('t-1');
+        });
+
+        const taskBody = (overrides: Record<string, unknown> = {}) => ({
+            taskId: 't-2',
+            status: 'working',
+            ttl: null,
+            createdAt: '2026-01-01T00:00:00Z',
+            lastUpdatedAt: '2026-01-01T00:00:00Z',
+            ...overrides
+        });
+
+        it('callTool with awaitTask polls tasks/get then tasks/result', async () => {
+            let getCalls = 0;
+            const { c, sent } = await connected(r => {
+                if (r.method === 'tools/call') return ok(r.id, { task: taskBody() });
+                if (r.method === 'tasks/get') {
+                    getCalls++;
+                    return ok(r.id, taskBody({ status: getCalls === 1 ? 'working' : 'completed' }));
+                }
+                if (r.method === 'tasks/result') return ok(r.id, { content: [{ type: 'text', text: 'done' }] });
+                return err(r.id, -32601, '');
+            });
+            const result = (await c.callTool({ name: 'slow', arguments: {} }, { awaitTask: true })) as CallToolResult;
+            expect(result.content[0]).toEqual({ type: 'text', text: 'done' });
+            expect(getCalls).toBe(2);
+            expect(sent.some(r => r.method === 'tasks/result')).toBe(true);
+        });
+
+        it('getTask / listTasks / cancelTask call the right methods', async () => {
+            const { c, sent } = await connected(r => {
+                if (r.method === 'tasks/get') return ok(r.id, taskBody({ taskId: 'x', status: 'completed' }));
+                if (r.method === 'tasks/list') return ok(r.id, { tasks: [] });
+                if (r.method === 'tasks/cancel') return ok(r.id, taskBody({ taskId: 'x', status: 'cancelled' }));
+                return err(r.id, -32601, '');
+            });
+            await c.getTask({ taskId: 'x' });
+            await c.listTasks();
+            await c.cancelTask({ taskId: 'x' });
+            expect(sent.map(r => r.method).filter(m => m.startsWith('tasks/'))).toEqual(['tasks/get', 'tasks/list', 'tasks/cancel']);
+        });
+
+        it('taskManager throws NotConnected when not connected via a pipe', async () => {
+            const { c } = await connected(r => ok(r.id, {}));
+            expect(() => c.taskManager).toThrow(/pipe-shaped Transport/);
         });
     });
 });

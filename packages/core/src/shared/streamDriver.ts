@@ -15,6 +15,7 @@ import type {
     Result
 } from '../types/index.js';
 import {
+    getResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
@@ -25,7 +26,6 @@ import {
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { DispatchEnv, Dispatcher } from './dispatcher.js';
-import { getResultSchema } from '../types/index.js';
 import type { NotificationOptions, ProgressCallback, RequestOptions } from './protocol.js';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './protocol.js';
 import type { InboundContext, TaskManagerHost, TaskManagerOptions } from './taskManager.js';

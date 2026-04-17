@@ -50,9 +50,7 @@ interface SessionEntry {
 }
 
 /** Result of {@linkcode SessionCompat.validate}. */
-export type SessionValidation =
-    | { ok: true; sessionId: string | undefined; isInitialize: boolean }
-    | { ok: false; response: Response };
+export type SessionValidation = { ok: true; sessionId: string | undefined; isInitialize: boolean } | { ok: false; response: Response };
 
 function jsonError(status: number, code: number, message: string, headers?: Record<string, string>): Response {
     return Response.json(
