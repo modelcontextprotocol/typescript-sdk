@@ -42,7 +42,18 @@ describe('setRequestHandler — three-arg paramsSchema form', () => {
         );
     });
 
-    it('normalizes absent params to {} and strips _meta', async () => {
+    it('normalizes absent params to {}', async () => {
+        const { a, b } = await makePair();
+        let seen: unknown;
+        b.setRequestHandler('acme/noop', z.object({}).strict(), p => {
+            seen = p;
+            return {};
+        });
+        await a.request({ method: 'acme/noop' }, z.object({}));
+        expect(seen).toEqual({});
+    });
+
+    it('strips _meta before validating against paramsSchema', async () => {
         const { a, b } = await makePair();
         let seen: unknown;
         b.setRequestHandler('acme/noop', z.object({}).strict(), p => {
