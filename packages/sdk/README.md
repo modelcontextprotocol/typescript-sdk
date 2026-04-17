@@ -18,3 +18,8 @@ See [`docs/migration.md`](../../docs/migration.md) for the full mapping.
 ## When to use the sub-packages directly
 
 Bundle-sensitive targets (browsers, Cloudflare Workers) should import from `@modelcontextprotocol/client` or `@modelcontextprotocol/server` directly to avoid pulling in Node-only transports.
+
+## Optional subpaths
+
+The `./server/auth/*` subpaths re-export the legacy Authorization Server helpers from `@modelcontextprotocol/server-auth-legacy`, which require `express` to be installed by the consumer. Similarly, `./server/sse.js` (the deprecated `SSEServerTransport`) is provided by
+`@modelcontextprotocol/node`. Both `express` and `hono` are optional peer dependencies — install them only if you use those subpaths.
