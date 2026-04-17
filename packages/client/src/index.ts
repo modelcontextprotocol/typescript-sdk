@@ -56,7 +56,7 @@ export { Client } from './client/client.js';
 export { getSupportedElicitationModes } from './client/client.js';
 export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess.js';
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess.js';
-export type { ClientEventManagerOptions, SubscribeOptions, WebhookConfig } from './client/events.js';
+export type { ClientEventManagerOptions, RetryOptions, SubscribeOptions, WebhookConfig } from './client/events.js';
 export { ClientEventManager, EventSubscription } from './client/events.js';
 export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware.js';
 export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware.js';

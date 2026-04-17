@@ -488,3 +488,20 @@ The "unified log holds everything" property of the cursor redesign now applies o
 
 - emit() is broadcast; results are visible to all matching subs and replayable from the log.
 - check() is private to the calling sub; results are only delivered to that sub. If you want a check-derived event to reach all subs, emit() it explicitly inside or after the check.
+
+## Bughunter fixes 2026-04-17
+
+A bughunter fleet over the branch's diff confirmed 22 findings (10 distinct after dedup). All are fixed:
+
+- **030 [security]** Webhook refresh now rejects (`InvalidParams`) if `eventName` or `params` differ from the existing subscription. Refresh extends TTL only; identity is immutable. Prevents an attacker subscribing to a low-privilege event then switching to a high-privilege one on refresh without re-authorisation.
+- **057 [security]** Webhook `_handleSubscribe` now runs `onSubscribe` BEFORE `_replayAfterCursor` and `_webhookSubs.set`, mirroring the push fix in `bf8bf92`. Authz state is in place before replay's `matches()` filter runs.
+- **069** Async-iterating `log.entries` while `await`ing `matches()` could skip entries when a concurrent `emit()` calls `entries.shift()`. Now snapshots `[...entries]` before the loop in `_replayAfterCursor` and `_pollOne`.
+- **039** `onSubscribe` could fire without a balancing `onUnsubscribe` on four error paths (poll check-error, poll cursor-expired, push replay-error, push fatal check-error) and during a stream-closed race. Added `_safeOnUnsubscribe` helper and saved minimal poll state immediately after `onSubscribe` so it doesn't re-fire on retry.
+- **062** A throwing `matches()` for one sub aborted fan-out for siblings (and was an unhandled rejection in poll-loop timers). Added `_safeMatches` that catches, logs, and returns `false` for that sub only; used at all eight call sites.
+- **068** Check-derived cursors aren't in the shared log, so push/webhook resume from one always returned `CursorExpired`. Now registers them in `cursorMap` (pointing at the log head at mint time) with bounded FIFO eviction (`checkCursorQueue`). Data stays per-sub-private; only the seq anchor is shared.
+- **058** Poll `_runCheckTick` returning `CursorExpired` early-returned without resetting `checkCursor`, looping on the same stale cursor. Now resets to `null` so the next poll re-bootstraps.
+- **065** Client `EventSubscription._fail()` resolved pending iterator waiters with `{done:true}` instead of rejecting, so a `for await` exited cleanly without seeing the error. Waiters are now `{resolve, reject}` pairs and `_fail()` rejects.
+- **073** Client webhook `refresh()` raced with `cancel()`: an in-flight refresh would set a new timer after teardown. Now checks `this._subscriptions.has(sub.id)` after the await before rescheduling.
+- **005 [design]** Client error handling was inconsistent: poll/webhook died on first transport error, push retried with no backoff or cap. All three now use bounded exponential backoff via `RetryOptions { maxAttempts=5, baseDelayMs=1000, maxDelayMs=30000 }`. Initial webhook subscribe still fails fast (caller is awaiting); only background refreshes retry.
+
+Regression tests added for 030, 057, 062, 065, 069, and two paths of 039. The remaining (058, 068, 073, 005) are exercised by existing tests and/or hard to test deterministically without timing dependencies.

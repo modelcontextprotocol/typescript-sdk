@@ -70,6 +70,22 @@ export interface SubscribeOptions {
 }
 
 /**
+ * Retry behaviour for transport-level failures (network errors, transient
+ * server errors) in the poll, push and webhook delivery loops.
+ *
+ * Exponential backoff: attempt N waits `min(baseDelayMs * 2^(N-1), maxDelayMs)`.
+ * The attempt counter resets to 0 on the first successful round-trip.
+ */
+export interface RetryOptions {
+    /** Maximum consecutive failures before the subscription is failed. Default 5. */
+    maxAttempts?: number;
+    /** First retry delay in ms. Default 1000. */
+    baseDelayMs?: number;
+    /** Ceiling on retry delay in ms. Default 30000. */
+    maxDelayMs?: number;
+}
+
+/**
  * Options for {@linkcode ClientEventManager}.
  */
 export interface ClientEventManagerOptions {
@@ -88,10 +104,16 @@ export interface ClientEventManagerOptions {
      * `events/stream`, `events/subscribe`).
      */
     requestOptions?: RequestOptions;
+    /**
+     * Retry behaviour for transport-level failures across all delivery loops.
+     * See {@linkcode RetryOptions}.
+     */
+    retry?: RetryOptions;
 }
 
 const DEFAULT_POLL_SECONDS = 30;
 const DEFAULT_DEDUPE_WINDOW = 256;
+const DEFAULT_RETRY: Required<RetryOptions> = { maxAttempts: 5, baseDelayMs: 1000, maxDelayMs: 30_000 };
 
 /**
  * Internal queue state backing a single {@linkcode EventSubscription}'s async
@@ -99,7 +121,7 @@ const DEFAULT_DEDUPE_WINDOW = 256;
  */
 interface SubscriptionQueue {
     buffer: EventOccurrence[];
-    waiters: ((v: IteratorResult<EventOccurrence>) => void)[];
+    waiters: { resolve: (v: IteratorResult<EventOccurrence>) => void; reject: (e: Error) => void }[];
     done: boolean;
     error?: Error;
 }
@@ -165,7 +187,7 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
         this.cursor = occurrence.cursor;
         const waiter = this._queue.waiters.shift();
         if (waiter) {
-            waiter({ value: occurrence, done: false });
+            waiter.resolve({ value: occurrence, done: false });
         } else {
             this._queue.buffer.push(occurrence);
         }
@@ -176,7 +198,10 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
         if (this._queue.done) return;
         this._queue.done = true;
         this._queue.error = error;
-        for (const waiter of this._queue.waiters) waiter({ value: undefined as never, done: true });
+        // Reject (not resolve done:true) so a `for await` body sees the error
+        // immediately as a thrown exception, instead of exiting cleanly and
+        // never observing it.
+        for (const waiter of this._queue.waiters) waiter.reject(error);
         this._queue.waiters = [];
     }
 
@@ -184,7 +209,7 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
     _close(): void {
         if (this._queue.done) return;
         this._queue.done = true;
-        for (const waiter of this._queue.waiters) waiter({ value: undefined as never, done: true });
+        for (const waiter of this._queue.waiters) waiter.resolve({ value: undefined as never, done: true });
         this._queue.waiters = [];
     }
 
@@ -211,7 +236,7 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
                     if (queue.error) return Promise.reject(queue.error);
                     return Promise.resolve({ value: undefined as never, done: true });
                 }
-                return new Promise(resolve => queue.waiters.push(resolve));
+                return new Promise((resolve, reject) => queue.waiters.push({ resolve, reject }));
             },
             return: async (): Promise<IteratorResult<EventOccurrence>> => {
                 await this.cancel();
@@ -256,10 +281,21 @@ export class ClientEventManager {
     // Webhook-mode state: per-subscription refresh timers.
     private _webhookTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+    // Per-loop transport-error attempt counters, reset on success.
+    private _pollAttempts = 0;
+    private _pushAttempts = 0;
+    private readonly _retry: Required<RetryOptions>;
+
     constructor(
         private readonly _client: Client,
         private readonly _options: ClientEventManagerOptions = {}
-    ) {}
+    ) {
+        this._retry = { ...DEFAULT_RETRY, ..._options.retry };
+    }
+
+    private _backoffDelay(attempt: number): number {
+        return Math.min(this._retry.baseDelayMs * 2 ** (attempt - 1), this._retry.maxDelayMs);
+    }
 
     /**
      * Lists event types the server offers, caching the result. Subsequent calls
@@ -429,9 +465,16 @@ export class ClientEventManager {
                     minNextMs = Math.min(minNextMs, entry.nextPollSeconds * 1000);
                 }
             }
+            this._pollAttempts = 0;
             this._schedulePoll(anyHasMore ? 0 : minNextMs);
         } catch (error) {
-            for (const sub of subs) sub._fail(error instanceof Error ? error : new Error(String(error)));
+            this._pollAttempts++;
+            if (this._pollAttempts >= this._retry.maxAttempts) {
+                for (const sub of subs) sub._fail(error instanceof Error ? error : new Error(String(error)));
+                this._pollAttempts = 0;
+            } else {
+                this._schedulePoll(this._backoffDelay(this._pollAttempts));
+            }
         } finally {
             this._pollInFlight = false;
         }
@@ -439,13 +482,13 @@ export class ClientEventManager {
 
     // ------- Push mode -------
 
-    private _restartPushStream(): void {
+    private _restartPushStream(delayMs = 0): void {
         // Debounce restarts so rapid subscribe/unsubscribe batches coalesce.
         if (this._pushRestartTimer) clearTimeout(this._pushRestartTimer);
         this._pushRestartTimer = setTimeout(() => {
             this._pushRestartTimer = undefined;
             void this._openPushStream();
-        }, 0);
+        }, delayMs);
     }
 
     private _installPushHandlers(): void {
@@ -509,10 +552,22 @@ export class ClientEventManager {
                     timeout: 0x7f_ff_ff_ff
                 }
             )
-            .catch(() => {
+            .then(() => {
+                this._pushAttempts = 0;
+            })
+            .catch(error => {
                 if (controller.signal.aborted) return;
-                // Connection dropped unexpectedly — reconnect with cursors.
-                this._restartPushStream();
+                this._pushAttempts++;
+                if (this._pushAttempts >= this._retry.maxAttempts) {
+                    for (const sub of this._pushSubs.values()) {
+                        sub._fail(error instanceof Error ? error : new Error(String(error)));
+                    }
+                    this._pushSubs.clear();
+                    this._pushAttempts = 0;
+                    return;
+                }
+                // Connection dropped unexpectedly — reconnect with cursors after backoff.
+                this._restartPushStream(this._backoffDelay(this._pushAttempts));
             });
     }
 
@@ -527,7 +582,8 @@ export class ClientEventManager {
             );
         }
 
-        const refresh = async () => {
+        let attempts = 0;
+        const refresh = async (isInitial: boolean) => {
             try {
                 const result = await this._client.subscribeEvent(
                     {
@@ -554,18 +610,37 @@ export class ClientEventManager {
                     console.warn(`[events] webhook delivery paused for ${sub.id}: ${result.deliveryStatus.lastError}`);
                 }
 
+                attempts = 0;
+                // The subscription may have been cancelled while we were
+                // awaiting subscribeEvent above; clearTimeout in _teardown
+                // doesn't stop an in-flight call. Don't reschedule if so —
+                // otherwise the timer revives a cancelled subscription forever.
+                if (!this._subscriptions.has(sub.id)) return;
                 const ttlMs = new Date(result.refreshBefore).getTime() - Date.now();
                 const fraction = webhook.refreshFraction ?? 0.5;
                 // Floor prevents a tight spin if refreshBefore is somehow in the past;
                 // 50ms is small enough to handle sub-second TTLs while still rate-limiting.
                 const nextMs = Math.max(50, ttlMs * fraction);
-                this._webhookTimers.set(sub.id, setTimeout(refresh, nextMs));
+                this._webhookTimers.set(sub.id, setTimeout(() => void refresh(false), nextMs));
             } catch (error) {
-                sub._fail(error instanceof Error ? error : new Error(String(error)));
+                // Initial subscribe failure surfaces directly to subscribe()'s
+                // caller. Background refresh failures retry with backoff so a
+                // transient blip doesn't kill an otherwise-healthy subscription.
+                if (isInitial) {
+                    sub._fail(error instanceof Error ? error : new Error(String(error)));
+                    return;
+                }
+                if (!this._subscriptions.has(sub.id)) return;
+                attempts++;
+                if (attempts >= this._retry.maxAttempts) {
+                    sub._fail(error instanceof Error ? error : new Error(String(error)));
+                    return;
+                }
+                this._webhookTimers.set(sub.id, setTimeout(() => void refresh(false), this._backoffDelay(attempts)));
             }
         };
 
-        await refresh();
+        await refresh(true);
     }
 
     // ------- Shared -------

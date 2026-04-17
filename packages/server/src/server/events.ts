@@ -328,6 +328,12 @@ interface EventLog {
     nextSeq: number;
     /** Per-event-name counter for SDK-auto-assigned cursors when the app omits one. */
     autoCursorCounter: number;
+    /**
+     * FIFO of check-derived cursors that were entered into `cursorMap` (pointing
+     * at the log head at mint time) so push/webhook clients can resume from
+     * them. Evicted oldest-first at the same `capacity` to bound memory.
+     */
+    checkCursorQueue: string[];
 }
 
 interface InternalRegisteredEvent {
@@ -385,6 +391,14 @@ const DEFAULT_BUFFER_CAPACITY = 1000;
 const MIN_SUBSCRIPTION_ID_LENGTH = 16;
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} };
+
+function shallowEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const k of aKeys) if (a[k] !== b[k]) return false;
+    return true;
+}
 
 /**
  * Manages event registration and delivery for an MCP server. Registers
@@ -480,7 +494,8 @@ export class ServerEventManager {
                 entries: [],
                 cursorMap: new Map(),
                 nextSeq: 0,
-                autoCursorCounter: 0
+                autoCursorCounter: 0,
+                checkCursorQueue: []
             },
             _meta: config._meta,
             check: check as EventCheckCallback,
@@ -601,14 +616,35 @@ export class ServerEventManager {
         for (const stream of this._pushStreams) {
             for (const sub of stream.subscriptions.values()) {
                 if (sub.eventName !== eventName) continue;
-                if (event.matches && !(await event.matches(sub.params, occurrence.data, { subscriptionId: sub.id }))) continue;
+                if (!(await this._safeMatches(event, sub.params, occurrence.data, sub.id))) continue;
                 this._deliverToPush(stream, sub, occurrence);
             }
         }
         for (const sub of this._webhookSubs.values()) {
             if (sub.eventName !== eventName) continue;
-            if (event.matches && !(await event.matches(sub.params, occurrence.data, { subscriptionId: sub.id }))) continue;
+            if (!(await this._safeMatches(event, sub.params, occurrence.data, sub.id))) continue;
             void this._deliverWebhook(sub, occurrence);
+        }
+    }
+
+    /**
+     * Evaluates the event's `matches` callback for a single subscription,
+     * isolating any rejection so one sub's failing hook doesn't abort delivery
+     * to its siblings (or surface as an unhandled rejection from a poll-loop
+     * timer). Returns `false` on error so the event is skipped for that sub.
+     */
+    private async _safeMatches(
+        event: InternalRegisteredEvent,
+        params: Record<string, unknown>,
+        data: Record<string, unknown>,
+        subscriptionId: string
+    ): Promise<boolean> {
+        if (!event.matches) return true;
+        try {
+            return await event.matches(params, data, { subscriptionId });
+        } catch (error) {
+            console.error(`[events] matches() threw for subscription ${subscriptionId}:`, error);
+            return false;
         }
     }
 
@@ -777,9 +813,12 @@ export class ServerEventManager {
             return { error: { code: CURSOR_EXPIRED, message: 'Cursor not found in event log (re-subscribe to start from current head)' } };
         }
         const events: EventOccurrence[] = [];
-        for (const entry of event.log.entries) {
+        // Snapshot before iterating: matches() may be async, and a concurrent
+        // emit() can `entries.shift()` the live array mid-iteration, which
+        // makes the JS array iterator skip the next element silently.
+        for (const entry of [...event.log.entries]) {
             if (entry.seq <= seq) continue;
-            if (event.matches && !(await event.matches(params, entry.occurrence.data, { subscriptionId }))) continue;
+            if (!(await this._safeMatches(event, params, entry.occurrence.data, subscriptionId))) continue;
             events.push(entry.occurrence);
         }
         return { events };
@@ -810,9 +849,24 @@ export class ServerEventManager {
         // Results MUST stay local to the calling subscription. They are NOT
         // appended to the shared event log and NOT fanned out to other subs.
         // emit() retains broadcast semantics; check() does not.
-        const occurrences: EventOccurrence[] = checkResult.events.map(e =>
-            this._makeOccurrence(e.name ?? eventName, e.data, e._meta, e.cursor ?? this._mintAutoCursor(event))
-        );
+        //
+        // Their cursors ARE registered in `cursorMap` (pointing at the current
+        // log head) so that a push/webhook client resuming from one finds it
+        // and replays log entries since that point, instead of always seeing
+        // CursorExpired. The cursors don't carry occurrences in `entries`, so
+        // the data stays per-sub-private; only the seq anchor is shared.
+        const headSeq = event.log.nextSeq - 1;
+        const occurrences: EventOccurrence[] = checkResult.events.map(e => {
+            const cursor = e.cursor ?? this._mintAutoCursor(event);
+            if (!event.log.cursorMap.has(cursor)) {
+                event.log.cursorMap.set(cursor, headSeq);
+                event.log.checkCursorQueue.push(cursor);
+                if (event.log.checkCursorQueue.length > event.log.capacity) {
+                    event.log.cursorMap.delete(event.log.checkCursorQueue.shift()!);
+                }
+            }
+            return this._makeOccurrence(e.name ?? eventName, e.data, e._meta, cursor);
+        });
         return {
             events: occurrences,
             nextInternalCheckCursor: checkResult.cursor,
@@ -845,6 +899,10 @@ export class ServerEventManager {
             } catch (error) {
                 return { id: spec.id, error: this._toSubscriptionError(error) };
             }
+            // Persist minimal state immediately so a check() failure or
+            // CursorExpired below doesn't cause the next poll to see no state
+            // and re-fire onSubscribe (leaking refcounts, authz registrations).
+            this._setPollState(pollKey, { checkCursor: null, lastSeenSeq: event.log.nextSeq - 1 });
         }
 
         // Determine replay-from seq:
@@ -863,7 +921,10 @@ export class ServerEventManager {
                 // will pick up the check stream where it left off.
                 replayFromSeq = existingState.lastSeenSeq;
             } else {
-                this._pollState.delete(pollKey);
+                // Reset only the parts of state that pin a stale cursor. We
+                // keep the entry itself so onSubscribe doesn't re-fire on the
+                // client's retry-with-cursor=null.
+                this._setPollState(pollKey, { checkCursor: null, lastSeenSeq: event.log.nextSeq - 1 });
                 return {
                     id: spec.id,
                     error: { code: CURSOR_EXPIRED, message: 'Cursor not found in event log (re-subscribe to start from current head)' }
@@ -879,9 +940,11 @@ export class ServerEventManager {
 
         // 1. Replay log entries with seq > replayFromSeq, filtered by matches.
         const replayEvents: EventOccurrence[] = [];
-        for (const entry of event.log.entries) {
+        // Snapshot before iterating: matches() may be async, and a concurrent
+        // emit() can `entries.shift()` mid-iteration which skips elements.
+        for (const entry of [...event.log.entries]) {
             if (entry.seq <= replayFromSeq) continue;
-            if (!event.matches || (await event.matches(paramsResult.params, entry.occurrence.data, { subscriptionId: spec.id }))) {
+            if (await this._safeMatches(event, paramsResult.params, entry.occurrence.data, spec.id)) {
                 replayEvents.push(entry.occurrence);
             }
         }
@@ -892,12 +955,20 @@ export class ServerEventManager {
         const internalCheckCursor = existingState?.checkCursor ?? null;
         const tick = await this._runCheckTick(event, spec.name, paramsResult.params, internalCheckCursor, ctx);
         if ('error' in tick) {
+            // Reset checkCursor so the next poll re-bootstraps instead of
+            // looping on the same stale value. Preserve lastSeenSeq (set
+            // above on first poll, or carried from existingState) so log
+            // replay position isn't lost.
+            this._setPollState(pollKey, {
+                checkCursor: tick.error.code === CURSOR_EXPIRED ? null : internalCheckCursor,
+                lastSeenSeq: existingState?.lastSeenSeq ?? event.log.nextSeq - 1
+            });
             return { id: spec.id, error: tick.error };
         }
         const replayCursors = new Set(replayEvents.map(e => e.cursor));
         for (const occ of tick.events) {
             if (replayCursors.has(occ.cursor)) continue;
-            if (event.matches && !(await event.matches(paramsResult.params, occ.data, { subscriptionId: spec.id }))) continue;
+            if (!(await this._safeMatches(event, paramsResult.params, occ.data, spec.id))) continue;
             replayEvents.push(occ);
         }
 
@@ -968,6 +1039,10 @@ export class ServerEventManager {
 
     private async _openStream(stream: PushStream, specs: EventSubscriptionSpec[]): Promise<void> {
         for (const spec of specs) {
+            // The client can abort during any await in this loop; once
+            // _closeStream has run, registering more subs would never balance
+            // their onSubscribe with onUnsubscribe.
+            if (stream.closed) return;
             const event = this._events.get(spec.name);
             if (!event || !event.enabled) {
                 this._sendErrorNotification(stream, spec.id, { code: EVENT_NOT_FOUND, message: `Unknown event: ${spec.name}` });
@@ -997,7 +1072,15 @@ export class ServerEventManager {
             const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, spec.id);
             if ('error' in replay) {
                 this._sendErrorNotification(stream, spec.id, replay.error);
+                // onSubscribe ran above; balance it now since this spec won't
+                // be added to stream.subscriptions and so _closeStream won't
+                // call onUnsubscribe for it.
+                await this._safeOnUnsubscribe(event, spec.id, paramsResult.params, stream.ctx);
                 continue;
+            }
+            if (stream.closed) {
+                await this._safeOnUnsubscribe(event, spec.id, paramsResult.params, stream.ctx);
+                return;
             }
 
             const active: ActiveSubscription = {
@@ -1025,7 +1108,7 @@ export class ServerEventManager {
                     active.internalCheckCursor = tick.nextInternalCheckCursor;
                     initialNextPoll = tick.nextPollSeconds;
                     for (const occ of tick.events) {
-                        if (event.matches && !(await event.matches(active.params, occ.data, { subscriptionId: active.id }))) continue;
+                        if (!(await this._safeMatches(event, active.params, occ.data, active.id))) continue;
                         this._deliverToPush(stream, active, occ);
                     }
                 }
@@ -1058,6 +1141,7 @@ export class ServerEventManager {
                     sub.internalCheckCursor = null;
                     stream.pollTimers.set(sub.id, setTimeout(tick, currentInterval));
                 } else {
+                    await this._safeOnUnsubscribe(event, sub.id, sub.params, stream.ctx);
                     stream.subscriptions.delete(sub.id);
                 }
                 return;
@@ -1065,7 +1149,7 @@ export class ServerEventManager {
             sub.internalCheckCursor = result.nextInternalCheckCursor;
             // Filter check-derived events through this sub's matches and deliver.
             for (const occ of result.events) {
-                if (event.matches && !(await event.matches(sub.params, occ.data, { subscriptionId: sub.id }))) continue;
+                if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
                 this._deliverToPush(stream, sub, occ);
             }
             if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
@@ -1133,6 +1217,30 @@ export class ServerEventManager {
             throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, `Webhook subscription limit (${this._maxWebhookSubs}) reached`);
         }
 
+        // Refresh extends TTL for an existing subscription. It MUST NOT change
+        // event identity (name or params) — onSubscribe (and any authz it
+        // performs) only runs on create, so allowing identity to mutate on
+        // refresh would let a client switch from a low-privilege event to a
+        // high-privilege one without re-authorisation. To change event/params,
+        // unsubscribe then resubscribe.
+        if (existing) {
+            if (existing.eventName !== params.name || !shallowEqual(existing.params, paramsResult.params)) {
+                throw new ProtocolError(
+                    ProtocolErrorCode.InvalidParams,
+                    'Refresh cannot change event name or params; unsubscribe then resubscribe'
+                );
+            }
+        }
+
+        // Fire onSubscribe for new subscriptions BEFORE replay and BEFORE
+        // registering in `_webhookSubs`, so app hooks (e.g. authz that
+        // populates state matches() reads) are in place when replay runs its
+        // matches() filter, and so a hook failure doesn't leave a half-
+        // registered sub behind.
+        if (isNew && event.hooks?.onSubscribe) {
+            await event.hooks.onSubscribe(params.id, paramsResult.params, ctx);
+        }
+
         // Cursor semantics: on a fresh sub, null = start from now. On refresh,
         // null = keep the server's current position; non-null = replace.
         let cursor: string | null;
@@ -1143,6 +1251,7 @@ export class ServerEventManager {
             const wireCursor = params.cursor ?? null;
             const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, params.id);
             if ('error' in replay) {
+                if (isNew) await this._safeOnUnsubscribe(event, params.id, paramsResult.params, ctx);
                 throw new ProtocolError(replay.error.code, replay.error.message, replay.error.data);
             }
             backlog = replay.events;
@@ -1165,8 +1274,6 @@ export class ServerEventManager {
             deliveryStatus: { active: true, lastDeliveryAt: null, lastError: null }
         };
 
-        sub.eventName = params.name;
-        sub.params = paramsResult.params;
         sub.cursor = cursor;
         if (params.delivery.secret !== undefined) sub.secret = params.delivery.secret;
         sub.expiresAt = expiresAt;
@@ -1176,15 +1283,6 @@ export class ServerEventManager {
 
         if (isNew) {
             this._webhookSubs.set(key, sub);
-            if (event.hooks?.onSubscribe) {
-                try {
-                    await event.hooks.onSubscribe(params.id, paramsResult.params, ctx);
-                } catch (error) {
-                    // Roll back the partially-registered sub before surfacing the error.
-                    this._webhookSubs.delete(key);
-                    throw error;
-                }
-            }
         }
 
         // Run an initial check tick so applications get an immediate-first-poll
@@ -1199,7 +1297,7 @@ export class ServerEventManager {
             sub.internalCheckCursor = tick.nextInternalCheckCursor;
             nextPollSeconds = tick.nextPollSeconds;
             for (const occ of tick.events) {
-                if (event.matches && !(await event.matches(sub.params, occ.data, { subscriptionId: sub.id }))) continue;
+                if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
                 sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, occ);
             }
@@ -1255,7 +1353,7 @@ export class ServerEventManager {
             }
             sub.internalCheckCursor = result.nextInternalCheckCursor;
             for (const occ of result.events) {
-                if (event.matches && !(await event.matches(sub.params, occ.data, { subscriptionId: sub.id }))) continue;
+                if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
                 sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, occ);
             }
@@ -1418,6 +1516,25 @@ export class ServerEventManager {
             cursor,
             _meta
         };
+    }
+
+    /**
+     * Calls `onUnsubscribe` swallowing any error. Used on cleanup paths where
+     * the hook MUST NOT prevent further teardown (or surface as the request
+     * error in place of the original cause).
+     */
+    private async _safeOnUnsubscribe(
+        event: InternalRegisteredEvent,
+        subId: string,
+        params: Record<string, unknown>,
+        ctx: ServerContext
+    ): Promise<void> {
+        if (!event.hooks?.onUnsubscribe) return;
+        try {
+            await event.hooks.onUnsubscribe(subId, params, ctx);
+        } catch {
+            // Swallow — the caller is on a cleanup/error path already.
+        }
     }
 
     private _toSubscriptionError(error: unknown): EventSubscriptionError {

@@ -2064,4 +2064,324 @@ describe('Events', () => {
             c2.abort();
         });
     });
+
+    describe('bughunter regressions', () => {
+        const SUB_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+        const SUB_ID_2 = 'a47ac10b-58cc-4372-a567-0e02b2c3d480';
+        const HOOK_URL = 'http://localhost:9999/hook';
+        let fetchMock: ReturnType<typeof vi.fn>;
+
+        beforeEach(() => {
+            fetchMock = vi.fn(async () => new Response('', { status: 200 }));
+            server = new McpServer(
+                { name: 's', version: '1.0.0' },
+                {
+                    events: {
+                        webhook: {
+                            ttlMs: 30_000,
+                            urlValidation: { allowPrivateNetworks: true, allowInsecure: true },
+                            fetch: fetchMock as unknown as typeof fetch
+                        }
+                    }
+                }
+            );
+        });
+
+        // 030 — webhook refresh must not change identity (event name / params).
+        it('rejects webhook refresh that changes event name or params', async () => {
+            server.registerEvent('low.priv', {}, async () => ({ events: [], cursor: '', nextPollSeconds: 30 }));
+            server.registerEvent('high.priv', {}, async () => ({ events: [], cursor: '', nextPollSeconds: 30 }));
+            await connectPair(server, client);
+
+            await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'low.priv',
+                delivery: { mode: 'webhook', url: HOOK_URL },
+                cursor: null
+            });
+
+            // Same key, different event name.
+            await expect(
+                client.subscribeEvent({
+                    id: SUB_ID,
+                    name: 'high.priv',
+                    delivery: { mode: 'webhook', url: HOOK_URL },
+                    cursor: null
+                })
+            ).rejects.toThrow(/cannot change event name or params/);
+
+            // Same key, same event name, different params.
+            server.registerEvent(
+                'filtered',
+                { inputSchema: z.object({ scope: z.string() }) },
+                async () => ({ events: [], cursor: '', nextPollSeconds: 30 })
+            );
+            await client.subscribeEvent({
+                id: SUB_ID_2,
+                name: 'filtered',
+                params: { scope: 'mine' },
+                delivery: { mode: 'webhook', url: HOOK_URL },
+                cursor: null
+            });
+            await expect(
+                client.subscribeEvent({
+                    id: SUB_ID_2,
+                    name: 'filtered',
+                    params: { scope: 'everyone' },
+                    delivery: { mode: 'webhook', url: HOOK_URL },
+                    cursor: null
+                })
+            ).rejects.toThrow(/cannot change event name or params/);
+        });
+
+        // 057 — webhook onSubscribe must run before replay (matches() needs the registered state).
+        it('runs onSubscribe before replay in webhook subscribe', async () => {
+            const registered = new Set<string>();
+            server.registerEvent(
+                'gated.event',
+                {
+                    hooks: {
+                        onSubscribe: id => {
+                            registered.add(id);
+                        },
+                        onUnsubscribe: id => {
+                            registered.delete(id);
+                        }
+                    },
+                    matches: (_params, _data, ctx) => registered.has(ctx.subscriptionId),
+                    buffer: { capacity: 100 }
+                },
+                async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 })
+            );
+            await connectPair(server, client);
+
+            server.emitEvent('gated.event', { n: 1 });
+            server.emitEvent('gated.event', { n: 2 });
+            server.emitEvent('gated.event', { n: 3 });
+
+            // First subscribe to capture a baseline cursor (events at this point are gated by matches,
+            // so use a separate sub that doesn't filter to capture cursor=seq-0's predecessor).
+            // Simpler: emit an extra event after subscribe and capture from delivery.
+            // Actually, since we know the auto-cursor format, we can resume from before the first event
+            // by subscribing first, capturing cursor, unsubscribing, emitting backlog, then resubscribing.
+            // For this test, just subscribe with a known cursor that's in the log.
+            // The first three emits got cursors seq-0, seq-1, seq-2. Subscribe from seq-0.
+            await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'gated.event',
+                delivery: { mode: 'webhook', url: HOOK_URL },
+                cursor: 'seq-0'
+            });
+
+            // If onSubscribe ran before replay, matches() saw the registered sub
+            // and replayed events n:2 and n:3 (events after seq-0).
+            await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+            const delivered = fetchMock.mock.calls
+                .map(([, init]) => JSON.parse((init as { body: string }).body))
+                .filter(b => b.data);
+            expect(delivered.map(d => d.data.n).sort()).toEqual([2, 3]);
+        });
+
+        // 062 — one sub's matches() throwing must not block delivery to siblings.
+        it('isolates matches() errors per subscription in fan-out', async () => {
+            const events: EventNotification['params'][] = [];
+            client.setNotificationHandler('notifications/events/event', n => {
+                events.push(n.params);
+            });
+            const active: string[] = [];
+            client.setNotificationHandler('notifications/events/active', n => {
+                active.push(n.params.id as string);
+            });
+
+            server = new McpServer({ name: 's', version: '1.0.0' });
+            server.registerEvent(
+                'fanout.event',
+                {
+                    matches: (_params, _data, ctx) => {
+                        if (ctx.subscriptionId === 'bad-sub-aaaaaaaa') throw new Error('matches blew up');
+                        return true;
+                    }
+                },
+                async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 })
+            );
+            await connectPair(server, client);
+
+            const ctrl = new AbortController();
+            openStream(
+                client,
+                [
+                    { id: 'good-sub-aaaaaaaa', name: 'fanout.event', params: {}, cursor: null },
+                    { id: 'bad-sub-aaaaaaaa', name: 'fanout.event', params: {}, cursor: null },
+                    { id: 'good-sub-bbbbbbbb', name: 'fanout.event', params: {}, cursor: null }
+                ],
+                ctrl
+            );
+            await vi.waitFor(() => expect(active.length).toBe(3));
+
+            server.emitEvent('fanout.event', { tick: 1 });
+            await vi.waitFor(() => expect(events.length).toBeGreaterThanOrEqual(2));
+            const ids = new Set(events.map(e => e.id));
+            expect(ids.has('good-sub-aaaaaaaa')).toBe(true);
+            expect(ids.has('good-sub-bbbbbbbb')).toBe(true);
+            expect(ids.has('bad-sub-aaaaaaaa')).toBe(false);
+            ctrl.abort();
+        });
+
+        // 065 — _fail() must surface the error to a waiting for-await loop.
+        it('rejects pending iterator waiters when subscription fails', async () => {
+            server = new McpServer({ name: 's', version: '1.0.0' });
+            server.registerEvent('e', {}, async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 }));
+            await connectPair(server, client);
+
+            const mgr = new ClientEventManager(client);
+            const sub = await mgr.subscribe('e', {}, { delivery: 'push' });
+
+            const consumed = (async () => {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                for await (const _ev of sub) {
+                    // never delivers
+                }
+            })();
+
+            // Give the for-await a tick to register a waiter.
+            await new Promise(r => setTimeout(r, 30));
+            sub._fail(new Error('boom'));
+
+            await expect(consumed).rejects.toThrow('boom');
+            await mgr.close();
+        });
+
+        // 069 — concurrent emit() during async-matches replay must not drop events.
+        it('replays correctly when emit() runs concurrently with async matches()', async () => {
+            const events: EventNotification['params'][] = [];
+            client.setNotificationHandler('notifications/events/event', n => {
+                events.push(n.params);
+            });
+            const active: string[] = [];
+            client.setNotificationHandler('notifications/events/active', n => {
+                active.push(n.params.id as string);
+            });
+
+            server = new McpServer({ name: 's', version: '1.0.0' });
+            let resolveMatch: (() => void) | undefined;
+            const matchGate = new Promise<void>(r => {
+                resolveMatch = r;
+            });
+            server.registerEvent(
+                'concurrent.event',
+                {
+                    matches: async () => {
+                        await matchGate;
+                        return true;
+                    },
+                    buffer: { capacity: 5 }
+                },
+                async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 })
+            );
+            await connectPair(server, client);
+
+            // Fill the buffer to capacity so the next emit will shift().
+            for (let i = 0; i < 5; i++) server.emitEvent('concurrent.event', { i }, { cursor: `c-${i}` });
+
+            // Subscribe with cursor=c-0 → replay will iterate entries while matches() awaits.
+            const ctrl = new AbortController();
+            openStream(client, [{ id: 'replay-sub-aaaaaa', name: 'concurrent.event', params: {}, cursor: 'c-0' }], ctrl);
+
+            // While replay is awaiting on the first matches(), emit a new event.
+            // Without the snapshot fix, the resulting entries.shift() makes the
+            // live-array iterator skip the next element silently.
+            await new Promise(r => setTimeout(r, 30));
+            server.emitEvent('concurrent.event', { i: 5 }, { cursor: 'c-5' });
+            resolveMatch!();
+
+            // Replay of c-1..c-4 (4 events). All four must arrive — the bug
+            // would drop one. (c-5 is emitted during the gap between replay
+            // start and the sub being registered for live fan-out, so it's
+            // not delivered; that's a separate, known limitation.)
+            await vi.waitFor(() => expect(events.filter(e => e.id === 'replay-sub-aaaaaa').length).toBeGreaterThanOrEqual(4));
+            const delivered = events.filter(e => e.id === 'replay-sub-aaaaaa').map(e => e.data.i);
+            expect(delivered).toContain(1);
+            expect(delivered).toContain(2);
+            expect(delivered).toContain(3);
+            expect(delivered).toContain(4);
+            ctrl.abort();
+        });
+
+        // 039 — onSubscribe must not re-fire on every poll when check() errors.
+        it('does not re-fire onSubscribe on subsequent polls after a check error', async () => {
+            const subCalls: string[] = [];
+            const unsubCalls: string[] = [];
+            let failCheck = true;
+            server = new McpServer({ name: 's', version: '1.0.0' });
+            server.registerEvent(
+                'leaky.event',
+                {
+                    hooks: {
+                        onSubscribe: id => {
+                            subCalls.push(id);
+                        },
+                        onUnsubscribe: id => {
+                            unsubCalls.push(id);
+                        }
+                    }
+                },
+                async () => {
+                    if (failCheck) throw new Error('check failed');
+                    return { events: [], cursor: 'c', nextPollSeconds: 30 };
+                }
+            );
+            await connectPair(server, client);
+
+            // First poll: onSubscribe fires, check fails.
+            await client.pollEvents({ subscriptions: [{ id: 'p1', name: 'leaky.event', params: {}, cursor: null }] });
+            expect(subCalls).toEqual(['p1']);
+
+            // Second poll, same sub id: onSubscribe MUST NOT re-fire.
+            await client.pollEvents({ subscriptions: [{ id: 'p1', name: 'leaky.event', params: {}, cursor: null }] });
+            expect(subCalls).toEqual(['p1']);
+
+            // Recovery: check succeeds, still no re-fire.
+            failCheck = false;
+            await client.pollEvents({ subscriptions: [{ id: 'p1', name: 'leaky.event', params: {}, cursor: null }] });
+            expect(subCalls).toEqual(['p1']);
+        });
+
+        // 039 — push: replay error after onSubscribe must fire onUnsubscribe.
+        it('fires onUnsubscribe when push replay fails after onSubscribe', async () => {
+            const subCalls: string[] = [];
+            const unsubCalls: string[] = [];
+            server = new McpServer({ name: 's', version: '1.0.0' });
+            server.registerEvent(
+                'leaky.push',
+                {
+                    hooks: {
+                        onSubscribe: id => {
+                            subCalls.push(id);
+                        },
+                        onUnsubscribe: id => {
+                            unsubCalls.push(id);
+                        }
+                    },
+                    buffer: { capacity: 100 }
+                },
+                async () => ({ events: [], cursor: 'c', nextPollSeconds: 30 })
+            );
+            await connectPair(server, client);
+
+            const errors: unknown[] = [];
+            client.setNotificationHandler('notifications/events/error', n => {
+                errors.push(n.params);
+            });
+
+            // Subscribe with a cursor that's not in the log → replay returns CursorExpired.
+            const ctrl = new AbortController();
+            openStream(client, [{ id: 's1-replay-fail-aaaa', name: 'leaky.push', params: {}, cursor: 'never-existed' }], ctrl);
+
+            await vi.waitFor(() => expect(errors.length).toBeGreaterThan(0));
+            expect(subCalls).toEqual(['s1-replay-fail-aaaa']);
+            // onUnsubscribe must have fired to balance.
+            expect(unsubCalls).toEqual(['s1-replay-fail-aaaa']);
+            ctrl.abort();
+        });
+    });
 });
