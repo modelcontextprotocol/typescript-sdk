@@ -12,7 +12,10 @@ import { Server } from '../../src/server/server.js';
  */
 describe('Server.setRequestHandler — Zod-schema form parity', () => {
     async function setup(register: (s: Server) => void) {
-        const server = new Server({ name: 't', version: '1.0' }, { capabilities: { tools: {} } });
+        const server = new Server(
+            { name: 't', version: '1.0' },
+            { capabilities: { tools: {}, tasks: { requests: { tools: { call: {} } } } } }
+        );
         register(server);
         const [ct, st] = InMemoryTransport.createLinkedPair();
         await server.connect(st);
@@ -44,7 +47,7 @@ describe('Server.setRequestHandler — Zod-schema form parity', () => {
         const stringRes = await callToolWithTask(viaString.ct);
         const schemaRes = await callToolWithTask(viaSchema.ct);
 
-        expect(stringRes.error).toBeDefined();
+        expect((stringRes.error as { message: string }).message).toContain('Invalid task creation result');
         expect(schemaRes.error).toEqual(stringRes.error);
     });
 
