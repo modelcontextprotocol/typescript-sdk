@@ -1872,7 +1872,9 @@ describe('StreamableHTTPClientTransport', () => {
 
             const error = await transport.send(message).catch(e => e);
             expect(error).toBeInstanceOf(SdkError);
+            expect(error).toBeInstanceOf(StreamableHTTPError);
             expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect((error as StreamableHTTPError).status).toBe(401);
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-access-token',
                 token_type: 'Bearer',
