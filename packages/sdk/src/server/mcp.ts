@@ -6,6 +6,8 @@ export {
     type CompleteCallback,
     type CompleteResourceTemplateCallback,
     isCompletable,
+    type LegacyPromptCallback,
+    type LegacyToolCallback,
     type ListResourcesCallback,
     McpServer,
     type PromptCallback,
