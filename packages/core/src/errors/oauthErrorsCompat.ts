@@ -16,13 +16,15 @@ type OAuthErrorSubclass = {
 };
 
 function sub(code: OAuthErrorCode, name: string): OAuthErrorSubclass {
-    return class extends OAuthError {
+    const Sub = class extends OAuthError {
         static errorCode = code as string;
         constructor(message: string, errorUri?: string) {
             super(code, message, errorUri);
             this.name = name;
         }
     };
+    Object.defineProperty(Sub, 'name', { value: name, configurable: true });
+    return Sub;
 }
 
 /* eslint-disable @typescript-eslint/naming-convention */
