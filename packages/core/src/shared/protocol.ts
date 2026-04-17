@@ -352,6 +352,11 @@ export type SpecNotifications<SpecT extends ProtocolSpec> = string extends keyof
  * `Protocol` is abstract; `Client` and `Server` are the concrete role-specific implementations.
  * Subclasses (such as MCP-dialect protocols like MCP Apps) can supply a {@linkcode ProtocolSpec}
  * as the second type argument to get method-name autocomplete on their own vocabulary.
+ *
+ * @remarks
+ * Subclassing `Protocol` directly is supported for MCP-dialect frameworks. The protected
+ * surface (`buildContext`, `assertCapability*`, `_setRequestHandlerByMethod`) may evolve in
+ * minor versions; prefer `Client`/`Server` unless you need a custom method vocabulary.
  */
 export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT extends ProtocolSpec = McpSpec> {
     private _transport?: Transport;
