@@ -65,4 +65,17 @@ describe('ProtocolSpec typing', () => {
             return { ok: true };
         });
     });
+
+    it('typed-SpecT setRequestHandler enforces result type (no fallthrough to loose string overload)', () => {
+        const p = new TestProtocol<AppSpec>();
+        // @ts-expect-error -- result must be { opened: boolean }; string overload is `never`-guarded for spec methods
+        p.setRequestHandler('ui/open-link', z.object({ url: z.string() }), () => ({ ok: 'wrong-type' }));
+        // @ts-expect-error -- empty object doesn't satisfy { opened: boolean }
+        p.setRequestHandler('ui/open-link', z.object({ url: z.string() }), () => ({}));
+        // non-spec methods still allow loose Result
+        p.setRequestHandler('not/in-spec', z.object({}), () => ({ anything: 1 }));
+        // notifications: spec and non-spec both allow any schema and return void
+        p.setNotificationHandler('ui/size-changed', z.object({ width: z.number(), height: z.number() }), () => {});
+        p.setNotificationHandler('not/in-spec', z.object({ x: z.number() }), () => {});
+    });
 });
