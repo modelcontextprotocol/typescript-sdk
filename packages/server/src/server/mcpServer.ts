@@ -3,6 +3,7 @@ import type {
     BaseContext,
     BaseMetadata,
     CallToolRequest,
+    MessageExtraInfo,
     CallToolResult,
     ClientCapabilities,
     CompleteRequestPrompt,
@@ -265,7 +266,8 @@ export class McpServer extends Dispatcher<ServerContext> {
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
             taskManager: this._taskManager,
-            enforceStrictCapabilities: this._options?.enforceStrictCapabilities
+            enforceStrictCapabilities: this._options?.enforceStrictCapabilities,
+            buildEnv: (extra, base) => ({ ...base, _transportExtra: extra })
         };
         const driver = new StreamDriver(this, transport, driverOpts);
         this._driver = driver;
@@ -340,8 +342,9 @@ export class McpServer extends Dispatcher<ServerContext> {
     // Context building
     // ───────────────────────────────────────────────────────────────────────
 
-    protected override buildContext(base: BaseContext, env: DispatchEnv): ServerContext {
-        const hasHttpInfo = base.http || env.httpReq;
+    protected override buildContext(base: BaseContext, env: DispatchEnv & { _transportExtra?: MessageExtraInfo }): ServerContext {
+        const extra = env._transportExtra;
+        const hasHttpInfo = base.http || env.httpReq || extra?.closeSSEStream || extra?.closeStandaloneSSEStream;
         return {
             ...base,
             mcpReq: {
@@ -351,7 +354,14 @@ export class McpServer extends Dispatcher<ServerContext> {
                 elicitInput: (params, options) => this._elicitInputViaCtx(base, params, options),
                 requestSampling: (params, options) => this._createMessageViaCtx(base, params, options)
             },
-            http: hasHttpInfo ? { ...base.http, req: env.httpReq } : undefined
+            http: hasHttpInfo
+                ? {
+                      ...base.http,
+                      req: env.httpReq,
+                      closeSSE: extra?.closeSSEStream,
+                      closeStandaloneSSE: extra?.closeStandaloneSSEStream
+                  }
+                : undefined
         };
     }
 
