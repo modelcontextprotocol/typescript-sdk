@@ -4,6 +4,7 @@ import {
     computeWebhookSignature,
     CURSOR_EXPIRED,
     EVENT_NOT_FOUND,
+    EVENT_UNAUTHORIZED,
     InMemoryTransport,
     isSafeWebhookUrl,
     ProtocolError,
@@ -11,6 +12,7 @@ import {
     SUBSCRIPTION_NOT_FOUND,
     verifyWebhookSignature,
     WEBHOOK_SIGNATURE_HEADER,
+    WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
 } from '@modelcontextprotocol/core';
 import { McpServer } from '@modelcontextprotocol/server';
@@ -371,7 +373,7 @@ describe('Events', () => {
 
             const errors: { id: string; code: number }[] = [];
             client.setNotificationHandler('notifications/events/error', n => {
-                errors.push({ id: n.params.id, code: n.params.code });
+                errors.push({ id: n.params.id, code: n.params.error.code });
             });
 
             await connectPair(server, client);
@@ -431,9 +433,9 @@ describe('Events', () => {
             const { check } = makeCounterEvent();
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
 
-            const terminated: { id: string; reason?: string }[] = [];
+            const terminated: { id: string; error: { code: number; message: string } }[] = [];
             client.setNotificationHandler('notifications/events/terminated', n => {
-                terminated.push({ id: n.params.id, reason: n.params.reason });
+                terminated.push({ id: n.params.id, error: n.params.error });
             });
 
             await connectPair(server, client);
@@ -447,7 +449,8 @@ describe('Events', () => {
 
             await vi.waitFor(() => expect(terminated).toHaveLength(1));
             expect(terminated[0]!.id).toBe('sub1');
-            expect(terminated[0]!.reason).toBe('Access revoked');
+            expect(terminated[0]!.error.message).toBe('Access revoked');
+            expect(terminated[0]!.error.code).toBe(EVENT_UNAUTHORIZED);
 
             controller.abort();
         });
@@ -740,7 +743,7 @@ describe('Events', () => {
             registerIncidentEvent(2);
             const errors: { id: string; code: number }[] = [];
             client.setNotificationHandler('notifications/events/error', n => {
-                errors.push({ id: n.params.id, code: n.params.code });
+                errors.push({ id: n.params.id, code: n.params.error.code });
             });
 
             await connectPair(server, client);
@@ -2384,6 +2387,109 @@ describe('Events', () => {
             // onUnsubscribe must have fired to balance.
             expect(unsubCalls).toEqual(['s1-replay-fail-aaaa']);
             ctrl.abort();
+        });
+    });
+
+    describe('spec alignment 2026-04-17', () => {
+        it('threads author-supplied eventId through emit() to delivered occurrences', async () => {
+            server.registerEvent('email.received', {}, async () => ({ events: [], cursor: 'head' }));
+            await connectPair(server, client);
+
+            const received: EventOccurrence[] = [];
+            client.setNotificationHandler('notifications/events/event', n => {
+                received.push(n.params as unknown as EventOccurrence);
+            });
+            const c = new AbortController();
+            openStream(client, [{ id: 's1', name: 'email.received', params: {}, cursor: null }], c);
+
+            await new Promise(r => setTimeout(r, 20));
+            server.emitEvent('email.received', { msg: 1 }, { eventId: 'gmail-msg-aaa' });
+            server.emitEvent('email.received', { msg: 2 }); // auto-generated
+
+            await vi.waitFor(() => expect(received).toHaveLength(2));
+            expect(received[0]!.eventId).toBe('gmail-msg-aaa');
+            expect(received[1]!.eventId).toMatch(/^evt_/);
+            c.abort();
+        });
+
+        it('threads author-supplied eventId through check() events', async () => {
+            server.registerEvent('charge.created', {}, async (_p, cursor) => {
+                if (cursor !== null) return { events: [], cursor };
+                return { events: [{ name: 'charge.created', data: { id: 'ch_1' }, eventId: 'evt_stripe_xyz' }], cursor: 'after' };
+            });
+            await connectPair(server, client);
+
+            const r = await client.pollEvents({ subscriptions: [{ id: 's1', name: 'charge.created', params: {}, cursor: null }] });
+            expect(r.results[0]!.events![0]!.eventId).toBe('evt_stripe_xyz');
+        });
+
+        it('applies the transform hook per subscription before delivery', async () => {
+            server.registerEvent(
+                'incident',
+                {
+                    inputSchema: z.object({ redact: z.boolean().default(false) }),
+                    transform: (params, data) => (params.redact ? { ...data, reporter: null } : data)
+                },
+                async () => ({ events: [], cursor: 'head' })
+            );
+            await connectPair(server, client);
+
+            const bySub: Record<string, EventOccurrence[]> = { plain: [], redacted: [] };
+            client.setNotificationHandler('notifications/events/event', n => {
+                bySub[(n.params as { id: string }).id]!.push(n.params as unknown as EventOccurrence);
+            });
+            const c = new AbortController();
+            openStream(
+                client,
+                [
+                    { id: 'plain', name: 'incident', params: { redact: false }, cursor: null },
+                    { id: 'redacted', name: 'incident', params: { redact: true }, cursor: null }
+                ],
+                c
+            );
+
+            await new Promise(r => setTimeout(r, 20));
+            server.emitEvent('incident', { id: 'INC-1', reporter: 'alice' });
+
+            await vi.waitFor(() => expect(bySub.plain).toHaveLength(1));
+            await vi.waitFor(() => expect(bySub.redacted).toHaveLength(1));
+            expect(bySub.plain![0]!.data).toEqual({ id: 'INC-1', reporter: 'alice' });
+            expect(bySub.redacted![0]!.data).toEqual({ id: 'INC-1', reporter: null });
+            c.abort();
+        });
+
+        it('sends X-MCP-Subscription-Id header and refuses redirects on webhook delivery', async () => {
+            const SUB_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+            const fetchMock = vi.fn(async () => new Response('', { status: 200 }));
+            const wsrv = new McpServer(
+                { name: 's', version: '1.0.0' },
+                {
+                    events: {
+                        webhook: {
+                            ttlMs: 30_000,
+                            urlValidation: { allowPrivateNetworks: true, allowInsecure: true },
+                            fetch: fetchMock as unknown as typeof fetch
+                        }
+                    }
+                }
+            );
+            wsrv.registerEvent('email.received', {}, async () => ({ events: [], cursor: 'head' }));
+            const wcli = new Client({ name: 'c', version: '1.0.0' });
+            await connectPair(wsrv, wcli);
+
+            await wcli.subscribeEvent({
+                id: SUB_ID,
+                name: 'email.received',
+                params: {},
+                delivery: { mode: 'webhook', url: 'http://localhost:9999/hook' },
+                cursor: null
+            });
+            wsrv.emitEvent('email.received', { msg: 1 });
+
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+            const [, init] = fetchMock.mock.calls[0]!;
+            expect((init.headers as Record<string, string>)[WEBHOOK_SUBSCRIPTION_ID_HEADER]).toBe(SUB_ID);
+            expect(init.redirect).toBe('error');
         });
     });
 });

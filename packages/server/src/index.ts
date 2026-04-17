@@ -15,6 +15,7 @@ export type {
     EventMatchCallback,
     EventPushOptions,
     EventSubscriptionHooks,
+    EventTransformCallback,
     EventWebhookOptions,
     RegisteredEvent,
     ServerEventManagerOptions

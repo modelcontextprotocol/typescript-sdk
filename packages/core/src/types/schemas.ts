@@ -522,10 +522,6 @@ export const ServerCapabilitiesSchema = z.object({
     events: z
         .object({
             /**
-             * Whether this server supports subscribing to events.
-             */
-            subscribe: z.boolean().optional(),
-            /**
              * Whether this server supports issuing notifications for changes to the event list.
              */
             listChanged: z.boolean().optional()
@@ -2524,7 +2520,10 @@ export const EventErrorNotificationParamsSchema = NotificationsParamsSchema.exte
      * The client-provided subscription identifier that encountered an error.
      */
     id: z.string(),
-    ...EventSubscriptionErrorSchema.shape
+    /**
+     * Structured error describing the failure.
+     */
+    error: EventSubscriptionErrorSchema
 });
 
 /**
@@ -2545,9 +2544,10 @@ export const EventTerminatedNotificationParamsSchema = NotificationsParamsSchema
      */
     id: z.string(),
     /**
-     * Human-readable reason for termination (e.g., "Access revoked").
+     * Structured error describing why the subscription ended. Carries the same
+     * shape as {@linkcode EventErrorNotificationParamsSchema | notifications/events/error}.
      */
-    reason: z.string().optional()
+    error: EventSubscriptionErrorSchema
 });
 
 /**

@@ -31,16 +31,13 @@
  *      `StreamableHTTPClientTransport`; otherwise we spawn `eventsExample.ts
  *      --webhook` over stdio so all three delivery modes are available.
  *   2. One shared webhook listener at `http://127.0.0.1:<random>/hook`. The SDK's
- *      `ClientEventManager` accepts a single `WebhookConfig.url` and routes
- *      incoming bodies by `payload.id`, so per-subscription URL paths are
- *      unnecessary. A `Map<subId, secret>` (populated via the new `onSecret`
+ *      `ClientEventManager` accepts a single `WebhookConfig.url` and routes by the
+ *      `X-MCP-Subscription-Id` header, so per-subscription URL paths are
+ *      unnecessary. A `Map<subId, secret>` (populated via the `onSecret`
  *      callback) lets the listener verify each delivery with the correct
- *      server-minted secret.
+ *      server-minted secret before parsing the body.
  *   3. `unsub` accepts either the full subscription UUID or a 1-based index from
  *      `subs` — UUIDs are unwieldy in a REPL.
- *   4. The listener parses the body to obtain `payload.id` *before* HMAC
- *      verification (to look up the right secret). A forged `id` simply selects
- *      a secret the attacker doesn't have, so verification still fails.
  */
 
 import type { Server } from 'node:http';
@@ -56,6 +53,7 @@ import {
     StreamableHTTPClientTransport,
     verifyWebhookSignature,
     WEBHOOK_SIGNATURE_HEADER,
+    WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
 } from '@modelcontextprotocol/client';
 
@@ -102,14 +100,12 @@ async function ensureWebhookListener(): Promise<string> {
         req.on('data', chunk => (body += chunk));
         req.on('end', () => {
             void (async () => {
-                let payload: EventNotification['params'] | { id: string; error: { code: number; message: string } };
-                try {
-                    payload = JSON.parse(body);
-                } catch {
+                const subId = req.headers[WEBHOOK_SUBSCRIPTION_ID_HEADER.toLowerCase()] as string | undefined;
+                if (!subId) {
                     res.writeHead(400).end();
                     return;
                 }
-                const secret = webhookSecrets.get(payload.id);
+                const secret = webhookSecrets.get(subId);
                 if (!secret) {
                     res.writeHead(404).end();
                     return;
@@ -121,8 +117,15 @@ async function ensureWebhookListener(): Promise<string> {
                     req.headers[WEBHOOK_TIMESTAMP_HEADER.toLowerCase()] as string
                 );
                 if (!verify.valid) {
-                    out(`  [webhook] rejected delivery for ${payload.id}: ${verify.reason}`);
+                    out(`  [webhook] rejected delivery for ${subId}: ${verify.reason}`);
                     res.writeHead(401).end();
+                    return;
+                }
+                let payload: EventNotification['params'] | { id: string; error: { code: number; message: string } };
+                try {
+                    payload = JSON.parse(body);
+                } catch {
+                    res.writeHead(400).end();
                     return;
                 }
                 if ('error' in payload) {

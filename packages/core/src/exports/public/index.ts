@@ -46,6 +46,7 @@ export {
     normaliseHostname,
     verifyWebhookSignature,
     WEBHOOK_SIGNATURE_HEADER,
+    WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
 } from '../../shared/eventWebhook.js';
 

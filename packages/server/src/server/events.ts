@@ -33,6 +33,7 @@ import {
     SUBSCRIPTION_NOT_FOUND,
     TOO_MANY_SUBSCRIPTIONS,
     WEBHOOK_SIGNATURE_HEADER,
+    WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
 } from '@modelcontextprotocol/core';
 
@@ -65,7 +66,7 @@ export interface EventCheckResult {
      * cursor. Either way, every event ends up with a unique opaque cursor on the
      * wire.
      */
-    events: (Omit<EventOccurrence, 'eventId' | 'timestamp' | 'cursor'> & { cursor?: string })[];
+    events: (Omit<EventOccurrence, 'eventId' | 'timestamp' | 'cursor'> & { cursor?: string; eventId?: string })[];
     /**
      * The new cursor representing the position after these events. The SDK
      * stores this internally per subscription and passes it back on the next
@@ -149,6 +150,20 @@ export type EventMatchCallback<Params = Record<string, unknown>> = (
 ) => boolean | Promise<boolean>;
 
 /**
+ * Per-subscription payload-shaping hook applied to broadcast emits and replays
+ * after {@linkcode EventMatchCallback | matches} returns `true`. Lets the
+ * server author redact, expand, or otherwise reshape the event's `data` for a
+ * specific subscriber based on their `params` (e.g. apply `redact_pii`, honour
+ * an `expand` field). Returning the input unchanged is valid; returning a new
+ * object replaces `data` for that subscriber only.
+ */
+export type EventTransformCallback<Params = Record<string, unknown>> = (
+    params: Params,
+    data: Record<string, unknown>,
+    ctx: { subscriptionId: string }
+) => Record<string, unknown> | Promise<Record<string, unknown>>;
+
+/**
  * Configuration for {@linkcode server/mcp.McpServer.registerEvent | McpServer.registerEvent()}.
  */
 export interface EventConfig<InputArgs extends AnySchema | undefined = undefined> {
@@ -181,6 +196,13 @@ export interface EventConfig<InputArgs extends AnySchema | undefined = undefined
      * If omitted, broadcast emits match every active subscription of this type.
      */
     matches?: InputArgs extends AnySchema ? EventMatchCallback<SchemaOutput<InputArgs>> : EventMatchCallback;
+    /**
+     * Per-subscription payload transform applied after {@linkcode matches}
+     * accepts the event. Lets the author redact, expand, or reshape `data` for
+     * a specific subscriber based on their params. If omitted, the event is
+     * delivered as emitted.
+     */
+    transform?: InputArgs extends AnySchema ? EventTransformCallback<SchemaOutput<InputArgs>> : EventTransformCallback;
     /**
      * Bounded in-memory event log retained per event-name. Holds every
      * occurrence — emits and check-derived events — so that subscribers can
@@ -343,6 +365,7 @@ interface InternalRegisteredEvent {
     payloadSchema?: AnySchema;
     hooks?: EventSubscriptionHooks;
     matches?: EventMatchCallback;
+    transform?: EventTransformCallback;
     log: EventLog;
     _meta?: Record<string, unknown>;
     check: EventCheckCallback;
@@ -489,6 +512,7 @@ export class ServerEventManager {
             payloadSchema: config.payloadSchema,
             hooks: config.hooks as EventSubscriptionHooks | undefined,
             matches: config.matches as EventMatchCallback | undefined,
+            transform: config.transform as EventTransformCallback | undefined,
             log: {
                 capacity: config.buffer?.capacity ?? DEFAULT_BUFFER_CAPACITY,
                 entries: [],
@@ -544,13 +568,23 @@ export class ServerEventManager {
      * (Stripe event IDs, GitHub timestamps, etc.) as cursors. When omitted, the
      * SDK auto-assigns a per-event-name monotonic sequence cursor.
      */
-    emit(eventName: string, data: Record<string, unknown>, options: { cursor?: string; subscriptionId?: string } = {}): void {
+    emit(
+        eventName: string,
+        data: Record<string, unknown>,
+        options: { cursor?: string; eventId?: string; subscriptionId?: string } = {}
+    ): void {
         const event = this._events.get(eventName);
         if (!event || !event.enabled) return;
 
         if (options.subscriptionId) {
             // Targeted emits go to the named subscription only and are not logged.
-            const occurrence = this._makeOccurrence(eventName, data, undefined, options.cursor ?? this._mintAutoCursor(event));
+            const occurrence = this._makeOccurrence(
+                eventName,
+                data,
+                undefined,
+                options.cursor ?? this._mintAutoCursor(event),
+                options.eventId
+            );
             for (const stream of this._pushStreams) {
                 const sub = stream.subscriptions.get(options.subscriptionId);
                 if (sub && sub.eventName === eventName) this._deliverToPush(stream, sub, occurrence);
@@ -563,7 +597,7 @@ export class ServerEventManager {
             return;
         }
 
-        const occurrence = this._appendToLog(event, eventName, data, options.cursor);
+        const occurrence = this._appendToLog(event, eventName, data, options.cursor, undefined, options.eventId);
         // matches() may be async (e.g. upstream authz check), so fan-out is
         // fire-and-forget. Within a single emit, matches-then-deliver for each
         // sub runs sequentially, preserving per-sub ordering for this event.
@@ -583,7 +617,8 @@ export class ServerEventManager {
         eventName: string,
         data: Record<string, unknown>,
         explicitCursor?: string,
-        _meta?: Record<string, unknown>
+        _meta?: Record<string, unknown>,
+        eventId?: string
     ): EventOccurrence {
         const log = event.log;
         const cursor = explicitCursor ?? this._mintAutoCursor(event);
@@ -591,9 +626,9 @@ export class ServerEventManager {
         if (existing !== undefined) {
             // Dedup: same cursor already in the log (e.g. check() returned an event we already have).
             const entry = log.entries.find(e => e.seq === existing);
-            return entry?.occurrence ?? this._makeOccurrence(eventName, data, _meta, cursor);
+            return entry?.occurrence ?? this._makeOccurrence(eventName, data, _meta, cursor, eventId);
         }
-        const occurrence = this._makeOccurrence(eventName, data, _meta, cursor);
+        const occurrence = this._makeOccurrence(eventName, data, _meta, cursor, eventId);
         const seq = log.nextSeq++;
         log.entries.push({ seq, cursor, occurrence });
         log.cursorMap.set(cursor, seq);
@@ -613,13 +648,13 @@ export class ServerEventManager {
             for (const sub of stream.subscriptions.values()) {
                 if (sub.eventName !== eventName) continue;
                 if (!(await this._safeMatches(event, sub.params, occurrence.data, sub.id))) continue;
-                this._deliverToPush(stream, sub, occurrence);
+                this._deliverToPush(stream, sub, await this._safeTransform(event, sub.params, occurrence, sub.id));
             }
         }
         for (const sub of this._webhookSubs.values()) {
             if (sub.eventName !== eventName) continue;
             if (!(await this._safeMatches(event, sub.params, occurrence.data, sub.id))) continue;
-            void this._deliverWebhook(sub, occurrence);
+            void this._deliverWebhook(sub, await this._safeTransform(event, sub.params, occurrence, sub.id));
         }
     }
 
@@ -644,6 +679,28 @@ export class ServerEventManager {
         }
     }
 
+    /**
+     * Applies the event's `transform` hook (if any) to produce a per-subscriber
+     * payload. Returns the original occurrence when no transform is configured
+     * or when the hook throws (falling back to deliver-as-emitted is safer than
+     * dropping a matched event).
+     */
+    private async _safeTransform(
+        event: InternalRegisteredEvent,
+        params: Record<string, unknown>,
+        occurrence: EventOccurrence,
+        subscriptionId: string
+    ): Promise<EventOccurrence> {
+        if (!event.transform) return occurrence;
+        try {
+            const data = await event.transform(params, occurrence.data, { subscriptionId });
+            return data === occurrence.data ? occurrence : { ...occurrence, data };
+        } catch (error) {
+            console.error(`[events] transform() threw for subscription ${subscriptionId}:`, error);
+            return occurrence;
+        }
+    }
+
     private _deliverToPush(stream: PushStream, sub: ActiveSubscription, occurrence: EventOccurrence): void {
         sub.cursor = occurrence.cursor;
         this._sendEventNotification(stream, sub.id, occurrence);
@@ -657,14 +714,16 @@ export class ServerEventManager {
      *
      * Use this when the user's access to an upstream resource is revoked mid-stream.
      */
-    terminate(subscriptionId: string, reason?: string): void {
+    terminate(subscriptionId: string, reason?: string | EventSubscriptionError): void {
+        const error: EventSubscriptionError =
+            typeof reason === 'object' ? reason : { code: EVENT_UNAUTHORIZED, message: reason ?? 'Subscription terminated' };
         for (const stream of this._pushStreams) {
             const sub = stream.subscriptions.get(subscriptionId);
             if (sub) {
                 if (!stream.closed) {
                     void stream.ctx.mcpReq.notify({
                         method: 'notifications/events/terminated',
-                        params: { id: subscriptionId, reason }
+                        params: { id: subscriptionId, error }
                     });
                 }
                 const timer = stream.pollTimers.get(subscriptionId);
@@ -679,7 +738,7 @@ export class ServerEventManager {
         }
         for (const [key, webhook] of this._webhookSubs) {
             if (webhook.id === subscriptionId) {
-                void this._deliverWebhookError(webhook, { code: EVENT_UNAUTHORIZED, message: reason ?? 'Subscription terminated' });
+                void this._deliverWebhookError(webhook, error);
                 void this._teardownWebhookSub(webhook);
                 this._webhookSubs.delete(key);
             }
@@ -707,7 +766,6 @@ export class ServerEventManager {
 
         this._server.registerCapabilities({
             events: {
-                subscribe: true,
                 listChanged: this._server.getCapabilities().events?.listChanged ?? true
             }
         });
@@ -816,7 +874,7 @@ export class ServerEventManager {
         for (const entry of [...event.log.entries]) {
             if (entry.seq <= seq) continue;
             if (!(await this._safeMatches(event, params, entry.occurrence.data, subscriptionId))) continue;
-            events.push(entry.occurrence);
+            events.push(await this._safeTransform(event, params, entry.occurrence, subscriptionId));
         }
         return { events };
     }
@@ -862,7 +920,7 @@ export class ServerEventManager {
                     event.log.cursorMap.delete(event.log.checkCursorQueue.shift()!);
                 }
             }
-            return this._makeOccurrence(e.name ?? eventName, e.data, e._meta, cursor);
+            return this._makeOccurrence(e.name ?? eventName, e.data, e._meta, cursor, e.eventId);
         });
         return {
             events: occurrences,
@@ -943,7 +1001,7 @@ export class ServerEventManager {
         for (const entry of [...event.log.entries]) {
             if (entry.seq <= replayFromSeq) continue;
             if (await this._safeMatches(event, paramsResult.params, entry.occurrence.data, spec.id)) {
-                replayEvents.push(entry.occurrence);
+                replayEvents.push(await this._safeTransform(event, paramsResult.params, entry.occurrence, spec.id));
             }
         }
 
@@ -967,7 +1025,7 @@ export class ServerEventManager {
         for (const occ of tick.events) {
             if (replayCursors.has(occ.cursor)) continue;
             if (!(await this._safeMatches(event, paramsResult.params, occ.data, spec.id))) continue;
-            replayEvents.push(occ);
+            replayEvents.push(await this._safeTransform(event, paramsResult.params, occ, spec.id));
         }
 
         const occurrences = replayEvents.slice(0, maxEvents);
@@ -1110,7 +1168,7 @@ export class ServerEventManager {
                     initialNextPoll = tick.nextPollSeconds;
                     for (const occ of tick.events) {
                         if (!(await this._safeMatches(event, active.params, occ.data, active.id))) continue;
-                        this._deliverToPush(stream, active, occ);
+                        this._deliverToPush(stream, active, await this._safeTransform(event, active.params, occ, active.id));
                     }
                 }
                 this._schedulePushPoll(stream, active, event, initialNextPoll);
@@ -1151,7 +1209,7 @@ export class ServerEventManager {
             // Filter check-derived events through this sub's matches and deliver.
             for (const occ of result.events) {
                 if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
-                this._deliverToPush(stream, sub, occ);
+                this._deliverToPush(stream, sub, await this._safeTransform(event, sub.params, occ, sub.id));
             }
             if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
             stream.pollTimers.set(sub.id, setTimeout(tick, result.hasMore ? 0 : currentInterval));
@@ -1298,7 +1356,7 @@ export class ServerEventManager {
             for (const occ of tick.events) {
                 if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
                 sub.cursor = occ.cursor;
-                void this._deliverWebhook(sub, occ);
+                void this._deliverWebhook(sub, await this._safeTransform(event, sub.params, occ, sub.id));
             }
         }
 
@@ -1354,7 +1412,7 @@ export class ServerEventManager {
             for (const occ of result.events) {
                 if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
                 sub.cursor = occ.cursor;
-                void this._deliverWebhook(sub, occ);
+                void this._deliverWebhook(sub, await this._safeTransform(event, sub.params, occ, sub.id));
             }
             if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
             sub.pollTimer = setTimeout(tick, result.hasMore ? 0 : currentInterval);
@@ -1399,9 +1457,11 @@ export class ServerEventManager {
                 const signature = await computeWebhookSignature(sub.secret, timestamp, body);
                 const res = await this._fetch(url, {
                     method: 'POST',
+                    redirect: 'error',
                     headers: {
                         'Content-Type': 'application/json',
                         Host: host,
+                        [WEBHOOK_SUBSCRIPTION_ID_HEADER]: sub.id,
                         [WEBHOOK_SIGNATURE_HEADER]: signature,
                         [WEBHOOK_TIMESTAMP_HEADER]: String(timestamp)
                     },
@@ -1482,7 +1542,7 @@ export class ServerEventManager {
         if (stream.closed) return;
         void stream.ctx.mcpReq.notify({
             method: 'notifications/events/error',
-            params: { id, ...error }
+            params: { id, error }
         });
     }
 
@@ -1505,10 +1565,11 @@ export class ServerEventManager {
         name: string,
         data: Record<string, unknown>,
         _meta: Record<string, unknown> | undefined,
-        cursor: string
+        cursor: string,
+        eventId?: string
     ): EventOccurrence {
         return {
-            eventId: `evt_${Date.now()}_${(this._eventCounter++).toString(36)}`,
+            eventId: eventId ?? `evt_${Date.now()}_${(this._eventCounter++).toString(36)}`,
             name,
             timestamp: new Date().toISOString(),
             data,

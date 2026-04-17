@@ -1022,7 +1022,11 @@ export class McpServer {
      * (e.g. a Stripe event ID) as the per-event cursor. When omitted, the SDK
      * auto-assigns a per-event-name monotonic sequence cursor.
      */
-    emitEvent(eventName: string, data: Record<string, unknown>, options: { cursor?: string; subscriptionId?: string } = {}): void {
+    emitEvent(
+        eventName: string,
+        data: Record<string, unknown>,
+        options: { cursor?: string; eventId?: string; subscriptionId?: string } = {}
+    ): void {
         this._getOrCreateEventManager().emit(eventName, data, options);
     }
 

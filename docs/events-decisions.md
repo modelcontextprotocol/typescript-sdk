@@ -505,3 +505,35 @@ A bughunter fleet over the branch's diff confirmed 22 findings (10 distinct afte
 - **005 [design]** Client error handling was inconsistent: poll/webhook died on first transport error, push retried with no backoff or cap. All three now use bounded exponential backoff via `RetryOptions { maxAttempts=5, baseDelayMs=1000, maxDelayMs=30000 }`. Initial webhook subscribe still fails fast (caller is awaiting); only background refreshes retry.
 
 Regression tests added for 030, 057, 062, 065, 069, and two paths of 039. The remaining (058, 068, 073, 005) are exercised by existing tests and/or hard to test deterministically without timing dependencies.
+
+## Spec alignment 2026-04-17
+
+Aligned to PR #1 commit `641eca0` (which folded the revision-deltas doc into the main proposal). Most of that diff was already applied via the 2026-04-15 deltas pass; the genuinely new changes implemented here:
+
+### Applied
+
+1. **Error codes adopted upstream** — spec moved to `-32011..-32016` with an explicit note about the `-32002 ResourceNotFound` collision. We were already there. Spec uses bare `Unauthorized`; we keep `EventUnauthorized` (per the 2026-04-10 decision — bare name reads as generic in the shared enum).
+2. **`ServerCapabilities.events.subscribe` removed** — capability now carries only `listChanged`. Presence of `events` implies subscribability.
+3. **`X-MCP-Subscription-Id` header** — sent on every webhook POST (deliveries and error envelopes) so the receiver can select the signing secret before parsing the body. `WEBHOOK_SUBSCRIPTION_ID_HEADER` exported from `core/public`. Terminal client now reads the header instead of pre-parsing the body for `id`.
+4. **Nested error shape** — `notifications/events/error` and `notifications/events/terminated` now carry `{id, error: {code, message, data?}}` (previously `{id, code, message}` and `{id, reason}` respectively). `terminate(subId, reason)` still accepts a bare-string reason for ergonomics; it's wrapped as `{code: EVENT_UNAUTHORIZED, message: reason}`.
+5. **Author-supplied `eventId`** — `emit(name, data, {eventId?})` and `EventCheckResult.events[].eventId?` now flow through to `EventOccurrence.eventId`. SDK auto-generates only when omitted. Closes the **A1** gap from the stress-test report (dual-path delivery of the same upstream event can now share an id for client-side dedup).
+6. **`transform` hook** — `EventConfig.transform?: (params, data, ctx) => data` applied per subscriber after `matches` accepts an event, before delivery, across all 8 fan-out/replay paths. `_safeTransform` catches and falls back to deliver-as-emitted on error. `EventTransformCallback` exported from `@modelcontextprotocol/server`.
+7. **Webhook fetch refuses redirects** — `redirect: 'error'` on `_postWebhook` so a 3xx can't bounce delivery to an internal address that would bypass the SSRF blocklist.
+
+### Already compliant (no-op, verified)
+
+- `fe80::/10` link-local — already in `PRIVATE_HOST_PATTERNS`.
+- Retry regenerates timestamp + signature — already inside the `_postWebhook` retry loop.
+- Refresh reactivates suspended delivery — `sub.deliveryStatus.active = true` already set on every refresh.
+- Signature lowercase-hex — `b.toString(16)` already produces lowercase.
+- Webhook error envelope `{id, error}` — `_deliverWebhookError` already nests.
+
+### Kept divergent
+
+- **Immutable `name`/`params` on refresh** — spec says a refresh with different `name`/`params` "addresses a different subscription (treats it as a create)". But `name`/`params` aren't part of the subscription key, so the same key can't simultaneously upsert-match and "be a different subscription". Our bughunter-030 fix **rejects** such refreshes with `InvalidParams`, which is unambiguous and avoids silently creating a second sub with a colliding key. Flagging the spec ambiguity for follow-up.
+- **Poll lease table** (delta #4) — still not implemented; `onSubscribe` fires per fresh `(sub.id)` rather than `(principal, eventName, hash(params))`. Separate feature work.
+
+### Out of scope (informational spec text)
+
+- Open questions 5–7 (multi-name subscriptions, ownership-verification handshake, dual-signature rotation) — no protocol surface yet.
+- Push-replay backpressure gap — noted, no protocol change.

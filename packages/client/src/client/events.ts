@@ -506,12 +506,12 @@ export class ClientEventManager {
         });
         this._client.setNotificationHandler('notifications/events/error', n => {
             const sub = this._pushSubs.get(n.params.id);
-            if (sub) this._handleSubError(sub, { code: n.params.code, message: n.params.message, data: n.params.data });
+            if (sub) this._handleSubError(sub, n.params.error);
         });
         this._client.setNotificationHandler('notifications/events/terminated', n => {
             const sub = this._pushSubs.get(n.params.id);
             if (sub) {
-                sub._fail(new ProtocolError(-1, n.params.reason ?? 'Subscription terminated by server'));
+                sub._fail(new ProtocolError(n.params.error.code, n.params.error.message, n.params.error.data));
                 this._pushSubs.delete(sub.id);
             }
         });
@@ -621,7 +621,10 @@ export class ClientEventManager {
                 // Floor prevents a tight spin if refreshBefore is somehow in the past;
                 // 50ms is small enough to handle sub-second TTLs while still rate-limiting.
                 const nextMs = Math.max(50, ttlMs * fraction);
-                this._webhookTimers.set(sub.id, setTimeout(() => void refresh(false), nextMs));
+                this._webhookTimers.set(
+                    sub.id,
+                    setTimeout(() => void refresh(false), nextMs)
+                );
             } catch (error) {
                 // Initial subscribe failure surfaces directly to subscribe()'s
                 // caller. Background refresh failures retry with backoff so a
@@ -636,7 +639,10 @@ export class ClientEventManager {
                     sub._fail(error instanceof Error ? error : new Error(String(error)));
                     return;
                 }
-                this._webhookTimers.set(sub.id, setTimeout(() => void refresh(false), this._backoffDelay(attempts)));
+                this._webhookTimers.set(
+                    sub.id,
+                    setTimeout(() => void refresh(false), this._backoffDelay(attempts))
+                );
             }
         };
 

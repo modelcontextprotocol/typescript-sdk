@@ -16,6 +16,12 @@ export const WEBHOOK_SIGNATURE_HEADER = 'X-MCP-Signature';
 export const WEBHOOK_TIMESTAMP_HEADER = 'X-MCP-Timestamp';
 
 /**
+ * Header carrying the subscription `id` so the receiver can select the correct
+ * signing secret before parsing the body.
+ */
+export const WEBHOOK_SUBSCRIPTION_ID_HEADER = 'X-MCP-Subscription-Id';
+
+/**
  * Maximum age (seconds) of a webhook delivery before it is rejected as a potential replay.
  */
 export const DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
