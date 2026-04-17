@@ -42,7 +42,6 @@ import {
 } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
 
-import type * as z from 'zod/v4';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
