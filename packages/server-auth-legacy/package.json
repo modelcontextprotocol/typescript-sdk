@@ -53,6 +53,11 @@
     "peerDependencies": {
         "express": "catalog:runtimeServerOnly"
     },
+    "peerDependenciesMeta": {
+        "express": {
+            "optional": true
+        }
+    },
     "devDependencies": {
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
