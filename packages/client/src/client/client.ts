@@ -345,8 +345,13 @@ export class Client extends Protocol<ClientContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
-    public override setRequestHandler<P extends StandardSchemaV1>(
-        method: string,
+    public override setRequestHandler<M extends RequestMethod, P extends StandardSchemaV1>(
+        method: M,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
+    ): void;
+    public override setRequestHandler<M extends string, P extends StandardSchemaV1>(
+        method: M extends RequestMethod ? never : M,
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ClientContext) => Result | Promise<Result>
     ): void;

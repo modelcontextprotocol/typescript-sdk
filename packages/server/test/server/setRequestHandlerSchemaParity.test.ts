@@ -103,4 +103,12 @@ describe('Server.setRequestHandler — Zod-schema form parity', () => {
         });
         expect(res.result).toEqual({ reply: 'hi' });
     });
+
+    it('three-arg form on Server enforces spec-method result type (no fallthrough to loose overload)', () => {
+        const s = new Server({ name: 't', version: '1.0' }, { capabilities: { tools: {} } });
+        // @ts-expect-error -- result for 'ping' must be EmptyResult-compatible; loose overload is never-guarded for spec methods
+        s.setRequestHandler('ping', z.object({}), () => ({ ok: 'wrong-type' }) as { ok: string });
+        // non-spec methods still allow loose Result
+        s.setRequestHandler('acme/custom', z.object({}), () => ({ anything: 1 }));
+    });
 });

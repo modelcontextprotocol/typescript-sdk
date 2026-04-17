@@ -232,8 +232,13 @@ export class Server extends Protocol<ServerContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
-    public override setRequestHandler<P extends StandardSchemaV1>(
-        method: string,
+    public override setRequestHandler<M extends RequestMethod, P extends StandardSchemaV1>(
+        method: M,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
+    ): void;
+    public override setRequestHandler<M extends string, P extends StandardSchemaV1>(
+        method: M extends RequestMethod ? never : M,
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ServerContext) => Result | Promise<Result>
     ): void;
