@@ -1290,7 +1290,7 @@ describe('Events', () => {
             const replays = fetchMock.mock.calls.map(c => JSON.parse(c[1]!.body as string).data.incidentId);
             // Webhook delivery is intentionally unordered (concurrent POSTs);
             // sort before comparing to avoid a flaky ordering race.
-            expect(replays.sort()).toEqual(['INC-2', 'INC-3']);
+            expect(replays.toSorted()).toEqual(['INC-2', 'INC-3']);
         });
 
         it('webhook subscribe with cursor older than buffer head returns CursorExpired', async () => {
@@ -1752,7 +1752,7 @@ describe('Events', () => {
                 async (params, cursor) => {
                     const tenant = (params as { tenant: string }).tenant;
                     const next = (cursor === null ? 0 : Number(cursor)) + 1;
-                    seen[tenant] = (seen[tenant] ?? []).concat(next);
+                    seen[tenant] = [...(seen[tenant] ?? []), ...next];
                     return {
                         events: [{ name: 'tenant.event', data: { tenant, n: next } }],
                         cursor: String(next),
@@ -1900,7 +1900,9 @@ describe('Events', () => {
             const first = await client.pollEvents({ subscriptions: [{ id: 's', name: 'resumable.event', params: {}, cursor: null }] });
             // Second poll: resume from the returned wire cursor; check should
             // be called with the per-sub internalCheckCursor ("1") — not null.
-            await client.pollEvents({ subscriptions: [{ id: 's', name: 'resumable.event', params: {}, cursor: first.results[0]!.cursor ?? null }] });
+            await client.pollEvents({
+                subscriptions: [{ id: 's', name: 'resumable.event', params: {}, cursor: first.results[0]!.cursor ?? null }]
+            });
 
             // Server tracks an internal check cursor per-sub and passes it through.
             // We saw at least: null (bootstrap), then a non-null on a subsequent invocation.
@@ -2116,7 +2118,7 @@ describe('Events', () => {
             server.emitEvent('secret', { value: 'CLASSIFIED-2', redact: true });
             server.emitEvent('secret', { value: 'CLASSIFIED-3', redact: false });
             await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-            const delivered = fetchMock.mock.calls.map(c => JSON.parse(c[1]!.body as string).data.value).sort();
+            const delivered = fetchMock.mock.calls.map(c => JSON.parse(c[1]!.body as string).data.value).toSorted();
             expect(delivered).toEqual(['redacted', 'redacted']);
             // Would be 3 calls including 'CLASSIFIED-2' if transform fell open.
             await new Promise(r => setTimeout(r, 50));
@@ -2147,11 +2149,11 @@ describe('Events', () => {
             ).rejects.toThrow(/cannot change event name or params/);
 
             // Same key, same event name, different params.
-            server.registerEvent(
-                'filtered',
-                { inputSchema: z.object({ scope: z.string() }) },
-                async () => ({ events: [], cursor: '', nextPollSeconds: 30 })
-            );
+            server.registerEvent('filtered', { inputSchema: z.object({ scope: z.string() }) }, async () => ({
+                events: [],
+                cursor: '',
+                nextPollSeconds: 30
+            }));
             await client.subscribeEvent({
                 id: SUB_ID_2,
                 name: 'filtered',
@@ -2212,10 +2214,8 @@ describe('Events', () => {
             // If onSubscribe ran before replay, matches() saw the registered sub
             // and replayed events n:2 and n:3 (events after seq-0).
             await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2));
-            const delivered = fetchMock.mock.calls
-                .map(([, init]) => JSON.parse((init as { body: string }).body))
-                .filter(b => b.data);
-            expect(delivered.map(d => d.data.n).sort()).toEqual([2, 3]);
+            const delivered = fetchMock.mock.calls.map(([, init]) => JSON.parse((init as { body: string }).body)).filter(b => b.data);
+            expect(delivered.map(d => d.data.n).toSorted()).toEqual([2, 3]);
         });
 
         // 062 — one sub's matches() throwing must not block delivery to siblings.
