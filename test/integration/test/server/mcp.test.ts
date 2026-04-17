@@ -4255,6 +4255,54 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: prompts/get with omitted arguments when all argsSchema fields are optional (#1869)
+         */
+        test('should accept omitted arguments in prompts/get when all argsSchema fields are optional', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'echo',
+                {
+                    argsSchema: z.object({
+                        context: z.string().optional()
+                    })
+                },
+                ({ context }) => ({
+                    messages: [
+                        {
+                            role: 'user' as const,
+                            content: { type: 'text' as const, text: `context: ${context ?? 'none'}` }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Call prompts/get without arguments -- should not throw
+            const result = await client.request({
+                method: 'prompts/get',
+                params: { name: 'echo' }
+            });
+
+            expect(result.messages).toHaveLength(1);
+            expect(result.messages[0]!.content).toEqual({
+                type: 'text',
+                text: 'context: none'
+            });
+        });
+
+        /***
          * Test: Prompt Registration with _meta field
          */
         test('should register prompt with _meta field and include it in list response', async () => {
