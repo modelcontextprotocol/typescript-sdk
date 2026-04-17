@@ -15,7 +15,7 @@ import type {
     Result,
     ResultTypeMap
 } from '../types/index.js';
-import { getNotificationSchema, getRequestSchema, getResultSchema, ProtocolErrorCode } from '../types/index.js';
+import { getNotificationSchema, getRequestSchema, ProtocolErrorCode } from '../types/index.js';
 import type { BaseContext, RequestOptions } from './protocol.js';
 import type { TaskContext } from './taskManager.js';
 
@@ -144,11 +144,9 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
             .then(() => handler(request, ctx))
             .then(
                 result => {
-                    if (localAbort.signal.aborted) {
-                        final = errorResponse(request.id, ProtocolErrorCode.InternalError, 'Request cancelled').message;
-                    } else {
-                        final = { jsonrpc: '2.0', id: request.id, result };
-                    }
+                    final = localAbort.signal.aborted
+                        ? errorResponse(request.id, ProtocolErrorCode.InternalError, 'Request cancelled').message
+                        : { jsonrpc: '2.0', id: request.id, result };
                 },
                 error => {
                     final = toErrorResponse(request.id, error);
@@ -258,5 +256,4 @@ function toErrorResponse(id: RequestId, error: unknown): JSONRPCErrorResponse {
 }
 
 /** Re-export for convenience; the canonical definition lives in protocol.ts for now. */
-export type { BaseContext, RequestOptions } from './protocol.js';
-export { getResultSchema };
+// BaseContext / RequestOptions are exported from protocol.ts via the core barrel.

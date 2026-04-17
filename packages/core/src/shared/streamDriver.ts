@@ -11,6 +11,7 @@ import type {
     ProgressNotification,
     Request,
     RequestId,
+    RequestMethod,
     Result
 } from '../types/index.js';
 import {
@@ -24,7 +25,7 @@ import {
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { DispatchEnv, Dispatcher } from './dispatcher.js';
-import { getResultSchema } from './dispatcher.js';
+import { getResultSchema } from '../types/index.js';
 import type { NotificationOptions, ProgressCallback, RequestOptions } from './protocol.js';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './protocol.js';
 import type { InboundContext, TaskManagerHost, TaskManagerOptions } from './taskManager.js';
@@ -79,6 +80,7 @@ export class StreamDriver {
     onerror?: (error: Error) => void;
 
     constructor(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- driver is context-agnostic; subclass owns ContextT
         readonly dispatcher: Dispatcher<any>,
         readonly pipe: Transport,
         private _options: StreamDriverOptions = {}
@@ -300,7 +302,7 @@ export class StreamDriver {
             authInfo: extra?.authInfo,
             httpReq: extra?.request,
             task: taskResult.taskContext,
-            send: (r, opts) => taskResult.sendRequest(r, getResultSchema(r.method as any), opts) as Promise<Result>
+            send: (r, opts) => taskResult.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
         };
         const env = this._options.buildEnv ? this._options.buildEnv(extra, baseEnv) : baseEnv;
 
@@ -314,7 +316,7 @@ export class StreamDriver {
                         jsonrpc: '2.0',
                         id: request.id,
                         error: {
-                            code: Number.isSafeInteger(e?.code) ? (e.code as number) : -32603,
+                            code: Number.isSafeInteger(e?.code) ? (e.code as number) : -32_603,
                             message: e?.message ?? 'Internal error',
                             ...(e?.data !== undefined && { data: e.data })
                         }
@@ -346,7 +348,8 @@ export class StreamDriver {
     private _onnotification(notification: JSONRPCNotification): void {
         if (notification.method === 'notifications/cancelled') {
             const requestId = (notification.params as { requestId?: RequestId } | undefined)?.requestId;
-            if (requestId !== undefined) this._requestHandlerAbortControllers.get(requestId)?.abort((notification.params as any)?.reason);
+            if (requestId !== undefined)
+                this._requestHandlerAbortControllers.get(requestId)?.abort((notification.params as { reason?: unknown })?.reason);
             return;
         }
         if (notification.method === 'notifications/progress') {
