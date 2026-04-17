@@ -26,6 +26,12 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
     let env: TestEnv | null = null;
 
     beforeAll(async () => {
+        // Clear any wrangler instance leaked by a previous run before claiming the port.
+        try {
+            execSync(`lsof -ti:${PORT} -sTCP:LISTEN | xargs -r kill -9`, { stdio: 'ignore' });
+        } catch {
+            /* nothing listening */
+        }
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
 
         // Pack server package
