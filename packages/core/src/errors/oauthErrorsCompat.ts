@@ -31,54 +31,71 @@ function sub(code: OAuthErrorCode, name: string): OAuthErrorSubclass {
 
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidRequest`. */
 export const InvalidRequestError = sub(OAuthErrorCode.InvalidRequest, 'InvalidRequestError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidRequest`. */
 export type InvalidRequestError = InstanceType<typeof InvalidRequestError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidClient`. */
 export const InvalidClientError = sub(OAuthErrorCode.InvalidClient, 'InvalidClientError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidClient`. */
 export type InvalidClientError = InstanceType<typeof InvalidClientError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidGrant`. */
 export const InvalidGrantError = sub(OAuthErrorCode.InvalidGrant, 'InvalidGrantError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidGrant`. */
 export type InvalidGrantError = InstanceType<typeof InvalidGrantError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.UnauthorizedClient`. */
 export const UnauthorizedClientError = sub(OAuthErrorCode.UnauthorizedClient, 'UnauthorizedClientError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.UnauthorizedClient`. */
 export type UnauthorizedClientError = InstanceType<typeof UnauthorizedClientError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.UnsupportedGrantType`. */
 export const UnsupportedGrantTypeError = sub(OAuthErrorCode.UnsupportedGrantType, 'UnsupportedGrantTypeError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.UnsupportedGrantType`. */
 export type UnsupportedGrantTypeError = InstanceType<typeof UnsupportedGrantTypeError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidScope`. */
 export const InvalidScopeError = sub(OAuthErrorCode.InvalidScope, 'InvalidScopeError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidScope`. */
 export type InvalidScopeError = InstanceType<typeof InvalidScopeError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.AccessDenied`. */
 export const AccessDeniedError = sub(OAuthErrorCode.AccessDenied, 'AccessDeniedError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.AccessDenied`. */
 export type AccessDeniedError = InstanceType<typeof AccessDeniedError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.ServerError`. */
 export const ServerError = sub(OAuthErrorCode.ServerError, 'ServerError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.ServerError`. */
 export type ServerError = InstanceType<typeof ServerError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.TemporarilyUnavailable`. */
 export const TemporarilyUnavailableError = sub(OAuthErrorCode.TemporarilyUnavailable, 'TemporarilyUnavailableError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.TemporarilyUnavailable`. */
 export type TemporarilyUnavailableError = InstanceType<typeof TemporarilyUnavailableError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.UnsupportedResponseType`. */
 export const UnsupportedResponseTypeError = sub(OAuthErrorCode.UnsupportedResponseType, 'UnsupportedResponseTypeError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.UnsupportedResponseType`. */
 export type UnsupportedResponseTypeError = InstanceType<typeof UnsupportedResponseTypeError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.UnsupportedTokenType`. */
 export const UnsupportedTokenTypeError = sub(OAuthErrorCode.UnsupportedTokenType, 'UnsupportedTokenTypeError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.UnsupportedTokenType`. */
 export type UnsupportedTokenTypeError = InstanceType<typeof UnsupportedTokenTypeError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidToken`. */
 export const InvalidTokenError = sub(OAuthErrorCode.InvalidToken, 'InvalidTokenError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidToken`. */
 export type InvalidTokenError = InstanceType<typeof InvalidTokenError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.MethodNotAllowed`. */
 export const MethodNotAllowedError = sub(OAuthErrorCode.MethodNotAllowed, 'MethodNotAllowedError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.MethodNotAllowed`. */
 export type MethodNotAllowedError = InstanceType<typeof MethodNotAllowedError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.TooManyRequests`. */
 export const TooManyRequestsError = sub(OAuthErrorCode.TooManyRequests, 'TooManyRequestsError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.TooManyRequests`. */
 export type TooManyRequestsError = InstanceType<typeof TooManyRequestsError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidClientMetadata`. */
 export const InvalidClientMetadataError = sub(OAuthErrorCode.InvalidClientMetadata, 'InvalidClientMetadataError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidClientMetadata`. */
 export type InvalidClientMetadataError = InstanceType<typeof InvalidClientMetadataError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InsufficientScope`. */
 export const InsufficientScopeError = sub(OAuthErrorCode.InsufficientScope, 'InsufficientScopeError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InsufficientScope`. */
 export type InsufficientScopeError = InstanceType<typeof InsufficientScopeError>;
 /** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidTarget`. */
 export const InvalidTargetError = sub(OAuthErrorCode.InvalidTarget, 'InvalidTargetError');
+/** @deprecated Use `OAuthError` with `OAuthErrorCode.InvalidTarget`. */
 export type InvalidTargetError = InstanceType<typeof InvalidTargetError>;
 
 /**
