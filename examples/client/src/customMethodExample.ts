@@ -9,7 +9,8 @@
  * Pair with the server in examples/server/src/customMethodExample.ts.
  */
 
-import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { z } from 'zod';
 
 const SearchResult = z.object({ hits: z.array(z.string()) });

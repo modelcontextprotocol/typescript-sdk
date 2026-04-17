@@ -12,7 +12,8 @@
  * See examples/client/src/customMethodExample.ts.
  */
 
-import { Server, StdioServerTransport } from '@modelcontextprotocol/server';
+import { Server } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
 
 const SearchRequest = z.object({
