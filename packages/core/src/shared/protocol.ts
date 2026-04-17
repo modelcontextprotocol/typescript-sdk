@@ -306,10 +306,51 @@ type TimeoutInfo = {
 };
 
 /**
+ * Declares the request and notification vocabulary a `Protocol` subclass speaks.
+ *
+ * Supplying a concrete `ProtocolSpec` as `Protocol`'s second type argument gives method-name
+ * autocomplete and params/result correlation on the typed overloads of `setRequestHandler`
+ * and `setNotificationHandler`. `Protocol` defaults to {@linkcode McpSpec}; using the bare
+ * `ProtocolSpec` type leaves methods string-keyed and untyped.
+ */
+export type ProtocolSpec = {
+    requests?: Record<string, { params?: unknown; result: unknown }>;
+    notifications?: Record<string, { params?: unknown }>;
+};
+
+/**
+ * The {@linkcode ProtocolSpec} that describes the standard MCP method vocabulary, derived from
+ * {@linkcode RequestTypeMap}, {@linkcode ResultTypeMap} and {@linkcode NotificationTypeMap}.
+ */
+export type McpSpec = {
+    requests: { [M in RequestMethod]: { params: RequestTypeMap[M]['params']; result: ResultTypeMap[M] } };
+    notifications: { [M in NotificationMethod]: { params: NotificationTypeMap[M]['params'] } };
+};
+
+type _Requests<SpecT extends ProtocolSpec> = NonNullable<SpecT['requests']>;
+type _Notifications<SpecT extends ProtocolSpec> = NonNullable<SpecT['notifications']>;
+
+/**
+ * Method-name keys from a {@linkcode ProtocolSpec}'s `requests` map, or `never` for the
+ * unconstrained default `ProtocolSpec`. Making the keys `never` for the default disables the
+ * spec-typed overloads on `setRequestHandler` until the caller supplies a concrete `SpecT`.
+ */
+export type SpecRequests<SpecT extends ProtocolSpec> = string extends keyof _Requests<SpecT> ? never : keyof _Requests<SpecT> & string;
+
+/** See {@linkcode SpecRequests}. */
+export type SpecNotifications<SpecT extends ProtocolSpec> = string extends keyof _Notifications<SpecT>
+    ? never
+    : keyof _Notifications<SpecT> & string;
+
+/**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
+ *
+ * `Protocol` is abstract; `Client` and `Server` are the concrete role-specific implementations.
+ * Subclasses (such as MCP-dialect protocols like MCP Apps) can supply a {@linkcode ProtocolSpec}
+ * as the second type argument to get method-name autocomplete on their own vocabulary.
  */
-export abstract class Protocol<ContextT extends BaseContext> {
+export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT extends ProtocolSpec = McpSpec> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
@@ -1042,10 +1083,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *   Any method string; the supplied schema validates incoming `params`. Absent or undefined
      *   `params` are normalized to `{}` (after stripping `_meta`) before validation, so for
      *   no-params methods use `z.object({})`. `paramsSchema` may be any Standard Schema (Zod,
-     *   Valibot, ArkType, etc.).
+     *   Valibot, ArkType, etc.). The handler's `params` type is inferred from the passed
+     *   `paramsSchema`; when `method` is listed in this instance's {@linkcode ProtocolSpec},
+     *   `paramsSchema`'s input and the handler's result type are constrained by `SpecT`.
      * - **Zod schema** — `setRequestHandler(RequestZodSchema, (request, ctx) => …)`. The method
      *   name is read from the schema's `method` literal; the handler receives the parsed request.
      */
+    setRequestHandler<K extends SpecRequests<SpecT>, P extends StandardSchemaV1<_Requests<SpecT>[K]['params']>>(
+        method: K,
+        paramsSchema: P,
+        handler: (
+            params: StandardSchemaV1.InferOutput<P>,
+            ctx: ContextT
+        ) => _Requests<SpecT>[K]['result'] | Promise<_Requests<SpecT>[K]['result']>
+    ): void;
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
@@ -1143,8 +1194,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * Mirrors {@linkcode setRequestHandler}: a two-arg spec-method form (handler receives the full
      * notification object), a three-arg form with a `paramsSchema` (handler receives validated
-     * `params`), and a Zod-schema form (method read from the schema's `method` literal).
+     * `params`), and a Zod-schema form (method read from the schema's `method` literal). When the
+     * three-arg form's `method` is listed in this instance's {@linkcode ProtocolSpec},
+     * `paramsSchema`'s input is constrained by `SpecT`; the handler's `params` type is always
+     * inferred from the passed schema.
      */
+    setNotificationHandler<K extends SpecNotifications<SpecT>, P extends StandardSchemaV1<_Notifications<SpecT>[K]['params']>>(
+        method: K,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
+    ): void;
     setNotificationHandler<M extends NotificationMethod>(
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
