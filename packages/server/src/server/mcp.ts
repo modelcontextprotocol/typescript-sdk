@@ -8,6 +8,7 @@ import type {
     CompleteResult,
     CreateTaskResult,
     CreateTaskServerContext,
+    EventSubscriptionError,
     GetPromptResult,
     Implementation,
     ListPromptsResult,
@@ -1037,7 +1038,7 @@ export class McpServer {
      *
      * Use this when the user's access to an upstream resource is revoked mid-stream.
      */
-    terminateEventSubscription(subscriptionId: string, reason?: string): void {
+    terminateEventSubscription(subscriptionId: string, reason?: string | EventSubscriptionError): void {
         this._eventManager?.terminate(subscriptionId, reason);
     }
 

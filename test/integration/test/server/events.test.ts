@@ -2092,6 +2092,37 @@ describe('Events', () => {
             );
         });
 
+        // _safeTransform must fail closed: a throwing transform must drop the
+        // delivery, not leak the unredacted payload to the subscriber.
+        it('drops the delivery (fails closed) when transform() throws', async () => {
+            server.registerEvent(
+                'secret',
+                {
+                    transform: (_params, data) => {
+                        if ((data as { redact?: boolean }).redact) throw new Error('redaction failed');
+                        return { value: 'redacted' };
+                    }
+                },
+                async () => ({ events: [], cursor: '', nextPollSeconds: 30 })
+            );
+            await connectPair(server, client);
+            await client.subscribeEvent({
+                id: SUB_ID,
+                name: 'secret',
+                delivery: { mode: 'webhook', url: HOOK_URL },
+                cursor: null
+            });
+            server.emitEvent('secret', { value: 'CLASSIFIED-1', redact: false });
+            server.emitEvent('secret', { value: 'CLASSIFIED-2', redact: true });
+            server.emitEvent('secret', { value: 'CLASSIFIED-3', redact: false });
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+            const delivered = fetchMock.mock.calls.map(c => JSON.parse(c[1]!.body as string).data.value).sort();
+            expect(delivered).toEqual(['redacted', 'redacted']);
+            // Would be 3 calls including 'CLASSIFIED-2' if transform fell open.
+            await new Promise(r => setTimeout(r, 50));
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
         // 030 — webhook refresh must not change identity (event name / params).
         it('rejects webhook refresh that changes event name or params', async () => {
             server.registerEvent('low.priv', {}, async () => ({ events: [], cursor: '', nextPollSeconds: 30 }));

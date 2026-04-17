@@ -690,18 +690,21 @@ export class ServerEventManager {
         params: Record<string, unknown>,
         occurrence: EventOccurrence,
         subscriptionId: string
-    ): Promise<EventOccurrence> {
+    ): Promise<EventOccurrence | null> {
         if (!event.transform) return occurrence;
         try {
             const data = await event.transform(params, occurrence.data, { subscriptionId });
             return data === occurrence.data ? occurrence : { ...occurrence, data };
         } catch (error) {
-            console.error(`[events] transform() threw for subscription ${subscriptionId}:`, error);
-            return occurrence;
+            // Fail closed: a throwing transform must not leak the unredacted
+            // payload to the subscriber. Drop this delivery.
+            console.error(`[events] transform() threw for subscription ${subscriptionId}; dropping delivery:`, error);
+            return null;
         }
     }
 
-    private _deliverToPush(stream: PushStream, sub: ActiveSubscription, occurrence: EventOccurrence): void {
+    private _deliverToPush(stream: PushStream, sub: ActiveSubscription, occurrence: EventOccurrence | null): void {
+        if (occurrence === null) return;
         sub.cursor = occurrence.cursor;
         this._sendEventNotification(stream, sub.id, occurrence);
     }
@@ -874,7 +877,8 @@ export class ServerEventManager {
         for (const entry of [...event.log.entries]) {
             if (entry.seq <= seq) continue;
             if (!(await this._safeMatches(event, params, entry.occurrence.data, subscriptionId))) continue;
-            events.push(await this._safeTransform(event, params, entry.occurrence, subscriptionId));
+            const transformed = await this._safeTransform(event, params, entry.occurrence, subscriptionId);
+            if (transformed !== null) events.push(transformed);
         }
         return { events };
     }
@@ -1001,7 +1005,8 @@ export class ServerEventManager {
         for (const entry of [...event.log.entries]) {
             if (entry.seq <= replayFromSeq) continue;
             if (await this._safeMatches(event, paramsResult.params, entry.occurrence.data, spec.id)) {
-                replayEvents.push(await this._safeTransform(event, paramsResult.params, entry.occurrence, spec.id));
+                const transformed = await this._safeTransform(event, paramsResult.params, entry.occurrence, spec.id);
+                if (transformed !== null) replayEvents.push(transformed);
             }
         }
 
@@ -1025,7 +1030,8 @@ export class ServerEventManager {
         for (const occ of tick.events) {
             if (replayCursors.has(occ.cursor)) continue;
             if (!(await this._safeMatches(event, paramsResult.params, occ.data, spec.id))) continue;
-            replayEvents.push(await this._safeTransform(event, paramsResult.params, occ, spec.id));
+            const transformed = await this._safeTransform(event, paramsResult.params, occ, spec.id);
+            if (transformed !== null) replayEvents.push(transformed);
         }
 
         const occurrences = replayEvents.slice(0, maxEvents);
@@ -1489,7 +1495,8 @@ export class ServerEventManager {
         }
     }
 
-    private _deliverWebhook(sub: WebhookSubscription, occurrence: EventOccurrence): Promise<void> {
+    private _deliverWebhook(sub: WebhookSubscription, occurrence: EventOccurrence | null): Promise<void> {
+        if (occurrence === null) return Promise.resolve();
         return this._postWebhook(sub, JSON.stringify({ id: sub.id, ...occurrence }));
     }
 

@@ -510,6 +510,11 @@ Regression tests added for 030, 057, 062, 065, 069, and two paths of 039. The re
 
 Aligned to PR #1 commit `641eca0` (which folded the revision-deltas doc into the main proposal). Most of that diff was already applied via the 2026-04-15 deltas pass; the genuinely new changes implemented here:
 
+> **Security follow-up (same day):** `_safeTransform` initially returned the original (unredacted) occurrence on error. Changed to **fail closed** — return `null` and skip delivery at all 9 call sites. A throwing transform must not leak the unredacted payload to the subscriber. Regression test added.
+>
+> **Intentionally not changed:** targeted emit (`emitEvent` with `subscriptionId`) bypasses both `_safeMatches` and `_safeTransform`. This is by design — targeted emit is "deliver exactly this payload to exactly this sub", with the caller responsible for any shaping. Broadcast emit goes through both hooks.
+
+
 ### Applied
 
 1. **Error codes adopted upstream** — spec moved to `-32011..-32016` with an explicit note about the `-32002 ResourceNotFound` collision. We were already there. Spec uses bare `Unauthorized`; we keep `EventUnauthorized` (per the 2026-04-10 decision — bare name reads as generic in the shared enum).
