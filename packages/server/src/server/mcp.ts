@@ -40,6 +40,7 @@ import {
     validateStandardSchema
 } from '@modelcontextprotocol/core';
 
+import type * as z from 'zod/v4';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
@@ -1110,13 +1111,14 @@ export class ResourceTemplate {
 }
 
 /**
- * A plain record of field schemas, e.g. `{ name: z.string() }`. Accepted by
+ * A plain record of Zod field schemas, e.g. `{ name: z.string() }`. Accepted by
  * `registerTool`/`registerPrompt` as a shorthand; auto-wrapped with `z.object()`.
+ * Zod schemas only — `z.object()` cannot wrap other Standard Schema libraries.
  */
-export type ZodRawShape = Record<string, StandardSchemaWithJSON>;
+export type ZodRawShape = Record<string, z.ZodType>;
 
 /** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
-export type InferRawShape<S extends ZodRawShape> = { [K in keyof S]: StandardSchemaWithJSON.InferOutput<S[K]> };
+export type InferRawShape<S extends ZodRawShape> = { [K in keyof S]: z.output<S[K]> };
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape

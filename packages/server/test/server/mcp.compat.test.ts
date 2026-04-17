@@ -24,6 +24,18 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
         warn.mockRestore();
     });
 
+    it('registerTool accepts a raw shape for outputSchema and auto-wraps it', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        server.registerTool('out', { inputSchema: { n: z.number() }, outputSchema: { result: z.string() } }, async ({ n }) => ({
+            content: [{ type: 'text' as const, text: String(n) }],
+            structuredContent: { result: String(n) }
+        }));
+
+        const tools = (server as unknown as { _registeredTools: Record<string, { outputSchema?: unknown }> })._registeredTools;
+        expect(isStandardSchema(tools['out']?.outputSchema)).toBe(true);
+    });
+
     it('registerTool with z.object() inputSchema also works without warning', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const server = new McpServer({ name: 't', version: '1.0.0' });
