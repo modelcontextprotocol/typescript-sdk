@@ -17,6 +17,18 @@ import { EventSourceParserStream } from 'eventsource-parser/stream';
 import type { AuthProvider, OAuthClientProvider } from './auth.js';
 import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
 
+/**
+ * @deprecated Use {@linkcode SdkError} with {@linkcode SdkErrorCode}. Kept for v1 import compatibility.
+ */
+export class StreamableHTTPError extends SdkError {
+    constructor(
+        public readonly statusCode: number | undefined,
+        message: string
+    ) {
+        super(SdkErrorCode.ClientHttpUnexpectedContent, message);
+    }
+}
+
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
     initialReconnectionDelay: 1000,

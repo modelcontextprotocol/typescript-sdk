@@ -69,7 +69,7 @@ export type {
     StreamableHTTPClientTransportOptions,
     StreamableHTTPReconnectionOptions
 } from './client/streamableHttp.js';
-export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
+export { StreamableHTTPClientTransport, StreamableHTTPError } from './client/streamableHttp.js';
 
 // experimental exports
 export { ExperimentalClientTasks } from './experimental/tasks/client.js';

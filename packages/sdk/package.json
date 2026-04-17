@@ -289,7 +289,8 @@
     "dependencies": {
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
-        "@modelcontextprotocol/server": "workspace:^"
+        "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/server-auth-legacy": "workspace:^"
     },
     "peerDependencies": {
         "express": "^4.18.0 || ^5.0.0",

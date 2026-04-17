@@ -36,6 +36,7 @@ import type {
     ServerCapabilities,
     ServerContext,
     ServerResult,
+    StandardSchemaV1,
     StandardSchemaWithJSON,
     StreamDriverOptions,
     TaskManagerHost,
@@ -445,9 +446,12 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
     /** @deprecated Pass a method string instead of a Zod request schema. */
-    public override setRequestHandler(
-        schema: { shape: { method: unknown } },
-        handler: (request: JSONRPCRequest, ctx: ServerContext) => Result | Promise<Result>
+    public override setRequestHandler<S extends { shape: { method: unknown } }>(
+        schema: S,
+        handler: (
+            request: S extends StandardSchemaV1<never, infer O> ? O : JSONRPCRequest,
+            ctx: ServerContext
+        ) => Result | Promise<Result>
     ): void;
     public override setRequestHandler(
         methodOrSchema: RequestMethod | { shape: { method: unknown } },

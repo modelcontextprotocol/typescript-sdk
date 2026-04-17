@@ -7,6 +7,21 @@ export * from '@modelcontextprotocol/server/zod-schemas';
 export * from '@modelcontextprotocol/server';
 // Explicit tie-break for symbols both barrels export.
 export { fromJsonSchema } from '@modelcontextprotocol/server';
+// Explicit re-exports of commonly-used spec types (belt-and-suspenders over the
+// wildcard above; some d.ts toolchains drop type-only symbols across export-*).
+export type {
+    CallToolResult,
+    ClientCapabilities,
+    GetPromptResult,
+    Implementation,
+    ListResourcesResult,
+    ListToolsResult,
+    Prompt,
+    ReadResourceResult,
+    Resource,
+    ServerCapabilities,
+    Tool
+} from '@modelcontextprotocol/server';
 
 /**
  * @deprecated Use {@link ResourceTemplateType}.
