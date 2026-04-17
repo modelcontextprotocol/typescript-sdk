@@ -161,7 +161,7 @@ export type IsomorphicHeaders = Headers;
  * @deprecated Use the standard `Request` web type. v2's {@linkcode ServerContext}
  * exposes the originating HTTP request at `ctx.http?.req`.
  */
-export type RequestInfo = Request;
+export type RequestInfo = globalThis.Request;
 
 // `FetchLike` keeps its v1 name and is re-exported above from
 // '../../shared/transport.js' — no alias needed.
