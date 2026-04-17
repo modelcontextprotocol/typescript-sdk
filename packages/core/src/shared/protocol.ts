@@ -837,7 +837,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             };
 
             if (!this._transport) {
-                earlyReject(new SdkError(SdkErrorCode.NotConnected, 'Not connected'));
+                earlyReject(new Error('Not connected'));
                 return;
             }
 

@@ -108,6 +108,32 @@ describe('request() — explicit result schema overload', () => {
     });
 });
 
+describe('ctx.mcpReq.send() — explicit result schema overload', () => {
+    it('forwards to a related request and validates result via the supplied schema', async () => {
+        const { a, b } = await makePair();
+        a.setRequestHandler(EchoRequest, req => ({ reply: req.params.msg }));
+        let captured: unknown;
+        b.setRequestHandler(z.object({ method: z.literal('acme/outer') }), async (_req, ctx) => {
+            captured = await ctx.mcpReq.send({ method: 'acme/echo', params: { msg: 'via-send' } }, z.object({ reply: z.string() }));
+            return {};
+        });
+        await a.request({ method: 'acme/outer' }, z.object({}));
+        expect(captured).toEqual({ reply: 'via-send' });
+    });
+
+    it('spec-method form (no schema) uses method-keyed return', async () => {
+        const { a, b } = await makePair();
+        a.setRequestHandler('ping', () => ({}));
+        let pingResult: unknown;
+        b.setRequestHandler(z.object({ method: z.literal('acme/outer') }), async (_req, ctx) => {
+            pingResult = await ctx.mcpReq.send({ method: 'ping' });
+            return {};
+        });
+        await a.request({ method: 'acme/outer' }, z.object({}));
+        expect(pingResult).toEqual({});
+    });
+});
+
 describe('notification() mock-assignability', () => {
     it('single-signature notification() is assignable from a simple mock (compile-time check)', () => {
         const p = new TestProtocol();
