@@ -381,21 +381,16 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         it('should escape U+2028 and U+2029 in SSE data lines', async () => {
-            mcpServer.tool(
-                'emit-line-separators',
-                'Emits a string containing U+2028 and U+2029',
-                {},
-                async (): Promise<CallToolResult> => {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: 'before\u2028middle\u2029after'
-                            }
-                        ]
-                    };
-                }
-            );
+            mcpServer.tool('emit-line-separators', 'Emits a string containing U+2028 and U+2029', {}, async (): Promise<CallToolResult> => {
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'before\u2028middle\u2029after'
+                        }
+                    ]
+                };
+            });
 
             sessionId = await initializeServer();
 
