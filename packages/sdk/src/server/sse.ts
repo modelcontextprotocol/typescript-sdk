@@ -1,1 +1,1 @@
-export { SSEServerTransport } from '@modelcontextprotocol/node/sse';
+export { SSEServerTransport, type SSEServerTransportOptions } from '@modelcontextprotocol/node/sse';

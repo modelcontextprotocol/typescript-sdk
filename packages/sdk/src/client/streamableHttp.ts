@@ -1,4 +1,5 @@
 export {
+    type StartSSEOptions,
     StreamableHTTPClientTransport,
     type StreamableHTTPClientTransportOptions,
     StreamableHTTPError,

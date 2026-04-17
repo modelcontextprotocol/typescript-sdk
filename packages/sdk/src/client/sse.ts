@@ -1,1 +1,1 @@
-export { SSEClientTransport, type SSEClientTransportOptions } from '@modelcontextprotocol/client';
+export { SSEClientTransport, type SSEClientTransportOptions, SseError } from '@modelcontextprotocol/client';
