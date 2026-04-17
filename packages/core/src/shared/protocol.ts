@@ -241,7 +241,7 @@ export type BaseContext = {
                 request: { method: M; params?: Record<string, unknown> },
                 options?: TaskRequestOptions
             ): Promise<ResultTypeMap[M]>;
-            /** @deprecated For spec methods, the result schema is resolved automatically; use `send(req)`. */
+            /** For spec methods the one-argument form is more concise; this overload is the supported call form for non-spec methods or custom result shapes. */
             <T extends AnySchema>(request: Request, resultSchema: T, options?: TaskRequestOptions): Promise<SchemaOutput<T>>;
         };
 
@@ -910,7 +910,7 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
     ): Promise<ResultTypeMap[M]>;
-    /** @deprecated For spec methods, the result schema is resolved automatically; use `request(req)`. */
+    /** For spec methods the one-argument form is more concise; this overload is the supported call form for non-spec methods or custom result shapes. */
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
     request(request: Request, optionsOrSchema?: RequestOptions | AnySchema, maybeOptions?: RequestOptions): Promise<unknown> {
         if (optionsOrSchema && '~standard' in optionsOrSchema) {
@@ -1169,7 +1169,7 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ContextT) => Result | Promise<Result>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead; for custom methods, prefer the 3-arg form. */
+    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
     setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ContextT) => Result | Promise<Result>
@@ -1180,10 +1180,15 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         maybeHandler?: (params: unknown, ctx: ContextT) => unknown
     ): void {
         if (isZodLikeSchema(method)) {
-            return this._registerCompatRequestHandler(
-                method,
-                schemaOrHandler as (request: unknown, ctx: ContextT) => Result | Promise<Result>
+            const requestSchema = method;
+            const methodStr = extractMethodLiteral(requestSchema);
+            this.assertRequestHandlerCapability(methodStr);
+            this._requestHandlers.set(methodStr, (request, ctx) =>
+                Promise.resolve(
+                    (schemaOrHandler as (req: unknown, ctx: ContextT) => Result | Promise<Result>)(requestSchema.parse(request), ctx)
+                )
             );
+            return;
         }
         if (maybeHandler === undefined) {
             return this._setRequestHandlerByMethod(
@@ -1215,20 +1220,6 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
             }
             return userHandler(parsed.data, ctx) as Result;
         };
-    }
-
-    /**
-     * Dispatches the Zod-schema form of `setRequestHandler` — extracts the method literal from the
-     * schema and registers a handler that parses the full request through it. Called by the base
-     * {@linkcode Protocol.setRequestHandler} overload dispatcher for the schema-first signature.
-     */
-    protected _registerCompatRequestHandler(
-        requestSchema: ZodLikeRequestSchema,
-        handler: (request: unknown, ctx: ContextT) => Result | Promise<Result>
-    ): void {
-        const methodStr = extractMethodLiteral(requestSchema);
-        this.assertRequestHandlerCapability(methodStr);
-        this._requestHandlers.set(methodStr, (request, ctx) => Promise.resolve(handler(requestSchema.parse(request), ctx)));
     }
 
     /**
@@ -1285,7 +1276,7 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead; for custom methods, prefer the 3-arg form. */
+    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
     setNotificationHandler<T extends ZodLikeRequestSchema>(
         notificationSchema: T,
         handler: (notification: ReturnType<T['parse']>) => void | Promise<void>

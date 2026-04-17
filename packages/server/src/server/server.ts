@@ -238,7 +238,7 @@ export class Server extends Protocol<ServerContext> {
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ServerContext) => Result | Promise<Result>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead; for custom methods, prefer the 3-arg form. */
+    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ServerContext) => Result | Promise<Result>

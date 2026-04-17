@@ -350,7 +350,7 @@ export class Client extends Protocol<ClientContext> {
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ClientContext) => Result | Promise<Result>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead; for custom methods, prefer the 3-arg form. */
+    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ClientContext) => Result | Promise<Result>
@@ -905,7 +905,7 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult>;
-    /** @deprecated The result schema is resolved internally; use `callTool(params)`. The second argument is accepted for v1 source compatibility and ignored. */
+    /** The `resultSchema` argument is accepted for v1 source compatibility and ignored; output validation uses the tool's declared `outputSchema`. Prefer `callTool(params, options)`. */
     async callTool(params: CallToolRequest['params'], resultSchema: unknown, options?: RequestOptions): Promise<CallToolResult>;
     async callTool(
         params: CallToolRequest['params'],
