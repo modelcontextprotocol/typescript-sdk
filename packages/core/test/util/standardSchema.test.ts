@@ -12,6 +12,10 @@ describe('isZodRawShape', () => {
     test('rejects a Standard Schema instance', () => {
         expect(isZodRawShape(z.object({ a: z.string() }))).toBe(false);
     });
+    test('rejects a shape with non-Zod Standard Schema fields', () => {
+        const nonZod = { '~standard': { version: 1, vendor: 'arktype', validate: () => ({ value: 'x' }) } };
+        expect(isZodRawShape({ a: nonZod })).toBe(false);
+    });
 });
 
 describe('normalizeRawShapeSchema', () => {

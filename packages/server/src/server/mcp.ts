@@ -42,6 +42,7 @@ import {
 } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
 
+import type * as z from 'zod/v4';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
@@ -1239,12 +1240,14 @@ export class ResourceTemplate {
 
 /**
  * A plain record of Zod field schemas, e.g. `{ name: z.string() }`. Used by the v1 variadic
- * `.tool()`/`.prompt()` overloads. For `registerTool`/`registerPrompt`, wrap in `z.object({...})`.
+ * `.tool()`/`.prompt()` overloads, and accepted by `registerTool`/`registerPrompt` as a
+ * shorthand (auto-wrapped with `z.object()`). Zod schemas only — `z.object()` cannot wrap
+ * other Standard Schema libraries.
  */
-export type ZodRawShape = z.ZodRawShape;
+export type ZodRawShape = Record<string, z.ZodType>;
 
-/** Infers `{ [K]: T }` from a {@linkcode ZodRawShape} `{ [K]: z.ZodType<T> }`. */
-export type InferRawShape<S extends ZodRawShape> = { [K in keyof S]: z.infer<S[K]> };
+/** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
+export type InferRawShape<S extends ZodRawShape> = { [K in keyof S]: z.output<S[K]> };
 
 /** Callback shape for the v1 variadic `.tool()` overloads. See also {@linkcode ToolCallback}. */
 export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape

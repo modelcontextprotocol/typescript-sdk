@@ -138,19 +138,25 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
     return isStandardJSONSchema(schema) && isStandardSchema(schema);
 }
 
+function isZodSchema(v: unknown): v is z.ZodType {
+    if (typeof v !== 'object' || v === null) return false;
+    if ('_def' in v) return true;
+    return isStandardSchema(v) && (v as StandardSchemaV1)['~standard'].vendor === 'zod';
+}
+
 /**
  * Detects a "raw shape" — a plain object whose values are Zod field schemas,
  * e.g. `{ name: z.string() }`. Powers the auto-wrap in
  * {@linkcode normalizeRawShapeSchema}, which wraps with `z.object()`, so only
- * Zod values are supported even though the predicate accepts any Standard Schema.
+ * Zod values are supported.
  *
  * @internal
  */
-export function isZodRawShape(obj: unknown): obj is Record<string, StandardSchemaV1> {
+export function isZodRawShape(obj: unknown): obj is Record<string, z.ZodType> {
     if (typeof obj !== 'object' || obj === null) return false;
     if (isStandardSchema(obj)) return false;
     // [].every() is true, so an empty object is a valid raw shape (matches v1).
-    return Object.values(obj).every(v => isStandardSchema(v) || (typeof v === 'object' && v !== null && '_def' in v));
+    return Object.values(obj).every(v => isZodSchema(v));
 }
 
 /**
@@ -162,11 +168,11 @@ export function isZodRawShape(obj: unknown): obj is Record<string, StandardSchem
  * @internal
  */
 export function normalizeRawShapeSchema(
-    schema: StandardSchemaWithJSON | Record<string, StandardSchemaV1> | undefined
+    schema: StandardSchemaWithJSON | Record<string, z.ZodType> | undefined
 ): StandardSchemaWithJSON | undefined {
     if (schema === undefined) return undefined;
     if (isZodRawShape(schema)) {
-        return z.object(schema as z.ZodRawShape) as StandardSchemaWithJSON;
+        return z.object(schema) as StandardSchemaWithJSON;
     }
     return schema;
 }
