@@ -201,11 +201,21 @@ export type BaseContext = {
          * Sends a request that relates to the current request being handled.
          *
          * This is used by certain transports to correctly associate related messages.
+         *
+         * Two call forms (mirrors {@linkcode Protocol.request | request()}):
+         * - **Spec method** — `send({ method: 'sampling/createMessage', params }, options?)`.
+         *   The result schema is resolved from the method name and the return is typed by it.
+         * - **With explicit result schema** — `send({ method, params }, resultSchema, options?)`
+         *   for non-spec methods or custom result shapes.
          */
-        send: <M extends RequestMethod>(
-            request: { method: M; params?: Record<string, unknown> },
-            options?: TaskRequestOptions
-        ) => Promise<ResultTypeMap[M]>;
+        send: {
+            <M extends RequestMethod>(
+                request: { method: M; params?: Record<string, unknown> },
+                options?: TaskRequestOptions
+            ): Promise<ResultTypeMap[M]>;
+            /** @deprecated For spec methods, the result schema is resolved automatically; use `send(req)`. */
+            <T extends AnySchema>(request: Request, resultSchema: T, options?: TaskRequestOptions): Promise<SchemaOutput<T>>;
+        };
 
         /**
          * Sends a notification that relates to the current request being handled.
@@ -600,10 +610,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 method: request.method,
                 _meta: request.params?._meta,
                 signal: abortController.signal,
-                send: <M extends RequestMethod>(r: { method: M; params?: Record<string, unknown> }, options?: TaskRequestOptions) => {
-                    const resultSchema = getResultSchema(r.method);
-                    return sendRequest(r as Request, resultSchema, options) as Promise<ResultTypeMap[M]>;
-                },
+                send: ((r: Request, optionsOrSchema?: TaskRequestOptions | AnySchema, maybeOptions?: TaskRequestOptions) => {
+                    if (optionsOrSchema && '~standard' in optionsOrSchema) {
+                        return sendRequest(r, optionsOrSchema, maybeOptions);
+                    }
+                    const resultSchema = getResultSchema(r.method as RequestMethod);
+                    return sendRequest(r, resultSchema, optionsOrSchema);
+                }) as BaseContext['mcpReq']['send'],
                 notify: sendNotification
             },
             http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
@@ -1044,8 +1057,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Dispatches the Zod-schema form of `setRequestHandler` — extracts the method literal from the
-     * schema and registers a handler that parses the full request through it. Called by
-     * `Client`/`Server` overrides to avoid forwarding through their own overload set.
+     * schema and registers a handler that parses the full request through it. Called by the base
+     * {@linkcode Protocol.setRequestHandler} overload dispatcher for the schema-first signature.
      */
     protected _registerCompatRequestHandler(
         requestSchema: ZodLikeRequestSchema,
