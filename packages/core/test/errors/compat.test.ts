@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+    CustomOAuthError,
     ErrorCode,
     InvalidTokenError,
     McpError,
@@ -9,9 +10,9 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    ServerError,
     StreamableHTTPError
 } from '../../src/exports/public/index.js';
-import { CustomOAuthError, ServerError } from '../../src/errors/oauthErrorsCompat.js';
 
 describe('v1-compat error aliases', () => {
     it('McpError / ErrorCode alias ProtocolError / ProtocolErrorCode (+ ConnectionClosed/RequestTimeout from SdkErrorCode)', () => {

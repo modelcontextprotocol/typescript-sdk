@@ -17,7 +17,7 @@ type OAuthErrorSubclass = {
 
 function sub(code: OAuthErrorCode, name: string): OAuthErrorSubclass {
     const Sub = class extends OAuthError {
-        static errorCode = code as string;
+        static errorCode = code;
         constructor(message: string, errorUri?: string) {
             super(code, message, errorUri);
             this.name = name;
