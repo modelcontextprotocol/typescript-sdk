@@ -191,3 +191,35 @@ describe('Dispatcher', () => {
         expect(r.result).toEqual({ v: 1 });
     });
 });
+
+describe('Dispatcher.dispatchRaw (envelope-agnostic)', () => {
+    test('yields result without JSON-RPC envelope', async () => {
+        const d = new Dispatcher();
+        d.setRawRequestHandler('greet', async r => ({ hello: (r.params as { name: string }).name }) as Result);
+        const out = [];
+        for await (const o of d.dispatchRaw('greet', { name: 'proto' })) out.push(o);
+        expect(out).toEqual([{ kind: 'result', result: { hello: 'proto' } }]);
+    });
+
+    test('yields error without envelope', async () => {
+        const d = new Dispatcher();
+        d.setRawRequestHandler('boom', async () => {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'bad');
+        });
+        const out = [];
+        for await (const o of d.dispatchRaw('boom', {})) out.push(o);
+        expect(out).toEqual([{ kind: 'error', code: ProtocolErrorCode.InvalidParams, message: 'bad' }]);
+    });
+
+    test('yields notifications then result', async () => {
+        const d = new Dispatcher();
+        d.setRawRequestHandler('work', async (_r, ctx) => {
+            await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 't', progress: 1 } });
+            return { done: true } as Result;
+        });
+        const out = [];
+        for await (const o of d.dispatchRaw('work', {})) out.push(o);
+        expect(out[0]).toMatchObject({ kind: 'notification', method: 'notifications/progress' });
+        expect(out[1]).toEqual({ kind: 'result', result: { done: true } });
+    });
+});

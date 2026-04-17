@@ -55,6 +55,14 @@ export type DispatchOutput =
     | { kind: 'notification'; message: JSONRPCNotification }
     | { kind: 'response'; message: JSONRPCResponse | JSONRPCErrorResponse };
 
+/**
+ * Envelope-agnostic output from {@linkcode Dispatcher.dispatchRaw}. No JSON-RPC `{jsonrpc, id}` wrapping.
+ */
+export type RawDispatchOutput =
+    | { kind: 'notification'; method: string; params?: Record<string, unknown> }
+    | { kind: 'result'; result: Result }
+    | { kind: 'error'; code: number; message: string; data?: unknown };
+
 type RawHandler<ContextT> = (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
 
 /**
@@ -172,6 +180,31 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
             yield { kind: 'notification', message: queue.shift()! };
         }
         yield { kind: 'response', message: final! };
+    }
+
+    /**
+     * Envelope-agnostic dispatch for non-JSON-RPC drivers (gRPC, protobuf, REST).
+     * Takes `{method, params}` directly and yields unwrapped notifications and a terminal
+     * result/error. The JSON-RPC `{jsonrpc, id}` envelope is synthesized internally so
+     * registered handlers (which receive `JSONRPCRequest`) work unchanged.
+     *
+     * @experimental Shape may change to align with SEP-1319 named param/result types.
+     */
+    async *dispatchRaw(
+        method: string,
+        params: Record<string, unknown> | undefined,
+        env: DispatchEnv = {}
+    ): AsyncGenerator<RawDispatchOutput, void, void> {
+        const synthetic: JSONRPCRequest = { jsonrpc: '2.0', id: 0, method, params };
+        for await (const out of this.dispatch(synthetic, env)) {
+            if (out.kind === 'notification') {
+                yield { kind: 'notification', method: out.message.method, params: out.message.params };
+            } else if ('result' in out.message) {
+                yield { kind: 'result', result: out.message.result };
+            } else {
+                yield { kind: 'error', ...out.message.error };
+            }
+        }
     }
 
     /**
