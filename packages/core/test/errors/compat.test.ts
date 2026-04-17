@@ -43,6 +43,13 @@ describe('v1-compat error aliases', () => {
         spy.mockRestore();
     });
 
+    it('OAuth subclass class .name matches v1 named-declaration behavior', () => {
+        expect(InvalidTokenError.name).toBe('InvalidTokenError');
+        const e = new InvalidTokenError('expired');
+        expect(e.name).toBe('InvalidTokenError');
+        expect(e.constructor.name).toBe('InvalidTokenError');
+    });
+
     it('subclass static errorCode and toResponseObject() match v1 wire format', () => {
         expect(ServerError.errorCode).toBe('server_error');
         const e = new ServerError('boom');
