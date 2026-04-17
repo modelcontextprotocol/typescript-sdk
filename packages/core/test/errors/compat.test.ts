@@ -50,6 +50,13 @@ describe('v1-compat error aliases', () => {
         expect(e.constructor.name).toBe('InvalidTokenError');
     });
 
+    it('OAuth subclasses are usable in type position (value + type binding like v1 classes)', () => {
+        const e: InvalidTokenError = new InvalidTokenError('expired');
+        const handle = (err: ServerError): string => err.code;
+        expect(handle(new ServerError('boom'))).toBe('server_error');
+        expect(e.code).toBe('invalid_token');
+    });
+
     it('subclass static errorCode and toResponseObject() match v1 wire format', () => {
         expect(ServerError.errorCode).toBe('server_error');
         const e = new ServerError('boom');
