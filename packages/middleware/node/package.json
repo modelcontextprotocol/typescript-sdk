@@ -55,6 +55,11 @@
         "@modelcontextprotocol/server": "workspace:^",
         "hono": "catalog:runtimeServerOnly"
     },
+    "peerDependenciesMeta": {
+        "hono": {
+            "optional": true
+        }
+    },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/core": "workspace:^",
