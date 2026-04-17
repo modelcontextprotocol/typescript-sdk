@@ -167,32 +167,6 @@ export type NotificationOptions = {
 };
 
 /**
- * v1-compat flat aliases — added by `withLegacyContextFields`.
- * The v2 nested forms (`ctx.mcpReq.*`, `ctx.http?.*`, `ctx.task?.*`) are preferred.
- * Do not add new fields here.
- */
-export interface LegacyContextFields {
-    /** @deprecated Use `ctx.mcpReq.signal` */
-    signal: AbortSignal;
-    /** @deprecated Use `ctx.mcpReq.id` */
-    requestId: RequestId;
-    /** @deprecated Use `ctx.mcpReq._meta` */
-    _meta?: RequestMeta;
-    /** @deprecated Use `ctx.http?.authInfo` */
-    authInfo?: AuthInfo;
-    /** @deprecated Use `ctx.mcpReq.notify` */
-    sendNotification: (notification: Notification) => Promise<void>;
-    /** @deprecated Use `ctx.mcpReq.send` */
-    sendRequest: <T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions) => Promise<SchemaOutput<T>>;
-    /** @deprecated Use `ctx.task?.store` */
-    taskStore?: TaskContext['store'];
-    /** @deprecated Use `ctx.task?.id` */
-    taskId?: TaskContext['id'];
-    /** @deprecated Use `ctx.task?.requestedTtl` */
-    taskRequestedTtl?: TaskContext['requestedTtl'];
-}
-
-/**
  * Base context provided to all request handlers.
  */
 export type BaseContext = {
@@ -312,49 +286,12 @@ export type ServerContext = BaseContext & {
          */
         closeStandaloneSSE?: () => void;
     };
-} & LegacyContextFields;
+};
 
 /**
  * Context provided to client-side request handlers.
  */
-export type ClientContext = BaseContext & LegacyContextFields;
-
-/**
- * @deprecated Use {@linkcode ServerContext} (server side) or {@linkcode ClientContext} (client side).
- *
- * v1 name for the handler context. v2 also exposes the same data under
- * `ctx.mcpReq` / `ctx.http`; the flat fields remain available so existing
- * handlers using them compile and run unchanged. HTTP-transport-specific fields
- * (`requestInfo`, `closeSSEStream`, `closeStandaloneSSEStream`) are not shimmed
- * and require migration to `ctx.http?.req` / `ctx.http?.closeSSE`. See {@linkcode BaseContext}.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- phantom params kept for v1 source compatibility
-export type RequestHandlerExtra<_Req = unknown, _Notif = unknown> = ServerContext;
-
-/**
- * Returns a copy of `ctx` with v1's flat `extra.*` aliases populated as plain properties
- * mirroring the nested v2 fields. Intersected onto `ClientContext`/`ServerContext` so
- * existing handlers that read `extra.signal` etc. compile and run unchanged.
- *
- * @internal
- */
-function withLegacyContextFields<T extends BaseContext>(
-    ctx: T,
-    sendRequest: <S extends AnySchema>(r: Request, s: S, o?: RequestOptions) => Promise<SchemaOutput<S>>
-): T & LegacyContextFields {
-    return {
-        ...ctx,
-        signal: ctx.mcpReq.signal,
-        requestId: ctx.mcpReq.id,
-        _meta: ctx.mcpReq._meta,
-        authInfo: ctx.http?.authInfo,
-        sendNotification: ctx.mcpReq.notify,
-        sendRequest,
-        taskStore: ctx.task?.store,
-        taskId: ctx.task?.id,
-        taskRequestedTtl: ctx.task?.requestedTtl
-    };
-}
+export type ClientContext = BaseContext;
 
 /**
  * Information about a request's timeout state
@@ -369,51 +306,10 @@ type TimeoutInfo = {
 };
 
 /**
- * Declares the request and notification vocabulary a `Protocol` subclass speaks.
- *
- * Supplying a concrete `ProtocolSpec` as `Protocol`'s second type argument gives method-name
- * autocomplete and params/result correlation on the typed overloads of `setRequestHandler`
- * and `setNotificationHandler`. `Protocol` defaults to {@linkcode McpSpec}; using the bare
- * `ProtocolSpec` type leaves methods string-keyed and untyped.
- */
-export type ProtocolSpec = {
-    requests?: Record<string, { params?: unknown; result: unknown }>;
-    notifications?: Record<string, { params?: unknown }>;
-};
-
-/**
- * The {@linkcode ProtocolSpec} that describes the standard MCP method vocabulary, derived from
- * {@linkcode RequestTypeMap}, {@linkcode ResultTypeMap} and {@linkcode NotificationTypeMap}.
- */
-export type McpSpec = {
-    requests: { [M in RequestMethod]: { params: RequestTypeMap[M]['params']; result: ResultTypeMap[M] } };
-    notifications: { [M in NotificationMethod]: { params: NotificationTypeMap[M]['params'] } };
-};
-
-type _Requests<SpecT extends ProtocolSpec> = NonNullable<SpecT['requests']>;
-type _Notifications<SpecT extends ProtocolSpec> = NonNullable<SpecT['notifications']>;
-
-/**
- * Method-name keys from a {@linkcode ProtocolSpec}'s `requests` map, or `never` for the
- * unconstrained default `ProtocolSpec`. Making the keys `never` for the default disables the
- * spec-typed overloads on `setRequestHandler` until the caller supplies a concrete `SpecT`.
- */
-export type SpecRequests<SpecT extends ProtocolSpec> = string extends keyof _Requests<SpecT> ? never : keyof _Requests<SpecT> & string;
-
-/** See {@linkcode SpecRequests}. */
-export type SpecNotifications<SpecT extends ProtocolSpec> = string extends keyof _Notifications<SpecT>
-    ? never
-    : keyof _Notifications<SpecT> & string;
-
-/**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
- *
- * `Protocol` is abstract; `Client` and `Server` are the concrete role-specific implementations.
- * Subclasses (such as MCP-dialect protocols like MCP Apps) can supply a {@linkcode ProtocolSpec}
- * as the second type argument to get method-name autocomplete on their own vocabulary.
  */
-export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT extends ProtocolSpec = McpSpec> {
+export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
@@ -513,7 +409,7 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
      * Subclasses implement this to enrich the {@linkcode BaseContext} (e.g. `Server` adds `http`
      * and `mcpReq.log` to produce `ServerContext`).
      */
-    protected abstract buildContext(ctx: BaseContext & LegacyContextFields, transportInfo?: MessageExtraInfo): ContextT;
+    protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {
@@ -728,7 +624,7 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
             http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
             task: taskContext
         };
-        const ctx = this.buildContext(withLegacyContextFields(baseCtx, sendRequest), extra);
+        const ctx = this.buildContext(baseCtx, extra);
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
@@ -1146,20 +1042,10 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
      *   Any method string; the supplied schema validates incoming `params`. Absent or undefined
      *   `params` are normalized to `{}` (after stripping `_meta`) before validation, so for
      *   no-params methods use `z.object({})`. `paramsSchema` may be any Standard Schema (Zod,
-     *   Valibot, ArkType, etc.). The handler's `params` type is inferred from the passed
-     *   `paramsSchema`; when `method` is listed in this instance's {@linkcode ProtocolSpec},
-     *   `paramsSchema`'s input and the handler's result type are constrained by `SpecT`.
+     *   Valibot, ArkType, etc.).
      * - **Zod schema** — `setRequestHandler(RequestZodSchema, (request, ctx) => …)`. The method
      *   name is read from the schema's `method` literal; the handler receives the parsed request.
      */
-    setRequestHandler<K extends SpecRequests<SpecT>, P extends StandardSchemaV1<_Requests<SpecT>[K]['params']>>(
-        method: K,
-        paramsSchema: P,
-        handler: (
-            params: StandardSchemaV1.InferOutput<P>,
-            ctx: ContextT
-        ) => _Requests<SpecT>[K]['result'] | Promise<_Requests<SpecT>[K]['result']>
-    ): void;
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
@@ -1257,16 +1143,8 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
      *
      * Mirrors {@linkcode setRequestHandler}: a two-arg spec-method form (handler receives the full
      * notification object), a three-arg form with a `paramsSchema` (handler receives validated
-     * `params`), and a Zod-schema form (method read from the schema's `method` literal). When the
-     * three-arg form's `method` is listed in this instance's {@linkcode ProtocolSpec},
-     * `paramsSchema`'s input is constrained by `SpecT`; the handler's `params` type is always
-     * inferred from the passed schema.
+     * `params`), and a Zod-schema form (method read from the schema's `method` literal).
      */
-    setNotificationHandler<K extends SpecNotifications<SpecT>, P extends StandardSchemaV1<_Notifications<SpecT>[K]['params']>>(
-        method: K,
-        paramsSchema: P,
-        handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
-    ): void;
     setNotificationHandler<M extends NotificationMethod>(
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
