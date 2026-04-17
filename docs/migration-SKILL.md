@@ -340,7 +340,7 @@ The server package now exports framework-agnostic alternatives: `validateHostHea
 
 ## 9. `setRequestHandler` / `setNotificationHandler` API
 
-The low-level handler registration methods now take a method string instead of a Zod schema.
+The low-level handler registration methods now accept a method string in addition to the v1 Zod-schema form (both are supported).
 
 ```typescript
 // v1: schema-based
