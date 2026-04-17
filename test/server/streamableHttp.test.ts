@@ -380,6 +380,58 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
         });
 
+        it('should escape U+2028 and U+2029 in SSE data lines', async () => {
+            mcpServer.tool(
+                'emit-line-separators',
+                'Emits a string containing U+2028 and U+2029',
+                {},
+                async (): Promise<CallToolResult> => {
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'before\u2028middle\u2029after'
+                            }
+                        ]
+                    };
+                }
+            );
+
+            sessionId = await initializeServer();
+
+            const toolCallMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'emit-line-separators', arguments: {} },
+                id: 'ls-1'
+            };
+
+            const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+            expect(response.status).toBe(200);
+
+            const rawEvent = await readSSEEvent(response);
+
+            // Literal U+2028/U+2029 MUST NOT appear on the wire — they
+            // must have been escaped to the JSON literals `\u2028` / `\u2029`.
+            expect(rawEvent).not.toContain('\u2028');
+            expect(rawEvent).not.toContain('\u2029');
+            expect(rawEvent).toContain('\\u2028');
+            expect(rawEvent).toContain('\\u2029');
+
+            // Content still round-trips after JSON.parse.
+            const eventLines = rawEvent.split('\n');
+            const dataLine = eventLines.find(line => line.startsWith('data:'));
+            expect(dataLine).toBeDefined();
+            const eventData = JSON.parse(dataLine!.substring(5));
+            expect(eventData).toMatchObject({
+                jsonrpc: '2.0',
+                id: 'ls-1',
+                result: {
+                    content: [{ type: 'text', text: 'before\u2028middle\u2029after' }]
+                }
+            });
+        });
+
         /***
          * Test: Tool With Request Info
          */
