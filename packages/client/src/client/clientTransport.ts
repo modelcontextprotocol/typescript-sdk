@@ -12,8 +12,8 @@ import { getResultSchema, isJSONRPCErrorResponse } from '@modelcontextprotocol/c
 
 // TODO(ts-rebuild): replace with `from '@modelcontextprotocol/core'` once the core barrel exports these.
 // Dispatcher/StreamDriver are written by a sibling fork to packages/core/src/shared/{dispatcher,streamDriver}.ts.
-import type { Dispatcher, RequestOptions } from '../../../core/src/shared/dispatcher.js';
-import { StreamDriver } from '../../../core/src/shared/streamDriver.js';
+import type { Dispatcher, RequestOptions } from '@modelcontextprotocol/core';
+import { StreamDriver } from '@modelcontextprotocol/core';
 
 /**
  * Per-call options for {@linkcode ClientTransport.fetch}.

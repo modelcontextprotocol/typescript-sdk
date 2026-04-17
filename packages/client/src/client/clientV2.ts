@@ -54,9 +54,9 @@ import {
 } from '@modelcontextprotocol/core';
 
 // TODO(ts-rebuild): replace with `from '@modelcontextprotocol/core'` once the core barrel exports Dispatcher.
-import { Dispatcher } from '../../../core/src/shared/dispatcher.js';
+import { Dispatcher } from '@modelcontextprotocol/core';
 
-import type { AnySchema, SchemaOutput } from '../../../core/src/util/schema.js';
+import type { AnySchema, SchemaOutput } from '@modelcontextprotocol/core';
 import type { ClientFetchOptions, ClientTransport } from './clientTransport.js';
 import { isJSONRPCErrorResponse, isPipeTransport, pipeAsClientTransport } from './clientTransport.js';
 
