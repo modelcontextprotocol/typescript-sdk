@@ -390,14 +390,18 @@ Common method string replacements:
 
 ### Custom (non-standard) protocol methods
 
-Vendor-specific methods are registered directly on `Client` or `Server` using the same Zod-schema form as v1: `setRequestHandler(zodSchemaWithMethodLiteral, handler)`. `request({ method, params }, ResultSchema)` and `notification({ method, params })` are unchanged from v1.
+Vendor-specific methods are registered directly on `Client` or `Server`. The v1 form `setRequestHandler(zodSchemaWithMethodLiteral, handler)` continues to work; the three-arg `(methodString, paramsSchema, handler)` form is the v2 alternative. `request({ method, params }, ResultSchema)` and `notification({ method, params })` are unchanged from v1.
 
 ```typescript
 import { Server } from '@modelcontextprotocol/server';
 
 const server = new Server({ name: 'app', version: '1.0.0' }, { capabilities: {} });
 
+// v1 form (still supported):
 server.setRequestHandler(SearchRequestSchema, req => ({ hits: [req.params.query] }));
+
+// v2 alternative — pass method string + params schema; handler receives validated params:
+server.setRequestHandler('acme/search', SearchParams, params => ({ hits: [params.query] }));
 
 // Calling from a Client — unchanged from v1:
 const result = await client.request({ method: 'acme/search', params: { query: 'x' } }, SearchResult);

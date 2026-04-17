@@ -32,6 +32,7 @@ import type {
     ServerCapabilities,
     ServerContext,
     ServerResult,
+    StandardSchemaV1,
     TaskManagerOptions,
     ToolResultContent,
     ToolUseContent,
@@ -232,22 +233,34 @@ export class Server extends Protocol<ServerContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead. */
+    public override setRequestHandler<P extends StandardSchemaV1>(
+        method: string,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ServerContext) => Result | Promise<Result>
+    ): void;
+    /** @deprecated For spec methods, pass the method string instead; for custom methods, prefer the 3-arg form. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ServerContext) => Result | Promise<Result>
     ): void;
-    public override setRequestHandler(methodOrSchema: string | ZodLikeRequestSchema, schemaHandler: unknown): void {
+    public override setRequestHandler(
+        methodOrSchema: string | ZodLikeRequestSchema,
+        schemaOrHandler: unknown,
+        maybeHandler?: (params: unknown, ctx: ServerContext) => unknown
+    ): void {
         let method: string;
         let handler: (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
         if (isZodLikeSchema(methodOrSchema)) {
             const schema = methodOrSchema;
-            const userHandler = schemaHandler as (request: unknown, ctx: ServerContext) => Result | Promise<Result>;
+            const userHandler = schemaOrHandler as (request: unknown, ctx: ServerContext) => Result | Promise<Result>;
             method = extractMethodLiteral(schema);
             handler = (req, ctx) => userHandler(schema.parse(req), ctx);
+        } else if (maybeHandler === undefined) {
+            method = methodOrSchema;
+            handler = schemaOrHandler as (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
         } else {
             method = methodOrSchema;
-            handler = schemaHandler as (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
+            handler = this._wrapParamsSchemaHandler(method, schemaOrHandler as StandardSchemaV1, maybeHandler);
         }
         if (method === 'tools/call') {
             const wrappedHandler = async (request: Request, ctx: ServerContext): Promise<ServerResult> => {

@@ -204,15 +204,34 @@ function formatIssue(issue: StandardSchemaV1.Issue): string {
     return `${path}: ${issue.message}`;
 }
 
-export async function validateStandardSchema<T extends StandardSchemaWithJSON>(
+export async function validateStandardSchema<T extends StandardSchemaV1>(
     schema: T,
     data: unknown
-): Promise<StandardSchemaValidationResult<StandardSchemaWithJSON.InferOutput<T>>> {
+): Promise<StandardSchemaValidationResult<StandardSchemaV1.InferOutput<T>>> {
     const result = await schema['~standard'].validate(data);
     if (result.issues && result.issues.length > 0) {
         return { success: false, error: result.issues.map(i => formatIssue(i)).join(', ') };
     }
-    return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaWithJSON.InferOutput<T> };
+    return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaV1.InferOutput<T> };
+}
+
+/**
+ * Parses data against any Standard Schema. Async because Standard Schema's `validate` may return
+ * a Promise. The error is wrapped as an `Error` whose `.message` is the formatted issues string
+ * from {@linkcode validateStandardSchema}, so callers can interpolate it directly.
+ *
+ * Use this for user-supplied schemas (e.g. the 3-arg `setRequestHandler(method, paramsSchema, h)`
+ * form). For internal SDK Zod schemas, prefer the synchronous `parseSchema` in `./schema.js`.
+ */
+export async function parseStandardSchema<T extends StandardSchemaV1>(
+    schema: T,
+    data: unknown
+): Promise<{ success: true; data: StandardSchemaV1.InferOutput<T> } | { success: false; error: Error }> {
+    const result = await validateStandardSchema(schema, data);
+    if (result.success) {
+        return result;
+    }
+    return { success: false, error: new Error(result.error) };
 }
 
 // Prompt argument extraction

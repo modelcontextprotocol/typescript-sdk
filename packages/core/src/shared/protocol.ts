@@ -48,6 +48,8 @@ import type { ZodLikeRequestSchema } from '../util/compatSchema.js';
 import { extractMethodLiteral, isZodLikeSchema } from '../util/compatSchema.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
+import type { StandardSchemaV1 } from '../util/standardSchema.js';
+import { parseStandardSchema } from '../util/standardSchema.js';
 import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
 import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport, TransportSendOptions } from './transport.js';
@@ -357,10 +359,51 @@ type TimeoutInfo = {
 };
 
 /**
+ * Declares the request and notification vocabulary a `Protocol` subclass speaks.
+ *
+ * Supplying a concrete `ProtocolSpec` as `Protocol`'s second type argument gives method-name
+ * autocomplete and params/result correlation on the typed overloads of `setRequestHandler`
+ * and `setNotificationHandler`. `Protocol` defaults to {@linkcode McpSpec}; using the bare
+ * `ProtocolSpec` type leaves methods string-keyed and untyped.
+ */
+export type ProtocolSpec = {
+    requests?: Record<string, { params?: unknown; result: unknown }>;
+    notifications?: Record<string, { params?: unknown }>;
+};
+
+/**
+ * The {@linkcode ProtocolSpec} that describes the standard MCP method vocabulary, derived from
+ * {@linkcode RequestTypeMap}, {@linkcode ResultTypeMap} and {@linkcode NotificationTypeMap}.
+ */
+export type McpSpec = {
+    requests: { [M in RequestMethod]: { params: RequestTypeMap[M]['params']; result: ResultTypeMap[M] } };
+    notifications: { [M in NotificationMethod]: { params: NotificationTypeMap[M]['params'] } };
+};
+
+type _Requests<SpecT extends ProtocolSpec> = NonNullable<SpecT['requests']>;
+type _Notifications<SpecT extends ProtocolSpec> = NonNullable<SpecT['notifications']>;
+
+/**
+ * Method-name keys from a {@linkcode ProtocolSpec}'s `requests` map, or `never` for the
+ * unconstrained default `ProtocolSpec`. Making the keys `never` for the default disables the
+ * spec-typed overloads on `setRequestHandler` until the caller supplies a concrete `SpecT`.
+ */
+export type SpecRequests<SpecT extends ProtocolSpec> = string extends keyof _Requests<SpecT> ? never : keyof _Requests<SpecT> & string;
+
+/** See {@linkcode SpecRequests}. */
+export type SpecNotifications<SpecT extends ProtocolSpec> = string extends keyof _Notifications<SpecT>
+    ? never
+    : keyof _Notifications<SpecT> & string;
+
+/**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
+ *
+ * `Protocol` is abstract; `Client` and `Server` are the concrete role-specific implementations.
+ * Subclasses (such as MCP-dialect protocols like MCP Apps) can supply a {@linkcode ProtocolSpec}
+ * as the second type argument to get method-name autocomplete on their own vocabulary.
  */
-export abstract class Protocol<ContextT extends BaseContext> {
+export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT extends ProtocolSpec = McpSpec> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
@@ -1083,26 +1126,82 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * method. Replaces any previous handler for the same method.
      *
      * Call forms:
-     * - **Spec method** — `setRequestHandler('tools/call', (request, ctx) => …)`.
+     * - **Spec method, two args** — `setRequestHandler('tools/call', (request, ctx) => …)`.
      *   The full `RequestTypeMap[M]` request object is validated by the SDK and passed to the
      *   handler. This is the form `Client`/`Server` use and override.
+     * - **Three args** — `setRequestHandler('vendor/custom', paramsSchema, (params, ctx) => …)`.
+     *   Any method string; the supplied schema validates incoming `params`. Absent or undefined
+     *   `params` are normalized to `{}` (after stripping `_meta`) before validation, so for
+     *   no-params methods use `z.object({})`. `paramsSchema` may be any Standard Schema (Zod,
+     *   Valibot, ArkType, etc.). The handler's `params` type is inferred from the passed
+     *   `paramsSchema`; when `method` is listed in this instance's {@linkcode ProtocolSpec},
+     *   `paramsSchema`'s input and the handler's result type are constrained by `SpecT`.
      * - **Zod schema** — `setRequestHandler(RequestZodSchema, (request, ctx) => …)`. The method
      *   name is read from the schema's `method` literal; the handler receives the parsed request.
      */
+    setRequestHandler<K extends SpecRequests<SpecT>, P extends StandardSchemaV1<_Requests<SpecT>[K]['params']>>(
+        method: K,
+        paramsSchema: P,
+        handler: (
+            params: StandardSchemaV1.InferOutput<P>,
+            ctx: ContextT
+        ) => _Requests<SpecT>[K]['result'] | Promise<_Requests<SpecT>[K]['result']>
+    ): void;
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead. */
+    setRequestHandler<P extends StandardSchemaV1>(
+        method: string,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ContextT) => Result | Promise<Result>
+    ): void;
+    /** @deprecated For spec methods, pass the method string instead; for custom methods, prefer the 3-arg form. */
     setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ContextT) => Result | Promise<Result>
     ): void;
-    setRequestHandler(method: string | ZodLikeRequestSchema, handler: (request: Request, ctx: ContextT) => Result | Promise<Result>): void {
+    setRequestHandler(
+        method: string | ZodLikeRequestSchema,
+        schemaOrHandler: StandardSchemaV1 | ((request: Request, ctx: ContextT) => Result | Promise<Result>),
+        maybeHandler?: (params: unknown, ctx: ContextT) => unknown
+    ): void {
         if (isZodLikeSchema(method)) {
-            return this._registerCompatRequestHandler(method, handler as (request: unknown, ctx: ContextT) => Result | Promise<Result>);
+            return this._registerCompatRequestHandler(
+                method,
+                schemaOrHandler as (request: unknown, ctx: ContextT) => Result | Promise<Result>
+            );
         }
-        this._setRequestHandlerByMethod(method, handler);
+        if (maybeHandler === undefined) {
+            return this._setRequestHandlerByMethod(
+                method,
+                schemaOrHandler as (request: Request, ctx: ContextT) => Result | Promise<Result>
+            );
+        }
+
+        this._setRequestHandlerByMethod(method, this._wrapParamsSchemaHandler(method, schemaOrHandler as StandardSchemaV1, maybeHandler));
+    }
+
+    /**
+     * Builds a request handler from a `paramsSchema` + params-only user handler. Strips `_meta`,
+     * validates `params` against the schema, and invokes the user handler with the parsed params.
+     * Shared by {@linkcode setRequestHandler}'s 3-arg dispatch and `Client`/`Server` overrides
+     * so that per-method wrapping can be applied uniformly to the normalized handler.
+     */
+    protected _wrapParamsSchemaHandler(
+        method: string,
+        paramsSchema: StandardSchemaV1,
+        userHandler: (params: unknown, ctx: ContextT) => unknown
+    ): (request: Request, ctx: ContextT) => Promise<Result> {
+        return async (request, ctx) => {
+            const { _meta, ...userParams } = (request.params ?? {}) as Record<string, unknown>;
+            void _meta;
+            const parsed = await parseStandardSchema(paramsSchema, userParams);
+            if (!parsed.success) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
+            }
+            return userHandler(parsed.data, ctx) as Result;
+        };
     }
 
     /**
@@ -1152,31 +1251,63 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Registers a handler to invoke when this protocol object receives a notification with the
      * given method. Replaces any previous handler for the same method.
      *
-     * Mirrors {@linkcode setRequestHandler}: a spec-method form (handler receives the full
-     * notification object) and a Zod-schema form (method read from the schema's `method` literal).
+     * Mirrors {@linkcode setRequestHandler}: a two-arg spec-method form (handler receives the full
+     * notification object), a three-arg form with a `paramsSchema` (handler receives validated
+     * `params`), and a Zod-schema form (method read from the schema's `method` literal). When the
+     * three-arg form's `method` is listed in this instance's {@linkcode ProtocolSpec},
+     * `paramsSchema`'s input is constrained by `SpecT`; the handler's `params` type is always
+     * inferred from the passed schema.
      */
+    setNotificationHandler<K extends SpecNotifications<SpecT>, P extends StandardSchemaV1<_Notifications<SpecT>[K]['params']>>(
+        method: K,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
+    ): void;
     setNotificationHandler<M extends NotificationMethod>(
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
     ): void;
-    /** @deprecated For spec methods, pass the method string instead. */
+    setNotificationHandler<P extends StandardSchemaV1>(
+        method: string,
+        paramsSchema: P,
+        handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
+    ): void;
+    /** @deprecated For spec methods, pass the method string instead; for custom methods, prefer the 3-arg form. */
     setNotificationHandler<T extends ZodLikeRequestSchema>(
         notificationSchema: T,
         handler: (notification: ReturnType<T['parse']>) => void | Promise<void>
     ): void;
-    setNotificationHandler(method: string | ZodLikeRequestSchema, handler: (notification: Notification) => void | Promise<void>): void {
+    setNotificationHandler(
+        method: string | ZodLikeRequestSchema,
+        schemaOrHandler: StandardSchemaV1 | ((notification: Notification) => void | Promise<void>),
+        maybeHandler?: (params: unknown) => void | Promise<void>
+    ): void {
         if (isZodLikeSchema(method)) {
             const notificationSchema = method;
             const methodStr = extractMethodLiteral(notificationSchema);
-            this._notificationHandlers.set(methodStr, n =>
-                Promise.resolve((handler as (n: unknown) => void | Promise<void>)(notificationSchema.parse(n)))
-            );
+            const handler = schemaOrHandler as (notification: unknown) => void | Promise<void>;
+            this._notificationHandlers.set(methodStr, n => Promise.resolve(handler(notificationSchema.parse(n))));
             return;
         }
-        const schema = getNotificationSchema(method as NotificationMethod);
-        this._notificationHandlers.set(method, notification => {
-            const parsed = schema ? schema.parse(notification) : notification;
-            return Promise.resolve(handler(parsed));
+        if (maybeHandler === undefined) {
+            const handler = schemaOrHandler as (notification: Notification) => void | Promise<void>;
+            const schema = getNotificationSchema(method as NotificationMethod);
+            this._notificationHandlers.set(method, notification => {
+                const parsed = schema ? schema.parse(notification) : notification;
+                return Promise.resolve(handler(parsed));
+            });
+            return;
+        }
+
+        const paramsSchema = schemaOrHandler as StandardSchemaV1;
+        this._notificationHandlers.set(method, async notification => {
+            const { _meta, ...userParams } = (notification.params ?? {}) as Record<string, unknown>;
+            void _meta;
+            const parsed = await parseStandardSchema(paramsSchema, userParams);
+            if (!parsed.success) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
+            }
+            return maybeHandler(parsed.data);
         });
     }
 

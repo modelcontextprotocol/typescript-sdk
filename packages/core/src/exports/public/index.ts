@@ -4,9 +4,9 @@
  * This module defines the stable, public-facing API surface. Client and server
  * packages re-export from here so that end users only see supported symbols.
  *
- * Internal utilities (Protocol class, stdio parsing, schema helpers, etc.)
- * remain available via the internal barrel (@modelcontextprotocol/core) for
- * use by client/server packages.
+ * Internal utilities (stdio parsing, schema helpers, etc.) remain available via
+ * the internal barrel (@modelcontextprotocol/core) for use by client/server
+ * packages.
  */
 
 // Auth error classes
@@ -38,18 +38,22 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
-// Protocol types (NOT the Protocol class itself or mergeCapabilities)
+// Protocol class (concrete; subclass for custom vocabularies via SpecT) + types. NOT mergeCapabilities.
 export type {
     BaseContext,
     ClientContext,
+    McpSpec,
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
     RequestHandlerExtra,
+    ProtocolSpec,
     RequestOptions,
-    ServerContext
+    ServerContext,
+    SpecNotifications,
+    SpecRequests
 } from '../../shared/protocol.js';
-export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
+export { DEFAULT_REQUEST_TIMEOUT_MSEC, Protocol } from '../../shared/protocol.js';
 export type { ZodLikeRequestSchema } from '../../util/compatSchema.js';
 
 // Task manager types (NOT TaskManager class itself — internal)
@@ -190,7 +194,7 @@ export { isTerminal } from '../../experimental/tasks/interfaces.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
-export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
+export type { StandardSchemaV1, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages

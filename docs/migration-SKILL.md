@@ -376,14 +376,16 @@ Schema to method string mapping:
 
 Request/notification params remain fully typed. Remove unused schema imports after migration.
 
-**Custom (non-standard) methods** — vendor extensions or sub-protocols whose method strings are not in the MCP spec — work on `Client`/`Server` directly using the same v1 Zod-schema form:
+**Custom (non-standard) methods** — vendor extensions or sub-protocols whose method strings are not in the MCP spec — work on `Client`/`Server` directly. The v1 Zod-schema forms continue to work; the three-arg `(method, paramsSchema, handler)` form is the alternative:
 
-| Form                                                         | Notes                                                                 |
-| ------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `setRequestHandler(CustomReqSchema, (req, ctx) => ...)`      | unchanged                                                             |
-| `setNotificationHandler(CustomNotifSchema, n => ...)`        | unchanged                                                             |
-| `this.request({ method: 'vendor/x', params }, ResultSchema)` | unchanged                                                             |
-| `this.notification({ method: 'vendor/x', params })`          | unchanged                                                             |
+| v1 (still supported)                                         | v2 alternative                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `setRequestHandler(CustomReqSchema, (req, ctx) => ...)`      | `setRequestHandler('vendor/method', ParamsSchema, (params, ctx) => ...)` |
+| `setNotificationHandler(CustomNotifSchema, n => ...)`        | `setNotificationHandler('vendor/method', ParamsSchema, params => ...)`   |
+| `this.request({ method: 'vendor/x', params }, ResultSchema)` | unchanged                                                                |
+| `this.notification({ method: 'vendor/x', params })`          | unchanged                                                                |
+
+For the three-arg form, the v1 schema's `.shape.params` becomes the `ParamsSchema` argument and the `method: z.literal('...')` value becomes the string argument.
 
 ## 10. Request Handler Context Types
 
