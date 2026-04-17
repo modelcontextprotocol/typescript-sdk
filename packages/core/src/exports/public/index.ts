@@ -38,7 +38,7 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
-// Protocol class (concrete; subclass for custom vocabularies via SpecT) + types. NOT mergeCapabilities.
+// Protocol class (abstract; subclass for custom vocabularies via SpecT) + types. NOT mergeCapabilities.
 export type {
     BaseContext,
     ClientContext,
