@@ -247,25 +247,61 @@ describe('SSEClientTransport', () => {
     });
 
     describe('header handling', () => {
-        it('uses custom fetch implementation from EventSourceInit to add auth headers', async () => {
-            const authToken = 'Bearer test-token';
-
-            // Create a fetch wrapper that adds auth header
-            const fetchWithAuth = (url: string | URL, init?: RequestInit) => {
-                const headers = new Headers(init?.headers);
-                headers.set('Authorization', authToken);
-                return fetch(url.toString(), { ...init, headers });
-            };
+        it('ignores eventSourceInit.fetch for the internal SSE fetch wrapper', async () => {
+            // eventSourceInit.fetch is no longer used as the HTTP transport inside the
+            // SDK's internal SSE fetch wrapper (to avoid duplicate header injection).
+            // Users should use the top-level 'fetch' option or requestInit.headers instead.
+            const spyFetch = vi.fn(fetch);
 
             transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: { headers: { Authorization: 'Bearer test-token' } },
                 eventSourceInit: {
-                    fetch: fetchWithAuth
+                    fetch: spyFetch
                 }
             });
 
             await transport.start();
 
-            // Verify the auth header was received by the server
+            // eventSourceInit.fetch should NOT be called as fetchImpl
+            expect(spyFetch).not.toHaveBeenCalled();
+            // The auth header from requestInit.headers should still reach the server
+            expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
+        });
+
+        it('does not duplicate Authorization header when both requestInit.headers and eventSourceInit.fetch provide it', async () => {
+            const authToken = 'Bearer my-token';
+
+            // This pattern was common before the SDK fixed _commonHeaders to include requestInit.headers.
+            // The user's custom fetch merges closure headers with init.headers using plain object spread,
+            // which caused case-mismatch duplicates (authorization vs Authorization).
+            function buildSseEventSourceFetch(closureHeaders: Record<string, string>) {
+                return (url: string | URL, init?: RequestInit) => {
+                    const sdkHeaders: Record<string, string> = {};
+                    if (init?.headers) {
+                        if (init.headers instanceof Headers) {
+                            init.headers.forEach((value: string, key: string) => {
+                                sdkHeaders[key] = value;
+                            });
+                        } else {
+                            Object.assign(sdkHeaders, init.headers);
+                        }
+                    }
+                    return fetch(url.toString(), {
+                        ...init,
+                        headers: { ...sdkHeaders, ...closureHeaders },
+                    });
+                };
+            }
+
+            const headers = { Authorization: authToken };
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: { headers },
+                eventSourceInit: { fetch: buildSseEventSourceFetch(headers) },
+            });
+
+            await transport.start();
+
+            // The server should receive exactly one Authorization value, not "Bearer my-token, Bearer my-token"
             expect(lastServerRequest.headers.authorization).toBe(authToken);
         });
 
