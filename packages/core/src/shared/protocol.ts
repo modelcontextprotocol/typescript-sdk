@@ -1085,11 +1085,11 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
      *   no-params methods use `z.object({})`. `paramsSchema` may be any Standard Schema (Zod,
      *   Valibot, ArkType, etc.). The handler's `params` type is inferred from the passed
      *   `paramsSchema`; when `method` is listed in this instance's {@linkcode ProtocolSpec},
-     *   `paramsSchema`'s input and the handler's result type are constrained by `SpecT`.
+     *   the handler's result type is constrained to `SpecT`'s declared result.
      * - **Zod schema** — `setRequestHandler(RequestZodSchema, (request, ctx) => …)`. The method
      *   name is read from the schema's `method` literal; the handler receives the parsed request.
      */
-    setRequestHandler<K extends SpecRequests<SpecT>, P extends StandardSchemaV1<_Requests<SpecT>[K]['params']>>(
+    setRequestHandler<K extends SpecRequests<SpecT>, P extends StandardSchemaV1>(
         method: K,
         paramsSchema: P,
         handler: (
@@ -1101,8 +1101,8 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
     ): void;
-    setRequestHandler<P extends StandardSchemaV1>(
-        method: string,
+    setRequestHandler<M extends string, P extends StandardSchemaV1>(
+        method: M extends SpecRequests<SpecT> ? never : M,
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ContextT) => Result | Promise<Result>
     ): void;
@@ -1194,12 +1194,10 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
      *
      * Mirrors {@linkcode setRequestHandler}: a two-arg spec-method form (handler receives the full
      * notification object), a three-arg form with a `paramsSchema` (handler receives validated
-     * `params`), and a Zod-schema form (method read from the schema's `method` literal). When the
-     * three-arg form's `method` is listed in this instance's {@linkcode ProtocolSpec},
-     * `paramsSchema`'s input is constrained by `SpecT`; the handler's `params` type is always
-     * inferred from the passed schema.
+     * `params`), and a Zod-schema form (method read from the schema's `method` literal). The
+     * handler's `params` type is always inferred from the passed schema.
      */
-    setNotificationHandler<K extends SpecNotifications<SpecT>, P extends StandardSchemaV1<_Notifications<SpecT>[K]['params']>>(
+    setNotificationHandler<K extends SpecNotifications<SpecT>, P extends StandardSchemaV1>(
         method: K,
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
@@ -1208,8 +1206,8 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
     ): void;
-    setNotificationHandler<P extends StandardSchemaV1>(
-        method: string,
+    setNotificationHandler<M extends string, P extends StandardSchemaV1>(
+        method: M extends SpecNotifications<SpecT> ? never : M,
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
     ): void;
