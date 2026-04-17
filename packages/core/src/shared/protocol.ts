@@ -1169,7 +1169,7 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ContextT) => Result | Promise<Result>
     ): void;
-    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
+    /** For spec methods the method-string form is more concise; this overload is a supported call form for non-spec methods (alongside the three-arg `(method, paramsSchema, handler)` form) or when you want full-envelope validation. */
     setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ContextT) => Result | Promise<Result>
@@ -1276,7 +1276,7 @@ export abstract class Protocol<ContextT extends BaseContext = BaseContext, SpecT
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
     ): void;
-    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
+    /** For spec methods the method-string form is more concise; this overload is a supported call form for non-spec methods (alongside the three-arg `(method, paramsSchema, handler)` form) or when you want full-envelope validation. */
     setNotificationHandler<T extends ZodLikeRequestSchema>(
         notificationSchema: T,
         handler: (notification: ReturnType<T['parse']>) => void | Promise<void>
