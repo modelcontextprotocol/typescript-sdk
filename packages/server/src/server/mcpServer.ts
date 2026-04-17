@@ -81,6 +81,8 @@ import {
     extractTaskManagerOptions,
     getResultSchema,
     isJSONRPCRequest,
+    isStandardSchema,
+    isStandardSchemaWithJSON,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -101,6 +103,7 @@ import {
     validateStandardSchema
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+import { z } from 'zod/v4';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
@@ -345,7 +348,7 @@ export class McpServer extends Dispatcher<ServerContext> {
     protected override buildContext(base: BaseContext, env: DispatchEnv & { _transportExtra?: MessageExtraInfo }): ServerContext {
         const extra = env._transportExtra;
         const hasHttpInfo = base.http || env.httpReq || extra?.closeSSEStream || extra?.closeStandaloneSSEStream;
-        return {
+        const ctx: ServerContext = {
             ...base,
             mcpReq: {
                 ...base.mcpReq,
@@ -363,6 +366,16 @@ export class McpServer extends Dispatcher<ServerContext> {
                   }
                 : undefined
         };
+        // v1 RequestHandlerExtra flat compat fields. New code should use ctx.mcpReq.* / ctx.http.*.
+        const compat = ctx as ServerContext & Record<string, unknown>;
+        compat.signal = base.mcpReq.signal;
+        compat.requestId = base.mcpReq.id;
+        compat._meta = base.mcpReq._meta;
+        compat.sendNotification = base.mcpReq.notify;
+        compat.sendRequest = base.mcpReq.send;
+        compat.authInfo = ctx.http?.authInfo;
+        compat.requestInfo = env.httpReq;
+        return ctx;
     }
 
     private async _elicitInputViaCtx(
@@ -446,21 +459,37 @@ export class McpServer extends Dispatcher<ServerContext> {
 
     /**
      * Override request handler registration to enforce server-side validation for `tools/call`.
+     *
+     * Also accepts the v1 form `setRequestHandler(zodRequestSchema, handler)` where the schema
+     * has a literal `method` shape (e.g. `z.object({method: z.literal('resources/subscribe')})`).
      */
     public override setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
+    ): void;
+    /** @deprecated Pass a method string instead of a Zod request schema. */
+    public override setRequestHandler(
+        schema: { shape: { method: unknown } },
+        handler: (request: JSONRPCRequest, ctx: ServerContext) => Result | Promise<Result>
+    ): void;
+    public override setRequestHandler(
+        methodOrSchema: RequestMethod | { shape: { method: unknown } },
+        handler: (request: never, ctx: ServerContext) => Result | Promise<Result>
     ): void {
+        const method = (
+            typeof methodOrSchema === 'string' ? methodOrSchema : extractMethodFromSchema(methodOrSchema)
+        ) as RequestMethod;
         this._assertRequestHandlerCapability(method);
+        const h = handler as (request: JSONRPCRequest, ctx: ServerContext) => Result | Promise<Result>;
         if (method === 'tools/call') {
-            const wrapped = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
+            const wrapped = async (request: JSONRPCRequest, ctx: ServerContext): Promise<ServerResult> => {
                 const validated = parseSchema(CallToolRequestSchema, request);
                 if (!validated.success) {
                     const msg = validated.error instanceof Error ? validated.error.message : String(validated.error);
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${msg}`);
                 }
                 const { params } = validated.data;
-                const result = await Promise.resolve(handler(request, ctx));
+                const result = await Promise.resolve(h(request, ctx));
                 if (params.task) {
                     const taskValidation = parseSchema(CreateTaskResultSchema, result);
                     if (!taskValidation.success) {
@@ -476,9 +505,9 @@ export class McpServer extends Dispatcher<ServerContext> {
                 }
                 return resultValidation.data;
             };
-            return super.setRequestHandler(method, wrapped);
+            return super.setRequestHandler(method, wrapped as never);
         }
-        return super.setRequestHandler(method, handler);
+        return super.setRequestHandler(method, h as never);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -743,6 +772,8 @@ export class McpServer extends Dispatcher<ServerContext> {
             case 'resources/list':
             case 'resources/templates/list':
             case 'resources/read':
+            case 'resources/subscribe':
+            case 'resources/unsubscribe':
                 if (!this._capabilities.resources) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
                 }
@@ -1317,8 +1348,8 @@ export class McpServer extends Dispatcher<ServerContext> {
         config: {
             title?: string;
             description?: string;
-            inputSchema?: InputArgs;
-            outputSchema?: OutputArgs;
+            inputSchema?: InputArgs | ZodRawShapeCompat;
+            outputSchema?: OutputArgs | ZodRawShapeCompat;
             annotations?: ToolAnnotations;
             _meta?: Record<string, unknown>;
         },
@@ -1330,8 +1361,8 @@ export class McpServer extends Dispatcher<ServerContext> {
             name,
             title,
             description,
-            inputSchema,
-            outputSchema,
+            coerceSchema(inputSchema),
+            coerceSchema(outputSchema),
             annotations,
             { taskSupport: 'forbidden' },
             _meta,
@@ -1344,14 +1375,119 @@ export class McpServer extends Dispatcher<ServerContext> {
      */
     registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
-        config: { title?: string; description?: string; argsSchema?: Args; _meta?: Record<string, unknown> },
+        config: { title?: string; description?: string; argsSchema?: Args | ZodRawShapeCompat; _meta?: Record<string, unknown> },
         cb: PromptCallback<Args>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) throw new Error(`Prompt ${name} is already registered`);
         const { title, description, argsSchema, _meta } = config;
-        const r = this._createRegisteredPrompt(name, title, description, argsSchema, cb as PromptCallback<StandardSchemaWithJSON | undefined>, _meta);
+        const r = this._createRegisteredPrompt(
+            name,
+            title,
+            description,
+            coerceSchema(argsSchema),
+            cb as PromptCallback<StandardSchemaWithJSON | undefined>,
+            _meta
+        );
         this.setPromptRequestHandlers();
         this.sendPromptListChanged();
+        return r;
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Deprecated v1 overloads (positional, raw-shape) — call register* internally
+    // ───────────────────────────────────────────────────────────────────────
+
+    /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
+    tool(name: string, cb: ToolCallback): RegisteredTool;
+    /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
+    tool(name: string, description: string, cb: ToolCallback): RegisteredTool;
+    /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
+    tool<Args extends ZodRawShapeCompat>(name: string, paramsSchemaOrAnnotations: Args | ToolAnnotations, cb: LegacyToolCallback<Args>): RegisteredTool;
+    /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
+    tool<Args extends ZodRawShapeCompat>(
+        name: string,
+        description: string,
+        paramsSchemaOrAnnotations: Args | ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
+    /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
+    tool<Args extends ZodRawShapeCompat>(name: string, paramsSchema: Args, annotations: ToolAnnotations, cb: LegacyToolCallback<Args>): RegisteredTool;
+    /** @deprecated Use {@linkcode McpServer.registerTool | registerTool()} instead. */
+    tool<Args extends ZodRawShapeCompat>(
+        name: string,
+        description: string,
+        paramsSchema: Args,
+        annotations: ToolAnnotations,
+        cb: LegacyToolCallback<Args>
+    ): RegisteredTool;
+    tool(name: string, ...rest: unknown[]): RegisteredTool {
+        if (this._registeredTools[name]) throw new Error(`Tool ${name} is already registered`);
+        let description: string | undefined;
+        let inputSchema: StandardSchemaWithJSON | undefined;
+        let annotations: ToolAnnotations | undefined;
+        if (typeof rest[0] === 'string') description = rest.shift() as string;
+        if (rest.length > 1) {
+            const first = rest[0];
+            if (isZodRawShapeCompat(first) || isStandardSchema(first)) {
+                inputSchema = coerceSchema(rest.shift());
+                if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !isZodRawShapeCompat(rest[0])) {
+                    annotations = rest.shift() as ToolAnnotations;
+                }
+            } else if (typeof first === 'object' && first !== null) {
+                if (Object.values(first).some(v => typeof v === 'object' && v !== null)) {
+                    throw new Error(`Tool ${name} expected a Zod schema or ToolAnnotations, but received an unrecognized object`);
+                }
+                annotations = rest.shift() as ToolAnnotations;
+            }
+        }
+        const cb = rest[0] as ToolCallback<StandardSchemaWithJSON | undefined>;
+        return this._createRegisteredTool(name, undefined, description, inputSchema, undefined, annotations, { taskSupport: 'forbidden' }, undefined, cb);
+    }
+
+    /** @deprecated Use {@linkcode McpServer.registerPrompt | registerPrompt()} instead. */
+    prompt(name: string, cb: PromptCallback): RegisteredPrompt;
+    /** @deprecated Use {@linkcode McpServer.registerPrompt | registerPrompt()} instead. */
+    prompt(name: string, description: string, cb: PromptCallback): RegisteredPrompt;
+    /** @deprecated Use {@linkcode McpServer.registerPrompt | registerPrompt()} instead. */
+    prompt<Args extends ZodRawShapeCompat>(name: string, argsSchema: Args, cb: LegacyPromptCallback<Args>): RegisteredPrompt;
+    /** @deprecated Use {@linkcode McpServer.registerPrompt | registerPrompt()} instead. */
+    prompt<Args extends ZodRawShapeCompat>(name: string, description: string, argsSchema: Args, cb: LegacyPromptCallback<Args>): RegisteredPrompt;
+    prompt(name: string, ...rest: unknown[]): RegisteredPrompt {
+        if (this._registeredPrompts[name]) throw new Error(`Prompt ${name} is already registered`);
+        let description: string | undefined;
+        if (typeof rest[0] === 'string') description = rest.shift() as string;
+        let argsSchema: StandardSchemaWithJSON | undefined;
+        if (rest.length > 1) argsSchema = coerceSchema(rest.shift());
+        const cb = rest[0] as PromptCallback<StandardSchemaWithJSON | undefined>;
+        const r = this._createRegisteredPrompt(name, undefined, description, argsSchema, cb, undefined);
+        this.setPromptRequestHandlers();
+        this.sendPromptListChanged();
+        return r;
+    }
+
+    /** @deprecated Use {@linkcode McpServer.registerResource | registerResource()} instead. */
+    resource(name: string, uri: string, readCallback: ReadResourceCallback): RegisteredResource;
+    /** @deprecated Use {@linkcode McpServer.registerResource | registerResource()} instead. */
+    resource(name: string, uri: string, metadata: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    /** @deprecated Use {@linkcode McpServer.registerResource | registerResource()} instead. */
+    resource(name: string, template: ResourceTemplate, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
+    /** @deprecated Use {@linkcode McpServer.registerResource | registerResource()} instead. */
+    resource(name: string, template: ResourceTemplate, metadata: ResourceMetadata, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
+    resource(name: string, uriOrTemplate: string | ResourceTemplate, ...rest: unknown[]): RegisteredResource | RegisteredResourceTemplate {
+        let metadata: ResourceMetadata | undefined;
+        if (typeof rest[0] === 'object') metadata = rest.shift() as ResourceMetadata;
+        const readCallback = rest[0] as ReadResourceCallback | ReadResourceTemplateCallback;
+        if (typeof uriOrTemplate === 'string') {
+            if (this._registeredResources[uriOrTemplate]) throw new Error(`Resource ${uriOrTemplate} is already registered`);
+            const r = this._createRegisteredResource(name, undefined, uriOrTemplate, metadata, readCallback as ReadResourceCallback);
+            this.setResourceRequestHandlers();
+            this.sendResourceListChanged();
+            return r;
+        }
+        if (this._registeredResourceTemplates[name]) throw new Error(`Resource template ${name} is already registered`);
+        const r = this._createRegisteredResourceTemplate(name, undefined, uriOrTemplate, metadata, readCallback as ReadResourceTemplateCallback);
+        this.setResourceRequestHandlers();
+        this.sendResourceListChanged();
         return r;
     }
 }
@@ -1583,6 +1719,63 @@ function createPromptHandler(
     }
     const typed = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
     return async (_args, ctx) => typed(ctx);
+}
+
+/**
+ * v1 compat: a "raw shape" is a plain object whose values are Zod schemas
+ * (e.g. `{ name: z.string() }`), or an empty object. v1's `tool()`/`prompt()`
+ * and `registerTool({inputSchema:{}})` accepted these directly.
+ */
+type ZodRawShapeCompat = Record<string, z.core.$ZodType>;
+
+/** v1-style callback signature for the deprecated {@linkcode McpServer.tool | tool()} overloads. */
+type LegacyToolCallback<Args extends ZodRawShapeCompat> = (
+    args: z.infer<z.ZodObject<Args>>,
+    ctx: ServerContext
+) => CallToolResult | Promise<CallToolResult>;
+
+/** v1-style callback signature for the deprecated {@linkcode McpServer.prompt | prompt()} overloads. */
+type LegacyPromptCallback<Args extends ZodRawShapeCompat> = (
+    args: z.infer<z.ZodObject<Args>>,
+    ctx: ServerContext
+) => GetPromptResult | Promise<GetPromptResult>;
+
+/**
+ * v1 compat: extract the literal method string from a `z.object({method: z.literal('x'), ...})` schema.
+ */
+function extractMethodFromSchema(schema: { shape: { method: unknown } }): string {
+    const lit = schema.shape.method as { value?: unknown; _zod?: { def?: { values?: unknown[] } } };
+    const v = lit?.value ?? lit?._zod?.def?.values?.[0];
+    if (typeof v !== 'string') {
+        throw new Error('setRequestHandler(schema, handler): schema.shape.method must be a z.literal(string)');
+    }
+    return v;
+}
+
+function isZodTypeLike(v: unknown): boolean {
+    return v != null && typeof v === 'object' && '_zod' in (v as object);
+}
+
+function isZodRawShapeCompat(v: unknown): v is ZodRawShapeCompat {
+    if (v == null || typeof v !== 'object') return false;
+    if (isStandardSchema(v)) return false;
+    const values = Object.values(v as object);
+    if (values.length === 0) return true;
+    return values.some(isZodTypeLike);
+}
+
+/**
+ * Coerce a v1-style raw Zod shape (or empty object) to a {@linkcode StandardSchemaWithJSON}.
+ * Standard Schemas pass through unchanged.
+ */
+function coerceSchema(schema: unknown): StandardSchemaWithJSON | undefined {
+    if (schema == null) return undefined;
+    if (isStandardSchemaWithJSON(schema)) return schema;
+    if (isZodRawShapeCompat(schema)) return z.object(schema) as unknown as StandardSchemaWithJSON;
+    if (isStandardSchema(schema)) {
+        throw new Error('Schema lacks JSON-Schema emission (zod >=4.2 or equivalent required).');
+    }
+    throw new Error('inputSchema/argsSchema must be a Standard Schema or a Zod raw shape (e.g. {name: z.string()})');
 }
 
 function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
