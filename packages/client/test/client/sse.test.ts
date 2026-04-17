@@ -288,7 +288,7 @@ describe('SSEClientTransport', () => {
                     }
                     return fetch(url.toString(), {
                         ...init,
-                        headers: { ...sdkHeaders, ...closureHeaders },
+                        headers: { ...sdkHeaders, ...closureHeaders }
                     });
                 };
             }
@@ -296,7 +296,7 @@ describe('SSEClientTransport', () => {
             const headers = { Authorization: authToken };
             transport = new SSEClientTransport(resourceBaseUrl, {
                 requestInit: { headers },
-                eventSourceInit: { fetch: buildSseEventSourceFetch(headers) },
+                eventSourceInit: { fetch: buildSseEventSourceFetch(headers) }
             });
 
             await transport.start();
