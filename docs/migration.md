@@ -324,7 +324,7 @@ Note: the v2 signature takes a plain `string[]` instead of an options object.
 
 ### `setRequestHandler` and `setNotificationHandler` use method strings
 
-The low-level `setRequestHandler` and `setNotificationHandler` methods on `Client`, `Server`, and `Protocol` now take a method string instead of a Zod schema.
+The low-level `setRequestHandler` and `setNotificationHandler` methods on `Client`, `Server`, and `Protocol` now accept a method string in addition to the v1 Zod-schema form (both are supported).
 
 **Before (v1):**
 
