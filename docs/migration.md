@@ -500,10 +500,10 @@ Common method string replacements:
 | `ElicitationCompleteNotificationSchema` | `'notifications/elicitation/complete'`   |
 | `InitializedNotificationSchema`         | `'notifications/initialized'`            |
 
-### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
+### `Protocol.request()` and `Client.callTool()` schema parameter is now optional
 
-The public `Protocol.request()`, `BaseContext.mcpReq.send()`, `Client.callTool()`, and `client.experimental.tasks.callToolStream()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This
-means you no longer need to import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods still accept a result schema argument, but for spec methods it is optional — the SDK resolves the correct schema internally from the method name. You no longer need to import result
+schemas like `CallToolResultSchema` or `ElicitResultSchema` when making requests. The schema argument remains the supported form for custom (non-spec) methods.
 
 **`client.request()` — Before (v1):**
 

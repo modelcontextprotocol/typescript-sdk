@@ -442,7 +442,7 @@ fields.
 
 ## 11. Schema parameter on `request()` and `callTool()` is now optional (`@deprecated`)
 
-`Protocol.request()`, `BaseContext.mcpReq.send()`, `Client.callTool()`, and `client.experimental.tasks.callToolStream()` no longer take a Zod result schema argument. The SDK resolves the schema internally from the method name.
+`Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` still accept a result schema argument, but for spec methods it is optional — the SDK resolves the schema internally from the method name. The schema argument remains the supported form for custom (non-spec) methods. `client.experimental.tasks.callToolStream()` no longer takes a schema argument.
 
 ```typescript
 // v1: schema required
@@ -451,7 +451,7 @@ const result = await client.request({ method: 'tools/call', params: { ... } }, C
 const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { ... } }, ElicitResultSchema);
 const tool = await client.callTool({ name: 'my-tool', arguments: {} }, CompatibilityCallToolResultSchema);
 
-// v2: no schema argument
+// v2: schema optional for spec methods
 const result = await client.request({ method: 'tools/call', params: { ... } });
 const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { ... } });
 const tool = await client.callTool({ name: 'my-tool', arguments: {} });
