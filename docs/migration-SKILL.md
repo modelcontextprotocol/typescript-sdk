@@ -224,7 +224,7 @@ if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) 
 ```
 
 **Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all
-protocol **type** definitions, all callback return types. Note: `callTool()` and `request()` accept the result-schema parameter as a `@deprecated` overload (see section 11). Zod **schema constants** are available via the `@deprecated` `/zod-schemas` subpath (see section 5).
+protocol **type** definitions, all callback return types. Note: `callTool()` and `request()` accept the result-schema parameter as a supported overload (alternative to the method-string form — see section 11). Zod **schema constants** are available via the `@deprecated` `/zod-schemas` subpath (see section 5).
 
 ## 6. McpServer API Changes
 
@@ -440,7 +440,7 @@ fields.
 | `ctx.mcpReq.elicitInput(params, options?)`     | Elicit user input (form or URL)                        | `server.elicitInput(...)` from within handler        |
 | `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client                       | `server.createMessage(...)` from within handler      |
 
-## 11. Schema parameter on `request()` and `callTool()` is now optional (`@deprecated`)
+## 11. Schema parameter on `request()` and `callTool()` is now optional
 
 `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` still accept a result schema argument, but for spec methods it is optional — the SDK resolves the schema internally from the method name. The schema argument remains the supported form for custom (non-spec) methods. `client.experimental.tasks.callToolStream()` no longer takes a schema argument.
 

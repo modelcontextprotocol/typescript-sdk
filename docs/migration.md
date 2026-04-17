@@ -1088,7 +1088,7 @@ import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/valida
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):
 
-- `Client` constructor and most client methods (`connect`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.) — note: `callTool()`'s result-schema parameter is now optional and `@deprecated` (the schema is resolved internally)
+- `Client` constructor and most client methods (`connect`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.) — note: `callTool()`'s result-schema parameter is now optional (the schema is resolved internally)
 - `McpServer` constructor, `server.connect(transport)`, `server.close()`
 - `Server` (low-level) constructor and all methods
 - `StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport` constructors and options
