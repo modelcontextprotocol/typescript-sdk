@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ClientFetchOptions, ClientTransport } from '../../src/client/clientTransport.js';
 import { isPipeTransport } from '../../src/client/clientTransport.js';
-import { Client } from '../../src/client/clientV2.js';
+import { Client } from '../../src/client/client.js';
 
 type FetchResp = JSONRPCResultResponse | JSONRPCErrorResponse;
 
@@ -153,7 +153,7 @@ describe('Client (V2)', () => {
                 opts?.onprogress?.({ progress: 1, total: 2 });
                 return ok(r.id, { content: [] });
             });
-            await c.callTool({ name: 'x', arguments: {} }, { onprogress: p => seen.push(p) });
+            await c.callTool({ name: 'x', arguments: {} }, { onprogress: (p: unknown) => seen.push(p) });
             expect(seen).toEqual([{ progress: 1, total: 2 }]);
         });
     });
@@ -277,7 +277,7 @@ describe('Client (V2)', () => {
                 return ok(r.id, { content: [] });
             });
             const c = new Client({ name: 'c', version: '1' });
-            c.setNotificationHandler('notifications/message', n => void got.push(n as JSONRPCNotification));
+            c.setNotificationHandler('notifications/message', (n: unknown) => void got.push(n as JSONRPCNotification));
             await c.connect(ct);
             await c.callTool({ name: 't', arguments: {} });
             expect(got).toHaveLength(1);
@@ -303,11 +303,10 @@ describe('Client (V2)', () => {
             expect(typeof a.callToolStream).toBe('function');
         });
 
-        it('callTool returns CreateTaskResult unchanged when server returns a task (SEP-2557 unsolicited)', async () => {
+        it('callTool throws with guidance when server returns a task without awaitTask (v1-compat surface)', async () => {
             const taskResult = { task: { taskId: 't-1', status: 'working', createdAt: '2026-01-01T00:00:00Z' } };
             const { c } = await connected(r => (r.method === 'tools/call' ? ok(r.id, taskResult) : err(r.id, -32601, '')));
-            const result = (await c.callTool({ name: 'slow', arguments: {} })) as CreateTaskResult;
-            expect(result.task.taskId).toBe('t-1');
+            await expect(c.callTool({ name: 'slow', arguments: {} })).rejects.toThrow(/returned a task.*awaitTask/);
         });
 
         const taskBody = (overrides: Record<string, unknown> = {}) => ({

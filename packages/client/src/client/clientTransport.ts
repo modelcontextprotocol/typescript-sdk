@@ -6,11 +6,15 @@ import type {
     JSONRPCResultResponse,
     Notification,
     Progress,
+    RelatedTaskMetadata,
     Request,
+    RequestId,
     RequestOptions,
+    StreamDriverOptions,
+    TaskCreationParams,
     Transport
 } from '@modelcontextprotocol/core';
-import { getResultSchema, StreamDriver } from '@modelcontextprotocol/core';
+import { getResultSchema, SdkError, SdkErrorCode, StreamDriver } from '@modelcontextprotocol/core';
 
 /**
  * Per-call options for {@linkcode ClientTransport.fetch}.
@@ -28,6 +32,16 @@ export type ClientFetchOptions = {
     resetTimeoutOnProgress?: boolean;
     /** Absolute upper bound (ms) regardless of progress. */
     maxTotalTimeout?: number;
+    /** Associates this outbound request with an inbound one (pipe transports only). */
+    relatedRequestId?: RequestId;
+    /** Augment as a task-creating request (pipe transports only; threaded to TaskManager). */
+    task?: TaskCreationParams;
+    /** Associate with an existing task (pipe transports only). */
+    relatedTask?: RelatedTaskMetadata;
+    /** Resumption token to continue a previous request (SHTTP only). */
+    resumptionToken?: string;
+    /** Called when the resumption token changes (SHTTP only). */
+    onresumptiontoken?: (token: string) => void;
 };
 
 /**
@@ -84,11 +98,13 @@ export function isPipeTransport(t: Transport | ClientTransport): t is Transport 
  * server-initiated requests (sampling, elicitation, roots) that arrive on the pipe.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- adapter is context-agnostic; the caller's Dispatcher subclass owns ContextT
-export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<any>): ClientTransport {
-    const driver = new StreamDriver(dispatcher, pipe);
+export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<any>, options?: StreamDriverOptions): ClientTransport {
+    const driver = new StreamDriver(dispatcher, pipe, options);
     let started = false;
     const subscribers: Set<(n: JSONRPCNotification) => void> = new Set();
+    const priorFallback = dispatcher.fallbackNotificationHandler;
     dispatcher.fallbackNotificationHandler = async n => {
+        await priorFallback?.(n);
         const msg: JSONRPCNotification = { jsonrpc: '2.0', method: n.method, params: n.params };
         for (const s of subscribers) s(msg);
     };
@@ -102,6 +118,9 @@ export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<an
         driver,
         async fetch(request, opts) {
             await ensureStarted();
+            if (opts?.signal?.aborted) {
+                throw new SdkError(SdkErrorCode.RequestTimeout, String(opts.signal.reason ?? 'Aborted'));
+            }
             const schema = getResultSchema(request.method as never);
             try {
                 const result = await driver.request({ method: request.method, params: request.params } as Request, schema, {
@@ -109,7 +128,12 @@ export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<an
                     timeout: opts?.timeout,
                     resetTimeoutOnProgress: opts?.resetTimeoutOnProgress,
                     maxTotalTimeout: opts?.maxTotalTimeout,
-                    onprogress: opts?.onprogress
+                    onprogress: opts?.onprogress,
+                    relatedRequestId: opts?.relatedRequestId,
+                    task: opts?.task,
+                    relatedTask: opts?.relatedTask,
+                    resumptionToken: opts?.resumptionToken,
+                    onresumptiontoken: opts?.onresumptiontoken
                 } as RequestOptions);
                 return { jsonrpc: '2.0', id: request.id, result } as JSONRPCResultResponse;
             } catch (error) {
