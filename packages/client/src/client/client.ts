@@ -349,7 +349,7 @@ export class Client extends Protocol<ClientContext> {
         paramsSchema: P,
         handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ClientContext) => Result | Promise<Result>
     ): void;
-    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
+    /** For spec methods the method-string form is more concise; this overload is a supported call form for non-spec methods (alongside the three-arg `(method, paramsSchema, handler)` form) or when you want full-envelope validation. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ClientContext) => Result | Promise<Result>
