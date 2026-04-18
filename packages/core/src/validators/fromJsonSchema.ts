@@ -10,6 +10,11 @@ import type { JsonSchemaType, jsonSchemaValidator } from './types.js';
  * The callback arguments will be typed `unknown` (raw JSON Schema has no TypeScript
  * types attached). Cast at the call site, or use the generic `fromJsonSchema<MyType>(...)`.
  *
+ * @param schema - A JSON Schema object describing the expected shape
+ * @param validator - A validator provider. When importing `fromJsonSchema` from
+ *   `@modelcontextprotocol/server` or `@modelcontextprotocol/client`, a runtime-appropriate
+ *   default is provided automatically (AJV on Node.js, CfWorker on edge runtimes).
+ *
  * @example
  * ```ts source="./fromJsonSchema.examples.ts#fromJsonSchema_basicUsage"
  * const inputSchema = fromJsonSchema<{ name: string }>(

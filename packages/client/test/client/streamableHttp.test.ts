@@ -4,7 +4,7 @@ import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
-import type { StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
+import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
 describe('StreamableHTTPClientTransport', () => {
@@ -628,6 +628,99 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
+    it('should append custom Accept header to required types on POST requests', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/vnd.example.v1+json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe(
+            'application/vnd.example.v1+json, application/json, text/event-stream'
+        );
+    });
+
+    it('should append custom Accept header to required types on GET SSE requests', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
+    it('should set default Accept header when none provided', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
+    it('should not duplicate Accept media types when user-provided value overlaps required types', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: {
+                    Accept: 'application/json'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        });
+
+        await transport.start();
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('accept')).toBe('application/json, text/event-stream');
+    });
+
     it('should have exponential backoff with configurable maxRetries', () => {
         // This test verifies the maxRetries and backoff calculation directly
 
@@ -1006,6 +1099,78 @@ describe('StreamableHTTPClientTransport', () => {
             // The response was received, so no need to reconnect.
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
+        });
+
+        it('should NOT reconnect a POST stream when error response was received', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            // Create a stream that sends:
+            // 1. Priming event with ID (enables potential reconnection)
+            // 2. An error response (should also prevent reconnection, just like success)
+            // 3. Then closes
+            const streamWithErrorResponse = new ReadableStream({
+                start(controller) {
+                    // Priming event with ID
+                    controller.enqueue(new TextEncoder().encode('id: priming-123\ndata: \n\n'));
+                    // An error response to the request (tool not found, for example)
+                    controller.enqueue(
+                        new TextEncoder().encode(
+                            'id: error-456\ndata: {"jsonrpc":"2.0","error":{"code":-32602,"message":"Tool not found"},"id":"request-1"}\n\n'
+                        )
+                    );
+                    // Stream closes normally
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithErrorResponse
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                id: 'request-1',
+                params: { name: 'nonexistent-tool' }
+            };
+
+            // ACT
+            await transport.start();
+            await transport.send(requestMessage);
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT
+            // THE KEY ASSERTION: Fetch was called ONCE only - no reconnection!
+            // The error response was received, so no need to reconnect.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
+
+            // Verify the error response was delivered to the message handler
+            expect(messageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    error: expect.objectContaining({
+                        code: -32602,
+                        message: 'Tool not found'
+                    }),
+                    id: 'request-1'
+                })
+            );
         });
 
         it('should not attempt reconnection after close() is called', async () => {
@@ -1617,8 +1782,8 @@ describe('StreamableHTTPClientTransport', () => {
                 })
             );
 
-            // Verify no timeout was scheduled (no reconnection attempt)
-            expect(transport['_reconnectionTimeout']).toBeUndefined();
+            // Verify no reconnection was scheduled
+            expect(transport['_cancelReconnection']).toBeUndefined();
         });
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
@@ -1640,10 +1805,10 @@ describe('StreamableHTTPClientTransport', () => {
 
             // ASSERT - should schedule a reconnection, not report error yet
             expect(errorSpy).not.toHaveBeenCalled();
-            expect(transport['_reconnectionTimeout']).toBeDefined();
+            expect(transport['_cancelReconnection']).toBeDefined();
 
-            // Clean up the timeout to avoid test pollution
-            clearTimeout(transport['_reconnectionTimeout']);
+            // Clean up the pending reconnection to avoid test pollution
+            transport['_cancelReconnection']?.();
         });
     });
 
@@ -1714,6 +1879,142 @@ describe('StreamableHTTPClientTransport', () => {
                 expires_in: 3600,
                 refresh_token: 'refresh-token' // Refresh token is preserved
             });
+        });
+    });
+
+    describe('reconnectionScheduler', () => {
+        const reconnectionOptions: StreamableHTTPReconnectionOptions = {
+            initialReconnectionDelay: 1000,
+            maxReconnectionDelay: 5000,
+            reconnectionDelayGrowFactor: 2,
+            maxRetries: 3
+        };
+
+        function triggerReconnection(t: StreamableHTTPClientTransport): void {
+            (t as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection({}, 0);
+        }
+
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('invokes the custom scheduler with reconnect, delay, and attemptCount', () => {
+            const scheduler = vi.fn<ReconnectionScheduler>();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+
+            triggerReconnection(transport);
+
+            expect(scheduler).toHaveBeenCalledTimes(1);
+            expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 1000, 0);
+        });
+
+        it('falls back to setTimeout when no scheduler is provided', () => {
+            const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+
+            triggerReconnection(transport);
+
+            expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+        });
+
+        it('does not use setTimeout when a custom scheduler is provided', () => {
+            const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: vi.fn()
+            });
+
+            triggerReconnection(transport);
+
+            expect(setTimeoutSpy).not.toHaveBeenCalled();
+        });
+
+        it('calls the returned cancel function on close()', async () => {
+            const cancel = vi.fn();
+            const scheduler: ReconnectionScheduler = vi.fn(() => cancel);
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+
+            triggerReconnection(transport);
+            expect(cancel).not.toHaveBeenCalled();
+
+            await transport.close();
+            expect(cancel).toHaveBeenCalledTimes(1);
+        });
+
+        it('tolerates schedulers that return void (no cancel function)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: () => {
+                    /* no return */
+                }
+            });
+
+            triggerReconnection(transport);
+            await expect(transport.close()).resolves.toBeUndefined();
+        });
+
+        it('clears the default setTimeout on close() when no scheduler is provided', async () => {
+            const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+
+            triggerReconnection(transport);
+            await transport.close();
+
+            expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores a late-firing reconnect after close()', async () => {
+            let capturedReconnect: (() => void) | undefined;
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: reconnect => {
+                    capturedReconnect = reconnect;
+                }
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await transport.start();
+            triggerReconnection(transport);
+            await transport.close();
+
+            capturedReconnect?.();
+            await vi.runAllTimersAsync();
+
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('still aborts and fires onclose if the cancel function throws', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: () => () => {
+                    throw new Error('cancel failed');
+                }
+            });
+            const onclose = vi.fn();
+            transport.onclose = onclose;
+
+            await transport.start();
+            triggerReconnection(transport);
+            const abortController = transport['_abortController'];
+
+            await expect(transport.close()).rejects.toThrow('cancel failed');
+            expect(abortController?.signal.aborted).toBe(true);
+            expect(onclose).toHaveBeenCalledTimes(1);
         });
     });
 });

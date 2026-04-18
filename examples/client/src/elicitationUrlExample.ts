@@ -814,7 +814,7 @@ process.on('SIGINT', async () => {
     await cleanup();
 });
 process.on('SIGTERM', async () => {
-    console.log('\nReceived SIGINT. Cleaning up...');
+    console.log('\nReceived SIGTERM. Cleaning up...');
     await cleanup();
 });
 

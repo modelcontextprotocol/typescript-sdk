@@ -112,6 +112,11 @@ export interface ClientCredentialsProviderOptions {
      * Optional client name for metadata.
      */
     clientName?: string;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
 }
 
 /**
@@ -146,7 +151,8 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
             client_name: options.clientName ?? 'client-credentials-client',
             redirect_uris: [],
             grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'client_secret_basic'
+            token_endpoint_auth_method: 'client_secret_basic',
+            scope: options.scope
         };
     }
 
@@ -222,6 +228,21 @@ export interface PrivateKeyJwtProviderOptions {
      * Optional JWT lifetime in seconds (default: 300).
      */
     jwtLifetimeSeconds?: number;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
+
+    /**
+     * Optional custom claims to include in the JWT assertion.
+     * These are merged with the standard claims (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`),
+     * with custom claims taking precedence for any overlapping keys.
+     *
+     * Useful for including additional claims that help scope the access token
+     * with finer granularity than what scopes alone allow.
+     */
+    claims?: Record<string, unknown>;
 }
 
 /**
@@ -258,14 +279,16 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
             client_name: options.clientName ?? 'private-key-jwt-client',
             redirect_uris: [],
             grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'private_key_jwt'
+            token_endpoint_auth_method: 'private_key_jwt',
+            scope: options.scope
         };
         this.addClientAuthentication = createPrivateKeyJwtAuth({
             issuer: options.clientId,
             subject: options.clientId,
             privateKey: options.privateKey,
             alg: options.algorithm,
-            lifetimeSeconds: options.jwtLifetimeSeconds
+            lifetimeSeconds: options.jwtLifetimeSeconds,
+            claims: options.claims
         });
     }
 
@@ -333,6 +356,11 @@ export interface StaticPrivateKeyJwtProviderOptions {
      * Optional client name for metadata.
      */
     clientName?: string;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
 }
 
 /**
@@ -356,7 +384,8 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
             client_name: options.clientName ?? 'static-private-key-jwt-client',
             redirect_uris: [],
             grant_types: ['client_credentials'],
-            token_endpoint_auth_method: 'private_key_jwt'
+            token_endpoint_auth_method: 'private_key_jwt',
+            scope: options.scope
         };
 
         const assertion = options.jwtBearerAssertion;

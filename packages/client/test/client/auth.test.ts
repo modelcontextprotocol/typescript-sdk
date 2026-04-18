@@ -7,6 +7,7 @@ import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
     auth,
     buildDiscoveryUrls,
+    determineScope,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
@@ -17,7 +18,8 @@ import {
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
-    startAuthorization
+    startAuthorization,
+    validateClientMetadataUrl
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
 
@@ -337,17 +339,36 @@ describe('OAuth Authorization', () => {
             expect(calls.length).toBe(2);
         });
 
-        it('throws error on 500 status and does not fallback', async () => {
-            // First call (path-aware) returns 500
+        it('throws on 500 status without fallback', async () => {
+            // First call (path-aware) returns 500 (overloaded server)
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 500
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow();
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow('HTTP 500');
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1); // Should not attempt fallback
+        });
+
+        it('falls back to root on 502 status for path URL', async () => {
+            // First call (path-aware) returns 502 (reverse proxy routing error)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 502
+            });
+
+            // Root fallback also returns 502
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 502
+            });
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow('HTTP 502');
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(2); // Should attempt root fallback for 502
         });
 
         it('does not fallback when the original URL is already at root path', async () => {
@@ -703,10 +724,52 @@ describe('OAuth Authorization', () => {
             expect(metadata).toBeUndefined();
         });
 
-        it('throws on non-404 errors', async () => {
+        it('throws on non-404 errors for root URL', async () => {
             mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
 
             await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
+        });
+
+        it('falls back to root URL on 502 for path-aware discovery', async () => {
+            // Path-aware URL returns 502 (reverse proxy has no route for well-known path)
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 502 }));
+
+            // Root fallback URL succeeds
+            mockFetch.mockResolvedValueOnce(Response.json(validMetadata, { status: 200 }));
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/tenant1', {
+                authorizationServerUrl: 'https://auth.example.com/tenant1'
+            });
+
+            expect(metadata).toEqual(validMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('does not fall back on non-502 5xx for path-aware discovery', async () => {
+            // Path-aware URL returns 500 (overloaded server — should not retry)
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+            await expect(
+                discoverOAuthMetadata('https://auth.example.com/tenant1', {
+                    authorizationServerUrl: 'https://auth.example.com/tenant1'
+                })
+            ).rejects.toThrow('HTTP 500');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('throws when root fallback also returns error for path-aware discovery', async () => {
+            // Path-aware URL returns 502 (gateway error — triggers fallback)
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 502 }));
+
+            // Root fallback also returns 503
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
+
+            await expect(
+                discoverOAuthMetadata('https://auth.example.com/tenant1', {
+                    authorizationServerUrl: 'https://auth.example.com/tenant1'
+                })
+            ).rejects.toThrow('HTTP 503');
+            expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
         it('validates metadata schema', async () => {
@@ -861,13 +924,49 @@ describe('OAuth Authorization', () => {
             expect(metadata).toEqual(validOpenIdMetadata);
         });
 
-        it('throws on non-4xx errors', async () => {
+        it('continues on 502 and tries next URL', async () => {
+            // First URL (OAuth) returns 502 (reverse proxy with no route)
             mockFetch.mockResolvedValueOnce({
                 ok: false,
-                status: 500
+                status: 502,
+                text: async () => ''
             });
 
-            await expect(discoverAuthorizationServerMetadata('https://mcp.example.com')).rejects.toThrow('HTTP 500');
+            // Second URL (OIDC) succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validOpenIdMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(validOpenIdMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('throws on non-502 5xx errors', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 500,
+                text: async () => ''
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('returns undefined when all URLs fail with 502', async () => {
+            // All URLs return 502
+            mockFetch.mockResolvedValue({
+                ok: false,
+                status: 502,
+                text: async () => ''
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+
+            expect(metadata).toBeUndefined();
         });
 
         it('handles CORS errors with retry (browser)', async () => {
@@ -3731,6 +3830,303 @@ describe('OAuth Authorization', () => {
                 client_id: 'generated-uuid',
                 client_secret: 'generated-secret',
                 redirect_uris: ['http://localhost:3000/callback']
+            });
+        });
+    });
+
+    describe('validateClientMetadataUrl', () => {
+        it('passes for valid HTTPS URL with path', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com/.well-known/oauth-client')).not.toThrow();
+        });
+
+        it('passes for valid HTTPS URL with multi-segment path', () => {
+            expect(() => validateClientMetadataUrl('https://example.com/clients/metadata.json')).not.toThrow();
+        });
+
+        it('throws OAuthError for HTTP URL', () => {
+            expect(() => validateClientMetadataUrl('http://client.example.com/.well-known/oauth-client')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('http://client.example.com/.well-known/oauth-client');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('http://client.example.com/.well-known/oauth-client');
+            }
+        });
+
+        it('throws OAuthError for non-URL string', () => {
+            expect(() => validateClientMetadataUrl('not-a-url')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('not-a-url');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('not-a-url');
+            }
+        });
+
+        it('passes silently for empty string', () => {
+            expect(() => validateClientMetadataUrl('')).not.toThrow();
+        });
+
+        it('throws OAuthError for root-path HTTPS URL with trailing slash', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com/')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('https://client.example.com/');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('https://client.example.com/');
+            }
+        });
+
+        it('throws OAuthError for root-path HTTPS URL without trailing slash', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('https://client.example.com');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('https://client.example.com');
+            }
+        });
+
+        it('passes silently for undefined', () => {
+            expect(() => validateClientMetadataUrl(undefined)).not.toThrow();
+        });
+
+        it('error message matches expected format', () => {
+            expect(() => validateClientMetadataUrl('http://example.com/path')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('http://example.com/path');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).message).toBe(
+                    'clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: http://example.com/path'
+                );
+            }
+        });
+    });
+
+    describe('determineScope', () => {
+        const baseClientMetadata = {
+            redirect_uris: ['http://localhost:3000/callback'],
+            client_name: 'Test Client'
+        };
+
+        describe('MCP Scope Selection Strategy', () => {
+            it('returns explicit requestedScope as-is (priority 1)', () => {
+                const result = determineScope({
+                    requestedScope: 'files:read',
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'fallback:scope'
+                    }
+                });
+
+                expect(result).toBe('files:read');
+            });
+
+            it('uses PRM scopes_supported when no explicit scope (priority 2)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write', 'mcp:admin']
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'fallback:scope'
+                    }
+                });
+
+                expect(result).toBe('mcp:read mcp:write mcp:admin');
+            });
+
+            it('falls back to clientMetadata.scope when no PRM scopes (priority 3)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/'
+                    },
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        scope: 'client:default'
+                    }
+                });
+
+                expect(result).toBe('client:default');
+            });
+
+            it('returns undefined when no scope source available (priority 4)', () => {
+                const result = determineScope({
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBeUndefined();
+            });
+
+            it('returns undefined when PRM has no scopes_supported and clientMetadata has no scope', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/'
+                    },
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBeUndefined();
+            });
+        });
+
+        describe('SEP-2207: offline_access scope augmentation', () => {
+            const asMetadataWithOfflineAccess = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/authorize',
+                token_endpoint: 'https://auth.example.com/token',
+                response_types_supported: ['code'] as string[],
+                scopes_supported: ['openid', 'profile', 'offline_access']
+            };
+
+            const asMetadataWithoutOfflineAccess = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/authorize',
+                token_endpoint: 'https://auth.example.com/token',
+                response_types_supported: ['code'] as string[],
+                scopes_supported: ['openid', 'profile']
+            };
+
+            const clientMetadataWithRefreshToken = {
+                ...baseClientMetadata,
+                grant_types: ['authorization_code', 'refresh_token']
+            };
+
+            it('augments explicit scope with offline_access', () => {
+                const result = determineScope({
+                    requestedScope: 'mcp:read mcp:write',
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write offline_access');
+            });
+
+            it('adds offline_access when AS supports it and client grant_types includes refresh_token', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write offline_access');
+            });
+
+            it('adds offline_access when using clientMetadata.scope fallback', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...clientMetadataWithRefreshToken,
+                        scope: 'mcp:tools'
+                    }
+                });
+
+                expect(result).toBe('mcp:tools offline_access');
+            });
+
+            it('does NOT augment when no other scopes are present', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBeUndefined();
+            });
+
+            it('does NOT augment when AS metadata lacks offline_access', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithoutOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when AS metadata is undefined', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when offline_access already in clientMetadata.scope', () => {
+                const result = determineScope({
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...clientMetadataWithRefreshToken,
+                        scope: 'mcp:tools offline_access'
+                    }
+                });
+
+                expect(result).toBe('mcp:tools offline_access');
+            });
+
+            it('does NOT augment when non-compliant PRM already includes offline_access', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'offline_access', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: clientMetadataWithRefreshToken
+                });
+
+                expect(result).toBe('mcp:read offline_access mcp:write');
+            });
+
+            it('does NOT augment when grant_types omits refresh_token', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: {
+                        ...baseClientMetadata,
+                        grant_types: ['authorization_code']
+                    }
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('does NOT augment when grant_types is undefined (respects OAuth defaults)', () => {
+                const result = determineScope({
+                    resourceMetadata: {
+                        resource: 'https://api.example.com/',
+                        scopes_supported: ['mcp:read', 'mcp:write']
+                    },
+                    authServerMetadata: asMetadataWithOfflineAccess,
+                    clientMetadata: baseClientMetadata
+                });
+
+                expect(result).toBe('mcp:read mcp:write');
             });
         });
     });

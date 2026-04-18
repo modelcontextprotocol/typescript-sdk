@@ -188,7 +188,9 @@ registerScenarios(
         'auth/scope-retry-limit',
         'auth/token-endpoint-auth-basic',
         'auth/token-endpoint-auth-post',
-        'auth/token-endpoint-auth-none'
+        'auth/token-endpoint-auth-none',
+        'auth/offline-access-scope',
+        'auth/offline-access-not-supported'
     ],
     runAuthClient
 );

@@ -138,8 +138,25 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
 
 // JSON Schema conversion
 
+/**
+ * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
+ *
+ * MCP requires `type: "object"` at the root of tool inputSchema/outputSchema and
+ * prompt argument schemas. Zod's discriminated unions emit `{oneOf: [...]}` without
+ * a top-level `type`, so this function defaults `type` to `"object"` when absent.
+ *
+ * Throws if the schema has an explicit non-object `type` (e.g. `z.string()`),
+ * since that cannot satisfy the MCP spec.
+ */
 export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
-    return schema['~standard'].jsonSchema[io]({ target: 'draft-2020-12' });
+    const result = schema['~standard'].jsonSchema[io]({ target: 'draft-2020-12' });
+    if (result.type !== undefined && result.type !== 'object') {
+        throw new Error(
+            `MCP tool and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +
+                `Wrap your schema in z.object({...}) or equivalent.`
+        );
+    }
+    return { type: 'object', ...result };
 }
 
 // Validation

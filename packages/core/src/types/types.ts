@@ -514,23 +514,13 @@ export type ListChangedHandlers = {
 };
 
 /**
- * Information about the incoming request.
- */
-export interface RequestInfo {
-    /**
-     * The headers of the request.
-     */
-    headers: Headers;
-}
-
-/**
  * Extra information about a message.
  */
 export interface MessageExtraInfo {
     /**
-     * The request information.
+     * The original HTTP request.
      */
-    requestInfo?: RequestInfo;
+    request?: globalThis.Request;
 
     /**
      * The authentication information.

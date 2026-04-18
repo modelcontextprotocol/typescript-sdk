@@ -24,7 +24,6 @@ import type {
     RelatedTaskMetadata,
     Request,
     RequestId,
-    RequestInfo,
     RequestMeta,
     RequestMethod,
     RequestTypeMap,
@@ -257,9 +256,9 @@ export type ServerContext = BaseContext & {
 
     http?: {
         /**
-         * The original HTTP request information.
+         * The original HTTP request.
          */
-        req?: RequestInfo;
+        req?: globalThis.Request;
 
         /**
          * Closes the SSE stream for this request, triggering client reconnection.
@@ -392,7 +391,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Builds the context object for request handlers. Subclasses must override
-     * to return the appropriate context type (e.g., ServerContext adds requestInfo).
+     * to return the appropriate context type (e.g., ServerContext adds HTTP request info).
      */
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 
@@ -498,24 +497,26 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._pendingDebouncedNotifications.clear();
         this._transport = undefined;
 
-        await this.onclose?.();
+        try {
+            await this.onclose?.();
+        } finally {
+            for (const info of this._timeoutInfo.values()) {
+                clearTimeout(info.timeoutId);
+            }
+            this._timeoutInfo.clear();
 
-        for (const info of this._timeoutInfo.values()) {
-            clearTimeout(info.timeoutId);
-        }
-        this._timeoutInfo.clear();
+            const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
+            this._requestHandlerAbortControllers = new Map();
 
-        const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
-        this._requestHandlerAbortControllers = new Map();
+            const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
 
-        const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+            for (const handler of responseHandlers.values()) {
+                handler(error);
+            }
 
-        for (const handler of responseHandlers.values()) {
-            handler(error);
-        }
-
-        for (const controller of requestHandlerAbortControllers.values()) {
-            controller.abort(error);
+            for (const controller of requestHandlerAbortControllers.values()) {
+                controller.abort(error);
+            }
         }
     }
 
@@ -797,6 +798,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
+        let onAbort: (() => void) | undefined;
+        let cleanupMessageId: number | undefined;
+
         // Send the request
         return new Promise<SchemaOutput<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
@@ -820,6 +824,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             options?.signal?.throwIfAborted();
 
             const messageId = this._requestMessageId++;
+            cleanupMessageId = messageId;
             const jsonrpcRequest: JSONRPCRequest = {
                 ...request,
                 jsonrpc: '2.0',
@@ -838,9 +843,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             }
 
             const cancel = (reason: unknown) => {
-                this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
 
                 this._transport
                     ?.send(
@@ -882,9 +885,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
             });
 
-            options?.signal?.addEventListener('abort', () => {
-                cancel(options?.signal?.reason);
-            });
+            onAbort = () => cancel(options?.signal?.reason);
+            options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
@@ -904,16 +906,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             let outboundQueued = false;
             try {
                 const taskResult = this._taskManager.processOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, error => {
-                    this._cleanupTimeout(messageId);
+                    this._progressHandlers.delete(messageId);
                     reject(error);
                 });
                 if (taskResult.queued) {
                     outboundQueued = true;
                 }
             } catch (error) {
-                this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
                 reject(error);
                 return;
             }
@@ -921,9 +921,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
             if (!outboundQueued) {
                 // No related task or no module - send through transport normally
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                    this._cleanupTimeout(messageId);
+                    this._progressHandlers.delete(messageId);
                     reject(error);
                 });
+            }
+        }).finally(() => {
+            // Per-request cleanup that must run on every exit path. Consolidated
+            // here so new exit paths added to the promise body can't forget it.
+            // _progressHandlers is NOT cleaned up here: _onresponse deletes it
+            // conditionally (preserveProgress for task flows), and error paths
+            // above delete it inline since no task exists in those cases.
+            if (onAbort) {
+                options?.signal?.removeEventListener('abort', onAbort);
+            }
+            if (cleanupMessageId !== undefined) {
+                this._responseHandlers.delete(cleanupMessageId);
+                this._cleanupTimeout(cleanupMessageId);
             }
         });
     }

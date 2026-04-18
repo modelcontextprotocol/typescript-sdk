@@ -60,7 +60,7 @@ export class StdioServerTransport implements Transport {
         this._stdin.on('error', this._onerror);
         this._stdout.on('error', this._onstdouterror);
         this._stdin.on('end', () => {
-            this.close();
+            this.close().catch(error => this.onerror?.(error as Error));
         });
     }
 

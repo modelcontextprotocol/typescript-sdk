@@ -164,7 +164,7 @@ When a request arrives from the remote side:
 3. **`Protocol._onrequest()`**:
     - Looks up handler in `_requestHandlers` map (keyed by method name)
     - Creates `BaseContext` with `signal`, `sessionId`, `sendNotification`, `sendRequest`, etc.
-    - Calls `buildContext()` to let subclasses enrich the context (e.g., Server adds `requestInfo`)
+    - Calls `buildContext()` to let subclasses enrich the context (e.g., Server adds HTTP request info)
     - Invokes handler, sends JSON-RPC response back via transport
 4. **Handler** was registered via `setRequestHandler('method', handler)`
 

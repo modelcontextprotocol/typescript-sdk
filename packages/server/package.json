@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/server",
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0-alpha.2",
     "description": "Model Context Protocol implementation for TypeScript - Server package",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -23,6 +23,10 @@
         ".": {
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
+        },
+        "./validators/cf-worker": {
+            "types": "./dist/validators/cfWorker.d.mts",
+            "import": "./dist/validators/cfWorker.mjs"
         },
         "./_shims": {
             "workerd": {
@@ -61,18 +65,6 @@
     },
     "dependencies": {
         "zod": "catalog:runtimeShared"
-    },
-    "peerDependencies": {
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared"
-    },
-    "peerDependenciesMeta": {
-        "@cfworker/json-schema": {
-            "optional": true
-        },
-        "zod": {
-            "optional": false
-        }
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",

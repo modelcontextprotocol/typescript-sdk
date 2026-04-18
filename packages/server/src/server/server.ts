@@ -84,7 +84,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
+     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
@@ -155,8 +155,7 @@ export class Server extends Protocol<ServerContext> {
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
-        const hasHttpInfo =
-            ctx.http || transportInfo?.requestInfo || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
         return {
             ...ctx,
             mcpReq: {
@@ -168,7 +167,7 @@ export class Server extends Protocol<ServerContext> {
             http: hasHttpInfo
                 ? {
                       ...ctx.http,
-                      req: transportInfo?.requestInfo,
+                      req: transportInfo?.request,
                       closeSSE: transportInfo?.closeSSEStream,
                       closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
                   }
@@ -433,6 +432,8 @@ export class Server extends Protocol<ServerContext> {
         const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+
+        this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
             protocolVersion,
