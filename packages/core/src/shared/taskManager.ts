@@ -308,7 +308,8 @@ export class TaskManager {
                             break;
                         }
                         case 'failed': {
-                            yield { type: 'error', error: new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} failed`) };
+                            const result = await this.getTaskResult({ taskId }, resultSchema, options);
+                            yield { type: 'result', result };
                             break;
                         }
                         case 'cancelled': {
