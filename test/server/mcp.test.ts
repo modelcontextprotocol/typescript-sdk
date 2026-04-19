@@ -1295,6 +1295,74 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(JSON.parse(textContent.text)).toEqual(result.structuredContent);
         });
 
+        test('should support wrapped outputSchema variants', async () => {
+            const cases = [
+                {
+                    label: 'optional',
+                    outputSchema: z.object({ data: z.string() }).optional(),
+                    structuredContent: { data: 'hello' }
+                },
+                {
+                    label: 'nullable',
+                    outputSchema: z.object({ data: z.string() }).nullable(),
+                    structuredContent: { data: 'hello' }
+                },
+                {
+                    label: 'nullish',
+                    outputSchema: z.object({ data: z.string() }).nullish(),
+                    structuredContent: { data: 'hello' }
+                },
+                {
+                    label: 'union',
+                    outputSchema: z.union([z.object({ data: z.string() }), z.object({ value: z.string() })]),
+                    structuredContent: { data: 'hello' }
+                }
+            ] as const;
+
+            for (const { label, outputSchema, structuredContent } of cases) {
+                const mcpServer = new McpServer({
+                    name: `test server ${label}`,
+                    version: '1.0'
+                });
+
+                const client = new Client({
+                    name: `test client ${label}`,
+                    version: '1.0'
+                });
+
+                mcpServer.registerTool(
+                    `test-${label}`,
+                    {
+                        description: `Test tool with ${label} output schema`,
+                        outputSchema
+                    },
+                    async () => ({
+                        content: [],
+                        structuredContent
+                    })
+                );
+
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+                await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+                try {
+                    await expect(
+                        client.callTool({
+                            name: `test-${label}`,
+                            arguments: {}
+                        })
+                    ).resolves.toMatchObject({
+                        content: [],
+                        structuredContent
+                    });
+                } finally {
+                    await client.close();
+                    await mcpServer.server.close();
+                }
+            }
+        });
+
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
          */
