@@ -305,6 +305,63 @@ describe('protocol tests', () => {
         expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
     });
 
+    describe('initialize request cancellation', () => {
+        test('should not send notifications/cancelled when an initialize request is aborted', async () => {
+            await protocol.connect(transport);
+
+            const controller = new AbortController();
+            const mockSchema = z.object({ result: z.string() });
+            const reqPromise = testRequest(protocol, { method: 'initialize', params: {} }, mockSchema, {
+                signal: controller.signal
+            });
+
+            controller.abort('User cancelled');
+            await expect(reqPromise).rejects.toThrow();
+
+            const cancelledSends = sendSpy.mock.calls.filter(([message]) => {
+                const m = message as Partial<JSONRPCNotification>;
+                return m?.method === 'notifications/cancelled';
+            });
+            expect(cancelledSends).toHaveLength(0);
+        });
+
+        test('should not send notifications/cancelled when an initialize request times out', async () => {
+            await protocol.connect(transport);
+
+            const mockSchema = z.object({ result: z.string() });
+            await expect(
+                testRequest(protocol, { method: 'initialize', params: {} }, mockSchema, {
+                    timeout: 0
+                })
+            ).rejects.toThrow();
+
+            const cancelledSends = sendSpy.mock.calls.filter(([message]) => {
+                const m = message as Partial<JSONRPCNotification>;
+                return m?.method === 'notifications/cancelled';
+            });
+            expect(cancelledSends).toHaveLength(0);
+        });
+
+        test('should still send notifications/cancelled for non-initialize requests', async () => {
+            await protocol.connect(transport);
+
+            const controller = new AbortController();
+            const mockSchema = z.object({ result: z.string() });
+            const reqPromise = testRequest(protocol, { method: 'example', params: {} }, mockSchema, {
+                signal: controller.signal
+            });
+
+            controller.abort('User cancelled');
+            await expect(reqPromise).rejects.toThrow();
+
+            const cancelledSends = sendSpy.mock.calls.filter(([message]) => {
+                const m = message as Partial<JSONRPCNotification>;
+                return m?.method === 'notifications/cancelled';
+            });
+            expect(cancelledSends).toHaveLength(1);
+        });
+    });
+
     test('should not overwrite existing hooks when connecting transports', async () => {
         const oncloseMock = vi.fn();
         const onerrorMock = vi.fn();
