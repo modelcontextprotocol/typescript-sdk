@@ -217,7 +217,9 @@ describe('UriTemplate', () => {
 
         it('should match URI with all optional query params', () => {
             const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
-            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44?selector=body&includeAttributes=true&includeText=true&includeChildren=true');
+            const match = template.match(
+                'dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44?selector=body&includeAttributes=true&includeText=true&includeChildren=true'
+            );
             expect(match).toEqual({
                 pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44',
                 selector: 'body',
