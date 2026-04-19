@@ -196,6 +196,42 @@ describe('UriTemplate', () => {
             expect(template.match('/users/123/extra')).toBeNull();
             expect(template.match('/users')).toBeNull();
         });
+
+        it('should match URI without any query params when template has optional query params', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44');
+            expect(match).toEqual({ pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44' });
+        });
+
+        it('should match URI with a subset of optional query params', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44?selector=body');
+            expect(match).toEqual({ pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44', selector: 'body' });
+        });
+
+        it('should match URI with query params in different order than the template', () => {
+            const template = new UriTemplate('resource://{id}{?param1,param2}');
+            const match = template.match('resource://test1?param2=valueA&param1=value1');
+            expect(match).toEqual({ id: 'test1', param1: 'value1', param2: 'valueA' });
+        });
+
+        it('should match URI with all optional query params', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44?selector=body&includeAttributes=true&includeText=true&includeChildren=true');
+            expect(match).toEqual({
+                pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44',
+                selector: 'body',
+                includeAttributes: 'true',
+                includeText: 'true',
+                includeChildren: 'true'
+            });
+        });
+
+        it('should not include query params not listed in the template', () => {
+            const template = new UriTemplate('/search{?q}');
+            const match = template.match('/search?q=test&extra=ignored');
+            expect(match).toEqual({ q: 'test' });
+        });
     });
 
     describe('security and edge cases', () => {
