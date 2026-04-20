@@ -1,8 +1,10 @@
 import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 import type { Mock, MockedFunction } from 'vitest';
+import { vi } from 'vitest';
 
 import { getDefaultEnvironment, StdioClientTransport } from '../../src/client/stdio.js';
 
@@ -16,8 +18,9 @@ describe('StdioClientTransport using cross-spawn', () => {
         mockSpawn.mockImplementation(() => {
             const mockProcess: {
                 on: Mock;
-                stdin?: { on: Mock; write: Mock };
-                stdout?: { on: Mock };
+                once: Mock;
+                stdin?: { on: Mock; write: Mock; off: Mock };
+                stdout?: { on: Mock; off: Mock };
                 stderr?: null;
             } = {
                 on: vi.fn((event: string, callback: () => void) => {
@@ -26,12 +29,20 @@ describe('StdioClientTransport using cross-spawn', () => {
                     }
                     return mockProcess;
                 }),
+                once: vi.fn((event: string, callback: () => void) => {
+                    if (event === 'spawn') {
+                        callback();
+                    }
+                    return mockProcess;
+                }),
                 stdin: {
                     on: vi.fn(),
-                    write: vi.fn().mockReturnValue(true)
+                    write: vi.fn().mockReturnValue(true),
+                    off: vi.fn()
                 },
                 stdout: {
-                    on: vi.fn()
+                    on: vi.fn(),
+                    off: vi.fn()
                 },
                 stderr: null
             };
@@ -109,13 +120,16 @@ describe('StdioClientTransport using cross-spawn', () => {
         // get the mock process object
         const mockProcess: {
             on: Mock;
+            once: Mock;
             stdin: {
                 on: Mock;
                 write: Mock;
                 once: Mock;
+                off: Mock;
             };
             stdout: {
                 on: Mock;
+                off: Mock;
             };
             stderr: null;
         } = {
@@ -125,13 +139,21 @@ describe('StdioClientTransport using cross-spawn', () => {
                 }
                 return mockProcess;
             }),
+            once: vi.fn((event: string, callback: () => void) => {
+                if (event === 'spawn') {
+                    callback();
+                }
+                return mockProcess;
+            }),
             stdin: {
                 on: vi.fn(),
                 write: vi.fn().mockReturnValue(true),
-                once: vi.fn()
+                once: vi.fn(),
+                off: vi.fn()
             },
             stdout: {
-                on: vi.fn()
+                on: vi.fn(),
+                off: vi.fn()
             },
             stderr: null
         };
@@ -151,6 +173,44 @@ describe('StdioClientTransport using cross-spawn', () => {
 
         // verify message is sent correctly
         expect(mockProcess.stdin.write).toHaveBeenCalled();
+    });
+
+    // Regression test for #780: listeners must be detached from the child's
+    // stdio streams on close(), not left attached to a process we no longer track.
+    test('should detach stdout/stdin listeners on close', async () => {
+        const stdout = new EventEmitter();
+        const stdin = Object.assign(new EventEmitter(), {
+            write: vi.fn().mockReturnValue(true),
+            end: vi.fn()
+        });
+        const proc = Object.assign(new EventEmitter(), {
+            stdin,
+            stdout,
+            stderr: null,
+            exitCode: null as number | null,
+            kill: vi.fn()
+        });
+        mockSpawn.mockReturnValue(proc as unknown as ChildProcess);
+
+        const transport = new StdioClientTransport({ command: 'test-command' });
+        const started = transport.start();
+        proc.emit('spawn');
+        await started;
+
+        expect(stdout.listenerCount('data')).toBe(1);
+        expect(stdout.listenerCount('error')).toBe(1);
+        expect(stdin.listenerCount('error')).toBe(1);
+        expect(proc.listenerCount('error')).toBe(1);
+
+        const closed = transport.close();
+        proc.exitCode = 0;
+        proc.emit('close');
+        await closed;
+
+        expect(stdout.listenerCount('data')).toBe(0);
+        expect(stdout.listenerCount('error')).toBe(0);
+        expect(stdin.listenerCount('error')).toBe(0);
+        expect(proc.listenerCount('error')).toBe(0);
     });
 
     describe('windowsHide', () => {
