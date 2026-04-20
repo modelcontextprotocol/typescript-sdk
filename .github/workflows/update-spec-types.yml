@@ -51,6 +51,9 @@ jobs:
               if: steps.check_changes.outputs.has_changes == 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
+                  # Skip lefthook pre-push (typecheck/lint/build); spec drift that breaks
+                  # typecheck should still open a PR so it can be fixed there.
+                  LEFTHOOK: 0
               run: |
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -58,7 +61,7 @@ jobs:
                   git checkout -B update-spec-types
                   git add packages/core/src/types/spec.types.ts
                   git commit -m "chore: update spec.types.ts from upstream"
-                  git push -f origin update-spec-types
+                  git push -f --no-verify origin update-spec-types
 
                   # Create PR if it doesn't exist, or update if it does
                   PR_BODY="This PR updates \`packages/core/src/types/spec.types.ts\` from the Model Context Protocol specification.
@@ -67,9 +70,11 @@ jobs:
 
                   This is an automated update triggered by the nightly cron job."
 
-                  if gh pr view update-spec-types &>/dev/null; then
-                    echo "PR already exists, updating description..."
-                    gh pr edit update-spec-types --body "$PR_BODY"
+                  # `gh pr view <branch>` matches closed PRs too, so check for an *open* PR explicitly.
+                  EXISTING_PR=$(gh pr list --head update-spec-types --state open --json number --jq '.[0].number // empty')
+                  if [ -n "$EXISTING_PR" ]; then
+                    echo "PR #$EXISTING_PR already exists, updating description..."
+                    gh pr edit "$EXISTING_PR" --body "$PR_BODY"
                   else
                     gh pr create \
                       --title "chore: update spec.types.ts from upstream" \

@@ -1,14 +1,17 @@
 import {
+    CallToolResultSchema,
     InitializedNotificationSchema,
     InitializeRequestSchema,
     JSONRPCErrorResponseSchema,
     JSONRPCMessageSchema,
     JSONRPCNotificationSchema,
     JSONRPCRequestSchema,
+    JSONRPCResponseSchema,
     JSONRPCResultResponseSchema,
     TaskAugmentedRequestParamsSchema
 } from './schemas.js';
 import type {
+    CallToolResult,
     CompleteRequest,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
@@ -18,6 +21,7 @@ import type {
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     JSONRPCResultResponse,
     TaskAugmentedRequestParams
 } from './types.js';
@@ -57,6 +61,25 @@ export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultR
  */
 export const isJSONRPCErrorResponse = (value: unknown): value is JSONRPCErrorResponse =>
     JSONRPCErrorResponseSchema.safeParse(value).success;
+
+/**
+ * Checks if a value is a valid {@linkcode JSONRPCResponse} (either a result or error response).
+ * @param value - The value to check.
+ *
+ * @returns True if the value is a valid {@linkcode JSONRPCResponse}, false otherwise.
+ */
+export const isJSONRPCResponse = (value: unknown): value is JSONRPCResponse => JSONRPCResponseSchema.safeParse(value).success;
+
+/**
+ * Checks if a value is a valid {@linkcode CallToolResult}.
+ * @param value - The value to check.
+ *
+ * @returns True if the value is a valid {@linkcode CallToolResult}, false otherwise.
+ */
+export const isCallToolResult = (value: unknown): value is CallToolResult => {
+    if (typeof value !== 'object' || value === null || !('content' in value)) return false;
+    return CallToolResultSchema.safeParse(value).success;
+};
 
 /**
  * Checks if a value is a valid {@linkcode TaskAugmentedRequestParams}.
