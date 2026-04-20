@@ -302,11 +302,7 @@ export class TaskManager {
 
                 if (isTerminal(task.status)) {
                     switch (task.status) {
-                        case 'completed': {
-                            const result = await this.getTaskResult({ taskId }, resultSchema, options);
-                            yield { type: 'result', result };
-                            break;
-                        }
+                        case 'completed':
                         case 'failed': {
                             const result = await this.getTaskResult({ taskId }, resultSchema, options);
                             yield { type: 'result', result };
