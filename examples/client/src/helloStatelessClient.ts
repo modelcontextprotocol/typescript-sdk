@@ -1,6 +1,9 @@
 /**
  * Client for the stateless hello-world server.
  *
+ * This is identical to the v1/v2 client pattern — same classes, same `connect()` call.
+ * Nothing about the client side changes for users.
+ *
  * Run: npx tsx examples/client/src/helloStatelessClient.ts
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
