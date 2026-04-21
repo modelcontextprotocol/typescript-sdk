@@ -24,6 +24,7 @@ function mockTransport(handler: (req: JSONRPCRequest, opts?: ClientFetchOptions)
     const sent: JSONRPCRequest[] = [];
     const notified: Notification[] = [];
     const ct: ClientTransport = {
+        kind: 'request',
         async fetch(req, opts) {
             sent.push(req);
             return handler(req, opts);

@@ -12,7 +12,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getRequestListener } from '@hono/node-server';
 import type {
     AuthInfo,
-    ChannelTransport,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -96,7 +95,9 @@ export function toNodeHttpHandler(
  * });
  * ```
  */
-export class NodeStreamableHTTPServerTransport implements ChannelTransport, RequestTransport {
+export class NodeStreamableHTTPServerTransport implements RequestTransport {
+    readonly kind = 'request' as const;
+
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
     private _requestListener: ReturnType<typeof getRequestListener>;
     // Store auth and parsedBody per request for passing through to handleRequest

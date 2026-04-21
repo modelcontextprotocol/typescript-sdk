@@ -7,8 +7,7 @@ import type {
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResultResponse,
-    Notification,
-    Transport
+    Notification
 } from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
@@ -194,7 +193,9 @@ export type StreamableHTTPClientTransportOptions = {
  * {@linkcode Client.connect}) and the legacy pipe-shaped {@linkcode Transport} (deprecated; kept for
  * direct callers and v1 compat).
  */
-export class StreamableHTTPClientTransport implements ClientTransport, Transport {
+export class StreamableHTTPClientTransport implements ClientTransport {
+    readonly kind = 'request' as const;
+
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;

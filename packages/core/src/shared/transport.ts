@@ -87,6 +87,12 @@ export type TransportSendOptions = {
  */
 export interface ChannelTransport {
     /**
+     * Explicit shape brand. Optional (defaults to `'channel'`) so existing
+     * `Transport` implementations don't need to declare it.
+     */
+    readonly kind?: 'channel';
+
+    /**
      * Starts processing messages on the transport, including any connection steps that might need to be taken.
      *
      * This method should only be called after callbacks are installed, or else messages may be lost.
@@ -173,13 +179,13 @@ export type AttachOptions = {
  * per inbound message. The transport itself never imports or references a `Dispatcher`.
  */
 export interface RequestTransport {
+    /** Explicit shape brand. Required so {@linkcode isRequestTransport} can discriminate without duck-typing. */
+    readonly kind: 'request';
+
     /**
      * Callback slot for inbound JSON-RPC requests. Set by `McpServer.connect()`.
      * The transport calls this per request and writes the yielded messages
      * (notifications + one terminal response) to the HTTP response stream.
-     *
-     * Transports MUST declare this property (initialised to `undefined`) so
-     * {@linkcode isRequestTransport} can discriminate before `connect()` runs.
      */
     onrequest?: ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
 
@@ -218,5 +224,5 @@ export interface RequestTransport {
 
 /** Type guard distinguishing {@linkcode RequestTransport} from {@linkcode ChannelTransport}. */
 export function isRequestTransport(t: ChannelTransport | RequestTransport): t is RequestTransport {
-    return 'onrequest' in t;
+    return (t as RequestTransport).kind === 'request';
 }

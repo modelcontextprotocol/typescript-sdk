@@ -65,6 +65,9 @@ export type ClientFetchOptions = {
  * interface is adapted via {@linkcode channelAsClientTransport}.
  */
 export interface ClientTransport {
+    /** Explicit shape brand. Required so {@linkcode isChannelTransport} can discriminate without duck-typing. */
+    readonly kind: 'request';
+
     /**
      * Send one JSON-RPC request and resolve with the terminal response.
      * Any progress/notifications received before the response are surfaced
@@ -104,8 +107,7 @@ export interface ClientTransport {
  * request-shaped path.
  */
 export function isChannelTransport(t: Transport | ClientTransport): t is Transport {
-    if (typeof (t as ClientTransport).fetch === 'function') return false;
-    return typeof (t as Transport).start === 'function' && typeof (t as Transport).send === 'function';
+    return (t as ClientTransport).kind !== 'request';
 }
 
 /**
@@ -134,6 +136,7 @@ export function channelAsClientTransport(pipe: Transport, dispatcher: Dispatcher
         }
     };
     return {
+        kind: 'request',
         driver,
         async fetch(request, opts) {
             await ensureStarted();

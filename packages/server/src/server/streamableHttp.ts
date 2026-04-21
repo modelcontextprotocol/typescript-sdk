@@ -14,7 +14,6 @@
 
 import type {
     AuthInfo,
-    ChannelTransport,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -157,7 +156,9 @@ export interface HandleRequestOptions {
  * {@linkcode Transport} interface methods route outbound messages through the
  * per-session {@linkcode Backchannel2511}.
  */
-export class WebStandardStreamableHTTPServerTransport implements ChannelTransport, RequestTransport {
+export class WebStandardStreamableHTTPServerTransport implements RequestTransport {
+    readonly kind = 'request' as const;
+
     private _options: WebStandardStreamableHTTPServerTransportOptions;
     private _session?: SessionCompat;
     private _backchannel = new Backchannel2511();
@@ -171,7 +172,7 @@ export class WebStandardStreamableHTTPServerTransport implements ChannelTranspor
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
-    /** {@linkcode RequestTransport.onrequest} — set by `McpServer.connect()`. Declared so {@linkcode isRequestTransport} matches. */
+    /** {@linkcode RequestTransport.onrequest} — set by `McpServer.connect()`. */
     onrequest: ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined = undefined;
     /** {@linkcode RequestTransport.onnotification} — set by `McpServer.connect()`. */
     onnotification?: (n: JSONRPCNotification) => void | Promise<void>;
