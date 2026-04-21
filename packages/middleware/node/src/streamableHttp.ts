@@ -13,13 +13,13 @@ import { getRequestListener } from '@hono/node-server';
 import type {
     AuthInfo,
     ChannelTransport,
-    DispatchEnv,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResultResponse,
     MessageExtraInfo,
+    RequestEnv,
     RequestId,
     RequestTransport
 } from '@modelcontextprotocol/core';
@@ -163,10 +163,10 @@ export class NodeStreamableHTTPServerTransport implements ChannelTransport, Requ
     }
 
     // RequestTransport callback slots — delegate to the wrapped web-standard transport.
-    get onrequest(): ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined {
+    get onrequest(): ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined {
         return this._webStandardTransport.onrequest;
     }
-    set onrequest(h: ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined) {
+    set onrequest(h: ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined) {
         this._webStandardTransport.onrequest = h;
     }
     get onnotification(): ((n: JSONRPCNotification) => void | Promise<void>) | undefined {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DispatchEnv, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { RequestEnv, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
 
 import { SessionCompat } from '../../src/server/sessionCompat.js';
 import type { ShttpCallbacks } from '../../src/server/shttpHandler.js';
@@ -12,7 +12,7 @@ function fakeServer(
     opts: { preNotify?: JSONRPCNotification } = {}
 ): ShttpCallbacks {
     return {
-        async *onrequest(req: JSONRPCRequest, _env?: DispatchEnv): AsyncIterable<JSONRPCMessage> {
+        async *onrequest(req: JSONRPCRequest, _env?: RequestEnv): AsyncIterable<JSONRPCMessage> {
             if (opts.preNotify) yield opts.preNotify;
             const h = handlers[req.method];
             if (!h) {

@@ -1,6 +1,5 @@
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type {
-    AuthInfo,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -17,36 +16,10 @@ import type {
 } from '../types/index.js';
 import { getNotificationSchema, getRequestSchema, ProtocolError, ProtocolErrorCode } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
-import type { BaseContext, RequestOptions } from './context.js';
-import type { TaskContext } from './taskManager.js';
+import type { BaseContext, RequestEnv, RequestOptions } from './context.js';
 
-/**
- * Per-dispatch environment provided by the caller (driver). Everything is optional;
- * a bare {@linkcode Dispatcher.dispatch} call works with no transport at all.
- */
-export type DispatchEnv = {
-    /**
-     * Sends a request back to the peer (server→client elicitation/sampling, or
-     * client→server nested calls). Supplied by {@linkcode StreamDriver} when running
-     * over a persistent pipe. Defaults to throwing {@linkcode SdkErrorCode.NotConnected}.
-     */
-    send?: (request: Request, options?: RequestOptions) => Promise<Result>;
-
-    /** Session identifier from the transport, if any. Surfaced as {@linkcode BaseContext.sessionId}. */
-    sessionId?: string;
-
-    /** Validated auth token info for HTTP transports. */
-    authInfo?: AuthInfo;
-
-    /** Original HTTP {@linkcode globalThis.Request | Request}, if any. */
-    httpReq?: globalThis.Request;
-
-    /** Abort signal for the inbound request. If omitted, a fresh controller is created. */
-    signal?: AbortSignal;
-
-    /** Task context, if task storage is configured by the caller. */
-    task?: TaskContext;
-};
+/** @deprecated Renamed to {@linkcode RequestEnv} (now in `context.ts`). */
+export type DispatchEnv = RequestEnv;
 
 /**
  * One yielded item from {@linkcode Dispatcher.dispatch}. A dispatch yields zero or more
@@ -66,6 +39,18 @@ export type RawDispatchOutput =
 
 type RawHandler<ContextT> = (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
 
+/** Signature of {@linkcode Dispatcher.dispatch}. Target type for {@linkcode DispatchMiddleware}. */
+export type DispatchFn = (req: JSONRPCRequest, env?: RequestEnv) => AsyncGenerator<DispatchOutput, void, void>;
+
+/**
+ * Onion-style middleware around {@linkcode Dispatcher.dispatch}. Registered via
+ * {@linkcode Dispatcher.use}; composed outermost-first (registration order).
+ *
+ * A middleware may transform `req`/`env` before delegating, transform or filter
+ * yielded outputs, or short-circuit by yielding a response without calling `next`.
+ */
+export type DispatchMiddleware = (next: DispatchFn) => DispatchFn;
+
 /**
  * Stateless JSON-RPC handler registry with a request-in / messages-out
  * {@linkcode Dispatcher.dispatch | dispatch()} entry point.
@@ -76,6 +61,7 @@ type RawHandler<ContextT> = (request: JSONRPCRequest, ctx: ContextT) => Promise<
 export class Dispatcher<ContextT extends BaseContext = BaseContext> {
     protected _requestHandlers: Map<string, RawHandler<ContextT>> = new Map();
     protected _notificationHandlers: Map<string, (n: JSONRPCNotification) => Promise<void>> = new Map();
+    private _dispatchMw: DispatchMiddleware[] = [];
 
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
@@ -90,18 +76,40 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
     /**
      * Subclasses override to enrich the context (e.g. {@linkcode ServerContext}). Default returns base unchanged.
      */
-    protected buildContext(base: BaseContext, _env: DispatchEnv): ContextT {
+    protected buildContext(base: BaseContext, _env: RequestEnv): ContextT {
         return base as ContextT;
     }
 
     /**
-     * Dispatch one inbound request. Yields any notifications the handler emits via
+     * Registers a {@linkcode DispatchMiddleware}. Registration order is outer-to-inner:
+     * the first middleware registered sees the rawest request and the final yields.
+     */
+    use(mw: DispatchMiddleware): this {
+        this._dispatchMw.push(mw);
+        return this;
+    }
+
+    /**
+     * Dispatch one inbound request through the registered middleware chain, then the
+     * core handler lookup. Yields any notifications the handler emits via
      * `ctx.mcpReq.notify()`, then yields exactly one terminal response.
      *
      * Never throws for handler errors; they are wrapped as JSON-RPC error responses.
      * May throw if iteration itself is misused.
      */
-    async *dispatch(request: JSONRPCRequest, env: DispatchEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
+    dispatch(request: JSONRPCRequest, env: RequestEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
+        // eslint-disable-next-line unicorn/consistent-function-scoping -- closes over `this`
+        let chain: DispatchFn = (r, e) => this._dispatchCore(r, e);
+        // eslint-disable-next-line unicorn/no-array-reverse -- toReversed() requires ES2023 lib; consumers may target ES2022
+        for (const mw of [...this._dispatchMw].reverse()) chain = mw(chain);
+        return chain(request, env);
+    }
+
+    /**
+     * The handler lookup + invocation. Middleware composes around this; subclasses do
+     * not override `dispatch()` directly — use {@linkcode Dispatcher.use | use()} instead.
+     */
+    private async *_dispatchCore(request: JSONRPCRequest, env: RequestEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
         if (handler === undefined) {
@@ -194,7 +202,7 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
     async *dispatchRaw(
         method: string,
         params: Record<string, unknown> | undefined,
-        env: DispatchEnv = {}
+        env: RequestEnv = {}
     ): AsyncGenerator<RawDispatchOutput, void, void> {
         const synthetic: JSONRPCRequest = { jsonrpc: '2.0', id: 0, method, params };
         for await (const out of this.dispatch(synthetic, env)) {
@@ -304,7 +312,7 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
     }
 
     /** Convenience: collect a full dispatch into a single response, discarding notifications. */
-    async dispatchToResponse(request: JSONRPCRequest, env?: DispatchEnv): Promise<JSONRPCResponse | JSONRPCErrorResponse> {
+    async dispatchToResponse(request: JSONRPCRequest, env?: RequestEnv): Promise<JSONRPCResponse | JSONRPCErrorResponse> {
         let resp: JSONRPCResponse | JSONRPCErrorResponse | undefined;
         for await (const out of this.dispatch(request, env)) {
             if (out.kind === 'response') resp = out.message;

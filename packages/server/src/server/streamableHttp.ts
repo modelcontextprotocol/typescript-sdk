@@ -15,13 +15,13 @@
 import type {
     AuthInfo,
     ChannelTransport,
-    DispatchEnv,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResultResponse,
     MessageExtraInfo,
+    RequestEnv,
     RequestTransport,
     TransportSendOptions
 } from '@modelcontextprotocol/core';
@@ -172,7 +172,7 @@ export class WebStandardStreamableHTTPServerTransport implements ChannelTranspor
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
     /** {@linkcode RequestTransport.onrequest} — set by `McpServer.connect()`. Declared so {@linkcode isRequestTransport} matches. */
-    onrequest: ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined = undefined;
+    onrequest: ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined = undefined;
     /** {@linkcode RequestTransport.onnotification} — set by `McpServer.connect()`. */
     onnotification?: (n: JSONRPCNotification) => void | Promise<void>;
     /** {@linkcode RequestTransport.onresponse} — set by `McpServer.connect()`. */

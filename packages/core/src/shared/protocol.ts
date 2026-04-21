@@ -18,13 +18,20 @@ import type {
     Result,
     ResultTypeMap
 } from '../types/index.js';
-import { getResultSchema, ProtocolErrorCode, SUPPORTED_PROTOCOL_VERSIONS } from '../types/index.js';
+import { getResultSchema, SUPPORTED_PROTOCOL_VERSIONS } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
-import type { BaseContext, NotificationOptions, OutboundChannel, ProtocolOptions, RequestOptions } from './context.js';
-import type { DispatchEnv, DispatchOutput } from './dispatcher.js';
+import type {
+    BaseContext,
+    NotificationOptions,
+    Outbound,
+    OutboundMiddleware,
+    ProtocolOptions,
+    RequestEnv,
+    RequestOptions
+} from './context.js';
+import type { DispatchMiddleware } from './dispatcher.js';
 import { Dispatcher } from './dispatcher.js';
 import { StreamDriver } from './streamDriver.js';
-import type { InboundContext } from './taskManager.js';
 import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport } from './transport.js';
 
@@ -37,7 +44,7 @@ export * from './context.js';
  * {@linkcode StreamDriver} (per-connection state) to preserve the v1 surface.
  */
 export abstract class Protocol<ContextT extends BaseContext> {
-    private _outbound?: OutboundChannel;
+    private _outbound?: Outbound;
     private readonly _dispatcher: Dispatcher<ContextT>;
 
     protected _supportedProtocolVersions: string[];
@@ -60,75 +67,35 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias, unicorn/no-this-assignment
         const self = this;
         this._dispatcher = new (class extends Dispatcher<ContextT> {
-            protected override buildContext(base: BaseContext, env: DispatchEnv & { _transportExtra?: MessageExtraInfo }): ContextT {
+            protected override buildContext(base: BaseContext, env: RequestEnv & { _transportExtra?: MessageExtraInfo }): ContextT {
                 return self.buildContext(base, env._transportExtra);
-            }
-
-            override async *dispatch(request: JSONRPCRequest, env: DispatchEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
-                const inboundCtx: InboundContext = {
-                    sessionId: env.sessionId,
-                    sendNotification: (n, opts) => self.notification(n, { ...opts, relatedRequestId: request.id }),
-                    sendRequest: (r, schema, opts) => self._requestWithSchema(r, schema, { ...opts, relatedRequestId: request.id })
-                };
-                const tr = self._ownTaskManager.processInboundRequest(request, inboundCtx);
-                if (tr.validateInbound) {
-                    try {
-                        tr.validateInbound();
-                    } catch (error) {
-                        const e = error as { code?: number; message?: string; data?: unknown };
-                        yield {
-                            kind: 'response',
-                            message: {
-                                jsonrpc: '2.0',
-                                id: request.id,
-                                error: {
-                                    code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
-                                    message: e?.message ?? 'Internal error',
-                                    ...(e?.data !== undefined && { data: e.data })
-                                }
-                            }
-                        };
-                        return;
-                    }
-                }
-                const taskEnv: DispatchEnv = {
-                    ...env,
-                    task: tr.taskContext ?? env.task,
-                    send: (r, opts) => tr.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
-                };
-                for await (const out of super.dispatch(request, taskEnv)) {
-                    if (out.kind === 'response') {
-                        const routed = await tr.routeResponse(out.message);
-                        if (!routed) yield out;
-                    } else {
-                        // Handler-emitted notifications go through TaskManager (queues when
-                        // related-task; otherwise calls inboundCtx.sendNotification → wire).
-                        await tr.sendNotification({ method: out.message.method, params: out.message.params });
-                    }
-                }
             }
         })();
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._ownTaskManager = _options?.tasks ? new TaskManager(_options.tasks) : new NullTaskManager();
-        this._bindTaskManager();
-    }
-
-    private readonly _ownTaskManager: TaskManager;
-
-    private _bindTaskManager(): void {
-        this._ownTaskManager.bind({
-            request: (r, schema, opts) => this._requestWithSchema(r, schema, opts),
-            notification: (n, opts) => this.notification(n, opts),
+        const omw = this._ownTaskManager.attachTo(this._dispatcher, {
+            channel: () => this._outbound,
             reportError: e => this.onerror?.(e),
-            removeProgressHandler: t => this._outbound?.removeProgressHandler?.(t),
-            registerHandler: (method, handler) => this._dispatcher.setRawRequestHandler(method, handler),
-            sendOnResponseStream: async (message, relatedRequestId) => {
-                await this._outbound?.sendRaw?.(message, { relatedRequestId });
-            },
             enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
             assertTaskCapability: m => this.assertTaskCapability(m),
             assertTaskHandlerCapability: m => this.assertTaskHandlerCapability(m)
         });
+        this._outboundMw.push(omw);
+    }
+
+    private readonly _ownTaskManager: TaskManager;
+    private readonly _outboundMw: OutboundMiddleware[] = [];
+
+    /** Register a {@linkcode DispatchMiddleware} on the inner dispatcher. */
+    use(mw: DispatchMiddleware): this {
+        this._dispatcher.use(mw);
+        return this;
+    }
+
+    /** Register an {@linkcode OutboundMiddleware} applied at the request-correlation seam. */
+    useOutbound(mw: OutboundMiddleware): this {
+        this._outboundMw.push(mw);
+        return this;
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -212,12 +179,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
             buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
-            interceptor: {
-                request: (jr, opts, id, settle, reject) => this._ownTaskManager.processOutboundRequest(jr, opts, id, settle, reject),
-                notification: (n, opts) => this._ownTaskManager.processOutboundNotification(n, opts),
-                response: (r, id) => this._ownTaskManager.processInboundResponse(r, id),
-                close: () => this._ownTaskManager.onClose()
-            }
+            outboundMw: this._outboundMw
         });
         this._outbound = driver;
         driver.onclose = () => {

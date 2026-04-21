@@ -11,13 +11,10 @@ import type {
     CreateMessageResult,
     CreateMessageResultWithTools,
     CreateTaskResult,
-    DispatchEnv,
-    DispatchOutput,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
     Implementation,
-    InboundContext,
     InitializeRequest,
     InitializeResult,
     JSONRPCErrorResponse,
@@ -34,10 +31,11 @@ import type {
     Notification,
     NotificationMethod,
     NotificationOptions,
-    OutboundChannel,
+    Outbound,
+    OutboundMiddleware,
     ProtocolOptions,
     Request,
-    RequestId,
+    RequestEnv,
     RequestMethod,
     RequestOptions,
     RequestTransport,
@@ -51,7 +49,6 @@ import type {
     ServerResult,
     StandardSchemaV1,
     StandardSchemaWithJSON,
-    TaskManagerHost,
     TaskManagerOptions,
     ToolAnnotations,
     ToolExecution,
@@ -62,9 +59,10 @@ import type {
 import {
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
-    attachPipeTransport,
+    attachChannelTransport,
     CallToolRequestSchema,
     CallToolResultSchema,
+    composeOutboundMiddleware,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
@@ -83,7 +81,6 @@ import {
     parseSchema,
     ProtocolError,
     ProtocolErrorCode,
-    RELATED_TASK_META_KEY,
     SdkError,
     SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS,
@@ -146,10 +143,9 @@ export type ServerOptions = Omit<ProtocolOptions, 'tasks'> & {
  * One instance can serve any number of concurrent requests.
  */
 export class McpServer extends Dispatcher<ServerContext> implements RegistriesHost {
-    private _outbound?: OutboundChannel;
+    private _outbound?: Outbound;
     private readonly _registries = new ServerRegistries(this);
-    private readonly _dispatchYielders = new Map<RequestId, (msg: JSONRPCMessage) => void>();
-    private _dispatchOutboundId = 0;
+    private readonly _outboundMw: OutboundMiddleware[] = [];
 
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
@@ -197,7 +193,14 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
 
         const tasksOpts = extractTaskManagerOptions(_options?.capabilities?.tasks);
         this._taskManager = tasksOpts ? new TaskManager(tasksOpts) : new NullTaskManager();
-        this._bindTaskManager();
+        const tasksOutbound = this._taskManager.attachTo(this, {
+            channel: () => this._outbound,
+            reportError: e => (this.onerror ?? (() => {}))(e),
+            enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
+            assertTaskCapability: m => assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, m, 'Client'),
+            assertTaskHandlerCapability: m => assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, m, 'Server')
+        });
+        this.useOutbound(tasksOutbound);
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setRequestHandler('ping', () => ({}));
@@ -209,159 +212,36 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     }
 
     // ───────────────────────────────────────────────────────────────────────
-    // Direct dispatch
+    // Middleware + direct dispatch
     // ───────────────────────────────────────────────────────────────────────
 
     /**
-     * Task-aware dispatch. Threads {@linkcode TaskManager.processInboundRequest} so
-     * `tasks/*` methods, task-augmented `tools/call`, and `routeResponse` queueing all
-     * work for callers that bypass {@linkcode StreamDriver} (e.g. {@linkcode shttpHandler}).
+     * Register an {@linkcode OutboundMiddleware} applied at the request-correlation seam
+     * (before each outbound write, for each inbound response, on close).
      */
-    override async *dispatch(request: JSONRPCRequest, env: DispatchEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
-        const sendOnStream = env.send;
-        const inboundCtx: InboundContext = {
-            sessionId: env.sessionId,
-            sendNotification: async () => {},
-            sendRequest: (r, schema, opts) =>
-                new Promise((resolve, reject) => {
-                    const messageId = this._dispatchOutboundId++;
-                    const wire: JSONRPCRequest = { jsonrpc: '2.0', id: messageId, method: r.method, params: r.params };
-                    const settle = (resp: { result: Result } | Error) => {
-                        if (resp instanceof Error) return reject(resp);
-                        const parsed = parseSchema(schema, resp.result);
-                        if (parsed.success) {
-                            resolve(parsed.data);
-                        } else {
-                            reject(parsed.error);
-                        }
-                    };
-                    const { queued } = this._taskManager.processOutboundRequest(wire, opts, messageId, settle, reject);
-                    if (queued) return;
-                    if (!sendOnStream) {
-                        reject(
-                            new SdkError(
-                                SdkErrorCode.NotConnected,
-                                'ctx.mcpReq.send is unavailable: no peer channel. Use the MRTR-native return form for elicitation/sampling, or run via connect()/StreamDriver.'
-                            )
-                        );
-                        return;
-                    }
-                    sendOnStream({ method: wire.method, params: wire.params }, opts).then(result => settle({ result }), reject);
-                })
-        };
-        const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
-
-        if (taskResult.validateInbound) {
-            try {
-                taskResult.validateInbound();
-            } catch (error) {
-                const e = error as { code?: number; message?: string; data?: unknown };
-                yield {
-                    kind: 'response',
-                    message: {
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        error: {
-                            code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
-                            message: e?.message ?? 'Internal error',
-                            ...(e?.data !== undefined && { data: e.data })
-                        }
-                    }
-                };
-                return;
-            }
-        }
-
-        const relatedTaskId = taskResult.taskContext?.id;
-        const taskEnv: DispatchEnv = {
-            ...env,
-            task: taskResult.taskContext ?? env.task,
-            send: (r, opts) => taskResult.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
-        };
-
-        // Queued task messages delivered via host.sendOnResponseStream are routed to this
-        // generator (instead of `_outbound.sendRaw`) so they yield on the same stream.
-        const sideQueue: JSONRPCMessage[] = [];
-        let wake: (() => void) | undefined;
-        this._dispatchYielders.set(request.id, msg => {
-            sideQueue.push(msg);
-            wake?.();
-        });
-
-        const drain = function* (): Generator<DispatchOutput> {
-            while (sideQueue.length > 0) {
-                const msg = sideQueue.shift()!;
-                yield 'method' in msg
-                    ? { kind: 'notification', message: msg as JSONRPCNotification }
-                    : { kind: 'response', message: msg as JSONRPCResponse | JSONRPCErrorResponse };
-            }
-        };
-
-        try {
-            const inner = super.dispatch(request, taskEnv);
-            let pending: Promise<IteratorResult<DispatchOutput>> | undefined;
-
-            while (true) {
-                yield* drain();
-                pending ??= inner.next();
-                const wakeP = new Promise<'side'>(resolve => {
-                    wake = () => resolve('side');
-                });
-                if (sideQueue.length > 0) {
-                    wake = undefined;
-                    continue;
-                }
-                const r = await Promise.race([pending, wakeP]);
-                wake = undefined;
-                if (r === 'side') continue;
-                pending = undefined;
-                if (r.done) break;
-                const out = r.value;
-                if (out.kind === 'response') {
-                    const routed = await taskResult.routeResponse(out.message);
-                    if (!routed) {
-                        yield* drain();
-                        yield out;
-                    }
-                } else if (relatedTaskId === undefined) {
-                    yield out;
-                } else {
-                    const params = (out.message.params ?? {}) as Record<string, unknown>;
-                    yield {
-                        kind: 'notification',
-                        message: {
-                            ...out.message,
-                            params: {
-                                ...params,
-                                _meta: { ...(params._meta as object), [RELATED_TASK_META_KEY]: { taskId: relatedTaskId } }
-                            }
-                        }
-                    };
-                }
-            }
-            yield* drain();
-        } finally {
-            this._dispatchYielders.delete(request.id);
-        }
+    useOutbound(mw: OutboundMiddleware): this {
+        this._outboundMw.push(mw);
+        return this;
     }
 
     /**
      * Routes an incoming JSON-RPC response (e.g. a client's reply to an `elicitation/create`
-     * request the server issued) to the {@linkcode TaskManager} resolver chain.
+     * request the server issued) through the registered {@linkcode OutboundMiddleware} chain.
      * Called by {@linkcode shttpHandler} for response-typed POST bodies.
      *
-     * @returns true if the response was consumed.
+     * @returns true if a middleware consumed it.
      */
     dispatchInboundResponse(response: JSONRPCResponse | JSONRPCErrorResponse): boolean {
         const id = typeof response.id === 'number' ? response.id : Number(response.id);
-        return this._taskManager.processInboundResponse(response, id).consumed;
+        const mw = composeOutboundMiddleware(this._outboundMw);
+        return mw.response?.(response, id)?.consumed ?? false;
     }
 
     /**
      * Handle one inbound request without a transport. Yields any notifications the handler
      * emits via `ctx.mcpReq.notify()`, then yields exactly one terminal response.
      */
-    async *handle(request: JSONRPCRequest, env?: DispatchEnv): AsyncGenerator<JSONRPCMessage, void, void> {
+    async *handle(request: JSONRPCRequest, env?: RequestEnv): AsyncGenerator<JSONRPCMessage, void, void> {
         for await (const out of this.dispatch(request, env)) {
             yield out.message;
         }
@@ -379,7 +259,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
             return jsonResponse(400, { jsonrpc: '2.0', id: null, error: { code: ProtocolErrorCode.ParseError, message: 'Parse error' } });
         }
         const messages = Array.isArray(body) ? body : [body];
-        const env: DispatchEnv = { authInfo: opts?.authInfo, httpReq: req };
+        const env: RequestEnv = { authInfo: opts?.authInfo, httpReq: req };
         const responses: JSONRPCMessage[] = [];
         for (const m of messages) {
             if (!isJSONRPCRequest(m)) {
@@ -405,13 +285,13 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
      *
      * - For {@linkcode RequestTransport} (Streamable HTTP): sets the transport's
      *   `onrequest`/`onnotification`/`onresponse` callback slots so it can route inbound
-     *   messages here, and builds an {@linkcode OutboundChannel} from the transport's
+     *   messages here, and builds an {@linkcode Outbound} from the transport's
      *   optional `notify`/`request` methods.
      * - For {@linkcode ChannelTransport} (stdio/WebSocket/InMemory): wraps it in a
-     *   {@linkcode StreamDriver} via {@linkcode attachPipeTransport}.
+     *   {@linkcode StreamDriver} via {@linkcode attachChannelTransport}.
      */
     async connect(transport: ChannelTransport | RequestTransport): Promise<void> {
-        let outbound: OutboundChannel | undefined;
+        let outbound: Outbound | undefined;
         if (isRequestTransport(transport)) {
             transport.onrequest = (req, env) => this.handle(req, env);
             transport.onnotification = n => this.dispatchNotification(n);
@@ -436,15 +316,14 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                         `Transport does not support out-of-band ${kind}; use ctx.mcpReq inside a handler.`
                     )
                 );
+            const mw = composeOutboundMiddleware(this._outboundMw);
             outbound = {
                 close: () => transport.close(),
                 notification: transport.notify
                     ? async (n, opts) => {
-                          const out = await this._taskManager.processOutboundNotification(
-                              { jsonrpc: '2.0', ...n } as JSONRPCNotification,
-                              opts
-                          );
-                          if (!out.queued && out.jsonrpcNotification) await transport.notify!(out.jsonrpcNotification);
+                          const out = (await mw.notification?.(n, opts)) ?? { queued: false };
+                          if (!out.queued)
+                              await transport.notify!(out.jsonrpcNotification ?? ({ jsonrpc: '2.0', ...n } as JSONRPCNotification));
                       }
                     : noOutbound('notifications'),
                 request: transport.request
@@ -464,16 +343,11 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                     : noOutbound('requests')
             };
         } else {
-            outbound = await attachPipeTransport(transport, this, {
+            outbound = await attachChannelTransport(transport, this, {
                 supportedProtocolVersions: this._supportedProtocolVersions,
                 debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
                 buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
-                interceptor: {
-                    request: (jr, o, id, settle, reject) => this._taskManager.processOutboundRequest(jr, o, id, settle, reject),
-                    notification: (n, o) => this._taskManager.processOutboundNotification(n, o),
-                    response: (r, id) => this._taskManager.processInboundResponse(r, id),
-                    close: () => this._taskManager.onClose()
-                },
+                outboundMw: this._outboundMw,
                 onclose: () => {
                     if (this._outbound === outbound) this._outbound = undefined;
                     this.onclose?.();
@@ -529,33 +403,11 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         return this._taskManager;
     }
 
-    private _bindTaskManager(): void {
-        const host: TaskManagerHost = {
-            request: (r, schema, opts) => this._outboundRequest(r, schema as never, opts),
-            notification: (n, opts) => this.notification(n, opts),
-            reportError: e => (this.onerror ?? (() => {}))(e),
-            removeProgressHandler: t => this._outbound?.removeProgressHandler?.(t),
-            registerHandler: (m, h) => this.setRawRequestHandler(m, h as never),
-            sendOnResponseStream: async (msg, relatedRequestId) => {
-                const yielder = relatedRequestId === undefined ? undefined : this._dispatchYielders.get(relatedRequestId);
-                if (yielder) {
-                    yielder(msg);
-                    return;
-                }
-                await this._outbound?.sendRaw?.(msg, { relatedRequestId });
-            },
-            enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
-            assertTaskCapability: m => assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, m, 'Client'),
-            assertTaskHandlerCapability: m => assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, m, 'Server')
-        };
-        this._taskManager.bind(host);
-    }
-
     // ───────────────────────────────────────────────────────────────────────
     // Context building
     // ───────────────────────────────────────────────────────────────────────
 
-    protected override buildContext(base: BaseContext, env: DispatchEnv & { _transportExtra?: MessageExtraInfo }): ServerContext {
+    protected override buildContext(base: BaseContext, env: RequestEnv & { _transportExtra?: MessageExtraInfo }): ServerContext {
         const extra = env._transportExtra;
         const hasHttpInfo = base.http || env.httpReq || extra?.closeSSEStream || extra?.closeStandaloneSSEStream;
         const ctx: ServerContext = {
@@ -734,10 +586,10 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     }
 
     // ───────────────────────────────────────────────────────────────────────
-    // Server→client requests (require a connected OutboundChannel)
+    // Server→client requests (require a connected Outbound)
     // ───────────────────────────────────────────────────────────────────────
 
-    private _requireOutbound(): OutboundChannel {
+    private _requireOutbound(): Outbound {
         if (!this._outbound) {
             throw new SdkError(
                 SdkErrorCode.NotConnected,

@@ -11,7 +11,7 @@ import { InMemoryTransport, LATEST_PROTOCOL_VERSION, ProtocolError, ProtocolErro
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ClientFetchOptions, ClientTransport } from '../../src/client/clientTransport.js';
-import { isPipeTransport } from '../../src/client/clientTransport.js';
+import { isChannelTransport } from '../../src/client/clientTransport.js';
 import { Client } from '../../src/client/client.js';
 
 type FetchResp = JSONRPCResultResponse | JSONRPCErrorResponse;
@@ -79,11 +79,11 @@ describe('Client (V2)', () => {
             expect(c.getServerVersion()?.name).toBe('d');
         });
 
-        it('isPipeTransport correctly distinguishes the two shapes', () => {
+        it('isChannelTransport correctly distinguishes the two shapes', () => {
             const [a] = InMemoryTransport.createLinkedPair();
             const { ct } = mockTransport(r => ok(r.id, {}));
-            expect(isPipeTransport(a)).toBe(true);
-            expect(isPipeTransport(ct)).toBe(false);
+            expect(isChannelTransport(a)).toBe(true);
+            expect(isChannelTransport(ct)).toBe(false);
         });
     });
 

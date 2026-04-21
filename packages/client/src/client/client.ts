@@ -11,13 +11,10 @@ import type {
     ClientResult,
     CompleteRequest,
     CreateTaskResult,
-    DispatchEnv,
-    DispatchOutput,
     GetPromptRequest,
     GetTaskRequest,
     GetTaskResult,
     Implementation,
-    InboundContext,
     JSONRPCErrorResponse,
     JSONRPCRequest,
     JSONRPCResultResponse,
@@ -35,6 +32,7 @@ import type {
     Notification,
     NotificationMethod,
     NotificationOptions,
+    OutboundMiddleware,
     ProtocolOptions,
     ReadResourceRequest,
     Request,
@@ -48,7 +46,6 @@ import type {
     StandardSchemaV1,
     StreamDriverOptions,
     SubscribeRequest,
-    TaskManagerHost,
     TaskManagerOptions,
     Tool,
     Transport,
@@ -58,6 +55,7 @@ import {
     CallToolResultSchema,
     CancelTaskResultSchema,
     CompleteResultSchema,
+    composeOutboundMiddleware,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
@@ -93,7 +91,7 @@ import {
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 import type { ClientFetchOptions, ClientTransport } from './clientTransport.js';
-import { isJSONRPCErrorResponse, isPipeTransport, pipeAsClientTransport } from './clientTransport.js';
+import { channelAsClientTransport, isChannelTransport, isJSONRPCErrorResponse } from './clientTransport.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -231,8 +229,8 @@ export class Client extends Dispatcher<ClientContext> {
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-    private _tasksOptions?: TaskManagerOptions;
-    private _taskManager?: TaskManager;
+    private _taskManager: TaskManager;
+    private readonly _outboundMw: OutboundMiddleware[] = [];
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -248,7 +246,25 @@ export class Client extends Dispatcher<ClientContext> {
         this._enforceStrictCapabilities = _options?.enforceStrictCapabilities ?? false;
         this._mrtrMaxRounds = _options?.mrtrMaxRounds ?? DEFAULT_MRTR_MAX_ROUNDS;
         this._pendingListChangedConfig = _options?.listChanged;
-        this._tasksOptions = extractTaskManagerOptions(_options?.capabilities?.tasks);
+
+        const tasksOpts = extractTaskManagerOptions(_options?.capabilities?.tasks);
+        this._taskManager = tasksOpts ? new TaskManager(tasksOpts) : new NullTaskManager();
+        const tasksOutbound = this._taskManager.attachTo(this, {
+            channel: () =>
+                this._ct
+                    ? {
+                          request: (r, schema, opts) => this._request(r, schema, opts),
+                          notification: (n, opts) => this.notification(n, opts),
+                          close: () => this.close(),
+                          removeProgressHandler: t => this._ct?.driver?.removeProgressHandler(t)
+                      }
+                    : undefined,
+            reportError: e => this.onerror?.(e),
+            enforceStrictCapabilities: this._enforceStrictCapabilities,
+            assertTaskCapability: () => {},
+            assertTaskHandlerCapability: () => {}
+        });
+        this.useOutbound(tasksOutbound);
 
         // Strip runtime-only fields from advertised capabilities
         if (_options?.capabilities?.tasks) {
@@ -262,79 +278,28 @@ export class Client extends Dispatcher<ClientContext> {
     }
 
     /**
-     * Task-aware dispatch for inbound server-initiated requests (sampling,
-     * elicitation, roots, ping). Threads {@linkcode TaskManager.processInboundRequest}
-     * so task-augmented requests and queueing work over both pipe and request-shaped paths.
+     * Register an {@linkcode OutboundMiddleware} applied at the request-correlation seam.
      */
-    override async *dispatch(request: JSONRPCRequest, env: DispatchEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
-        const tm = this._taskManager;
-        if (!tm) {
-            yield* super.dispatch(request, env);
-            return;
-        }
-        const inboundCtx: InboundContext = {
-            sessionId: env.sessionId,
-            sendNotification: (n, opts) => this.notification(n, { ...opts, relatedRequestId: request.id }),
-            sendRequest: (r, schema, opts) => this._request(r, schema, { ...opts, relatedRequestId: request.id })
-        };
-        const tr = tm.processInboundRequest(request, inboundCtx);
-        if (tr.validateInbound) {
-            try {
-                tr.validateInbound();
-            } catch (error) {
-                const e = error as { code?: number; message?: string; data?: unknown };
-                yield {
-                    kind: 'response',
-                    message: {
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        error: {
-                            code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
-                            message: e?.message ?? 'Internal error',
-                            ...(e?.data !== undefined && { data: e.data })
-                        }
-                    }
-                };
-                return;
-            }
-        }
-        const taskEnv: DispatchEnv = {
-            ...env,
-            task: tr.taskContext ?? env.task,
-            send: (r, opts) => tr.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
-        };
-        for await (const out of super.dispatch(request, taskEnv)) {
-            if (out.kind === 'response') {
-                const routed = await tr.routeResponse(out.message);
-                if (!routed) yield out;
-            } else {
-                await tr.sendNotification({ method: out.message.method, params: out.message.params });
-            }
-        }
+    useOutbound(mw: OutboundMiddleware): this {
+        this._outboundMw.push(mw);
+        return this;
     }
 
     /**
      * Connects to a server. Accepts either a {@linkcode ClientTransport}
      * (2026-06-native, request-shaped) or a legacy pipe {@linkcode Transport}
      * (stdio, SSE, the v1 SHTTP class). Pipe transports are adapted via
-     * {@linkcode pipeAsClientTransport} and the 2025-11 initialize handshake
+     * {@linkcode channelAsClientTransport} and the 2025-11 initialize handshake
      * is performed.
      */
     async connect(transport: Transport | ClientTransport, options?: RequestOptions): Promise<void> {
-        this._bindTaskManager();
-        if (isPipeTransport(transport)) {
-            const tm = this._taskManager!;
+        if (isChannelTransport(transport)) {
             const driverOpts: StreamDriverOptions = {
                 supportedProtocolVersions: this._supportedProtocolVersions,
                 debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
-                interceptor: {
-                    request: (jr, opts, id, settle, reject) => tm.processOutboundRequest(jr, opts, id, settle, reject),
-                    notification: (n, opts) => tm.processOutboundNotification(n, opts),
-                    response: (r, id) => tm.processInboundResponse(r, id),
-                    close: () => tm.onClose()
-                }
+                outboundMw: this._outboundMw
             };
-            this._ct = pipeAsClientTransport(transport, this, driverOpts);
+            this._ct = channelAsClientTransport(transport, this, driverOpts);
             this._ct.driver!.onclose = () => this.onclose?.();
             this._ct.driver!.onerror = e => this.onerror?.(e);
             const skipInit = transport.sessionId !== undefined;
@@ -389,7 +354,8 @@ export class Client extends Dispatcher<ClientContext> {
                         return resp ?? { jsonrpc: '2.0', id: r.id, error: { code: -32_601, message: 'Method not found' } };
                     },
                     onresponse: r => {
-                        const consumed = this.taskManager.processInboundResponse(r, Number(r.id)).consumed;
+                        const mw = composeOutboundMiddleware(this._outboundMw);
+                        const consumed = mw.response?.(r, Number(r.id))?.consumed ?? false;
                         if (!consumed) this.onerror?.(new Error(`Unmatched response on standalone stream: ${JSON.stringify(r)}`));
                     }
                 });
@@ -400,30 +366,6 @@ export class Client extends Dispatcher<ClientContext> {
                 this.onerror?.(error instanceof Error ? error : new Error(String(error)));
             }
         })();
-    }
-
-    /**
-     * Construct and bind this client's {@linkcode TaskManager}. Owned by the client
-     * (not the transport adapter); the pipe-shaped path threads it via
-     * {@linkcode StreamDriverOptions.interceptor}.
-     */
-    private _bindTaskManager(): void {
-        const tm = this._tasksOptions ? new TaskManager(this._tasksOptions) : new NullTaskManager();
-        const host: TaskManagerHost = {
-            request: (r, schema, opts) => this._request(r, schema, opts),
-            notification: (n, opts) => this.notification(n, opts),
-            reportError: e => this.onerror?.(e),
-            removeProgressHandler: t => this._ct?.driver?.removeProgressHandler(t),
-            registerHandler: (method, handler) => this.setRawRequestHandler(method, handler),
-            sendOnResponseStream: async () => {
-                throw new SdkError(SdkErrorCode.NotConnected, 'sendOnResponseStream is server-side only');
-            },
-            enforceStrictCapabilities: this._enforceStrictCapabilities,
-            assertTaskCapability: () => {},
-            assertTaskHandlerCapability: () => {}
-        };
-        tm.bind(host);
-        this._taskManager = tm;
     }
 
     async close(): Promise<void> {
@@ -660,9 +602,6 @@ export class Client extends Dispatcher<ClientContext> {
      * This client's {@linkcode TaskManager}. Owned here (not by the transport adapter).
      */
     get taskManager(): TaskManager {
-        if (!this._taskManager) {
-            throw new SdkError(SdkErrorCode.NotConnected, 'taskManager is unavailable: call connect() first.');
-        }
         return this._taskManager;
     }
 
@@ -760,7 +699,8 @@ export class Client extends Dispatcher<ClientContext> {
                 onresumptiontoken: options?.onresumptiontoken,
                 onnotification: n => void this.dispatchNotification(n).catch(error => this.onerror?.(error)),
                 onresponse: r => {
-                    const consumed = this.taskManager.processInboundResponse(r, Number(r.id)).consumed;
+                    const mw = composeOutboundMiddleware(this._outboundMw);
+                    const consumed = mw.response?.(r, Number(r.id))?.consumed ?? false;
                     if (!consumed) this.onerror?.(new Error(`Unmatched response on stream: ${JSON.stringify(r)}`));
                 },
                 onrequest: async r => {
@@ -1099,4 +1039,4 @@ function formatErr(e: unknown): string {
 }
 
 export type { ClientFetchOptions, ClientTransport } from './clientTransport.js';
-export { isPipeTransport, pipeAsClientTransport } from './clientTransport.js';
+export { channelAsClientTransport, isChannelTransport } from './clientTransport.js';

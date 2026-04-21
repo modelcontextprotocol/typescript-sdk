@@ -25,9 +25,9 @@ import {
 } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
-import type { NotificationOptions, OutboundChannel, OutboundInterceptor, ProgressCallback, RequestOptions } from './context.js';
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
-import type { DispatchEnv, Dispatcher } from './dispatcher.js';
+import type { NotificationOptions, Outbound, OutboundMiddleware, ProgressCallback, RequestEnv, RequestOptions } from './context.js';
+import { composeOutboundMiddleware, DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
+import type { Dispatcher } from './dispatcher.js';
 import type { AttachOptions, Transport } from './transport.js';
 
 type TimeoutInfo = {
@@ -43,15 +43,15 @@ export type StreamDriverOptions = {
     supportedProtocolVersions?: string[];
     debouncedNotificationMethods?: string[];
     /**
-     * Hook to enrich the per-request {@linkcode DispatchEnv} from transport-supplied
+     * Hook to enrich the per-request {@linkcode RequestEnv} from transport-supplied
      * {@linkcode MessageExtraInfo} (e.g. auth, http req).
      */
-    buildEnv?: (extra: MessageExtraInfo | undefined, base: DispatchEnv) => DispatchEnv;
+    buildEnv?: (extra: MessageExtraInfo | undefined, base: RequestEnv) => RequestEnv;
     /**
-     * Hooks invoked at the request-correlation seam (before each outbound write,
-     * for each inbound response, on close). The driver is agnostic to what they do.
+     * {@linkcode OutboundMiddleware} hooks invoked at the request-correlation seam.
+     * Composed in registration order via {@linkcode composeOutboundMiddleware}.
      */
-    interceptor?: OutboundInterceptor;
+    outboundMw?: OutboundMiddleware[];
 };
 
 /**
@@ -61,7 +61,7 @@ export type StreamDriverOptions = {
  *
  * One driver per pipe. The dispatcher it wraps may be shared.
  */
-export class StreamDriver implements OutboundChannel {
+export class StreamDriver implements Outbound {
     private _requestMessageId = 0;
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
@@ -70,6 +70,7 @@ export class StreamDriver implements OutboundChannel {
     private _pendingDebouncedNotifications = new Set<string>();
     private _closed = false;
     private _supportedProtocolVersions: string[];
+    private _mw: OutboundMiddleware;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -81,9 +82,10 @@ export class StreamDriver implements OutboundChannel {
         private _options: StreamDriverOptions = {}
     ) {
         this._supportedProtocolVersions = _options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._mw = composeOutboundMiddleware(_options.outboundMw ?? []);
     }
 
-    /** {@linkcode OutboundChannel.removeProgressHandler}. */
+    /** {@linkcode Outbound.removeProgressHandler}. */
     removeProgressHandler(token: number): void {
         this._progressHandlers.delete(token);
     }
@@ -130,12 +132,12 @@ export class StreamDriver implements OutboundChannel {
         await this.pipe.close();
     }
 
-    /** {@linkcode OutboundChannel.setProtocolVersion} — delegates to the pipe. */
+    /** {@linkcode Outbound.setProtocolVersion} — delegates to the pipe. */
     setProtocolVersion(version: string): void {
         this.pipe.setProtocolVersion?.(version);
     }
 
-    /** {@linkcode OutboundChannel.sendRaw} — write a raw JSON-RPC message to the pipe. */
+    /** {@linkcode Outbound.sendRaw} — write a raw JSON-RPC message to the pipe. */
     async sendRaw(message: Parameters<Transport['send']>[0], options?: { relatedRequestId?: RequestId }): Promise<void> {
         await this.pipe.send(message, options);
     }
@@ -204,15 +206,14 @@ export class StreamDriver implements OutboundChannel {
             );
 
             let queued = false;
-            const intercept = this._options.interceptor?.request;
-            if (intercept) {
+            if (this._mw.request) {
                 const sideChannelResponse = (resp: JSONRPCResultResponse | Error) => {
                     const h = this._responseHandlers.get(messageId);
                     if (h) h(resp);
                     else this._onerror(new Error(`Response handler missing for side-channeled request ${messageId}`));
                 };
                 try {
-                    queued = intercept(jsonrpcRequest, options, messageId, sideChannelResponse, error => {
+                    queued = this._mw.request(jsonrpcRequest, options, messageId, sideChannelResponse, error => {
                         this._progressHandlers.delete(messageId);
                         reject(error);
                     }).queued;
@@ -242,7 +243,7 @@ export class StreamDriver implements OutboundChannel {
      * Sends a notification over the pipe. Supports debouncing per the constructor option.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        const intercepted = await this._options.interceptor?.notification?.(notification, options);
+        const intercepted = await this._mw.notification?.(notification, options);
         if (intercepted?.queued || this._closed) return;
         const jsonrpc: JSONRPCNotification = intercepted?.jsonrpcNotification ?? {
             jsonrpc: '2.0',
@@ -270,7 +271,7 @@ export class StreamDriver implements OutboundChannel {
         const abort = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abort);
 
-        const baseEnv: DispatchEnv = {
+        const baseEnv: RequestEnv = {
             signal: abort.signal,
             sessionId: this.pipe.sessionId,
             authInfo: extra?.authInfo,
@@ -341,7 +342,7 @@ export class StreamDriver implements OutboundChannel {
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
-        const intercepted = this._options.interceptor?.response?.(response, messageId);
+        const intercepted = this._mw.response?.(response, messageId);
         if (intercepted?.consumed) return;
 
         const handler = this._responseHandlers.get(messageId);
@@ -366,7 +367,7 @@ export class StreamDriver implements OutboundChannel {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
-        this._options.interceptor?.close?.();
+        this._mw.close?.();
         this._pendingDebouncedNotifications.clear();
         for (const info of this._timeoutInfo.values()) clearTimeout(info.timeoutId);
         this._timeoutInfo.clear();
@@ -422,21 +423,20 @@ export class StreamDriver implements OutboundChannel {
 }
 
 /**
- * Wraps a plain pipe-shaped {@linkcode Transport} in a {@linkcode StreamDriver}
- * and starts it. This is the back-compat path for transports that don't implement
- * `attach()`: callers (`McpServer.connect`, `Client.connect`) use this helper
- * instead of importing `StreamDriver` themselves.
+ * Wraps a {@linkcode ChannelTransport} in a {@linkcode StreamDriver} and starts it.
+ * Callers (`McpServer.connect`, `Client.connect`) use this helper instead of
+ * importing `StreamDriver` themselves.
  */
-export async function attachPipeTransport(
+export async function attachChannelTransport(
     pipe: Transport,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- adapter is context-agnostic
     dispatcher: Dispatcher<any>,
     options?: AttachOptions
-): Promise<OutboundChannel> {
+): Promise<Outbound> {
     const driver = new StreamDriver(dispatcher, pipe, {
         supportedProtocolVersions: options?.supportedProtocolVersions,
         debouncedNotificationMethods: options?.debouncedNotificationMethods,
-        interceptor: options?.interceptor,
+        outboundMw: options?.outboundMw,
         buildEnv: options?.buildEnv
     });
     if (options?.onclose || options?.onerror) {

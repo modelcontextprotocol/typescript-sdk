@@ -1,12 +1,12 @@
 import type {
     AuthInfo,
-    DispatchEnv,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResultResponse,
-    MessageExtraInfo
+    MessageExtraInfo,
+    RequestEnv
 } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
@@ -61,7 +61,7 @@ export interface EventStore {
  */
 export interface ShttpCallbacks {
     /** Called per inbound JSON-RPC request; yields notifications then one terminal response. */
-    onrequest?: ((request: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
+    onrequest?: ((request: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
     /** Called per inbound JSON-RPC notification. */
     onnotification?: (notification: JSONRPCNotification) => void | Promise<void>;
     /** Called per inbound JSON-RPC response (client POSTing back to a server-initiated request). Returns `true` if claimed. */
@@ -307,7 +307,7 @@ export function shttpHandler(
                 ? initReq.params.protocolVersion
                 : (req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
 
-        const baseEnv: DispatchEnv = { sessionId, authInfo: extra?.authInfo, httpReq: req };
+        const baseEnv: RequestEnv = { sessionId, authInfo: extra?.authInfo, httpReq: req };
         const useBackchannel = backchannelEnabled(sessionId, clientProtocolVersion);
 
         if (enableJsonResponse) {
@@ -351,7 +351,7 @@ export function shttpHandler(
                               }
                             : undefined
                 };
-                const env: DispatchEnv & { _transportExtra?: MessageExtraInfo } = {
+                const env: RequestEnv & { _transportExtra?: MessageExtraInfo } = {
                     ...baseEnv,
                     _transportExtra: transportExtra,
                     ...(useBackchannel && backchannel && sessionId !== undefined

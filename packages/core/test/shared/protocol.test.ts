@@ -5624,12 +5624,12 @@ describe('TaskManager lifecycle via Protocol', () => {
         protocol = new TestProtocolImpl();
     });
 
-    test('bind() is called during Protocol construction', () => {
-        const bindSpy = vi.spyOn(TaskManager.prototype, 'bind');
+    test('attachTo() is called during Protocol construction', () => {
+        const attachSpy = vi.spyOn(TaskManager.prototype, 'attachTo');
         const p = new TestProtocolImpl({ tasks: {} });
-        expect(bindSpy).toHaveBeenCalled();
+        expect(attachSpy).toHaveBeenCalled();
         expect(p.taskManager).toBeInstanceOf(TaskManager);
-        bindSpy.mockRestore();
+        attachSpy.mockRestore();
     });
 
     test('NullTaskManager is created when no tasks config is provided', () => {

@@ -21,6 +21,7 @@ import type {
     RequestId,
     RequestMeta,
     RequestMethod,
+    Result,
     ResultTypeMap,
     ServerCapabilities,
     TaskCreationParams
@@ -33,6 +34,34 @@ import type { TransportSendOptions } from './transport.js';
  * Callback for progress notifications.
  */
 export type ProgressCallback = (progress: Progress) => void;
+
+/**
+ * Per-request environment a transport adapter passes to {@linkcode Dispatcher.dispatch}.
+ * Everything is optional; a bare `dispatch()` call works with no transport at all.
+ */
+export type RequestEnv = {
+    /**
+     * Sends a request back to the peer (server→client elicitation/sampling, or
+     * client→server nested calls). Supplied by {@linkcode StreamDriver} when running
+     * over a persistent pipe. Defaults to throwing {@linkcode SdkErrorCode.NotConnected}.
+     */
+    send?: (request: Request, options?: RequestOptions) => Promise<Result>;
+
+    /** Session identifier from the transport, if any. Surfaced as {@linkcode BaseContext.sessionId}. */
+    sessionId?: string;
+
+    /** Validated auth token info for HTTP transports. */
+    authInfo?: AuthInfo;
+
+    /** Original HTTP {@linkcode globalThis.Request | Request}, if any. */
+    httpReq?: globalThis.Request;
+
+    /** Abort signal for the inbound request. If omitted, a fresh controller is created. */
+    signal?: AbortSignal;
+
+    /** Task context, if task storage is configured by the caller. */
+    task?: TaskContext;
+};
 
 /**
  * Additional initialization options.
@@ -145,12 +174,12 @@ export type NotificationOptions = {
  * The minimal contract a {@linkcode Dispatcher} owner needs to send outbound
  * requests/notifications to the connected peer. Decouples {@linkcode McpServer}
  * (and the compat {@linkcode Protocol}) from any specific transport adapter:
- * they hold an `OutboundChannel`, not a `StreamDriver`.
+ * they hold an `Outbound`, not a `StreamDriver`.
  *
  * {@linkcode StreamDriver} implements this for persistent pipes. Request-shaped
  * paths can supply their own (e.g. routing through a backchannel).
  */
-export interface OutboundChannel {
+export interface Outbound {
     /** Send a request to the peer and resolve with the parsed result. */
     request<T extends AnySchema>(req: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
     /** Send a notification to the peer. */
@@ -166,15 +195,17 @@ export interface OutboundChannel {
 }
 
 /**
- * Hooks an {@linkcode OutboundChannel} owner can supply to a transport adapter
- * (e.g. {@linkcode StreamDriver}) to intercept outbound writes and inbound responses
- * at the request-correlation seam. The adapter knows nothing about *why* a message
- * is queued or consumed; it just calls these hooks.
+ * Middleware around the request-correlation seam of an {@linkcode Outbound}.
+ * Registered via `useOutbound()` on {@linkcode McpServer} / {@linkcode Client};
+ * the transport adapter (e.g. {@linkcode StreamDriver}) calls each hook without
+ * knowing why a message is queued or consumed.
  *
- * In practice this is how {@linkcode TaskManager} threads task augmentation through
- * a pipe — but the adapter is agnostic to that.
+ * Unlike {@linkcode DispatchMiddleware} (a single function wrapping `next`), the
+ * outbound seam has four distinct call sites, so this is a record of optional hooks.
+ * Multiple middleware are composed with {@linkcode composeOutboundMiddleware} —
+ * first to claim wins for `request`/`notification`/`response`; all `close` run.
  */
-export interface OutboundInterceptor {
+export interface OutboundMiddleware {
     /** Called before each outbound request hits the wire. Return `queued: true` to suppress the send (caller resolves via `settle`). */
     request?(
         jr: JSONRPCRequest,
@@ -192,6 +223,45 @@ export interface OutboundInterceptor {
     response?(r: JSONRPCResponse | JSONRPCErrorResponse, messageId: number): { consumed: boolean; preserveProgress?: boolean };
     /** Called on connection close. */
     close?(): void;
+}
+
+/**
+ * Composes a list of {@linkcode OutboundMiddleware} into one, registration-order.
+ * For `request`/`notification`/`response` the first middleware to claim (queued/consumed)
+ * short-circuits the rest; `close` runs all.
+ */
+export function composeOutboundMiddleware(mws: OutboundMiddleware[]): OutboundMiddleware {
+    if (mws.length <= 1) return mws[0] ?? {};
+    return {
+        request(jr, opts, id, settle, reject) {
+            for (const mw of mws) {
+                const r = mw.request?.(jr, opts, id, settle, reject);
+                if (r?.queued) return r;
+            }
+            return { queued: false };
+        },
+        async notification(n, opts) {
+            let rewritten: JSONRPCNotification | undefined;
+            for (const mw of mws) {
+                const r = await mw.notification?.(n, opts);
+                if (r?.queued) return r;
+                if (r?.jsonrpcNotification) rewritten = r.jsonrpcNotification;
+            }
+            return { queued: false, jsonrpcNotification: rewritten };
+        },
+        response(r, id) {
+            let preserveProgress = false;
+            for (const mw of mws) {
+                const out = mw.response?.(r, id);
+                if (out?.consumed) return out;
+                if (out?.preserveProgress) preserveProgress = true;
+            }
+            return { consumed: false, preserveProgress };
+        },
+        close() {
+            for (const mw of mws) mw.close?.();
+        }
+    };
 }
 
 /**

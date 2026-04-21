@@ -8,15 +8,7 @@ export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
 export * from './shared/stdio.js';
 export * from './shared/streamDriver.js';
-export type {
-    InboundContext,
-    InboundResult,
-    RequestTaskStore,
-    TaskContext,
-    TaskManagerHost,
-    TaskManagerOptions,
-    TaskRequestOptions
-} from './shared/taskManager.js';
+export type { RequestTaskStore, TaskAttachHooks, TaskContext, TaskManagerOptions, TaskRequestOptions } from './shared/taskManager.js';
 export { extractTaskManagerOptions, NullTaskManager, TaskManager } from './shared/taskManager.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';

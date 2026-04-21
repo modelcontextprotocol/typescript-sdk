@@ -62,7 +62,7 @@ export type ClientFetchOptions = {
  * version) but the contract is per-call.
  *
  * This is the 2026-06-native shape. The legacy pipe {@linkcode Transport}
- * interface is adapted via {@linkcode pipeAsClientTransport}.
+ * interface is adapted via {@linkcode channelAsClientTransport}.
  */
 export interface ClientTransport {
     /**
@@ -103,7 +103,7 @@ export interface ClientTransport {
  * {@linkcode ClientTransport} so {@linkcode Client.connect} uses the
  * request-shaped path.
  */
-export function isPipeTransport(t: Transport | ClientTransport): t is Transport {
+export function isChannelTransport(t: Transport | ClientTransport): t is Transport {
     if (typeof (t as ClientTransport).fetch === 'function') return false;
     return typeof (t as Transport).start === 'function' && typeof (t as Transport).send === 'function';
 }
@@ -117,7 +117,7 @@ export function isPipeTransport(t: Transport | ClientTransport): t is Transport 
  * server-initiated requests (sampling, elicitation, roots) that arrive on the pipe.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- adapter is context-agnostic; the caller's Dispatcher subclass owns ContextT
-export function pipeAsClientTransport(pipe: Transport, dispatcher: Dispatcher<any>, options?: StreamDriverOptions): ClientTransport {
+export function channelAsClientTransport(pipe: Transport, dispatcher: Dispatcher<any>, options?: StreamDriverOptions): ClientTransport {
     const driver = new StreamDriver(dispatcher, pipe, options);
     let started = false;
     const subscribers: Set<(n: JSONRPCNotification) => void> = new Set();

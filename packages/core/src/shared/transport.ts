@@ -7,8 +7,7 @@ import type {
     MessageExtraInfo,
     RequestId
 } from '../types/index.js';
-import type { OutboundInterceptor } from './context.js';
-import type { DispatchEnv } from './dispatcher.js';
+import type { OutboundMiddleware, RequestEnv } from './context.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -151,14 +150,14 @@ export interface ChannelTransport {
 export type Transport = ChannelTransport;
 
 /**
- * Options McpServer passes when wiring a {@linkcode ChannelTransport} via {@linkcode attachPipeTransport}.
+ * Options McpServer passes when wiring a {@linkcode ChannelTransport} via {@linkcode attachChannelTransport}.
  * @internal
  */
 export type AttachOptions = {
     supportedProtocolVersions?: string[];
     debouncedNotificationMethods?: string[];
-    interceptor?: OutboundInterceptor;
-    buildEnv?: (extra: MessageExtraInfo | undefined, base: DispatchEnv) => DispatchEnv;
+    outboundMw?: OutboundMiddleware[];
+    buildEnv?: (extra: MessageExtraInfo | undefined, base: RequestEnv) => RequestEnv;
     onclose?: () => void;
     onerror?: (error: Error) => void;
 };
@@ -181,7 +180,7 @@ export interface RequestTransport {
      * Transports MUST declare this property (initialised to `undefined`) so
      * {@linkcode isRequestTransport} can discriminate before `connect()` runs.
      */
-    onrequest?: ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
+    onrequest?: ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
 
     /** Callback slot for inbound notifications (e.g. `notifications/initialized`). */
     onnotification?: (n: JSONRPCNotification) => void | Promise<void>;
