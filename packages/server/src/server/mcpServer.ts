@@ -275,6 +275,12 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
      *   optional `notify`/`request` methods.
      * - For {@linkcode ChannelTransport} (stdio/WebSocket/InMemory): wraps it in a
      *   {@linkcode StreamDriver} via {@linkcode attachChannelTransport}.
+     *
+     * **Known limitation:** `_outbound` is a singleton — each `connect()` call overwrites
+     * it. Multiple concurrent connections (the v1 stateful-SHTTP `Map<sessionId, transport>`
+     * pattern) work for *inbound* dispatch, but instance-level *outbound* methods
+     * ({@linkcode createMessage}, {@linkcode sendToolListChanged}, etc.) reach only the
+     * most-recently-connected transport. This matches v1 `Protocol.connect()` semantics.
      */
     async connect(transport: ChannelTransport | RequestTransport): Promise<void> {
         let outbound: Outbound | undefined;
