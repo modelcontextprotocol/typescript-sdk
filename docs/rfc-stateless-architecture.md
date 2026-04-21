@@ -1,7 +1,7 @@
 # RFC: Request-first SDK architecture
 
 **Status:** Draft, seeking direction feedback
-**Reference impl:** [`fweinberger/ts-sdk-rebuild`](https://github.com/modelcontextprotocol/typescript-sdk/tree/fweinberger/ts-sdk-rebuild) (proof-of-concept, not for direct merge)
+**Reference impl:** [#1942](https://github.com/modelcontextprotocol/typescript-sdk/pull/1942) (`fweinberger/ts-sdk-rebuild` — proof-of-concept, not for direct merge)
 
 ---
 
