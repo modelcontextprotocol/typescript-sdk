@@ -2,7 +2,7 @@
  * Web Standards Streamable HTTP Server Transport
  *
  * Thin compat wrapper over {@linkcode shttpHandler} + {@linkcode SessionCompat} +
- * {@linkcode Backchannel2511}. The class name, constructor options, and
+ * {@linkcode BackchannelCompat}. The class name, constructor options, and
  * {@linkcode Transport} interface are kept for back-compat so existing
  * `server.connect(new WebStandardStreamableHTTPServerTransport({...}))` code
  * works unchanged. Request handling delegates to {@linkcode shttpHandler}.
@@ -26,7 +26,7 @@ import type {
 } from '@modelcontextprotocol/core';
 import { isJSONRPCErrorResponse, isJSONRPCResultResponse, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
 
-import { Backchannel2511 } from './backchannel2511.js';
+import { BackchannelCompat } from './backchannelCompat.js';
 import { SessionCompat } from './sessionCompat.js';
 import type { ShttpRequestExtra } from './shttpHandler.js';
 import { shttpHandler, STATELESS_GET_KEY } from './shttpHandler.js';
@@ -154,14 +154,14 @@ export interface HandleRequestOptions {
  * The class is now a thin shim: {@linkcode handleRequest} delegates to a captured
  * {@linkcode shttpHandler} bound at {@linkcode connect | connect()} time. The
  * {@linkcode Transport} interface methods route outbound messages through the
- * per-session {@linkcode Backchannel2511}.
+ * per-session {@linkcode BackchannelCompat}.
  */
 export class WebStandardStreamableHTTPServerTransport implements RequestTransport {
     readonly kind = 'request' as const;
 
     private _options: WebStandardStreamableHTTPServerTransportOptions;
     private _session?: SessionCompat;
-    private _backchannel = new Backchannel2511();
+    private _backchannel = new BackchannelCompat();
     private _handler: (req: Request, extra?: ShttpRequestExtra) => Promise<Response>;
     private _started = false;
     private _closed = false;
@@ -280,7 +280,7 @@ export class WebStandardStreamableHTTPServerTransport implements RequestTranspor
 
     /**
      * {@linkcode ChannelTransport.send} (back-compat costume). Outbound responses route to the
-     * {@linkcode Backchannel2511} resolver map; notifications and server-initiated requests go
+     * {@linkcode BackchannelCompat} resolver map; notifications and server-initiated requests go
      * on the session's standalone GET stream.
      *
      * @deprecated Use {@linkcode notify} / {@linkcode request} (the {@linkcode RequestTransport} surface).

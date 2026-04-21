@@ -23,7 +23,7 @@ import { DEFAULT_REQUEST_TIMEOUT_MSEC, isJSONRPCErrorResponse, ProtocolError, Sd
  * (SEP-2322) is the protocol floor and `env.send` becomes a hard error in
  * stateless paths.
  */
-export class Backchannel2511 {
+export class BackchannelCompat {
     private _pending = new Map<string, Map<number, { resolve: (r: Result) => void; reject: (e: Error) => void }>>();
     private _standaloneWriters = new Map<string, (msg: JSONRPCMessage) => void>();
     private _nextId = 0;

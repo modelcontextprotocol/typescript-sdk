@@ -19,7 +19,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
-import type { Backchannel2511 } from './backchannel2511.js';
+import type { BackchannelCompat } from './backchannelCompat.js';
 import type { SessionCompat } from './sessionCompat.js';
 
 export type StreamId = string;
@@ -98,7 +98,7 @@ export interface ShttpHandlerOptions {
      * waiting `env.send` promise. Version-gated: only active for sessions whose negotiated
      * protocol version is below `2026-06-30`.
      */
-    backchannel?: Backchannel2511;
+    backchannel?: BackchannelCompat;
 
     /**
      * Event store for SSE resumability via `Last-Event-ID`. When configured, every
