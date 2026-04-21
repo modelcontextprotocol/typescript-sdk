@@ -56,13 +56,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
     onerror?: (error: Error) => void;
 
     constructor(private _options?: ProtocolOptions) {
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        // eslint-disable-next-line @typescript-eslint/no-this-alias, unicorn/no-this-assignment
         const self = this;
         this._dispatcher = new (class extends Dispatcher<ContextT> {
-            protected override buildContext(
-                base: BaseContext,
-                env: DispatchEnv & { _transportExtra?: MessageExtraInfo }
-            ): ContextT {
+            protected override buildContext(base: BaseContext, env: DispatchEnv & { _transportExtra?: MessageExtraInfo }): ContextT {
                 return self.buildContext(base, env._transportExtra);
             }
         })();

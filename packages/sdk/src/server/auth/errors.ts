@@ -1,4 +1,5 @@
 // v1 compat: `@modelcontextprotocol/sdk/server/auth/errors.js`
+export { OAuthErrorCode } from '@modelcontextprotocol/server';
 export {
     AccessDeniedError,
     CustomOAuthError,
@@ -20,4 +21,3 @@ export {
     UnsupportedResponseTypeError,
     UnsupportedTokenTypeError
 } from '@modelcontextprotocol/server-auth-legacy';
-export { OAuthErrorCode } from '@modelcontextprotocol/server';

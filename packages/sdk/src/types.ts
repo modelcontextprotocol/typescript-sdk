@@ -3,8 +3,8 @@
 // v2 splits them: spec TypeScript types live in the server barrel (via core/public),
 // zod schema constants live at @modelcontextprotocol/server/zod-schemas.
 
-export * from '@modelcontextprotocol/server/zod-schemas';
 export * from '@modelcontextprotocol/server';
+export * from '@modelcontextprotocol/server/zod-schemas';
 // Explicit tie-break for symbols both barrels export.
 export { fromJsonSchema } from '@modelcontextprotocol/server';
 // Explicit re-exports of commonly-used spec types (belt-and-suspenders over the

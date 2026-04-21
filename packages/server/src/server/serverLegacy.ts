@@ -25,8 +25,10 @@ export type LegacyPromptCallback<Args extends ZodRawShapeCompat> = (
  * v1 compat: extract the literal method string from a `z.object({method: z.literal('x'), ...})` schema.
  */
 export function extractMethodFromSchema(schema: { shape: { method: unknown } }): string {
-    const lit = schema.shape.method as { value?: unknown; _zod?: { def?: { values?: unknown[] } } };
-    const v = lit?.value ?? lit?._zod?.def?.values?.[0];
+    const lit = schema.shape.method as
+        | { value?: unknown; def?: { values?: unknown[] }; _zod?: { def?: { values?: unknown[] } } }
+        | undefined;
+    const v = lit?.value ?? lit?.def?.values?.[0] ?? lit?._zod?.def?.values?.[0];
     if (typeof v !== 'string') {
         throw new TypeError('setRequestHandler(schema, handler): schema.shape.method must be a z.literal(string)');
     }

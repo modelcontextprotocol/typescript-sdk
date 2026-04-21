@@ -25,9 +25,9 @@ import {
 } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
-import type { DispatchEnv, Dispatcher } from './dispatcher.js';
 import type { NotificationOptions, ProgressCallback, RequestOptions } from './context.js';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
+import type { DispatchEnv, Dispatcher } from './dispatcher.js';
 import type { InboundContext, TaskManagerHost, TaskManagerOptions } from './taskManager.js';
 import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport } from './transport.js';
