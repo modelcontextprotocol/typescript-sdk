@@ -498,7 +498,10 @@ export class StreamableHTTPClientTransport implements ClientTransport, Transport
     }
 
     /** Handle a server-initiated request received on the SSE response stream and POST the reply back. */
-    private async _serviceInboundRequest(inbound: JSONRPCRequest, opts: ClientFetchOptions): Promise<void> {
+    private async _serviceInboundRequest(
+        inbound: JSONRPCRequest,
+        opts: Pick<ClientFetchOptions, 'onrequest' | 'onnotification'>
+    ): Promise<void> {
         if (!opts.onrequest) {
             opts.onnotification?.(inbound as unknown as JSONRPCNotification);
             return;
@@ -551,9 +554,12 @@ export class StreamableHTTPClientTransport implements ClientTransport, Transport
 
     /**
      * Open the standalone GET SSE stream and yield server-initiated notifications.
-     * Best-effort: if the server replies 405 (no SSE GET), the iterable completes immediately.
+     * Inbound requests (elicitation/sampling/roots) are dispatched via
+     * {@linkcode ClientFetchOptions.onrequest | opts.onrequest} and the reply is
+     * POSTed back automatically. Best-effort: if the server replies 405 (no SSE
+     * GET), the iterable completes immediately.
      */
-    async *subscribe(): AsyncIterable<JSONRPCNotification> {
+    async *subscribe(opts: Pick<ClientFetchOptions, 'onrequest' | 'onresponse'> = {}): AsyncIterable<JSONRPCNotification> {
         this._abortController ??= new AbortController();
         const res = await this._authedHttpFetch(headers => {
             this._setAccept(headers, 'text/event-stream');
@@ -570,7 +576,13 @@ export class StreamableHTTPClientTransport implements ClientTransport, Transport
                 if (done) return;
                 if (!value.data) continue;
                 const msg = JSONRPCMessageSchema.parse(JSON.parse(value.data));
-                if (isJSONRPCNotification(msg)) yield msg;
+                if (isJSONRPCNotification(msg)) {
+                    yield msg;
+                } else if (isJSONRPCRequest(msg)) {
+                    void this._serviceInboundRequest(msg, opts);
+                } else if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) {
+                    opts.onresponse?.(msg);
+                }
             }
         } finally {
             reader.releaseLock();

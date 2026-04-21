@@ -298,6 +298,7 @@ export class Client {
         const setProtocolVersion = (v: string) => t.setProtocolVersion?.(v);
         if (t.sessionId !== undefined) {
             if (this._negotiatedProtocolVersion) setProtocolVersion(this._negotiatedProtocolVersion);
+            this._startStandaloneStream();
             return;
         }
         try {
@@ -306,6 +307,40 @@ export class Client {
             void this.close();
             throw error;
         }
+        this._startStandaloneStream();
+    }
+
+    /**
+     * Open the optional standalone server→client stream (e.g. SHTTP GET SSE) so
+     * server-initiated requests (elicitation/sampling/roots) and unsolicited
+     * notifications reach this client when going through the request-shaped
+     * {@linkcode ClientTransport} path. No-op if the transport doesn't support it.
+     */
+    private _startStandaloneStream(): void {
+        const ct = this._ct;
+        if (!ct?.subscribe) return;
+        void (async () => {
+            try {
+                const stream = ct.subscribe!({
+                    onrequest: async r => {
+                        let resp: JSONRPCResultResponse | JSONRPCErrorResponse | undefined;
+                        for await (const out of this._localDispatcher.dispatch(r)) {
+                            if (out.kind === 'response') resp = out.message;
+                        }
+                        return resp ?? { jsonrpc: '2.0', id: r.id, error: { code: -32_601, message: 'Method not found' } };
+                    },
+                    onresponse: r => {
+                        const consumed = this.taskManager.processInboundResponse(r, Number(r.id)).consumed;
+                        if (!consumed) this.onerror?.(new Error(`Unmatched response on standalone stream: ${JSON.stringify(r)}`));
+                    }
+                });
+                for await (const n of stream) {
+                    void this._localDispatcher.dispatchNotification(n).catch(error => this.onerror?.(error));
+                }
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+        })();
     }
 
     /**

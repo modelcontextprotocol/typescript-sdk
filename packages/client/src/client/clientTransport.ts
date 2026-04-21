@@ -78,11 +78,14 @@ export interface ClientTransport {
     notify(notification: Notification): Promise<void>;
 
     /**
-     * Open a server→client subscription stream for list-changed and other
-     * unsolicited notifications. Optional; transports that cannot stream
-     * (e.g. plain HTTP without SSE GET) omit this.
+     * Open a server→client subscription stream for unsolicited notifications,
+     * server-initiated requests (elicitation/sampling/roots), and queued task
+     * responses. Optional; transports that cannot stream (e.g. plain HTTP
+     * without SSE GET) omit this. The transport handles inbound requests via
+     * {@linkcode ClientFetchOptions.onrequest | opts.onrequest} (and POSTs the
+     * reply back itself); only notifications are yielded.
      */
-    subscribe?(filter?: string[]): AsyncIterable<JSONRPCNotification>;
+    subscribe?(opts?: Pick<ClientFetchOptions, 'onrequest' | 'onresponse'>): AsyncIterable<JSONRPCNotification>;
 
     /**
      * Close the transport and release resources.
