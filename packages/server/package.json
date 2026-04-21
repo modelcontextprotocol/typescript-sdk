@@ -22,32 +22,39 @@
     "exports": {
         ".": {
             "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.mjs"
         },
         "./zod-schemas": {
             "types": "./dist/zodSchemas.d.mts",
-            "import": "./dist/zodSchemas.mjs"
+            "import": "./dist/zodSchemas.mjs",
+            "require": "./dist/zodSchemas.mjs"
         },
         "./validators/cf-worker": {
             "types": "./dist/validators/cfWorker.d.mts",
-            "import": "./dist/validators/cfWorker.mjs"
+            "import": "./dist/validators/cfWorker.mjs",
+            "require": "./dist/validators/cfWorker.mjs"
         },
         "./_shims": {
             "workerd": {
                 "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
+                "import": "./dist/shimsWorkerd.mjs",
+                "require": "./dist/shimsWorkerd.mjs"
             },
             "browser": {
                 "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
+                "import": "./dist/shimsWorkerd.mjs",
+                "require": "./dist/shimsWorkerd.mjs"
             },
             "node": {
                 "types": "./dist/shimsNode.d.mts",
-                "import": "./dist/shimsNode.mjs"
+                "import": "./dist/shimsNode.mjs",
+                "require": "./dist/shimsNode.mjs"
             },
             "default": {
                 "types": "./dist/shimsNode.d.mts",
-                "import": "./dist/shimsNode.mjs"
+                "import": "./dist/shimsNode.mjs",
+                "require": "./dist/shimsNode.mjs"
             }
         }
     },
