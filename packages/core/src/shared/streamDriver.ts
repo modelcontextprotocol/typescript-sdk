@@ -57,6 +57,12 @@ export type StreamDriverOptions = {
     taskManager?: TaskManager;
     tasks?: TaskManagerOptions;
     enforceStrictCapabilities?: boolean;
+    /**
+     * Set when the dispatcher's {@linkcode Dispatcher.dispatch | dispatch()} override handles
+     * {@linkcode TaskManager.processInboundRequest} itself (e.g. {@linkcode McpServer}).
+     * When true, the driver skips its own inbound task processing to avoid double-processing.
+     */
+    dispatcherHandlesTasks?: boolean;
 };
 
 /**
@@ -291,27 +297,44 @@ export class StreamDriver {
         const abort = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abort);
 
-        const inboundCtx: InboundContext = {
-            sessionId: this.pipe.sessionId,
-            sendNotification: (n, opts) => this.notification(n, { ...opts, relatedRequestId: request.id }),
-            sendRequest: (r, schema, opts) => this.request(r, schema, { ...opts, relatedRequestId: request.id })
-        };
-        const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
+        const directSend = (r: Request, opts?: RequestOptions) =>
+            this.request(r, getResultSchema(r.method as RequestMethod), { ...opts, relatedRequestId: request.id }) as Promise<Result>;
+
+        let task: DispatchEnv['task'];
+        let send = directSend;
+        let routeResponse = async (_m: JSONRPCResponse | JSONRPCErrorResponse) => false;
+        let drainNotification = (n: Notification, opts?: NotificationOptions) =>
+            this.notification(n, { ...opts, relatedRequestId: request.id });
+        let validateInbound: (() => void) | undefined;
+
+        if (!this._options.dispatcherHandlesTasks) {
+            const inboundCtx: InboundContext = {
+                sessionId: this.pipe.sessionId,
+                sendNotification: drainNotification,
+                sendRequest: (r, schema, opts) => this.request(r, schema, { ...opts, relatedRequestId: request.id })
+            };
+            const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
+            task = taskResult.taskContext;
+            send = (r, opts) => taskResult.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>;
+            routeResponse = taskResult.routeResponse;
+            drainNotification = taskResult.sendNotification;
+            validateInbound = taskResult.validateInbound;
+        }
 
         const baseEnv: DispatchEnv = {
             signal: abort.signal,
             sessionId: this.pipe.sessionId,
             authInfo: extra?.authInfo,
             httpReq: extra?.request,
-            task: taskResult.taskContext,
-            send: (r, opts) => taskResult.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
+            task,
+            send
         };
         const env = this._options.buildEnv ? this._options.buildEnv(extra, baseEnv) : baseEnv;
 
         const drain = async () => {
-            if (taskResult.validateInbound) {
+            if (validateInbound) {
                 try {
-                    taskResult.validateInbound();
+                    validateInbound();
                 } catch (error) {
                     const e = error as { code?: number; message?: string; data?: unknown };
                     const errResp: JSONRPCErrorResponse = {
@@ -323,17 +346,17 @@ export class StreamDriver {
                             ...(e?.data !== undefined && { data: e.data })
                         }
                     };
-                    const routed = await taskResult.routeResponse(errResp);
+                    const routed = await routeResponse(errResp);
                     if (!routed) await this.pipe.send(errResp, { relatedRequestId: request.id });
                     return;
                 }
             }
             for await (const out of this.dispatcher.dispatch(request, env)) {
                 if (out.kind === 'notification') {
-                    await taskResult.sendNotification({ method: out.message.method, params: out.message.params });
+                    await drainNotification({ method: out.message.method, params: out.message.params });
                 } else {
                     if (abort.signal.aborted) return;
-                    const routed = await taskResult.routeResponse(out.message);
+                    const routed = await routeResponse(out.message);
                     if (!routed) await this.pipe.send(out.message, { relatedRequestId: request.id });
                 }
             }

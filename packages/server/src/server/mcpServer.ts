@@ -414,6 +414,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
             taskManager: this._taskManager,
+            dispatcherHandlesTasks: true,
             enforceStrictCapabilities: this._options?.enforceStrictCapabilities,
             buildEnv: (extra, base) => ({ ...base, _transportExtra: extra })
         };
