@@ -302,13 +302,10 @@ export class TaskManager {
 
                 if (isTerminal(task.status)) {
                     switch (task.status) {
-                        case 'completed': {
+                        case 'completed':
+                        case 'failed': {
                             const result = await this.getTaskResult({ taskId }, resultSchema, options);
                             yield { type: 'result', result };
-                            break;
-                        }
-                        case 'failed': {
-                            yield { type: 'error', error: new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} failed`) };
                             break;
                         }
                         case 'cancelled': {
