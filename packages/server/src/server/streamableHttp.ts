@@ -12,7 +12,14 @@
  * which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, Transport, TransportSendOptions } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    JSONRPCMessage,
+    MessageExtraInfo,
+    RequestServerTransport,
+    Transport,
+    TransportSendOptions
+} from '@modelcontextprotocol/core';
 import { isJSONRPCErrorResponse, isJSONRPCResultResponse, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
 
 import { Backchannel2511 } from './backchannel2511.js';
@@ -145,7 +152,7 @@ export interface HandleRequestOptions {
  * {@linkcode Transport} interface methods route outbound messages through the
  * per-session {@linkcode Backchannel2511}.
  */
-export class WebStandardStreamableHTTPServerTransport implements Transport {
+export class WebStandardStreamableHTTPServerTransport implements Transport, RequestServerTransport {
     private _options: WebStandardStreamableHTTPServerTransportOptions;
     private _session?: SessionCompat;
     private _backchannel = new Backchannel2511();
@@ -180,10 +187,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Called by `McpServer.connect()` to bind this transport to a server. Builds the underlying
-     * {@linkcode shttpHandler} that {@linkcode handleRequest} delegates to.
+     * {@linkcode RequestServerTransport.attach} — called by `McpServer.connect()`. Builds the
+     * underlying {@linkcode shttpHandler} that {@linkcode handleRequest} delegates to.
      */
-    bind(server: McpServerLike): void {
+    attach(server: McpServerLike): void {
         this._handler = shttpHandler(server, {
             session: this._session,
             backchannel: this._backchannel,
@@ -193,6 +200,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             supportedProtocolVersions: this._supportedProtocolVersions,
             onerror: e => this.onerror?.(e)
         });
+    }
+
+    /** @deprecated Use {@linkcode attach}. */
+    bind(server: McpServerLike): void {
+        this.attach(server);
     }
 
     /**

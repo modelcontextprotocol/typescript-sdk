@@ -1,4 +1,5 @@
 import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
+import type { Dispatcher } from './dispatcher.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -131,4 +132,26 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+}
+
+/**
+ * A request-shaped server transport: instead of feeding a persistent pipe to a
+ * {@linkcode StreamDriver}, it accepts requests one at a time (e.g. HTTP POSTs)
+ * and dispatches each via the attached {@linkcode Dispatcher}.
+ *
+ * Concrete implementations expose their own per-request entry point
+ * (e.g. `handleRequest(req, res)`); only {@linkcode attach} is part of this contract.
+ */
+export interface RequestServerTransport {
+    /**
+     * Gives the transport a reference to the dispatcher (typically a `McpServer`)
+     * so its per-request handler can call `dispatcher.dispatch()`.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- concrete impls narrow the dispatcher type
+    attach(dispatcher: Dispatcher<any>): void;
+}
+
+/** Type guard for {@linkcode RequestServerTransport}. */
+export function isRequestServerTransport(t: unknown): t is RequestServerTransport {
+    return typeof (t as RequestServerTransport | undefined)?.attach === 'function';
 }

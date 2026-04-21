@@ -39,6 +39,7 @@ import type {
     RequestId,
     RequestMethod,
     RequestOptions,
+    RequestServerTransport,
     RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
@@ -71,6 +72,7 @@ import {
     extractTaskManagerOptions,
     getResultSchema,
     isJSONRPCRequest,
+    isRequestServerTransport,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -399,17 +401,19 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
 
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
-     * Builds a {@linkcode StreamDriver} internally.
      *
-     * Transports that expose a `bind(server)` method (request-shaped transports like
-     * {@linkcode WebStandardStreamableHTTPServerTransport}) are bound to this server
-     * first so their `handleRequest` can dispatch directly via {@linkcode shttpHandler};
-     * the {@linkcode StreamDriver} is still built so outbound `notification()`/`request()`
-     * route through `transport.send()`.
+     * For pipe-shaped {@linkcode Transport}s (stdio, WebSocket, InMemory), builds a
+     * {@linkcode StreamDriver} internally and stores it as the {@linkcode OutboundChannel}.
+     *
+     * Transports that also implement {@linkcode RequestServerTransport} (e.g.
+     * {@linkcode WebStandardStreamableHTTPServerTransport}) are attached to this
+     * server first so their `handleRequest` can dispatch directly via
+     * {@linkcode shttpHandler}; the {@linkcode StreamDriver} is still built so
+     * outbound `notification()`/`request()` route through `transport.send()`.
      */
-    async connect(transport: Transport): Promise<void> {
-        if ('bind' in transport && typeof (transport as { bind: unknown }).bind === 'function') {
-            (transport as { bind: (server: McpServer) => void }).bind(this);
+    async connect(transport: Transport | (Transport & RequestServerTransport)): Promise<void> {
+        if (isRequestServerTransport(transport)) {
+            transport.attach(this);
         }
         const driverOpts: StreamDriverOptions = {
             supportedProtocolVersions: this._supportedProtocolVersions,
