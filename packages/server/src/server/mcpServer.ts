@@ -20,9 +20,9 @@ import type {
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
-    JSONRPCResultResponse,
     JSONRPCRequest,
     JSONRPCResponse,
+    JSONRPCResultResponse,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
@@ -326,8 +326,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                                   resolve(parsed.data as SchemaOutput<typeof schema>);
                               };
                               if (opts?.intercept?.(wire, id, finish, reject)) return;
-                              transport
-                                  .request!(wire)
+                              transport.request!(wire)
                                   .then(resp =>
                                       'error' in resp
                                           ? reject(ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data))

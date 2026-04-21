@@ -823,8 +823,7 @@ export class TaskManager {
         }
         return outbound.request(request, resultSchema, {
             ...options,
-            intercept: (wire, messageId, settle, onError) =>
-                this.processOutboundRequest(wire, options, messageId, settle, onError).queued
+            intercept: (wire, messageId, settle, onError) => this.processOutboundRequest(wire, options, messageId, settle, onError).queued
         });
     }
 

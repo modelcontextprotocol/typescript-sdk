@@ -73,10 +73,7 @@ export class StreamDriver implements Outbound {
      * matched-handler dispatch / unknown-id error). Return `preserveProgress: true` to keep
      * the progress handler registered after the matched handler runs. Set by the owner.
      */
-    onresponse?: (
-        response: JSONRPCResponse | JSONRPCErrorResponse,
-        messageId: number
-    ) => { consumed: boolean; preserveProgress?: boolean };
+    onresponse?: (response: JSONRPCResponse | JSONRPCErrorResponse, messageId: number) => { consumed: boolean; preserveProgress?: boolean };
 
     constructor(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- driver is context-agnostic; subclass owns ContextT
