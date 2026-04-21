@@ -63,10 +63,15 @@ jobs:
                   node-version: 24
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
-                  registry-url: 'https://registry.npmjs.org'
 
             - name: Install dependencies
               run: pnpm install
+
+            # pnpm@10 delegates `pnpm publish` to the npm CLI; OIDC trusted publishing
+            # requires npm >=11.5.1, which Node 24's bundled npm only satisfies from
+            # ~24.6 onward. Install a recent-enough npm so we don't depend on which Node patch resolves.
+            - name: Ensure npm CLI supports OIDC trusted publishing
+              run: npm install -g npm@11.5.1
 
             - name: Publish to npm
               uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1
@@ -74,6 +79,4 @@ jobs:
                   publish: pnpm run ci:publish
               env:
                   GITHUB_TOKEN: ${{ github.token }}
-                  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
                   NPM_CONFIG_PROVENANCE: 'true'
