@@ -11,14 +11,19 @@ import type {
     CreateMessageResultWithTools,
     CreateTaskResult,
     DispatchEnv,
+    DispatchOutput,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
     Implementation,
+    InboundContext,
     InitializeRequest,
     InitializeResult,
+    JSONRPCErrorResponse,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
@@ -30,6 +35,7 @@ import type {
     NotificationOptions,
     ProtocolOptions,
     Request,
+    RequestId,
     RequestMethod,
     RequestOptions,
     RequestTypeMap,
@@ -72,6 +78,7 @@ import {
     parseSchema,
     ProtocolError,
     ProtocolErrorCode,
+    RELATED_TASK_META_KEY,
     SdkError,
     SdkErrorCode,
     StreamDriver,
@@ -137,6 +144,8 @@ export type ServerOptions = Omit<ProtocolOptions, 'tasks'> & {
 export class McpServer extends Dispatcher<ServerContext> implements RegistriesHost {
     private _driver?: StreamDriver;
     private readonly _registries = new ServerRegistries(this);
+    private readonly _dispatchYielders = new Map<RequestId, (msg: JSONRPCMessage) => void>();
+    private _dispatchOutboundId = 0;
 
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
@@ -198,6 +207,151 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     // ───────────────────────────────────────────────────────────────────────
     // Direct dispatch
     // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Task-aware dispatch. Threads {@linkcode TaskManager.processInboundRequest} so
+     * `tasks/*` methods, task-augmented `tools/call`, and `routeResponse` queueing all
+     * work for callers that bypass {@linkcode StreamDriver} (e.g. {@linkcode shttpHandler}).
+     */
+    override async *dispatch(request: JSONRPCRequest, env: DispatchEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
+        const sendOnStream = env.send;
+        const inboundCtx: InboundContext = {
+            sessionId: env.sessionId,
+            sendNotification: async () => {},
+            sendRequest: (r, schema, opts) =>
+                new Promise((resolve, reject) => {
+                    const messageId = this._dispatchOutboundId++;
+                    const wire: JSONRPCRequest = { jsonrpc: '2.0', id: messageId, method: r.method, params: r.params };
+                    const settle = (resp: { result: Result } | Error) => {
+                        if (resp instanceof Error) return reject(resp);
+                        const parsed = parseSchema(schema, resp.result);
+                        if (parsed.success) {
+                            resolve(parsed.data);
+                        } else {
+                            reject(parsed.error);
+                        }
+                    };
+                    const { queued } = this._taskManager.processOutboundRequest(wire, opts, messageId, settle, reject);
+                    if (queued) return;
+                    if (!sendOnStream) {
+                        reject(
+                            new SdkError(
+                                SdkErrorCode.NotConnected,
+                                'ctx.mcpReq.send is unavailable: no peer channel. Use the MRTR-native return form for elicitation/sampling, or run via connect()/StreamDriver.'
+                            )
+                        );
+                        return;
+                    }
+                    sendOnStream({ method: wire.method, params: wire.params }, opts).then(result => settle({ result }), reject);
+                })
+        };
+        const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
+
+        if (taskResult.validateInbound) {
+            try {
+                taskResult.validateInbound();
+            } catch (error) {
+                const e = error as { code?: number; message?: string; data?: unknown };
+                yield {
+                    kind: 'response',
+                    message: {
+                        jsonrpc: '2.0',
+                        id: request.id,
+                        error: {
+                            code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
+                            message: e?.message ?? 'Internal error',
+                            ...(e?.data !== undefined && { data: e.data })
+                        }
+                    }
+                };
+                return;
+            }
+        }
+
+        const relatedTaskId = taskResult.taskContext?.id;
+        const taskEnv: DispatchEnv = {
+            ...env,
+            task: taskResult.taskContext ?? env.task,
+            send: (r, opts) => taskResult.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
+        };
+
+        // Queued task messages delivered via host.sendOnResponseStream are routed to this
+        // generator (instead of `_driver.pipe.send`) so they yield on the same stream.
+        const sideQueue: JSONRPCMessage[] = [];
+        let wake: (() => void) | undefined;
+        this._dispatchYielders.set(request.id, msg => {
+            sideQueue.push(msg);
+            wake?.();
+        });
+
+        const drain = function* (): Generator<DispatchOutput> {
+            while (sideQueue.length > 0) {
+                const msg = sideQueue.shift()!;
+                yield 'method' in msg
+                    ? { kind: 'notification', message: msg as JSONRPCNotification }
+                    : { kind: 'response', message: msg as JSONRPCResponse | JSONRPCErrorResponse };
+            }
+        };
+
+        try {
+            const inner = super.dispatch(request, taskEnv);
+            let pending: Promise<IteratorResult<DispatchOutput>> | undefined;
+
+            while (true) {
+                yield* drain();
+                pending ??= inner.next();
+                const wakeP = new Promise<'side'>(resolve => {
+                    wake = () => resolve('side');
+                });
+                if (sideQueue.length > 0) {
+                    wake = undefined;
+                    continue;
+                }
+                const r = await Promise.race([pending, wakeP]);
+                wake = undefined;
+                if (r === 'side') continue;
+                pending = undefined;
+                if (r.done) break;
+                const out = r.value;
+                if (out.kind === 'response') {
+                    const routed = await taskResult.routeResponse(out.message);
+                    if (!routed) {
+                        yield* drain();
+                        yield out;
+                    }
+                } else if (relatedTaskId === undefined) {
+                    yield out;
+                } else {
+                    const params = (out.message.params ?? {}) as Record<string, unknown>;
+                    yield {
+                        kind: 'notification',
+                        message: {
+                            ...out.message,
+                            params: {
+                                ...params,
+                                _meta: { ...(params._meta as object), [RELATED_TASK_META_KEY]: { taskId: relatedTaskId } }
+                            }
+                        }
+                    };
+                }
+            }
+            yield* drain();
+        } finally {
+            this._dispatchYielders.delete(request.id);
+        }
+    }
+
+    /**
+     * Routes an incoming JSON-RPC response (e.g. a client's reply to an `elicitation/create`
+     * request the server issued) to the {@linkcode TaskManager} resolver chain.
+     * Called by {@linkcode shttpHandler} for response-typed POST bodies.
+     *
+     * @returns true if the response was consumed.
+     */
+    dispatchInboundResponse(response: JSONRPCResponse | JSONRPCErrorResponse): boolean {
+        const id = typeof response.id === 'number' ? response.id : Number(response.id);
+        return this._taskManager.processInboundResponse(response, id).consumed;
+    }
 
     /**
      * Handle one inbound request without a transport. Yields any notifications the handler
@@ -323,6 +477,11 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
             removeProgressHandler: t => this._driver?.removeProgressHandler(t),
             registerHandler: (m, h) => this.setRawRequestHandler(m, h as never),
             sendOnResponseStream: async (msg, relatedRequestId) => {
+                const yielder = relatedRequestId === undefined ? undefined : this._dispatchYielders.get(relatedRequestId);
+                if (yielder) {
+                    yielder(msg);
+                    return;
+                }
                 await this._driver?.pipe.send(msg, { relatedRequestId });
             },
             enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,

@@ -6,7 +6,8 @@ import type {
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
-    JSONRPCResultResponse
+    JSONRPCResultResponse,
+    MessageExtraInfo
 } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
@@ -45,6 +46,12 @@ export interface EventStore {
         lastEventId: EventId,
         opts: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
     ): Promise<StreamId>;
+
+    /**
+     * Get the stream ID associated with a given event ID.
+     * @deprecated No longer used; the handler does not maintain a stream-mapping table.
+     */
+    getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
 }
 
 /**
@@ -54,6 +61,8 @@ export interface EventStore {
 export interface McpServerLike {
     dispatch(request: JSONRPCRequest, env?: DispatchEnv): AsyncIterable<DispatchOutput>;
     dispatchNotification(notification: JSONRPCNotification): Promise<void>;
+    /** Optional: route incoming JSON-RPC responses to a task-aware resolver. Returns true if handled. */
+    dispatchInboundResponse?(response: JSONRPCResultResponse | JSONRPCErrorResponse): boolean;
 }
 
 /**
@@ -142,6 +151,12 @@ function writeSSEEvent(
         return false;
     }
 }
+
+/** Sentinel session key for the standalone GET stream when no {@linkcode SessionCompat} is configured. */
+export const STATELESS_GET_KEY = '_stateless';
+
+/** EventStore stream-ID prefix for the standalone GET stream (matches v1 `_standaloneSseStreamId`). */
+const STANDALONE_STREAM_ID = '_GET_stream';
 
 const SSE_HEADERS: Record<string, string> = {
     'Content-Type': 'text/event-stream',
@@ -266,8 +281,9 @@ export function shttpHandler(
             void server.dispatchNotification(n).catch(error => onerror?.(error as Error));
         }
 
-        if (backchannel && sessionId !== undefined) {
-            for (const r of responses) backchannel.handleResponse(sessionId, r);
+        for (const r of responses) {
+            if (server.dispatchInboundResponse?.(r)) continue;
+            if (backchannel && sessionId !== undefined) backchannel.handleResponse(sessionId, r);
         }
 
         if (requests.length === 0) {
@@ -304,10 +320,33 @@ export function shttpHandler(
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
                 const writeSSE = (msg: JSONRPCMessage) => void emit(controller, encoder, streamId, msg);
-                const env: DispatchEnv =
-                    useBackchannel && backchannel && sessionId !== undefined
-                        ? { ...baseEnv, send: backchannel.makeEnvSend(sessionId, writeSSE) }
-                        : baseEnv;
+                const closeStream = () => {
+                    try {
+                        controller.close();
+                    } catch {
+                        // Already closed.
+                    }
+                };
+                const supportsPolling = eventStore !== undefined && clientProtocolVersion >= '2025-11-25';
+                const transportExtra: MessageExtraInfo = {
+                    request: req,
+                    authInfo: extra?.authInfo,
+                    closeSSEStream: supportsPolling ? closeStream : undefined,
+                    closeStandaloneSSEStream:
+                        supportsPolling && sessionId !== undefined
+                            ? () => {
+                                  session?.closeStandaloneStream(sessionId);
+                                  backchannel?.setStandaloneWriter(sessionId, undefined);
+                              }
+                            : undefined
+                };
+                const env: DispatchEnv & { _transportExtra?: MessageExtraInfo } = {
+                    ...baseEnv,
+                    _transportExtra: transportExtra,
+                    ...(useBackchannel && backchannel && sessionId !== undefined
+                        ? { send: backchannel.makeEnvSend(sessionId, writeSSE) }
+                        : {})
+                };
                 void (async () => {
                     try {
                         await writePrimingEvent(controller, encoder, streamId, clientProtocolVersion);
@@ -333,7 +372,7 @@ export function shttpHandler(
     }
 
     async function handleGet(req: Request): Promise<Response> {
-        if (!session) {
+        if (!session && !backchannel) {
             return jsonError(405, -32_000, 'Method Not Allowed: stateless handler does not support GET stream', {
                 headers: { Allow: 'POST' }
             });
@@ -345,11 +384,16 @@ export function shttpHandler(
             return jsonError(406, -32_000, 'Not Acceptable: Client must accept text/event-stream');
         }
 
-        const v = session.validateHeader(req);
-        if (!v.ok) return v.response;
+        let sessionId: string;
+        if (session) {
+            const v = session.validateHeader(req);
+            if (!v.ok) return v.response;
+            sessionId = v.sessionId!;
+        } else {
+            sessionId = STATELESS_GET_KEY;
+        }
         const protoErr = validateProtocolVersion(req);
         if (protoErr) return protoErr;
-        const sessionId = v.sessionId!;
 
         if (eventStore) {
             const lastEventId = req.headers.get('last-event-id');
@@ -358,24 +402,21 @@ export function shttpHandler(
             }
         }
 
-        if (session.hasStandaloneStream(sessionId)) {
+        if (session?.hasStandaloneStream(sessionId) || (!session && backchannel?.hasStandaloneWriter(sessionId))) {
             onerror?.(new Error('Conflict: Only one SSE stream is allowed per session'));
             return jsonError(409, -32_000, 'Conflict: Only one SSE stream is allowed per session');
         }
 
         const encoder = new TextEncoder();
-        const standaloneStreamId = `_GET_${sessionId}`;
-        const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
+        const headers: Record<string, string> = { ...SSE_HEADERS };
+        if (session) headers['mcp-session-id'] = sessionId;
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
-                session.setStandaloneStream(sessionId, controller);
-                backchannel?.setStandaloneWriter(sessionId, msg =>
-                    void emit(controller, encoder, standaloneStreamId, msg)
-                );
-                void writePrimingEvent(controller, encoder, standaloneStreamId, session.negotiatedVersion(sessionId) ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+                session?.setStandaloneStream(sessionId, controller);
+                backchannel?.setStandaloneWriter(sessionId, msg => void emit(controller, encoder, STANDALONE_STREAM_ID, msg));
             },
             cancel: () => {
-                session.setStandaloneStream(sessionId, undefined);
+                session?.setStandaloneStream(sessionId, undefined);
                 backchannel?.setStandaloneWriter(sessionId, undefined);
             }
         });
@@ -398,6 +439,7 @@ export function shttpHandler(
                             }
                         });
                         if (session) session.setStandaloneStream(sessionId, controller);
+                        backchannel?.setStandaloneWriter(sessionId, msg => void emit(controller, encoder, STANDALONE_STREAM_ID, msg));
                     } catch (error) {
                         onerror?.(error as Error);
                         try {
@@ -410,6 +452,7 @@ export function shttpHandler(
             },
             cancel: () => {
                 session?.setStandaloneStream(sessionId, undefined);
+                backchannel?.setStandaloneWriter(sessionId, undefined);
             }
         });
         return new Response(readable, { headers });
@@ -426,7 +469,14 @@ export function shttpHandler(
         const protoErr = validateProtocolVersion(req);
         if (protoErr) return protoErr;
         backchannel?.closeSession(v.sessionId!);
-        await session.delete(v.sessionId!);
+        try {
+            await session.delete(v.sessionId!);
+        } catch (error) {
+            onerror?.(error as Error);
+            return jsonError(500, -32_603, 'Internal server error: onsessionclosed callback failed', {
+                data: String(error)
+            });
+        }
         return new Response(null, { status: 200 });
     }
 

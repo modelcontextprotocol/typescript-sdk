@@ -67,9 +67,7 @@ export class Backchannel2511 {
                 opts?.signal?.addEventListener(
                     'abort',
                     () => {
-                        settle.reject(
-                            opts.signal!.reason instanceof Error ? opts.signal!.reason : new Error(String(opts.signal!.reason))
-                        );
+                        settle.reject(opts.signal!.reason instanceof Error ? opts.signal!.reason : new Error(String(opts.signal!.reason)));
                     },
                     { once: true }
                 );
@@ -108,6 +106,11 @@ export class Backchannel2511 {
     setStandaloneWriter(sessionId: string, write: ((msg: JSONRPCMessage) => void) | undefined): void {
         if (write) this._standaloneWriters.set(sessionId, write);
         else this._standaloneWriters.delete(sessionId);
+    }
+
+    /** True if a standalone writer is registered for the session. */
+    hasStandaloneWriter(sessionId: string): boolean {
+        return this._standaloneWriters.has(sessionId);
     }
 
     /** Writes a message on the session's standalone GET stream, if one is open. */

@@ -974,23 +974,18 @@ describe('Zod v4', () => {
             expect(closeCallCount).toBe(1);
         });
 
-        it('should clean up all streams exactly once even when close() is called concurrently', async () => {
+        it('should fire onclose exactly once even when close() is called concurrently', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
 
-            const cleanupCalls: string[] = [];
-
-            // Inject a fake stream entry to verify cleanup runs exactly once
-            // @ts-expect-error accessing private map for test purposes
-            transport._streamMapping.set('stream-1', {
-                cleanup: () => {
-                    cleanupCalls.push('stream-1');
-                }
-            });
+            let closeCount = 0;
+            transport.onclose = () => {
+                closeCount++;
+            };
 
             // Fire two concurrent close() calls — only the first should proceed
             await Promise.all([transport.close(), transport.close()]);
 
-            expect(cleanupCalls).toEqual(['stream-1']);
+            expect(closeCount).toBe(1);
         });
     });
 });

@@ -131,6 +131,13 @@ export class NodeStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Binds the underlying web-standard transport to a server. Called by `McpServer.connect()`.
+     */
+    bind(server: Parameters<WebStandardStreamableHTTPServerTransport['bind']>[0]): void {
+        this._webStandardTransport.bind(server);
+    }
+
+    /**
      * Starts the transport. This is required by the {@linkcode Transport} interface but is a no-op
      * for the Streamable HTTP transport as connections are managed per-request.
      */
