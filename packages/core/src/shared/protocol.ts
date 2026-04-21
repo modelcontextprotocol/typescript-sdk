@@ -162,12 +162,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const driver = new StreamDriver(this._dispatcher, transport, {
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
-            buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
-            taskManager: this._ownTaskManager
+            buildEnv: (extra, base) => ({ ...base, _transportExtra: extra })
         });
         this._outbound = driver;
+        driver.onresponse = (r, id) => this._ownTaskManager.processInboundResponse(r, id);
         driver.onclose = () => {
             if (this._outbound === driver) this._outbound = undefined;
+            this._ownTaskManager.onClose();
             this.onclose?.();
         };
         driver.onerror = error => this.onerror?.(error);
@@ -215,7 +216,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (this._options?.enforceStrictCapabilities === true) {
             this.assertCapabilityForMethod(request.method as RequestMethod);
         }
-        return this._outbound.request(request, resultSchema, options);
+        return this._ownTaskManager.sendRequest(request, resultSchema, options, this._outbound);
     }
 
     /**
@@ -226,7 +227,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
         this.assertNotificationCapability(notification.method as NotificationMethod);
-        return this._outbound.notification(notification, options);
+        return this._ownTaskManager.sendNotification(notification, options, this._outbound);
     }
 
     // ───────────────────────────────────────────────────────────────────────

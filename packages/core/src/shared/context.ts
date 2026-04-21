@@ -8,6 +8,8 @@ import type {
     ElicitRequestURLParams,
     ElicitResult,
     JSONRPCMessage,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
     LoggingLevel,
     Notification,
     Progress,
@@ -148,6 +150,20 @@ export type RequestOptions = {
      * If provided, associates this request with a related task.
      */
     relatedTask?: RelatedTaskMetadata;
+
+    /**
+     * @internal Called by the channel adapter after the wire request is built
+     * (id assigned, `_meta.progressToken` set, response/progress handlers registered)
+     * but before send. Return `true` to skip the send; the caller takes ownership of
+     * delivering `wire` later. The registered handlers stay live. `settle` injects
+     * a result/error into the registered response handler out-of-band.
+     */
+    intercept?: (
+        wire: JSONRPCRequest,
+        messageId: number,
+        settle: (response: JSONRPCResultResponse | Error) => void,
+        onError: (error: unknown) => void
+    ) => boolean;
 } & TransportSendOptions;
 
 /**

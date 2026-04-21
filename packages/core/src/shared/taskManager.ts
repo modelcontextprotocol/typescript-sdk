@@ -384,7 +384,7 @@ export class TaskManager {
     private _outboundRequest<T extends AnySchema>(req: Request, schema: T, opts?: RequestOptions): Promise<SchemaOutput<T>> {
         const ch = this._requireHooks.channel();
         if (!ch) throw new ProtocolError(ProtocolErrorCode.InternalError, 'Not connected');
-        return ch.request(req, schema, opts);
+        return this.sendRequest(req, schema, opts, ch);
     }
 
     // -- Public API (client-facing) --
@@ -804,7 +804,44 @@ export class TaskManager {
         };
     }
 
-    // -- Outbound-seam lifecycle methods (called directly by StreamDriver) --
+    // -- Outbound helpers (called by McpServer/Client/Protocol before delegating to Outbound) --
+
+    /**
+     * Task-aware request send: routes through {@linkcode RequestOptions.intercept} so the
+     * channel adapter builds the wire (id/progressToken/handlers) and TaskManager decides
+     * whether to queue it. Use this where instance-level outbound requests are made
+     * (Protocol/McpServer/Client), so the channel adapter stays task-agnostic.
+     */
+    sendRequest<T extends AnySchema>(
+        request: Request,
+        resultSchema: T,
+        options: RequestOptions | undefined,
+        outbound: Outbound
+    ): Promise<SchemaOutput<T>> {
+        if (!options?.relatedTask && !options?.task) {
+            return outbound.request(request, resultSchema, options);
+        }
+        return outbound.request(request, resultSchema, {
+            ...options,
+            intercept: (wire, messageId, settle, onError) =>
+                this.processOutboundRequest(wire, options, messageId, settle, onError).queued
+        });
+    }
+
+    /**
+     * Task-aware notification send: queues when `options.relatedTask` is set, otherwise
+     * delegates to `outbound.notification()` with related-task metadata attached.
+     */
+    async sendNotification(notification: Notification, options: NotificationOptions | undefined, outbound: Outbound): Promise<void> {
+        const result = await this.processOutboundNotification(notification, options);
+        if (result.queued) return;
+        await outbound.notification(
+            result.jsonrpcNotification
+                ? { method: result.jsonrpcNotification.method, params: result.jsonrpcNotification.params }
+                : notification,
+            options
+        );
+    }
 
     processOutboundRequest(
         jsonrpcRequest: JSONRPCRequest,

@@ -8,7 +8,6 @@ import type {
     RequestId
 } from '../types/index.js';
 import type { RequestEnv } from './context.js';
-import type { TaskManager } from './taskManager.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -163,10 +162,14 @@ export type Transport = ChannelTransport;
 export type AttachOptions = {
     supportedProtocolVersions?: string[];
     debouncedNotificationMethods?: string[];
-    taskManager?: TaskManager;
     buildEnv?: (extra: MessageExtraInfo | undefined, base: RequestEnv) => RequestEnv;
     onclose?: () => void;
     onerror?: (error: Error) => void;
+    /** Tap for every inbound response. See {@linkcode StreamDriver.onresponse}. */
+    onresponse?: (
+        response: JSONRPCResultResponse | JSONRPCErrorResponse,
+        messageId: number
+    ) => { consumed: boolean; preserveProgress?: boolean };
 };
 
 /**

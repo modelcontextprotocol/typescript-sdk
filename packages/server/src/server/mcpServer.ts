@@ -20,6 +20,7 @@ import type {
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
+    JSONRPCResultResponse,
     JSONRPCRequest,
     JSONRPCResponse,
     JsonSchemaType,
@@ -311,26 +312,29 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
             outbound = {
                 close: () => transport.close(),
                 notification: transport.notify
-                    ? async (n, opts) => {
-                          const out = await this._taskManager.processOutboundNotification(n, opts);
-                          if (!out.queued)
-                              await transport.notify!(out.jsonrpcNotification ?? ({ jsonrpc: '2.0', ...n } as JSONRPCNotification));
-                      }
+                    ? async (n, _opts) => transport.notify!({ jsonrpc: '2.0', ...n } as JSONRPCNotification)
                     : noOutbound('notifications'),
                 request: transport.request
-                    ? async (r, schema, _opts) => {
-                          const id = this._nextOutboundId++;
-                          const resp = await transport.request!({
-                              jsonrpc: '2.0',
-                              id,
-                              method: r.method,
-                              params: r.params
-                          } as JSONRPCRequest);
-                          if ('error' in resp) throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
-                          const parsed = parseSchema(schema, resp.result);
-                          if (!parsed.success) throw parsed.error;
-                          return parsed.data as SchemaOutput<typeof schema>;
-                      }
+                    ? (r, schema, opts) =>
+                          new Promise((resolve, reject) => {
+                              const id = this._nextOutboundId++;
+                              const wire = { jsonrpc: '2.0', id, method: r.method, params: r.params } as JSONRPCRequest;
+                              const finish = (resp: JSONRPCResultResponse | Error) => {
+                                  if (resp instanceof Error) return reject(resp);
+                                  const parsed = parseSchema(schema, resp.result);
+                                  if (!parsed.success) return reject(parsed.error);
+                                  resolve(parsed.data as SchemaOutput<typeof schema>);
+                              };
+                              if (opts?.intercept?.(wire, id, finish, reject)) return;
+                              transport
+                                  .request!(wire)
+                                  .then(resp =>
+                                      'error' in resp
+                                          ? reject(ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data))
+                                          : finish(resp)
+                                  )
+                                  .catch(reject);
+                          })
                     : noOutbound('requests')
             };
         } else {
@@ -338,9 +342,10 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                 supportedProtocolVersions: this._supportedProtocolVersions,
                 debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
                 buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
-                taskManager: this._taskManager,
+                onresponse: (r, id) => this._taskManager.processInboundResponse(r, id),
                 onclose: () => {
                     if (this._outbound === outbound) this._outbound = undefined;
+                    this._taskManager.onClose();
                     this.onclose?.();
                 },
                 onerror: e => this.onerror?.(e)
@@ -594,7 +599,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         if (this._options?.enforceStrictCapabilities === true) {
             assertCapabilityForMethod(req.method as RequestMethod, this._clientCapabilities);
         }
-        return this._requireOutbound().request(req, schema as never, options) as Promise<T>;
+        return this._taskManager.sendRequest(req, schema as never, options, this._requireOutbound()) as Promise<T>;
     }
 
     /**
@@ -748,7 +753,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
         assertNotificationCapability(notification.method as NotificationMethod, this._capabilities, this._clientCapabilities);
-        await this._outbound?.notification(notification, options);
+        if (this._outbound) await this._taskManager.sendNotification(notification, options, this._outbound);
     }
 
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void> {

@@ -282,11 +282,14 @@ export class Client extends Dispatcher<ClientContext> {
         if (isChannelTransport(transport)) {
             const driverOpts: StreamDriverOptions = {
                 supportedProtocolVersions: this._supportedProtocolVersions,
-                debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
-                taskManager: this._taskManager
+                debouncedNotificationMethods: this._options?.debouncedNotificationMethods
             };
             this._ct = channelAsClientTransport(transport, this, driverOpts);
-            this._ct.driver!.onclose = () => this.onclose?.();
+            this._ct.driver!.onresponse = (r, id) => this._taskManager.processInboundResponse(r, id);
+            this._ct.driver!.onclose = () => {
+                this._taskManager.onClose();
+                this.onclose?.();
+            };
             this._ct.driver!.onerror = e => this.onerror?.(e);
             const skipInit = transport.sessionId !== undefined;
             if (skipInit) {
