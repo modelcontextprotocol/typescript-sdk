@@ -1,7 +1,6 @@
 import type {
     AuthInfo,
     DispatchEnv,
-    DispatchOutput,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -55,15 +54,22 @@ export interface EventStore {
 }
 
 /**
- * Structural interface for the server passed to {@linkcode shttpHandler}. Matches the
- * {@linkcode Dispatcher} surface; `McpServer` (which extends `Dispatcher`) satisfies it.
+ * Callback bundle {@linkcode shttpHandler} uses to route inbound messages. Matches the
+ * inbound side of {@linkcode @modelcontextprotocol/core!shared/transport.RequestTransport | RequestTransport};
+ * the handler reads these slots at call time, so a transport can pass `this` and have
+ * `connect()` set them later.
  */
-export interface McpServerLike {
-    dispatch(request: JSONRPCRequest, env?: DispatchEnv): AsyncIterable<DispatchOutput>;
-    dispatchNotification(notification: JSONRPCNotification): Promise<void>;
-    /** Optional: route incoming JSON-RPC responses to a task-aware resolver. Returns true if handled. */
-    dispatchInboundResponse?(response: JSONRPCResultResponse | JSONRPCErrorResponse): boolean;
+export interface ShttpCallbacks {
+    /** Called per inbound JSON-RPC request; yields notifications then one terminal response. */
+    onrequest?: ((request: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
+    /** Called per inbound JSON-RPC notification. */
+    onnotification?: (notification: JSONRPCNotification) => void | Promise<void>;
+    /** Called per inbound JSON-RPC response (client POSTing back to a server-initiated request). Returns `true` if claimed. */
+    onresponse?: (response: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean;
 }
+
+/** @deprecated Use {@linkcode ShttpCallbacks}. */
+export type McpServerLike = ShttpCallbacks;
 
 /**
  * Options for {@linkcode shttpHandler}.
@@ -166,14 +172,14 @@ const SSE_HEADERS: Record<string, string> = {
 
 /**
  * Creates a Web-standard `(Request) => Promise<Response>` handler for the MCP Streamable HTTP
- * transport, driven by {@linkcode McpServerLike.dispatch} per request.
+ * transport, driven by {@linkcode ShttpCallbacks.onrequest} per request.
  *
  * No `_streamMapping`, `_requestToStreamMapping`, or `relatedRequestId` routing — the response
  * stream is in lexical scope of the request that opened it. Session lifecycle (when enabled)
  * lives in the supplied {@linkcode SessionCompat}, not on this handler.
  */
 export function shttpHandler(
-    server: McpServerLike,
+    cb: ShttpCallbacks,
     options: ShttpHandlerOptions = {}
 ): (req: Request, extra?: ShttpRequestExtra) => Promise<Response> {
     const enableJsonResponse = options.enableJsonResponse ?? false;
@@ -278,16 +284,21 @@ export function shttpHandler(
         );
 
         for (const n of notifications) {
-            void server.dispatchNotification(n).catch(error => onerror?.(error as Error));
+            void Promise.resolve(cb.onnotification?.(n)).catch(error => onerror?.(error as Error));
         }
 
         for (const r of responses) {
-            if (server.dispatchInboundResponse?.(r)) continue;
+            if (cb.onresponse?.(r)) continue;
             if (backchannel && sessionId !== undefined) backchannel.handleResponse(sessionId, r);
         }
 
         if (requests.length === 0) {
             return new Response(null, { status: 202 });
+        }
+
+        const onrequest = cb.onrequest;
+        if (!onrequest) {
+            return jsonError(500, -32_603, 'Transport not connected — call mcp.connect(transport) first.');
         }
 
         const initReq = messages.find(m => isInitializeRequest(m));
@@ -302,8 +313,8 @@ export function shttpHandler(
         if (enableJsonResponse) {
             const out: JSONRPCMessage[] = [];
             for (const r of requests) {
-                for await (const item of server.dispatch(r, baseEnv)) {
-                    if (item.kind === 'response') out.push(item.message);
+                for await (const msg of onrequest(r, baseEnv)) {
+                    if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) out.push(msg);
                 }
             }
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -351,8 +362,8 @@ export function shttpHandler(
                     try {
                         await writePrimingEvent(controller, encoder, streamId, clientProtocolVersion);
                         for (const r of requests) {
-                            for await (const out of server.dispatch(r, env)) {
-                                await emit(controller, encoder, streamId, out.message);
+                            for await (const msg of onrequest(r, env)) {
+                                await emit(controller, encoder, streamId, msg);
                             }
                         }
                     } catch (error) {

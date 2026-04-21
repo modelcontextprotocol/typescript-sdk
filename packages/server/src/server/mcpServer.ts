@@ -3,6 +3,7 @@ import type {
     BaseContext,
     CallToolRequest,
     CallToolResult,
+    ChannelTransport,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
@@ -33,18 +34,18 @@ import type {
     Notification,
     NotificationMethod,
     NotificationOptions,
-    AttachableTransport,
-    AttachOptions,
     OutboundChannel,
     ProtocolOptions,
     Request,
     RequestId,
     RequestMethod,
     RequestOptions,
+    RequestTransport,
     RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
     ResultTypeMap,
+    SchemaOutput,
     ServerCapabilities,
     ServerContext,
     ServerResult,
@@ -61,6 +62,7 @@ import type {
 import {
     assertClientRequestTaskCapability,
     assertToolsCallTaskCapability,
+    attachPipeTransport,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageResultSchema,
@@ -70,9 +72,9 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     extractTaskManagerOptions,
-    attachPipeTransport,
     getResultSchema,
     isJSONRPCRequest,
+    isRequestTransport,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -395,39 +397,94 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     }
 
     // ───────────────────────────────────────────────────────────────────────
-    // Persistent-pipe transport (compat: builds a StreamDriver)
+    // Transport wiring
     // ───────────────────────────────────────────────────────────────────────
 
     /**
-     * Attaches to the given transport. The transport handles its own wiring via
-     * {@linkcode AttachableTransport.attach | attach()}; for plain pipe-shaped
-     * {@linkcode Transport}s without `attach()`, {@linkcode attachPipeTransport}
-     * provides the back-compat wrapping. McpServer itself is agnostic to which
-     * adapter is used — it just stores whatever {@linkcode OutboundChannel} is returned.
+     * Wires this server to the given transport.
+     *
+     * - For {@linkcode RequestTransport} (Streamable HTTP): sets the transport's
+     *   `onrequest`/`onnotification`/`onresponse` callback slots so it can route inbound
+     *   messages here, and builds an {@linkcode OutboundChannel} from the transport's
+     *   optional `notify`/`request` methods.
+     * - For {@linkcode ChannelTransport} (stdio/WebSocket/InMemory): wraps it in a
+     *   {@linkcode StreamDriver} via {@linkcode attachPipeTransport}.
      */
-    async connect(transport: Transport | AttachableTransport): Promise<void> {
-        const opts: AttachOptions = {
-            supportedProtocolVersions: this._supportedProtocolVersions,
-            debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
-            buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
-            interceptor: {
-                request: (jr, o, id, settle, reject) => this._taskManager.processOutboundRequest(jr, o, id, settle, reject),
-                notification: (n, o) => this._taskManager.processOutboundNotification(n, o),
-                response: (r, id) => this._taskManager.processInboundResponse(r, id),
-                close: () => this._taskManager.onClose()
-            },
-            onclose: () => {
+    async connect(transport: ChannelTransport | RequestTransport): Promise<void> {
+        let outbound: OutboundChannel | undefined;
+        if (isRequestTransport(transport)) {
+            transport.onrequest = (req, env) => this.handle(req, env);
+            transport.onnotification = n => this.dispatchNotification(n);
+            transport.onresponse = r => this.dispatchInboundResponse(r);
+
+            const prevClose = transport.onclose;
+            transport.onclose = () => {
+                prevClose?.();
                 if (this._outbound === outbound) this._outbound = undefined;
                 this.onclose?.();
-            },
-            onerror: e => this.onerror?.(e)
-        };
-        const outbound =
-            typeof (transport as AttachableTransport).attach === 'function'
-                ? await (transport as AttachableTransport).attach(this, opts)
-                : await attachPipeTransport(transport as Transport, this, opts);
+            };
+            const prevErr = transport.onerror;
+            transport.onerror = e => {
+                prevErr?.(e);
+                this.onerror?.(e);
+            };
+
+            const noOutbound = (kind: string) => () =>
+                Promise.reject(
+                    new SdkError(
+                        SdkErrorCode.NotConnected,
+                        `Transport does not support out-of-band ${kind}; use ctx.mcpReq inside a handler.`
+                    )
+                );
+            outbound = {
+                close: () => transport.close(),
+                notification: transport.notify
+                    ? async (n, opts) => {
+                          const out = await this._taskManager.processOutboundNotification(
+                              { jsonrpc: '2.0', ...n } as JSONRPCNotification,
+                              opts
+                          );
+                          if (!out.queued && out.jsonrpcNotification) await transport.notify!(out.jsonrpcNotification);
+                      }
+                    : noOutbound('notifications'),
+                request: transport.request
+                    ? async (r, schema, _opts) => {
+                          const id = this._nextOutboundId++;
+                          const resp = await transport.request!({
+                              jsonrpc: '2.0',
+                              id,
+                              method: r.method,
+                              params: r.params
+                          } as JSONRPCRequest);
+                          if ('error' in resp) throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
+                          const parsed = parseSchema(schema, resp.result);
+                          if (!parsed.success) throw parsed.error;
+                          return parsed.data as SchemaOutput<typeof schema>;
+                      }
+                    : noOutbound('requests')
+            };
+        } else {
+            outbound = await attachPipeTransport(transport, this, {
+                supportedProtocolVersions: this._supportedProtocolVersions,
+                debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
+                buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
+                interceptor: {
+                    request: (jr, o, id, settle, reject) => this._taskManager.processOutboundRequest(jr, o, id, settle, reject),
+                    notification: (n, o) => this._taskManager.processOutboundNotification(n, o),
+                    response: (r, id) => this._taskManager.processInboundResponse(r, id),
+                    close: () => this._taskManager.onClose()
+                },
+                onclose: () => {
+                    if (this._outbound === outbound) this._outbound = undefined;
+                    this.onclose?.();
+                },
+                onerror: e => this.onerror?.(e)
+            });
+        }
         this._outbound = outbound;
     }
+
+    private _nextOutboundId = 0;
 
     /**
      * Closes the connection.

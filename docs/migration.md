@@ -86,6 +86,22 @@ npm install @modelcontextprotocol/express    # Express
 npm install @modelcontextprotocol/hono       # Hono
 ```
 
+### `Transport` interface renamed to `ChannelTransport`; `RequestTransport` added
+
+The pipe-shaped `Transport` interface has been renamed `ChannelTransport`. A new `RequestTransport` interface (callback-based, for request/response transports like Streamable HTTP) sits alongside it. `connect()` accepts either.
+
+`Transport` is kept as a deprecated type alias of `ChannelTransport`, so existing code compiles unchanged.
+
+```typescript
+// Before (v1)
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+
+// After (v2)
+import type { ChannelTransport, RequestTransport } from '@modelcontextprotocol/server';
+```
+
+If you implemented a custom transport by implementing `Transport`, switch to `implements ChannelTransport` (same shape) or, for HTTP-style transports, `implements RequestTransport`.
+
 ### `StreamableHTTPServerTransport` renamed
 
 `StreamableHTTPServerTransport` has been renamed to `NodeStreamableHTTPServerTransport` and moved to `@modelcontextprotocol/node`.

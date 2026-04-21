@@ -13,25 +13,23 @@
  */
 
 import type {
-    AttachableTransport,
-    AttachOptions,
     AuthInfo,
+    ChannelTransport,
+    DispatchEnv,
+    JSONRPCErrorResponse,
     JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
     MessageExtraInfo,
-    OutboundChannel,
-    Transport,
+    RequestTransport,
     TransportSendOptions
 } from '@modelcontextprotocol/core';
-import {
-    attachPipeTransport,
-    isJSONRPCErrorResponse,
-    isJSONRPCResultResponse,
-    SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+import { isJSONRPCErrorResponse, isJSONRPCResultResponse, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
 
 import { Backchannel2511 } from './backchannel2511.js';
 import { SessionCompat } from './sessionCompat.js';
-import type { McpServerLike, ShttpRequestExtra } from './shttpHandler.js';
+import type { ShttpRequestExtra } from './shttpHandler.js';
 import { shttpHandler, STATELESS_GET_KEY } from './shttpHandler.js';
 
 export type { EventId, EventStore, StreamId } from './shttpHandler.js';
@@ -159,11 +157,11 @@ export interface HandleRequestOptions {
  * {@linkcode Transport} interface methods route outbound messages through the
  * per-session {@linkcode Backchannel2511}.
  */
-export class WebStandardStreamableHTTPServerTransport implements Transport, AttachableTransport {
+export class WebStandardStreamableHTTPServerTransport implements ChannelTransport, RequestTransport {
     private _options: WebStandardStreamableHTTPServerTransportOptions;
     private _session?: SessionCompat;
     private _backchannel = new Backchannel2511();
-    private _handler?: (req: Request, extra?: ShttpRequestExtra) => Promise<Response>;
+    private _handler: (req: Request, extra?: ShttpRequestExtra) => Promise<Response>;
     private _started = false;
     private _closed = false;
     private _supportedProtocolVersions: string[];
@@ -172,6 +170,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport, Atta
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+
+    /** {@linkcode RequestTransport.onrequest} — set by `McpServer.connect()`. Declared so {@linkcode isRequestTransport} matches. */
+    onrequest: ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined = undefined;
+    /** {@linkcode RequestTransport.onnotification} — set by `McpServer.connect()`. */
+    onnotification?: (n: JSONRPCNotification) => void | Promise<void>;
+    /** {@linkcode RequestTransport.onresponse} — set by `McpServer.connect()`. */
+    onresponse?: (r: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean;
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this._options = options;
@@ -191,16 +196,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport, Atta
                 }
             });
         }
-    }
-
-    /**
-     * {@linkcode AttachableTransport.attach} — called by `McpServer.connect()`. Builds the
-     * underlying {@linkcode shttpHandler} for inbound request handling, and an outbound
-     * channel (via this transport's pipe-shaped {@linkcode Transport.send | send()}) so
-     * server-initiated requests/notifications reach connected clients.
-     */
-    async attach(server: McpServerLike, options?: AttachOptions): Promise<OutboundChannel> {
-        this._handler = shttpHandler(server, {
+        // shttpHandler reads onrequest/onnotification/onresponse from `this` at call time,
+        // so connect() can set them after construction.
+        this._handler = shttpHandler(this, {
             session: this._session,
             backchannel: this._backchannel,
             eventStore: this._options.eventStore,
@@ -209,29 +207,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport, Atta
             supportedProtocolVersions: this._supportedProtocolVersions,
             onerror: e => this.onerror?.(e)
         });
-        // McpServerLike is structurally what StreamDriver needs (dispatch + dispatchNotification).
-        return attachPipeTransport(this, server as Parameters<typeof attachPipeTransport>[1], options);
-    }
-
-    /** @deprecated Use {@linkcode attach}. */
-    bind(server: McpServerLike): void {
-        void this.attach(server);
     }
 
     /**
      * Handles an incoming Web-standard {@linkcode Request} and returns a Web-standard {@linkcode Response}.
      */
     async handleRequest(req: Request, options: HandleRequestOptions = {}): Promise<Response> {
-        if (!this._handler) {
-            return Response.json(
-                {
-                    jsonrpc: '2.0',
-                    error: { code: -32_603, message: 'Transport not bound to a server. Call server.connect(transport) first.' },
-                    id: null
-                },
-                { status: 500 }
-            );
-        }
         if (this._options.enableDnsRebindingProtection) {
             const err = this._validateDnsRebinding(req);
             if (err) return err;
@@ -263,13 +244,45 @@ export class WebStandardStreamableHTTPServerTransport implements Transport, Atta
     }
 
     /**
-     * Sends a message over the transport. Outbound responses are routed to the
-     * {@linkcode Backchannel2511} resolver map (the inverse direction of `env.send`);
-     * notifications and server-initiated requests go on the session's standalone GET stream.
+     * {@linkcode RequestTransport.notify} — write an unsolicited notification to the
+     * session's standalone GET subscription stream (2025-11 back-compat).
+     */
+    async notify(n: JSONRPCNotification): Promise<void> {
+        if (this._closed) return;
+        const sessionId = this.sessionId ?? STATELESS_GET_KEY;
+        const written = this._backchannel.writeStandalone(sessionId, n);
+        if (!written && this._options.eventStore) {
+            await this._options.eventStore.storeEvent('_GET_stream', n);
+        }
+    }
+
+    /**
+     * {@linkcode RequestTransport.request} — send an unsolicited server→client request via
+     * the standalone GET stream and await the client's POSTed-back response (2025-11 back-compat).
+     */
+    request(r: JSONRPCRequest): Promise<JSONRPCResultResponse | JSONRPCErrorResponse> {
+        const sessionId = this.sessionId ?? STATELESS_GET_KEY;
+        const send = this._backchannel.makeEnvSend(sessionId, msg => void this._backchannel.writeStandalone(sessionId, msg));
+        return send({ method: r.method, params: r.params }, {}).then(
+            result => ({ jsonrpc: '2.0', id: r.id, result }) as JSONRPCResultResponse,
+            (error: { code?: number; message?: string; data?: unknown }) => ({
+                jsonrpc: '2.0',
+                id: r.id,
+                error: {
+                    code: error.code ?? -32_603,
+                    message: error.message ?? String(error),
+                    ...(error.data !== undefined && { data: error.data })
+                }
+            })
+        );
+    }
+
+    /**
+     * {@linkcode ChannelTransport.send} (back-compat costume). Outbound responses route to the
+     * {@linkcode Backchannel2511} resolver map; notifications and server-initiated requests go
+     * on the session's standalone GET stream.
      *
-     * `relatedRequestId` is ignored: in the new model the dispatch generator yields
-     * directly into the originating POST's SSE stream, so the only `send()` callers are
-     * `StreamDriver` for unsolicited notifications/requests.
+     * @deprecated Use {@linkcode notify} / {@linkcode request} (the {@linkcode RequestTransport} surface).
      */
     async send(message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {
         if (this._closed) return;
@@ -280,7 +293,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport, Atta
         }
         const written = this._backchannel.writeStandalone(sessionId, message);
         if (!written && this._options.eventStore) {
-            // Store for replay even when no GET stream is open (matches v1 send()).
             await this._options.eventStore.storeEvent('_GET_stream', message);
         }
     }

@@ -1,6 +1,14 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
-import type { OutboundChannel, OutboundInterceptor } from './context.js';
-import type { DispatchEnv, Dispatcher } from './dispatcher.js';
+import type {
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
+    MessageExtraInfo,
+    RequestId
+} from '../types/index.js';
+import type { OutboundInterceptor } from './context.js';
+import type { DispatchEnv } from './dispatcher.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -71,9 +79,13 @@ export type TransportSendOptions = {
     onresumptiontoken?: ((token: string) => void) | undefined;
 };
 /**
- * Describes the minimal contract for an MCP transport that a client or server can communicate over.
+ * Describes the minimal contract for a persistent, bidirectional MCP message channel
+ * (stdio, WebSocket, in-memory). The SDK wraps this in a {@linkcode StreamDriver} to
+ * do request/response correlation.
+ *
+ * For request/response-shaped transports (Streamable HTTP), see {@linkcode RequestTransport}.
  */
-export interface Transport {
+export interface ChannelTransport {
     /**
      * Starts processing messages on the transport, including any connection steps that might need to be taken.
      *
@@ -135,9 +147,12 @@ export interface Transport {
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
 }
 
+/** @deprecated Use {@linkcode ChannelTransport}. Renamed for clarity alongside {@linkcode RequestTransport}; kept as an alias. */
+export type Transport = ChannelTransport;
+
 /**
- * Options threaded through {@linkcode AttachableTransport.attach} so the transport
- * can wire itself without the caller knowing what kind of adapter it builds.
+ * Options McpServer passes when wiring a {@linkcode ChannelTransport} via {@linkcode attachPipeTransport}.
+ * @internal
  */
 export type AttachOptions = {
     supportedProtocolVersions?: string[];
@@ -149,27 +164,59 @@ export type AttachOptions = {
 };
 
 /**
- * A transport that knows how to wire itself to a {@linkcode Dispatcher}. Unifies
- * pipe-shaped and request-shaped transports: `connect()` calls `attach()` and uses
- * whatever {@linkcode OutboundChannel} it returns (or none).
+ * A request/response-shaped server transport (e.g. Streamable HTTP). Unlike
+ * {@linkcode ChannelTransport}, there is no persistent pipe: the transport receives
+ * one HTTP request at a time and calls {@linkcode onrequest} for each, streaming the
+ * yielded messages back as the HTTP response.
  *
- * Transports that don't implement this are wrapped by {@linkcode attachPipeTransport}
- * (back-compat for plain {@linkcode Transport}).
+ * The `on*` callback slots are set by `McpServer.connect()`; the transport calls them
+ * per inbound message. The transport itself never imports or references a `Dispatcher`.
  */
-export interface AttachableTransport {
+export interface RequestTransport {
     /**
-     * Wire this transport to the given dispatcher. The transport routes inbound
-     * messages to `dispatcher.dispatch()`; returns an {@linkcode OutboundChannel}
-     * for outbound calls (or `undefined` if there's no outbound path).
+     * Callback slot for inbound JSON-RPC requests. Set by `McpServer.connect()`.
+     * The transport calls this per request and writes the yielded messages
+     * (notifications + one terminal response) to the HTTP response stream.
+     *
+     * Transports MUST declare this property (initialised to `undefined`) so
+     * {@linkcode isRequestTransport} can discriminate before `connect()` runs.
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- concrete impls narrow the dispatcher type
-    attach(dispatcher: Dispatcher<any>, options?: AttachOptions): Promise<OutboundChannel | undefined>;
+    onrequest?: ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
+
+    /** Callback slot for inbound notifications (e.g. `notifications/initialized`). */
+    onnotification?: (n: JSONRPCNotification) => void | Promise<void>;
+
+    /**
+     * Callback slot for inbound JSON-RPC responses (a client POSTing back the answer to
+     * a server-initiated request). Returns `true` if the response was claimed.
+     */
+    onresponse?: (r: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean;
+
+    /** Aborts in-flight handlers and releases resources (open SSE streams, session map). */
+    close(): Promise<void>;
+
+    /**
+     * 2025-11 back-compat: write an unsolicited notification to the session's standalone
+     * GET subscription stream. In 2026-06+ clients open `subscriptions/listen` instead.
+     */
+    notify?(n: JSONRPCNotification): Promise<void>;
+
+    /**
+     * 2025-11 back-compat: send an unsolicited server→client request via the standalone
+     * GET stream and await the client's POSTed-back response. In 2026-06+ server→client
+     * requests are per-inbound-request via `env.send` (MRTR).
+     */
+    request?(r: JSONRPCRequest): Promise<JSONRPCResultResponse | JSONRPCErrorResponse>;
+
+    /** Callback for when the transport is closed for any reason. */
+    onclose?: (() => void) | undefined;
+    /** Callback for transport-level errors. */
+    onerror?: ((error: Error) => void) | undefined;
+    /** Session id (single-session compat mode). */
+    sessionId?: string | undefined;
 }
 
-/** @deprecated Use {@linkcode AttachableTransport}. Kept for one release for migration. */
-export type RequestServerTransport = AttachableTransport;
-
-/** @deprecated Check `typeof t.attach === 'function'` directly. */
-export function isRequestServerTransport(t: unknown): t is AttachableTransport {
-    return typeof (t as AttachableTransport | undefined)?.attach === 'function';
+/** Type guard distinguishing {@linkcode RequestTransport} from {@linkcode ChannelTransport}. */
+export function isRequestTransport(t: ChannelTransport | RequestTransport): t is RequestTransport {
+    return 'onrequest' in t;
 }

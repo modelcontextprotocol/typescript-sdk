@@ -1,32 +1,27 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DispatchEnv, DispatchOutput, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { DispatchEnv, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
 
 import { SessionCompat } from '../../src/server/sessionCompat.js';
-import type { McpServerLike } from '../../src/server/shttpHandler.js';
+import type { ShttpCallbacks } from '../../src/server/shttpHandler.js';
 import { shttpHandler } from '../../src/server/shttpHandler.js';
 
-/** Minimal in-test dispatcher: maps method name → result, with optional pre-yield notification. */
+/** Minimal in-test callback bundle: maps method name → result, with optional pre-yield notification. */
 function fakeServer(
     handlers: Record<string, (req: JSONRPCRequest) => unknown>,
     opts: { preNotify?: JSONRPCNotification } = {}
-): McpServerLike {
+): ShttpCallbacks {
     return {
-        async *dispatch(req: JSONRPCRequest, _env?: DispatchEnv): AsyncIterable<DispatchOutput> {
-            if (opts.preNotify) {
-                yield { kind: 'notification', message: opts.preNotify };
-            }
+        async *onrequest(req: JSONRPCRequest, _env?: DispatchEnv): AsyncIterable<JSONRPCMessage> {
+            if (opts.preNotify) yield opts.preNotify;
             const h = handlers[req.method];
             if (!h) {
-                yield {
-                    kind: 'response',
-                    message: { jsonrpc: '2.0', id: req.id, error: { code: -32_601, message: 'Method not found' } }
-                };
+                yield { jsonrpc: '2.0', id: req.id, error: { code: -32_601, message: 'Method not found' } };
                 return;
             }
-            yield { kind: 'response', message: { jsonrpc: '2.0', id: req.id, result: h(req) as Record<string, unknown> } };
+            yield { jsonrpc: '2.0', id: req.id, result: h(req) as Record<string, unknown> };
         },
-        async dispatchNotification(_n: JSONRPCNotification): Promise<void> {
+        async onnotification(_n: JSONRPCNotification): Promise<void> {
             return;
         }
     };

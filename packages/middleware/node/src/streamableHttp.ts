@@ -11,14 +11,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
 import type {
-    AttachableTransport,
-    AttachOptions,
     AuthInfo,
+    ChannelTransport,
+    DispatchEnv,
+    JSONRPCErrorResponse,
     JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
     MessageExtraInfo,
-    OutboundChannel,
     RequestId,
-    Transport
+    RequestTransport
 } from '@modelcontextprotocol/core';
 import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
@@ -93,7 +96,7 @@ export function toNodeHttpHandler(
  * });
  * ```
  */
-export class NodeStreamableHTTPServerTransport implements Transport, AttachableTransport {
+export class NodeStreamableHTTPServerTransport implements ChannelTransport, RequestTransport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
     private _requestListener: ReturnType<typeof getRequestListener>;
     // Store auth and parsedBody per request for passing through to handleRequest
@@ -159,16 +162,33 @@ export class NodeStreamableHTTPServerTransport implements Transport, AttachableT
         return this._webStandardTransport.onmessage;
     }
 
-    /**
-     * {@linkcode AttachableTransport.attach} — called by `McpServer.connect()`.
-     */
-    attach(server: Parameters<WebStandardStreamableHTTPServerTransport['attach']>[0], options?: AttachOptions): Promise<OutboundChannel> {
-        return this._webStandardTransport.attach(server, options);
+    // RequestTransport callback slots — delegate to the wrapped web-standard transport.
+    get onrequest(): ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined {
+        return this._webStandardTransport.onrequest;
+    }
+    set onrequest(h: ((req: JSONRPCRequest, env?: DispatchEnv) => AsyncIterable<JSONRPCMessage>) | undefined) {
+        this._webStandardTransport.onrequest = h;
+    }
+    get onnotification(): ((n: JSONRPCNotification) => void | Promise<void>) | undefined {
+        return this._webStandardTransport.onnotification;
+    }
+    set onnotification(h: ((n: JSONRPCNotification) => void | Promise<void>) | undefined) {
+        this._webStandardTransport.onnotification = h;
+    }
+    get onresponse(): ((r: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean) | undefined {
+        return this._webStandardTransport.onresponse;
+    }
+    set onresponse(h: ((r: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean) | undefined) {
+        this._webStandardTransport.onresponse = h;
     }
 
-    /** @deprecated Use {@linkcode attach}. */
-    bind(server: Parameters<WebStandardStreamableHTTPServerTransport['attach']>[0]): void {
-        void this.attach(server);
+    /** {@linkcode RequestTransport.notify} — delegates to the wrapped transport. */
+    notify(n: JSONRPCNotification): Promise<void> {
+        return this._webStandardTransport.notify(n);
+    }
+    /** {@linkcode RequestTransport.request} — delegates to the wrapped transport. */
+    request(r: JSONRPCRequest): Promise<JSONRPCResultResponse | JSONRPCErrorResponse> {
+        return this._webStandardTransport.request(r);
     }
 
     /**
