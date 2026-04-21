@@ -6,7 +6,6 @@
 //
 // Any new export added here becomes public API. Use named exports, not wildcards.
 
-export { Backchannel2511 } from './server/backchannel2511.js';
 export { Server } from './server/compat.js';
 export type { CompletableSchema, CompleteCallback } from './server/completable.js';
 export { completable, isCompletable } from './server/completable.js';

@@ -71,9 +71,10 @@ export { takeResult, toArrayAsync } from '../../shared/responseMessage.js';
 // stdio message framing utilities (for custom transport authors)
 export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/stdio.js';
 
-// Transport types (NOT normalizeHeaders)
-export type { ChannelTransport, FetchLike, RequestTransport, Transport, TransportSendOptions } from '../../shared/transport.js';
-export { createFetchWithInit, isRequestTransport } from '../../shared/transport.js';
+// Transport types (NOT normalizeHeaders). RequestTransport stays internal until
+// SEP-2598 (pluggable transports) finalizes.
+export type { ChannelTransport, FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
+export { createFetchWithInit } from '../../shared/transport.js';
 
 // URI Template
 export type { Variables } from '../../shared/uriTemplate.js';

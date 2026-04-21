@@ -18,9 +18,6 @@ import { getNotificationSchema, getRequestSchema, ProtocolError, ProtocolErrorCo
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import type { BaseContext, RequestEnv, RequestOptions } from './context.js';
 
-/** @deprecated Renamed to {@linkcode RequestEnv} (now in `context.ts`). */
-export type DispatchEnv = RequestEnv;
-
 /**
  * One yielded item from {@linkcode Dispatcher.dispatch}. A dispatch yields zero or more
  * notifications followed by exactly one terminal response.
