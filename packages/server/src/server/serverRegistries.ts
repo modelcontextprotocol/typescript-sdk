@@ -59,6 +59,15 @@ export interface RegistriesHost {
     sendToolListChanged(): Promise<void>;
     sendResourceListChanged(): Promise<void>;
     sendPromptListChanged(): Promise<void>;
+    /**
+     * Lazy installers, called on first registerTool/Resource/Prompt. Defined on the host so
+     * subclasses can override the install (v1 compat for code that monkey-patches `setToolRequestHandlers`).
+     * Default impl on McpServer delegates back to {@link ServerRegistries}.
+     */
+    setToolRequestHandlers(): void;
+    setResourceRequestHandlers(): void;
+    setPromptRequestHandlers(): void;
+    setCompletionRequestHandler(): void;
 }
 
 /**
@@ -84,7 +93,8 @@ export class ServerRegistries {
     // Tools
     // ───────────────────────────────────────────────────────────────────────
 
-    private setToolRequestHandlers(): void {
+    /** @internal v1-compat: kept callable so subclassers can invoke the default after overriding the host hook. */
+    setToolRequestHandlers(): void {
         if (this._toolHandlersInitialized) return;
         const h = this.host;
         h.assertCanSetRequestHandler('tools/list');
@@ -159,7 +169,8 @@ export class ServerRegistries {
         this._toolHandlersInitialized = true;
     }
 
-    private async validateToolInput<
+    /** @internal v1-compat */
+    async validateToolInput<
         ToolType extends RegisteredTool,
         Args extends ToolType['inputSchema'] extends infer InputSchema
             ? InputSchema extends StandardSchemaWithJSON
@@ -178,7 +189,8 @@ export class ServerRegistries {
         return parsed.data as unknown as Args;
     }
 
-    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string): Promise<void> {
+    /** @internal v1-compat */
+    async validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string): Promise<void> {
         if (!tool.outputSchema) return;
         if (!('content' in result)) return;
         if (result.isError) return;
@@ -197,7 +209,8 @@ export class ServerRegistries {
         }
     }
 
-    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
+    /** @internal v1-compat */
+    async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
         request: RequestT,
         ctx: ServerContext
@@ -225,7 +238,8 @@ export class ServerRegistries {
     // Completion
     // ───────────────────────────────────────────────────────────────────────
 
-    private setCompletionRequestHandler(): void {
+    /** @internal v1-compat */
+    setCompletionRequestHandler(): void {
         if (this._completionHandlerInitialized) return;
         const h = this.host;
         h.assertCanSetRequestHandler('completion/complete');
@@ -281,7 +295,8 @@ export class ServerRegistries {
     // Resources
     // ───────────────────────────────────────────────────────────────────────
 
-    private setResourceRequestHandlers(): void {
+    /** @internal v1-compat */
+    setResourceRequestHandlers(): void {
         if (this._resourceHandlersInitialized) return;
         const h = this.host;
         h.assertCanSetRequestHandler('resources/list');
@@ -336,7 +351,8 @@ export class ServerRegistries {
     // Prompts
     // ───────────────────────────────────────────────────────────────────────
 
-    private setPromptRequestHandlers(): void {
+    /** @internal v1-compat */
+    setPromptRequestHandlers(): void {
         if (this._promptHandlersInitialized) return;
         const h = this.host;
         h.assertCanSetRequestHandler('prompts/list');
@@ -399,7 +415,7 @@ export class ServerRegistries {
                 config,
                 readCallback as ReadResourceCallback
             );
-            this.setResourceRequestHandlers();
+            this.host.setResourceRequestHandlers();
             this.host.sendResourceListChanged();
             return r;
         } else {
@@ -411,7 +427,7 @@ export class ServerRegistries {
                 config,
                 readCallback as ReadResourceTemplateCallback
             );
-            this.setResourceRequestHandlers();
+            this.host.setResourceRequestHandlers();
             this.host.sendResourceListChanged();
             return r;
         }
@@ -465,7 +481,7 @@ export class ServerRegistries {
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             _meta
         );
-        this.setPromptRequestHandlers();
+        this.host.setPromptRequestHandlers();
         this.host.sendPromptListChanged();
         return r;
     }
@@ -540,7 +556,7 @@ export class ServerRegistries {
         this.registeredResourceTemplates[name] = r;
         const variableNames = template.uriTemplate.variableNames;
         const hasCompleter = Array.isArray(variableNames) && variableNames.some(v => !!template.completeCallback(v));
-        if (hasCompleter) this.setCompletionRequestHandler();
+        if (hasCompleter) this.host.setCompletionRequestHandler();
         return r;
     }
 
@@ -592,7 +608,7 @@ export class ServerRegistries {
             const shape = getSchemaShape(argsSchema);
             if (shape) {
                 const hasCompletable = Object.values(shape).some(f => isCompletable(unwrapOptionalSchema(f)));
-                if (hasCompletable) this.setCompletionRequestHandler();
+                if (hasCompletable) this.host.setCompletionRequestHandler();
             }
         }
         return r;
@@ -652,17 +668,17 @@ export class ServerRegistries {
             }
         };
         this.registeredTools[name] = r;
-        this.setToolRequestHandlers();
+        this.host.setToolRequestHandlers();
         this.host.sendToolListChanged();
         return r;
     }
 
     /** Expose lazy installers for callers (legacy `.prompt()/.resource()`) that build entries via `create*` directly. */
     installResourceHandlers(): void {
-        this.setResourceRequestHandlers();
+        this.host.setResourceRequestHandlers();
     }
     installPromptHandlers(): void {
-        this.setPromptRequestHandlers();
+        this.host.setPromptRequestHandlers();
     }
 }
 

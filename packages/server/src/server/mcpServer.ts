@@ -1,12 +1,15 @@
 import type {
     AuthInfo,
     BaseContext,
+    CallToolRequest,
+    CallToolResult,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    CreateTaskResult,
     DispatchEnv,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
@@ -242,8 +245,17 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      * Builds a {@linkcode StreamDriver} internally.
+     *
+     * Transports that expose a `bind(server)` method (request-shaped transports like
+     * {@linkcode WebStandardStreamableHTTPServerTransport}) are bound to this server
+     * first so their `handleRequest` can dispatch directly via {@linkcode shttpHandler};
+     * the {@linkcode StreamDriver} is still built so outbound `notification()`/`request()`
+     * route through `transport.send()`.
      */
     async connect(transport: Transport): Promise<void> {
+        if ('bind' in transport && typeof (transport as { bind: unknown }).bind === 'function') {
+            (transport as { bind: (server: McpServer) => void }).bind(this);
+        }
         const driverOpts: StreamDriverOptions = {
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
@@ -749,6 +761,49 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
         return this._registries.registerResource(name, uriOrTemplate as never, config, readCallback as never);
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // v1-internal compat surface — for code that monkey-patches McpServer
+    // private methods (e.g., shortcut's CustomMcpServer overrides
+    // setToolRequestHandlers). Routed through here so instance overrides fire.
+    // ───────────────────────────────────────────────────────────────────────
+
+    /** @hidden v1 compat: lazy installer hook, override on instance to customize tools/* handlers. */
+    setToolRequestHandlers(): void {
+        this._registries.setToolRequestHandlers();
+    }
+    /** @hidden v1 compat */
+    setResourceRequestHandlers(): void {
+        this._registries.setResourceRequestHandlers();
+    }
+    /** @hidden v1 compat */
+    setPromptRequestHandlers(): void {
+        this._registries.setPromptRequestHandlers();
+    }
+    /** @hidden v1 compat */
+    setCompletionRequestHandler(): void {
+        this._registries.setCompletionRequestHandler();
+    }
+    /** @hidden v1 compat */
+    protected validateToolInput(tool: RegisteredTool, args: unknown, toolName: string) {
+        return this._registries.validateToolInput(tool, args as never, toolName);
+    }
+    /** @hidden v1 compat */
+    protected validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string) {
+        return this._registries.validateToolOutput(tool, result, toolName);
+    }
+    /** @hidden v1 compat */
+    protected handleAutomaticTaskPolling(tool: RegisteredTool, request: CallToolRequest, ctx: ServerContext) {
+        return this._registries.handleAutomaticTaskPolling(tool, request, ctx);
+    }
+    /** @hidden v1 compat: was a private instance method in v1 mcp.ts. */
+    protected createToolError(errorMessage: string): CallToolResult {
+        return { content: [{ type: 'text', text: errorMessage }], isError: true };
+    }
+    /** @hidden v1 compat: removed in v2 (replaced by `tool.executor`); shim calls executor. */
+    protected executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext) {
+        return tool.executor(args as never, ctx);
     }
 
     /** @hidden v1 compat for `(mcpServer as any)._registeredTools` and `experimental.tasks`. */
