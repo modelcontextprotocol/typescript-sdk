@@ -35,12 +35,12 @@ describe('Protocol transport handling bug', () => {
 
     beforeEach(() => {
         protocol = new (class extends Protocol<BaseContext> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected assertTaskCapability(): void {}
-            protected assertTaskHandlerCapability(): void {}
-            protected buildContext(ctx: BaseContext): BaseContext {
+            protected override assertCapabilityForMethod(): void {}
+            protected override assertNotificationCapability(): void {}
+            protected override assertRequestHandlerCapability(): void {}
+            protected override assertTaskCapability(): void {}
+            protected override assertTaskHandlerCapability(): void {}
+            protected override buildContext(ctx: BaseContext): BaseContext {
                 return ctx;
             }
         })();

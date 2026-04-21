@@ -16,7 +16,7 @@ import type {
     ResultTypeMap
 } from '../types/index.js';
 import { getNotificationSchema, getRequestSchema, ProtocolErrorCode } from '../types/index.js';
-import type { BaseContext, RequestOptions } from './protocol.js';
+import type { BaseContext, RequestOptions } from './context.js';
 import type { TaskContext } from './taskManager.js';
 
 /**

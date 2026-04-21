@@ -26,8 +26,8 @@ import {
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { DispatchEnv, Dispatcher } from './dispatcher.js';
-import type { NotificationOptions, ProgressCallback, RequestOptions } from './protocol.js';
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './protocol.js';
+import type { NotificationOptions, ProgressCallback, RequestOptions } from './context.js';
+import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
 import type { InboundContext, TaskManagerHost, TaskManagerOptions } from './taskManager.js';
 import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport } from './transport.js';
@@ -73,6 +73,7 @@ export class StreamDriver {
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
+    private _closed = false;
     private _supportedProtocolVersions: string[];
     private _taskManager: TaskManager;
 
@@ -263,7 +264,7 @@ export class StreamDriver {
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
         const taskResult = await this._taskManager.processOutboundNotification(notification, options);
-        if (taskResult.queued) return;
+        if (taskResult.queued || this._closed) return;
         const jsonrpc: JSONRPCNotification = taskResult.jsonrpcNotification ?? {
             jsonrpc: '2.0',
             method: notification.method,
@@ -277,7 +278,8 @@ export class StreamDriver {
             if (this._pendingDebouncedNotifications.has(notification.method)) return;
             this._pendingDebouncedNotifications.add(notification.method);
             Promise.resolve().then(() => {
-                this._pendingDebouncedNotifications.delete(notification.method);
+                // If the entry was already removed (by _onclose), skip the send.
+                if (!this._pendingDebouncedNotifications.delete(notification.method)) return;
                 this.pipe.send(jsonrpc, options).catch(error => this._onerror(error));
             });
             return;
@@ -408,6 +410,7 @@ export class StreamDriver {
     }
 
     private _onclose(): void {
+        this._closed = true;
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();

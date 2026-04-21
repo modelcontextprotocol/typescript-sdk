@@ -32,7 +32,7 @@ import {
     TaskStatusNotificationSchema
 } from '../types/index.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
-import type { BaseContext, NotificationOptions, RequestOptions } from './protocol.js';
+import type { BaseContext, NotificationOptions, RequestOptions } from './context.js';
 import type { ResponseMessage } from './responseMessage.js';
 
 /**
