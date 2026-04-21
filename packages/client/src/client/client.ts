@@ -35,7 +35,6 @@ import type {
     Notification,
     NotificationMethod,
     NotificationOptions,
-    NotificationTypeMap,
     ProtocolOptions,
     ReadResourceRequest,
     Request,
@@ -214,9 +213,8 @@ export type ClientOptions = ProtocolOptions & {
  * - 2025-11-compat: {@linkcode connect} accepts the legacy pipe-shaped
  *   {@linkcode Transport} and runs the initialize handshake.
  */
-export class Client {
+export class Client extends Dispatcher<ClientContext> {
     private _ct?: ClientTransport;
-    private _localDispatcher: Dispatcher<ClientContext>;
     private _capabilities: ClientCapabilities;
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
@@ -243,56 +241,7 @@ export class Client {
         private _clientInfo: Implementation,
         private _options?: ClientOptions
     ) {
-        // eslint-disable-next-line @typescript-eslint/no-this-alias, unicorn/no-this-assignment
-        const self = this;
-        this._localDispatcher = new (class extends Dispatcher<ClientContext> {
-            override async *dispatch(request: JSONRPCRequest, env: DispatchEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
-                const tm = self._taskManager;
-                if (!tm) {
-                    yield* super.dispatch(request, env);
-                    return;
-                }
-                const inboundCtx: InboundContext = {
-                    sessionId: env.sessionId,
-                    sendNotification: (n, opts) => self.notification(n, { ...opts, relatedRequestId: request.id }),
-                    sendRequest: (r, schema, opts) => self._request(r, schema, { ...opts, relatedRequestId: request.id })
-                };
-                const tr = tm.processInboundRequest(request, inboundCtx);
-                if (tr.validateInbound) {
-                    try {
-                        tr.validateInbound();
-                    } catch (error) {
-                        const e = error as { code?: number; message?: string; data?: unknown };
-                        yield {
-                            kind: 'response',
-                            message: {
-                                jsonrpc: '2.0',
-                                id: request.id,
-                                error: {
-                                    code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
-                                    message: e?.message ?? 'Internal error',
-                                    ...(e?.data !== undefined && { data: e.data })
-                                }
-                            }
-                        };
-                        return;
-                    }
-                }
-                const taskEnv: DispatchEnv = {
-                    ...env,
-                    task: tr.taskContext ?? env.task,
-                    send: (r, opts) => tr.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
-                };
-                for await (const out of super.dispatch(request, taskEnv)) {
-                    if (out.kind === 'response') {
-                        const routed = await tr.routeResponse(out.message);
-                        if (!routed) yield out;
-                    } else {
-                        await tr.sendNotification({ method: out.message.method, params: out.message.params });
-                    }
-                }
-            }
-        })();
+        super();
         this._capabilities = _options?.capabilities ? { ..._options.capabilities } : {};
         this._jsonSchemaValidator = _options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
@@ -309,7 +258,59 @@ export class Client {
             this._capabilities.tasks = wireCapabilities;
         }
 
-        this._localDispatcher.setRequestHandler('ping', async () => ({}));
+        super.setRequestHandler('ping', async () => ({}));
+    }
+
+    /**
+     * Task-aware dispatch for inbound server-initiated requests (sampling,
+     * elicitation, roots, ping). Threads {@linkcode TaskManager.processInboundRequest}
+     * so task-augmented requests and queueing work over both pipe and request-shaped paths.
+     */
+    override async *dispatch(request: JSONRPCRequest, env: DispatchEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
+        const tm = this._taskManager;
+        if (!tm) {
+            yield* super.dispatch(request, env);
+            return;
+        }
+        const inboundCtx: InboundContext = {
+            sessionId: env.sessionId,
+            sendNotification: (n, opts) => this.notification(n, { ...opts, relatedRequestId: request.id }),
+            sendRequest: (r, schema, opts) => this._request(r, schema, { ...opts, relatedRequestId: request.id })
+        };
+        const tr = tm.processInboundRequest(request, inboundCtx);
+        if (tr.validateInbound) {
+            try {
+                tr.validateInbound();
+            } catch (error) {
+                const e = error as { code?: number; message?: string; data?: unknown };
+                yield {
+                    kind: 'response',
+                    message: {
+                        jsonrpc: '2.0',
+                        id: request.id,
+                        error: {
+                            code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
+                            message: e?.message ?? 'Internal error',
+                            ...(e?.data !== undefined && { data: e.data })
+                        }
+                    }
+                };
+                return;
+            }
+        }
+        const taskEnv: DispatchEnv = {
+            ...env,
+            task: tr.taskContext ?? env.task,
+            send: (r, opts) => tr.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>
+        };
+        for await (const out of super.dispatch(request, taskEnv)) {
+            if (out.kind === 'response') {
+                const routed = await tr.routeResponse(out.message);
+                if (!routed) yield out;
+            } else {
+                await tr.sendNotification({ method: out.message.method, params: out.message.params });
+            }
+        }
     }
 
     /**
@@ -333,7 +334,7 @@ export class Client {
                     close: () => tm.onClose()
                 }
             };
-            this._ct = pipeAsClientTransport(transport, this._localDispatcher, driverOpts);
+            this._ct = pipeAsClientTransport(transport, this, driverOpts);
             this._ct.driver!.onclose = () => this.onclose?.();
             this._ct.driver!.onerror = e => this.onerror?.(e);
             const skipInit = transport.sessionId !== undefined;
@@ -382,7 +383,7 @@ export class Client {
                 const stream = ct.subscribe!({
                     onrequest: async r => {
                         let resp: JSONRPCResultResponse | JSONRPCErrorResponse | undefined;
-                        for await (const out of this._localDispatcher.dispatch(r)) {
+                        for await (const out of this.dispatch(r)) {
                             if (out.kind === 'response') resp = out.message;
                         }
                         return resp ?? { jsonrpc: '2.0', id: r.id, error: { code: -32_601, message: 'Method not found' } };
@@ -393,7 +394,7 @@ export class Client {
                     }
                 });
                 for await (const n of stream) {
-                    void this._localDispatcher.dispatchNotification(n).catch(error => this.onerror?.(error));
+                    void this.dispatchNotification(n).catch(error => this.onerror?.(error));
                 }
             } catch (error) {
                 this.onerror?.(error instanceof Error ? error : new Error(String(error)));
@@ -413,7 +414,7 @@ export class Client {
             notification: (n, opts) => this.notification(n, opts),
             reportError: e => this.onerror?.(e),
             removeProgressHandler: t => this._ct?.driver?.removeProgressHandler(t),
-            registerHandler: (method, handler) => this._localDispatcher.setRawRequestHandler(method, handler),
+            registerHandler: (method, handler) => this.setRawRequestHandler(method, handler),
             sendOnResponseStream: async () => {
                 throw new SdkError(SdkErrorCode.NotConnected, 'sendOnResponseStream is server-side only');
             },
@@ -468,24 +469,24 @@ export class Client {
      * For `sampling/createMessage` and `elicitation/create`, the handler is automatically
      * wrapped with schema validation for both the incoming request and the returned result.
      */
-    setRequestHandler<M extends RequestMethod>(
+    override setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
-    setRequestHandler<S extends StandardSchemaV1>(
+    override setRequestHandler<S extends StandardSchemaV1>(
         method: string,
         paramsSchema: S,
         handler: (params: StandardSchemaV1.InferOutput<S>, ctx: ClientContext) => Result | Promise<Result>
     ): void;
     /** @deprecated Pass a method string instead of a Zod request schema. */
-    setRequestHandler<S extends { shape: { method: unknown } }>(
+    override setRequestHandler<S extends { shape: { method: unknown } }>(
         schema: S,
         handler: (
             request: S extends StandardSchemaV1<unknown, infer O> ? O : JSONRPCRequest,
             ctx: ClientContext
         ) => Result | Promise<Result>
     ): void;
-    setRequestHandler(
+    override setRequestHandler(
         methodOrSchema: string | { shape: { method: unknown } },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         handlerOrSchema: any,
@@ -494,7 +495,7 @@ export class Client {
         if (maybeHandler !== undefined) {
             const customMethod = methodOrSchema as string;
             this._assertRequestHandlerCapability(customMethod);
-            this._localDispatcher.setRequestHandler(customMethod, handlerOrSchema, maybeHandler);
+            super.setRequestHandler(customMethod, handlerOrSchema, maybeHandler);
             return;
         }
         const handler = handlerOrSchema;
@@ -507,29 +508,14 @@ export class Client {
         this._assertRequestHandlerCapability(method);
 
         if (method === 'elicitation/create') {
-            this._localDispatcher.setRequestHandler(method, this._wrapElicitationHandler(handler));
+            super.setRequestHandler(method, this._wrapElicitationHandler(handler));
             return;
         }
         if (method === 'sampling/createMessage') {
-            this._localDispatcher.setRequestHandler(method, this._wrapSamplingHandler(handler));
+            super.setRequestHandler(method, this._wrapSamplingHandler(handler));
             return;
         }
-        this._localDispatcher.setRequestHandler(method, handler);
-    }
-    removeRequestHandler(method: string): void {
-        this._localDispatcher.removeRequestHandler(method);
-    }
-    setNotificationHandler<M extends NotificationMethod>(
-        method: M,
-        handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
-    ): void {
-        this._localDispatcher.setNotificationHandler(method, handler);
-    }
-    removeNotificationHandler(method: string): void {
-        this._localDispatcher.removeNotificationHandler(method);
-    }
-    set fallbackNotificationHandler(h: ((n: Notification) => Promise<void>) | undefined) {
-        this._localDispatcher.fallbackNotificationHandler = h;
+        super.setRequestHandler(method, handler);
     }
 
     /** Low-level: send one typed request. Runs the MRTR loop. */
@@ -772,14 +758,14 @@ export class Client {
                 relatedTask: options?.relatedTask,
                 resumptionToken: options?.resumptionToken,
                 onresumptiontoken: options?.onresumptiontoken,
-                onnotification: n => void this._localDispatcher.dispatchNotification(n).catch(error => this.onerror?.(error)),
+                onnotification: n => void this.dispatchNotification(n).catch(error => this.onerror?.(error)),
                 onresponse: r => {
                     const consumed = this.taskManager.processInboundResponse(r, Number(r.id)).consumed;
                     if (!consumed) this.onerror?.(new Error(`Unmatched response on stream: ${JSON.stringify(r)}`));
                 },
                 onrequest: async r => {
                     let resp: JSONRPCResultResponse | JSONRPCErrorResponse | undefined;
-                    for await (const out of this._localDispatcher.dispatch(r)) {
+                    for await (const out of this.dispatch(r)) {
                         if (out.kind === 'response') resp = out.message;
                     }
                     return resp ?? { jsonrpc: '2.0', id: r.id, error: { code: -32_601, message: 'Method not found' } };
@@ -805,7 +791,7 @@ export class Client {
         const out: Record<string, unknown> = {};
         for (const [key, ir] of Object.entries(reqs)) {
             const synthetic: JSONRPCRequest = { jsonrpc: '2.0', id: `mrtr:${key}`, method: ir.method, params: ir.params };
-            const resp = await this._localDispatcher.dispatchToResponse(synthetic);
+            const resp = await this.dispatchToResponse(synthetic);
             if (isJSONRPCErrorResponse(resp)) {
                 throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
             }
