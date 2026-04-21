@@ -12,15 +12,16 @@ import { DEFAULT_REQUEST_TIMEOUT_MSEC, isJSONRPCErrorResponse, ProtocolError, Sd
 /**
  * Isolated 2025-11 server-to-client request backchannel for {@linkcode shttpHandler}.
  *
- * The pre-2026-06 protocol allows a server to send `elicitation/create` and
+ * The 2025-11 protocol allows a server to send `elicitation/create` and
  * `sampling/createMessage` requests to the client mid-tool-call by writing them as
  * SSE events on the open POST response stream and waiting for the client to POST
  * the response back. This class owns the per-session `{requestId -> resolver}`
  * map that correlation requires, plus the standalone-GET writer registry used for
  * unsolicited server notifications.
  *
- * It exists so this stateful behaviour is in one removable file once 2026-06 (MRTR)
- * is the floor and `env.send` becomes a hard error in stateless paths.
+ * It exists so this stateful behaviour is in one removable file once MRTR
+ * (SEP-2322) is the protocol floor and `env.send` becomes a hard error in
+ * stateless paths.
  */
 export class Backchannel2511 {
     private _pending = new Map<string, Map<number, { resolve: (r: Result) => void; reject: (e: Error) => void }>>();

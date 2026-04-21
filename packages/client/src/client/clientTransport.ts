@@ -61,8 +61,8 @@ export type ClientFetchOptions = {
  * response out. The transport may be stateful internally (session id, protocol
  * version) but the contract is per-call.
  *
- * This is the 2026-06-native shape. The legacy pipe {@linkcode Transport}
- * interface is adapted via {@linkcode channelAsClientTransport}.
+ * The legacy pipe {@linkcode Transport} interface is adapted via
+ * {@linkcode channelAsClientTransport}.
  */
 export interface ClientTransport {
     /** Explicit shape brand. Required so {@linkcode isChannelTransport} can discriminate without duck-typing. */

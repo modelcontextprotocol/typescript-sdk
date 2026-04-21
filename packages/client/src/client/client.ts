@@ -159,9 +159,8 @@ function isCreateTaskResult(r: unknown): r is CreateTaskResult {
 }
 
 /**
- * Loose envelope for the (draft) 2026-06 MRTR `input_required` result. Typed
- * minimally so this compiles before the spec types land; runtime detection is
- * by shape.
+ * Loose envelope for the SEP-2322 MRTR `input_required` result. Typed minimally
+ * (field names not yet finalized in the spec); runtime detection is by shape.
  */
 type InputRequiredEnvelope = {
     ResultType: 'input_required';
@@ -204,10 +203,10 @@ export type ClientOptions = ProtocolOptions & {
 /**
  * MCP client built on a request-shaped {@linkcode ClientTransport}.
  *
- * - 2026-06-native: every request is independent; `request()` runs the MRTR
- *   loop, servicing `input_required` rounds via locally registered handlers.
- * - 2025-11-compat: {@linkcode connect} accepts the legacy pipe-shaped
- *   {@linkcode Transport} and runs the initialize handshake.
+ * Every request is independent; `request()` runs the SEP-2322 MRTR loop,
+ * servicing `input_required` rounds via locally registered handlers.
+ * {@linkcode connect} also accepts a legacy pipe-shaped {@linkcode Transport}
+ * and runs the 2025-11 initialize handshake for back-compat.
  */
 export class Client extends Dispatcher<ClientContext> {
     private _ct?: ClientTransport;
@@ -274,11 +273,10 @@ export class Client extends Dispatcher<ClientContext> {
     }
 
     /**
-     * Connects to a server. Accepts either a {@linkcode ClientTransport}
-     * (2026-06-native, request-shaped) or a legacy pipe {@linkcode Transport}
-     * (stdio, SSE, the v1 SHTTP class). Pipe transports are adapted via
-     * {@linkcode channelAsClientTransport} and the 2025-11 initialize handshake
-     * is performed.
+     * Connects to a server. Accepts either a request-shaped {@linkcode ClientTransport}
+     * or a legacy pipe {@linkcode Transport} (stdio, SSE, the v1 SHTTP class).
+     * Pipe transports are adapted via {@linkcode channelAsClientTransport} and
+     * the 2025-11 initialize handshake is performed.
      */
     async connect(transport: Transport | ClientTransport, options?: RequestOptions): Promise<void> {
         if (isChannelTransport(transport)) {
@@ -755,7 +753,7 @@ export class Client extends Dispatcher<ClientContext> {
     }
 
     private async _discoverOrInitialize(options: RequestOptions | undefined, setProtocolVersion: (v: string) => void): Promise<void> {
-        // 2026-06: try server/discover, fall back to initialize. Discover schema
+        // Try server/discover (SEP-2575 stateless), fall back to initialize. Discover schema
         // is not yet in spec types, so probe and accept the result loosely.
         try {
             const resp = await this._ct!.fetch(
@@ -770,7 +768,7 @@ export class Client extends Dispatcher<ClientContext> {
                     protocolVersion?: string;
                 };
                 // Only accept discover if the result is shaped like a real discover response;
-                // pre-2026-06 servers may return an empty/echo result for unknown methods.
+                // 2025-11 servers may return an empty/echo result for unknown methods.
                 if (r?.serverInfo) {
                     this._serverCapabilities = r.capabilities;
                     this._serverVersion = r.serverInfo;

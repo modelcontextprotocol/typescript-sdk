@@ -203,14 +203,13 @@ export interface RequestTransport {
 
     /**
      * 2025-11 back-compat: write an unsolicited notification to the session's standalone
-     * GET subscription stream. In 2026-06+ clients open `subscriptions/listen` instead.
+     * GET subscription stream.
      */
     notify?(n: JSONRPCNotification): Promise<void>;
 
     /**
      * 2025-11 back-compat: send an unsolicited server→client request via the standalone
-     * GET stream and await the client's POSTed-back response. In 2026-06+ server→client
-     * requests are per-inbound-request via `env.send` (MRTR).
+     * GET stream and await the client's POSTed-back response.
      */
     request?(r: JSONRPCRequest): Promise<JSONRPCResultResponse | JSONRPCErrorResponse>;
 
