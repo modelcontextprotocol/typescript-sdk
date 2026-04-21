@@ -390,9 +390,25 @@ export class Client {
     }
 
     /** Low-level: send one typed request. Runs the MRTR loop. */
-    async request<M extends RequestMethod>(req: { method: M; params?: RequestTypeMap[M]['params'] }, options?: RequestOptions) {
-        const schema = getResultSchema(req.method);
-        return this._request({ method: req.method, params: req.params }, schema, options) as Promise<ResultTypeMap[M]>;
+    request<M extends RequestMethod>(
+        req: { method: M; params?: RequestTypeMap[M]['params'] },
+        options?: RequestOptions
+    ): Promise<ResultTypeMap[M]>;
+    /** @deprecated Pass options as the second argument; the result schema is inferred from `req.method`. */
+    request<S extends { parse: (v: unknown) => unknown }>(
+        req: { method: string; params?: Record<string, unknown> },
+        resultSchema: S,
+        options?: RequestOptions
+    ): Promise<ReturnType<S['parse']>>;
+    async request(
+        req: { method: string; params?: Record<string, unknown> },
+        schemaOrOptions?: RequestOptions | { parse: (v: unknown) => unknown },
+        maybeOptions?: RequestOptions
+    ) {
+        const isSchema = schemaOrOptions != null && typeof (schemaOrOptions as { parse?: unknown }).parse === 'function';
+        const options = isSchema ? maybeOptions : (schemaOrOptions as RequestOptions | undefined);
+        const schema = isSchema ? (schemaOrOptions as AnySchema) : getResultSchema(req.method as RequestMethod);
+        return this._request({ method: req.method, params: req.params }, schema, options);
     }
 
     /** Low-level: send a notification to the server. */

@@ -36,6 +36,11 @@ export function extractMethodFromSchema(schema: { shape: { method: unknown } }):
 }
 
 function isZodTypeLike(v: unknown): boolean {
+    if (v == null || typeof v !== 'object') return false;
+    return '_zod' in (v as object) || '_def' in (v as object);
+}
+
+function isZodV4Type(v: unknown): boolean {
     return v != null && typeof v === 'object' && '_zod' in (v as object);
 }
 
@@ -47,6 +52,112 @@ export function isZodRawShapeCompat(v: unknown): v is ZodRawShapeCompat {
     return values.some(v => isZodTypeLike(v));
 }
 
+type ZodV3Like = {
+    _def: { typeName?: string; innerType?: ZodV3Like; type?: ZodV3Like; shape?: () => Record<string, ZodV3Like>; values?: unknown[] };
+    description?: string;
+    isOptional?: () => boolean;
+    '~standard'?: { validate: (v: unknown) => unknown };
+};
+
+/** Best-effort JSON Schema synthesis for a single zod v3 schema (covers common primitives). */
+function v3ToJsonSchema(s: ZodV3Like): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (s.description) out.description = s.description;
+    const tn = s._def?.typeName;
+    switch (tn) {
+        case 'ZodString': {
+            out.type = 'string';
+            break;
+        }
+        case 'ZodNumber': {
+            out.type = 'number';
+            break;
+        }
+        case 'ZodBoolean': {
+            out.type = 'boolean';
+            break;
+        }
+        case 'ZodArray': {
+            out.type = 'array';
+            if (s._def.type) out.items = v3ToJsonSchema(s._def.type);
+            break;
+        }
+        case 'ZodEnum':
+        case 'ZodNativeEnum': {
+            if (Array.isArray(s._def.values)) out.enum = s._def.values;
+            break;
+        }
+        case 'ZodObject': {
+            const shape = s._def.shape?.();
+            out.type = 'object';
+            if (shape) {
+                const entries = Object.entries(shape);
+                out.properties = Object.fromEntries(entries.map(([k, v]) => [k, v3ToJsonSchema(v)]));
+                out.required = entries.filter(([, v]) => !v.isOptional?.()).map(([k]) => k);
+            }
+            break;
+        }
+        case 'ZodOptional':
+        case 'ZodNullable':
+        case 'ZodDefault': {
+            return s._def.innerType ? { ...v3ToJsonSchema(s._def.innerType), ...out } : out;
+        }
+        default: {
+            break;
+        }
+    }
+    return out;
+}
+
+/** Wrap a raw shape whose values are zod v3 (or any Standard Schema lacking jsonSchema) into a {@linkcode StandardSchemaWithJSON}. */
+function adaptRawShapeToStandard(shape: Record<string, ZodV3Like>): StandardSchemaWithJSON {
+    const entries = Object.entries(shape);
+    const required = entries.filter(([, v]) => !v.isOptional?.()).map(([k]) => k);
+    const jsonSchema = {
+        type: 'object',
+        properties: Object.fromEntries(entries.map(([k, v]) => [k, v3ToJsonSchema(v)])),
+        required,
+        additionalProperties: false
+    };
+    const emit = () => jsonSchema;
+    return {
+        '~standard': {
+            version: 1,
+            vendor: 'mcp-zod-v3-compat',
+            validate: input => {
+                if (typeof input !== 'object' || input === null) {
+                    return { issues: [{ message: 'Expected object' }] };
+                }
+                const value: Record<string, unknown> = {};
+                const issues: { message: string; path: PropertyKey[] }[] = [];
+                for (const [k, field] of entries) {
+                    const std = field['~standard'];
+                    const raw = (input as Record<string, unknown>)[k];
+                    if (std) {
+                        const r = std.validate(raw) as { value?: unknown; issues?: { message: string }[] };
+                        if (r.issues) for (const i of r.issues) issues.push({ message: i.message, path: [k] });
+                        else value[k] = r.value;
+                    } else {
+                        value[k] = raw;
+                    }
+                }
+                return issues.length > 0 ? { issues } : { value };
+            },
+            jsonSchema: { input: emit, output: emit }
+        }
+    } as StandardSchemaWithJSON;
+}
+
+/** Wrap a Standard Schema that lacks `jsonSchema` (e.g. zod v3's `z.object({...})`) by synthesizing one from `_def`. */
+function adaptStandardSchemaWithoutJson(schema: ZodV3Like): StandardSchemaWithJSON {
+    const json = v3ToJsonSchema(schema);
+    const emit = () => json;
+    const std = schema['~standard'] as { version: 1; vendor: string; validate: (v: unknown) => unknown };
+    return {
+        '~standard': { ...std, jsonSchema: { input: emit, output: emit } }
+    } as unknown as StandardSchemaWithJSON;
+}
+
 /**
  * Coerce a v1-style raw Zod shape (or empty object) to a {@linkcode StandardSchemaWithJSON}.
  * Standard Schemas pass through unchanged.
@@ -54,8 +165,17 @@ export function isZodRawShapeCompat(v: unknown): v is ZodRawShapeCompat {
 export function coerceSchema(schema: unknown): StandardSchemaWithJSON | undefined {
     if (schema == null) return undefined;
     if (isStandardSchemaWithJSON(schema)) return schema;
-    if (isZodRawShapeCompat(schema)) return z.object(schema) as unknown as StandardSchemaWithJSON;
+    if (isZodRawShapeCompat(schema)) {
+        const values = Object.values(schema as object);
+        if (values.every(v => isZodV4Type(v))) {
+            return z.object(schema as ZodRawShapeCompat) as unknown as StandardSchemaWithJSON;
+        }
+        return adaptRawShapeToStandard(schema as unknown as Record<string, ZodV3Like>);
+    }
     if (isStandardSchema(schema)) {
+        if ('_def' in (schema as object)) {
+            return adaptStandardSchemaWithoutJson(schema as unknown as ZodV3Like);
+        }
         throw new Error('Schema lacks JSON-Schema emission (zod >=4.2 or equivalent required).');
     }
     throw new Error('inputSchema/argsSchema must be a Standard Schema or a Zod raw shape (e.g. {name: z.string()})');
