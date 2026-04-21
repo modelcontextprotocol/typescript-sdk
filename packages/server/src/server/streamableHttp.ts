@@ -295,19 +295,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     private _validateDnsRebinding(req: Request): Response | undefined {
-        const host = req.headers.get('host');
-        if (this._options.allowedHosts && host && !this._options.allowedHosts.includes(host)) {
-            return Response.json(
-                { jsonrpc: '2.0', error: { code: -32_000, message: `Invalid Host header: ${host}` }, id: null },
-                { status: 403 }
-            );
+        if (this._options.allowedHosts && this._options.allowedHosts.length > 0) {
+            const host = req.headers.get('host');
+            if (!host || !this._options.allowedHosts.includes(host)) {
+                return Response.json(
+                    { jsonrpc: '2.0', error: { code: -32_000, message: `Invalid Host header: ${host ?? '(missing)'}` }, id: null },
+                    { status: 403 }
+                );
+            }
         }
-        const origin = req.headers.get('origin');
-        if (this._options.allowedOrigins && origin && !this._options.allowedOrigins.includes(origin)) {
-            return Response.json(
-                { jsonrpc: '2.0', error: { code: -32_000, message: `Invalid Origin header: ${origin}` }, id: null },
-                { status: 403 }
-            );
+        if (this._options.allowedOrigins && this._options.allowedOrigins.length > 0) {
+            const origin = req.headers.get('origin');
+            if (origin && !this._options.allowedOrigins.includes(origin)) {
+                return Response.json(
+                    { jsonrpc: '2.0', error: { code: -32_000, message: `Invalid Origin header: ${origin}` }, id: null },
+                    { status: 403 }
+                );
+            }
         }
         return undefined;
     }
