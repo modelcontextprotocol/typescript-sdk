@@ -47,6 +47,8 @@ interface SessionEntry {
     lastSeen: number;
     /** Standalone GET subscription stream controller, if one is open. */
     sseController?: ReadableStreamDefaultController<Uint8Array>;
+    /** Protocol version requested by the client in `initialize.params.protocolVersion`. */
+    protocolVersion?: string;
 }
 
 /** Result of {@linkcode SessionCompat.validate}. */
@@ -115,7 +117,10 @@ export class SessionCompat {
             }
             const id = this._generate();
             const now = Date.now();
-            this._sessions.set(id, { createdAt: now, lastSeen: now });
+            const initMsg = messages.find(m => isInitializeRequest(m));
+            const protocolVersion =
+                initMsg && isInitializeRequest(initMsg) ? initMsg.params.protocolVersion : undefined;
+            this._sessions.set(id, { createdAt: now, lastSeen: now, protocolVersion });
             await Promise.resolve(this._onsessioninitialized?.(id));
             return { ok: true, sessionId: id, isInitialize: true };
         }
@@ -156,6 +161,11 @@ export class SessionCompat {
         }
         this._sessions.delete(sessionId);
         await Promise.resolve(this._onsessionclosed?.(sessionId));
+    }
+
+    /** Protocol version the client requested in `initialize` for this session, if known. */
+    negotiatedVersion(sessionId: string): string | undefined {
+        return this._sessions.get(sessionId)?.protocolVersion;
     }
 
     /** Returns true if a standalone GET stream is already open for this session. */

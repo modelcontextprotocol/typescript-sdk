@@ -2,19 +2,24 @@ import type {
     AuthInfo,
     DispatchEnv,
     DispatchOutput,
+    JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
-    JSONRPCRequest
+    JSONRPCRequest,
+    JSONRPCResultResponse
 } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
+    isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
+    isJSONRPCResultResponse,
     JSONRPCMessageSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
+import type { Backchannel2511 } from './backchannel2511.js';
 import type { SessionCompat } from './sessionCompat.js';
 
 export type StreamId = string;
@@ -70,6 +75,15 @@ export interface ShttpHandlerOptions {
      * the handler is stateless: GET/DELETE return 405.
      */
     session?: SessionCompat;
+
+    /**
+     * Pre-2026-06 server-to-client request backchannel. When provided alongside `session`,
+     * the handler supplies `env.send` to dispatched handlers (so `ctx.mcpReq.elicitInput()` etc.
+     * work over the open POST SSE stream) and routes incoming JSON-RPC responses to the
+     * waiting `env.send` promise. Version-gated: only active for sessions whose negotiated
+     * protocol version is below `2026-06-30`.
+     */
+    backchannel?: Backchannel2511;
 
     /**
      * Event store for SSE resumability via `Last-Event-ID`. When configured, every
@@ -149,10 +163,17 @@ export function shttpHandler(
 ): (req: Request, extra?: ShttpRequestExtra) => Promise<Response> {
     const enableJsonResponse = options.enableJsonResponse ?? false;
     const session = options.session;
+    const backchannel = options.backchannel;
     const eventStore = options.eventStore;
     const retryInterval = options.retryInterval;
     const supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
     const onerror = options.onerror;
+
+    function backchannelEnabled(sessionId: string | undefined, clientProtocolVersion: string): boolean {
+        if (!backchannel || sessionId === undefined) return false;
+        const negotiated = session?.negotiatedVersion(sessionId) ?? clientProtocolVersion;
+        return negotiated < '2026-06-30';
+    }
 
     function validateProtocolVersion(req: Request): Response | undefined {
         const v = req.headers.get('mcp-protocol-version');
@@ -237,9 +258,16 @@ export function shttpHandler(
 
         const requests = messages.filter(m => isJSONRPCRequest(m));
         const notifications = messages.filter(m => isJSONRPCNotification(m));
+        const responses = messages.filter(
+            (m): m is JSONRPCResultResponse | JSONRPCErrorResponse => isJSONRPCResultResponse(m) || isJSONRPCErrorResponse(m)
+        );
 
         for (const n of notifications) {
             void server.dispatchNotification(n).catch(error => onerror?.(error as Error));
+        }
+
+        if (backchannel && sessionId !== undefined) {
+            for (const r of responses) backchannel.handleResponse(sessionId, r);
         }
 
         if (requests.length === 0) {
@@ -252,18 +280,19 @@ export function shttpHandler(
                 ? initReq.params.protocolVersion
                 : (req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
 
-        const env: DispatchEnv = { sessionId, authInfo: extra?.authInfo, httpReq: req };
+        const baseEnv: DispatchEnv = { sessionId, authInfo: extra?.authInfo, httpReq: req };
+        const useBackchannel = backchannelEnabled(sessionId, clientProtocolVersion);
 
         if (enableJsonResponse) {
-            const responses: JSONRPCMessage[] = [];
+            const out: JSONRPCMessage[] = [];
             for (const r of requests) {
-                for await (const out of server.dispatch(r, env)) {
-                    if (out.kind === 'response') responses.push(out.message);
+                for await (const item of server.dispatch(r, baseEnv)) {
+                    if (item.kind === 'response') out.push(item.message);
                 }
             }
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (sessionId !== undefined) headers['mcp-session-id'] = sessionId;
-            const body = responses.length === 1 ? responses[0] : responses;
+            const body = out.length === 1 ? out[0] : out;
             return Response.json(body, { status: 200, headers });
         }
 
@@ -274,6 +303,11 @@ export function shttpHandler(
 
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
+                const writeSSE = (msg: JSONRPCMessage) => void emit(controller, encoder, streamId, msg);
+                const env: DispatchEnv =
+                    useBackchannel && backchannel && sessionId !== undefined
+                        ? { ...baseEnv, send: backchannel.makeEnvSend(sessionId, writeSSE) }
+                        : baseEnv;
                 void (async () => {
                     try {
                         await writePrimingEvent(controller, encoder, streamId, clientProtocolVersion);
@@ -329,13 +363,20 @@ export function shttpHandler(
             return jsonError(409, -32_000, 'Conflict: Only one SSE stream is allowed per session');
         }
 
+        const encoder = new TextEncoder();
+        const standaloneStreamId = `_GET_${sessionId}`;
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
                 session.setStandaloneStream(sessionId, controller);
+                backchannel?.setStandaloneWriter(sessionId, msg =>
+                    void emit(controller, encoder, standaloneStreamId, msg)
+                );
+                void writePrimingEvent(controller, encoder, standaloneStreamId, session.negotiatedVersion(sessionId) ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
             },
             cancel: () => {
                 session.setStandaloneStream(sessionId, undefined);
+                backchannel?.setStandaloneWriter(sessionId, undefined);
             }
         });
         return new Response(readable, { headers });
@@ -384,6 +425,7 @@ export function shttpHandler(
         if (!v.ok) return v.response;
         const protoErr = validateProtocolVersion(req);
         if (protoErr) return protoErr;
+        backchannel?.closeSession(v.sessionId!);
         await session.delete(v.sessionId!);
         return new Response(null, { status: 200 });
     }
