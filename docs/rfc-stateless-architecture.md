@@ -94,6 +94,27 @@ A module-scope version (one server, one transport, `sessionIdGenerator: undefine
 
 The last two are the only places 2025-11 stateful behavior lives. They're passed to `shttpHandler` as options; without them it's pure request→response.
 
+### Middleware
+
+`Dispatcher.use(mw)` registers generator middleware that wraps every `dispatch()`:
+
+```ts
+mcp.use(next => async function* (req, env) {
+    // before handler
+    for await (const out of next(req, env)) {
+        // around each notification + the response
+        yield out;
+    }
+    // after
+});
+```
+
+Runs for every method (including `initialize`), regardless of transport. Short-circuit (auth reject, cache hit), transform outputs, time the call. A small `onMethod('tools/list', fn)` helper gives typed per-method post-processing without the `if (req.method === ...)` boilerplate.
+
+### Transport interfaces
+
+`Transport` is renamed `ChannelTransport` (the pipe shape: `start/send/onmessage/close`). `Transport` stays as a deprecated alias. A second internal shape, `RequestTransport`, is what the SHTTP server transport implements — it doesn't pretend to be a pipe. `connect()` accepts both and picks the right adapter via an explicit `kind: 'channel' | 'request'` brand on the transport.
+
 ---
 
 ## Compatibility
@@ -197,7 +218,15 @@ expect(out.result.content[0].text).toBe('hello');
 ```
 The HTTP layer is testable the same way — `await shttpHandler(mcp)(new Request('http://test/mcp', {method: 'POST', body: ...}))` returns a `Response` you can assert on, no server to spin up.
 
-**Middleware that covers everything.** `Dispatcher.use(mw)` wraps every dispatch — including `initialize`, which today has no hook. FastMCP currently subclasses the SDK's session class and overrides a `_`-private method to intercept `initialize` for auth; after, it's `mcp.use(authMiddleware)`. Same story for logging, rate limiting, tracing.
+**Method-level middleware.** There's no per-method hook today — auth is HTTP-layer (`requireBearerAuth` checks the bearer token before MCP parsing), and to log/trace/rate-limit by MCP method you'd wrap each handler manually. `Dispatcher.use(mw)` wraps every dispatch including `initialize`:
+```ts
+mcp.use(next => async function* (req, env) {
+    const start = Date.now();
+    yield* next(req, env);
+    metrics.timing('mcp.method', Date.now() - start, {method: req.method});
+});
+```
+(Python's FastMCP ships ten middleware modules — auth, caching, rate-limiting, tracing — and had to subclass an SDK-private method to intercept `initialize`. That's the demand signal; `use()` is the hook.)
 
 **Pluggable transports stop paying the pipe tax.** A gRPC/WebTransport/Lambda integration today has to implement `{start, send, onmessage, close}` and reconstruct request→response on top. After, request-shaped transports call `dispatch()` directly; only genuinely persistent channels (stdio, WebSocket) implement `ChannelTransport`.
 
@@ -207,7 +236,7 @@ The HTTP layer is testable the same way — `await shttpHandler(mcp)(new Request
 
 **Protocol stops being a god class.** Today `Protocol` (~1100 LOC) is registry + correlation + timeouts + capabilities + tasks + connect, abstract, with both Server and Client extending it. Tracing a request means bouncing between Protocol, Server, and McpServer. After: Dispatcher does routing, StreamDriver does per-connection state, McpServer does MCP semantics. Each file has one job; you can read one without the others.
 
-**The SHTTP transport class drops from 1038 to ~290 LOC.** New code doesn't need the class at all (`handleHttp` is the entry). The class still exists for back-compat — existing code that does `new NodeStreamableHTTPServerTransport(...)` keeps working — but it's now a thin shim that constructs `shttpHandler` internally. No `_streamMapping`, no body-sniffing for `initialize`, no fake `start()`.
+**The SHTTP server transport class drops from 1038 to ~290 LOC.** New server code doesn't need the class at all (`handleHttp` is the entry). The class still exists for back-compat — existing code that does `new NodeStreamableHTTPServerTransport(...)` keeps working — but it's now a thin shim that constructs `shttpHandler` internally. No `_streamMapping`, no body-sniffing for `initialize`, no fake `start()`. (Client-side still needs a transport instance — it has to know where to send. `StreamableHTTPClientTransport` stays, just request-shaped underneath.)
 
 ---
 
