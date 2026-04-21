@@ -617,6 +617,11 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
+    public override setRequestHandler<S extends StandardSchemaV1>(
+        method: string,
+        paramsSchema: S,
+        handler: (params: StandardSchemaV1.InferOutput<S>, ctx: ServerContext) => Result | Promise<Result>
+    ): void;
     /** @deprecated Pass a method string instead of a Zod request schema. */
     public override setRequestHandler<S extends { shape: { method: unknown } }>(
         schema: S,
@@ -626,9 +631,17 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         ) => Result | Promise<Result>
     ): void;
     public override setRequestHandler(
-        methodOrSchema: RequestMethod | { shape: { method: unknown } },
-        handler: (request: never, ctx: ServerContext) => Result | Promise<Result>
+        methodOrSchema: string | { shape: { method: unknown } },
+        handlerOrSchema: unknown,
+        maybeHandler?: (params: unknown, ctx: ServerContext) => Result | Promise<Result>
     ): void {
+        if (maybeHandler !== undefined) {
+            const method = methodOrSchema as string;
+            assertRequestHandlerCapability(method as RequestMethod, this._capabilities);
+            this.setRawRequestHandler(method, this._wrapParamsSchemaHandler(method, handlerOrSchema as StandardSchemaV1, maybeHandler));
+            return;
+        }
+        const handler = handlerOrSchema as (request: never, ctx: ServerContext) => Result | Promise<Result>;
         const method = (typeof methodOrSchema === 'string' ? methodOrSchema : extractMethodFromSchema(methodOrSchema)) as RequestMethod;
         assertRequestHandlerCapability(method, this._capabilities);
         const h = handler as (request: JSONRPCRequest, ctx: ServerContext) => Result | Promise<Result>;

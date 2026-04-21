@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { z } from 'zod/v4';
 
 import { SdkError } from '../../src/errors/sdkErrors.js';
 import type { DispatchOutput } from '../../src/shared/dispatcher.js';
@@ -189,6 +190,26 @@ describe('Dispatcher', () => {
         });
         const r = (await d.dispatchToResponse(req('x'))) as JSONRPCResultResponse;
         expect(r.result).toEqual({ v: 1 });
+    });
+});
+
+describe('Dispatcher.setRequestHandler 3-arg (custom method + paramsSchema)', () => {
+    test('parses params, strips _meta, types handler arg', async () => {
+        const d = new Dispatcher();
+        const schema = z.object({ q: z.string(), limit: z.number().optional() });
+        d.setRequestHandler('acme/search', schema, async params => {
+            return { hits: [params.q], limit: params.limit ?? 10 } as Result;
+        });
+        const r = (await d.dispatchToResponse(req('acme/search', { q: 'foo', _meta: { progressToken: 1 } }))) as JSONRPCResultResponse;
+        expect(r.result).toEqual({ hits: ['foo'], limit: 10 });
+    });
+
+    test('schema validation failure becomes InvalidParams error response', async () => {
+        const d = new Dispatcher();
+        d.setRequestHandler('acme/search', z.object({ q: z.string() }), async () => ({}) as Result);
+        const r = (await d.dispatchToResponse(req('acme/search', { q: 123 }))) as JSONRPCErrorResponse;
+        expect(r.error.code).toBe(ProtocolErrorCode.InvalidParams);
+        expect(r.error.message).toMatch(/Invalid params for acme\/search/);
     });
 });
 

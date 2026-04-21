@@ -342,6 +342,11 @@ export class Client {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
+    setRequestHandler<S extends StandardSchemaV1>(
+        method: string,
+        paramsSchema: S,
+        handler: (params: StandardSchemaV1.InferOutput<S>, ctx: ClientContext) => Result | Promise<Result>
+    ): void;
     /** @deprecated Pass a method string instead of a Zod request schema. */
     setRequestHandler<S extends { shape: { method: unknown } }>(
         schema: S,
@@ -351,10 +356,18 @@ export class Client {
         ) => Result | Promise<Result>
     ): void;
     setRequestHandler(
-        methodOrSchema: RequestMethod | { shape: { method: unknown } },
+        methodOrSchema: string | { shape: { method: unknown } },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler: (request: any, ctx: ClientContext) => Result | Promise<Result>
+        handlerOrSchema: any,
+        maybeHandler?: (params: unknown, ctx: ClientContext) => Result | Promise<Result>
     ): void {
+        if (maybeHandler !== undefined) {
+            const customMethod = methodOrSchema as string;
+            this._assertRequestHandlerCapability(customMethod);
+            this._localDispatcher.setRequestHandler(customMethod, handlerOrSchema, maybeHandler);
+            return;
+        }
+        const handler = handlerOrSchema;
         const method = (
             typeof methodOrSchema === 'string'
                 ? methodOrSchema

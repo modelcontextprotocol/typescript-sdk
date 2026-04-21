@@ -15,7 +15,8 @@ import type {
     Result,
     ResultTypeMap
 } from '../types/index.js';
-import { getNotificationSchema, getRequestSchema, ProtocolErrorCode } from '../types/index.js';
+import { getNotificationSchema, getRequestSchema, ProtocolError, ProtocolErrorCode } from '../types/index.js';
+import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import type { BaseContext, RequestOptions } from './context.js';
 import type { TaskContext } from './taskManager.js';
 
@@ -219,16 +220,57 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
 
     /**
      * Registers a handler to invoke when this dispatcher receives a request with the given method.
+     *
+     * For spec methods, the request is parsed against the spec schema and the handler receives
+     * the typed `RequestTypeMap[M]`.
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
-    ): void {
-        const schema = getRequestSchema(method);
+    ): void;
+    /**
+     * Registers a handler for a custom (non-spec) method. The provided `paramsSchema` validates
+     * `request.params` (with `_meta` stripped); the handler receives the parsed params object.
+     */
+    setRequestHandler<S extends StandardSchemaV1>(
+        method: string,
+        paramsSchema: S,
+        handler: (params: StandardSchemaV1.InferOutput<S>, ctx: ContextT) => Result | Promise<Result>
+    ): void;
+    setRequestHandler(method: string, schemaOrHandler: unknown, maybeHandler?: unknown): void {
+        if (maybeHandler !== undefined) {
+            const userHandler = maybeHandler as (params: unknown, ctx: ContextT) => Result | Promise<Result>;
+            this._requestHandlers.set(method, this._wrapParamsSchemaHandler(method, schemaOrHandler as StandardSchemaV1, userHandler));
+            return;
+        }
+        const handler = schemaOrHandler as (request: unknown, ctx: ContextT) => Result | Promise<Result>;
+        const schema = getRequestSchema(method as RequestMethod);
         this._requestHandlers.set(method, (request, ctx) => {
-            const parsed = schema.parse(request) as RequestTypeMap[M];
+            const parsed = schema.parse(request);
             return Promise.resolve(handler(parsed, ctx));
         });
+    }
+
+    /**
+     * Builds a raw handler that validates `request.params` (minus `_meta`) against `paramsSchema`
+     * and invokes `handler(parsedParams, ctx)`. Shared with subclass overrides so per-method
+     * wrapping composes uniformly with the 3-arg form.
+     */
+    protected _wrapParamsSchemaHandler(
+        method: string,
+        paramsSchema: StandardSchemaV1,
+        handler: (params: unknown, ctx: ContextT) => Result | Promise<Result>
+    ): RawHandler<ContextT> {
+        return async (request, ctx) => {
+            const { _meta, ...userParams } = (request.params ?? {}) as Record<string, unknown>;
+            void _meta;
+            const parsed = await paramsSchema['~standard'].validate(userParams);
+            if (parsed.issues) {
+                const msg = parsed.issues.map(i => i.message).join('; ');
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${msg}`);
+            }
+            return handler(parsed.value, ctx);
+        };
     }
 
     /** Registers a raw handler with no schema parsing. Used for compat shims. */

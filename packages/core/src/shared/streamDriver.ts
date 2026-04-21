@@ -302,6 +302,7 @@ export class StreamDriver {
 
         let task: DispatchEnv['task'];
         let send = directSend;
+        // eslint-disable-next-line unicorn/consistent-function-scoping -- conditionally reassigned below
         let routeResponse = async (_m: JSONRPCResponse | JSONRPCErrorResponse) => false;
         let drainNotification = (n: Notification, opts?: NotificationOptions) =>
             this.notification(n, { ...opts, relatedRequestId: request.id });
