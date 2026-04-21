@@ -1,5 +1,6 @@
 import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
-import type { Dispatcher } from './dispatcher.js';
+import type { OutboundChannel, OutboundInterceptor } from './context.js';
+import type { DispatchEnv, Dispatcher } from './dispatcher.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -135,23 +136,40 @@ export interface Transport {
 }
 
 /**
- * A request-shaped server transport: instead of feeding a persistent pipe to a
- * {@linkcode StreamDriver}, it accepts requests one at a time (e.g. HTTP POSTs)
- * and dispatches each via the attached {@linkcode Dispatcher}.
- *
- * Concrete implementations expose their own per-request entry point
- * (e.g. `handleRequest(req, res)`); only {@linkcode attach} is part of this contract.
+ * Options threaded through {@linkcode AttachableTransport.attach} so the transport
+ * can wire itself without the caller knowing what kind of adapter it builds.
  */
-export interface RequestServerTransport {
+export type AttachOptions = {
+    supportedProtocolVersions?: string[];
+    debouncedNotificationMethods?: string[];
+    interceptor?: OutboundInterceptor;
+    buildEnv?: (extra: MessageExtraInfo | undefined, base: DispatchEnv) => DispatchEnv;
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+};
+
+/**
+ * A transport that knows how to wire itself to a {@linkcode Dispatcher}. Unifies
+ * pipe-shaped and request-shaped transports: `connect()` calls `attach()` and uses
+ * whatever {@linkcode OutboundChannel} it returns (or none).
+ *
+ * Transports that don't implement this are wrapped by {@linkcode attachPipeTransport}
+ * (back-compat for plain {@linkcode Transport}).
+ */
+export interface AttachableTransport {
     /**
-     * Gives the transport a reference to the dispatcher (typically a `McpServer`)
-     * so its per-request handler can call `dispatcher.dispatch()`.
+     * Wire this transport to the given dispatcher. The transport routes inbound
+     * messages to `dispatcher.dispatch()`; returns an {@linkcode OutboundChannel}
+     * for outbound calls (or `undefined` if there's no outbound path).
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- concrete impls narrow the dispatcher type
-    attach(dispatcher: Dispatcher<any>): void;
+    attach(dispatcher: Dispatcher<any>, options?: AttachOptions): Promise<OutboundChannel | undefined>;
 }
 
-/** Type guard for {@linkcode RequestServerTransport}. */
-export function isRequestServerTransport(t: unknown): t is RequestServerTransport {
-    return typeof (t as RequestServerTransport | undefined)?.attach === 'function';
+/** @deprecated Use {@linkcode AttachableTransport}. Kept for one release for migration. */
+export type RequestServerTransport = AttachableTransport;
+
+/** @deprecated Check `typeof t.attach === 'function'` directly. */
+export function isRequestServerTransport(t: unknown): t is AttachableTransport {
+    return typeof (t as AttachableTransport | undefined)?.attach === 'function';
 }

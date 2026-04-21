@@ -28,7 +28,7 @@ import { parseSchema } from '../util/schema.js';
 import type { NotificationOptions, OutboundChannel, OutboundInterceptor, ProgressCallback, RequestOptions } from './context.js';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
 import type { DispatchEnv, Dispatcher } from './dispatcher.js';
-import type { Transport } from './transport.js';
+import type { AttachOptions, Transport } from './transport.js';
 
 type TimeoutInfo = {
     timeoutId: ReturnType<typeof setTimeout>;
@@ -419,4 +419,30 @@ export class StreamDriver implements OutboundChannel {
             this._timeoutInfo.delete(id);
         }
     }
+}
+
+/**
+ * Wraps a plain pipe-shaped {@linkcode Transport} in a {@linkcode StreamDriver}
+ * and starts it. This is the back-compat path for transports that don't implement
+ * `attach()`: callers (`McpServer.connect`, `Client.connect`) use this helper
+ * instead of importing `StreamDriver` themselves.
+ */
+export async function attachPipeTransport(
+    pipe: Transport,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- adapter is context-agnostic
+    dispatcher: Dispatcher<any>,
+    options?: AttachOptions
+): Promise<OutboundChannel> {
+    const driver = new StreamDriver(dispatcher, pipe, {
+        supportedProtocolVersions: options?.supportedProtocolVersions,
+        debouncedNotificationMethods: options?.debouncedNotificationMethods,
+        interceptor: options?.interceptor,
+        buildEnv: options?.buildEnv
+    });
+    if (options?.onclose || options?.onerror) {
+        driver.onclose = options.onclose;
+        driver.onerror = options.onerror;
+    }
+    await driver.start();
+    return driver;
 }

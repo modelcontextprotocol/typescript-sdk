@@ -13,14 +13,21 @@
  */
 
 import type {
+    AttachableTransport,
+    AttachOptions,
     AuthInfo,
     JSONRPCMessage,
     MessageExtraInfo,
-    RequestServerTransport,
+    OutboundChannel,
     Transport,
     TransportSendOptions
 } from '@modelcontextprotocol/core';
-import { isJSONRPCErrorResponse, isJSONRPCResultResponse, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
+import {
+    attachPipeTransport,
+    isJSONRPCErrorResponse,
+    isJSONRPCResultResponse,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '@modelcontextprotocol/core';
 
 import { Backchannel2511 } from './backchannel2511.js';
 import { SessionCompat } from './sessionCompat.js';
@@ -152,7 +159,7 @@ export interface HandleRequestOptions {
  * {@linkcode Transport} interface methods route outbound messages through the
  * per-session {@linkcode Backchannel2511}.
  */
-export class WebStandardStreamableHTTPServerTransport implements Transport, RequestServerTransport {
+export class WebStandardStreamableHTTPServerTransport implements Transport, AttachableTransport {
     private _options: WebStandardStreamableHTTPServerTransportOptions;
     private _session?: SessionCompat;
     private _backchannel = new Backchannel2511();
@@ -187,10 +194,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport, Requ
     }
 
     /**
-     * {@linkcode RequestServerTransport.attach} — called by `McpServer.connect()`. Builds the
-     * underlying {@linkcode shttpHandler} that {@linkcode handleRequest} delegates to.
+     * {@linkcode AttachableTransport.attach} — called by `McpServer.connect()`. Builds the
+     * underlying {@linkcode shttpHandler} for inbound request handling, and an outbound
+     * channel (via this transport's pipe-shaped {@linkcode Transport.send | send()}) so
+     * server-initiated requests/notifications reach connected clients.
      */
-    attach(server: McpServerLike): void {
+    async attach(server: McpServerLike, options?: AttachOptions): Promise<OutboundChannel> {
         this._handler = shttpHandler(server, {
             session: this._session,
             backchannel: this._backchannel,
@@ -200,11 +209,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport, Requ
             supportedProtocolVersions: this._supportedProtocolVersions,
             onerror: e => this.onerror?.(e)
         });
+        // McpServerLike is structurally what StreamDriver needs (dispatch + dispatchNotification).
+        return attachPipeTransport(this, server as Parameters<typeof attachPipeTransport>[1], options);
     }
 
     /** @deprecated Use {@linkcode attach}. */
     bind(server: McpServerLike): void {
-        this.attach(server);
+        void this.attach(server);
     }
 
     /**

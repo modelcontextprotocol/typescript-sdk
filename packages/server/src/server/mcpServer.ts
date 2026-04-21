@@ -33,13 +33,14 @@ import type {
     Notification,
     NotificationMethod,
     NotificationOptions,
+    AttachableTransport,
+    AttachOptions,
     OutboundChannel,
     ProtocolOptions,
     Request,
     RequestId,
     RequestMethod,
     RequestOptions,
-    RequestServerTransport,
     RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
@@ -49,7 +50,6 @@ import type {
     ServerResult,
     StandardSchemaV1,
     StandardSchemaWithJSON,
-    StreamDriverOptions,
     TaskManagerHost,
     TaskManagerOptions,
     ToolAnnotations,
@@ -70,9 +70,9 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     extractTaskManagerOptions,
+    attachPipeTransport,
     getResultSchema,
     isJSONRPCRequest,
-    isRequestServerTransport,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -84,7 +84,6 @@ import {
     RELATED_TASK_META_KEY,
     SdkError,
     SdkErrorCode,
-    StreamDriver,
     SUPPORTED_PROTOCOL_VERSIONS,
     TaskManager
 } from '@modelcontextprotocol/core';
@@ -400,40 +399,34 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     // ───────────────────────────────────────────────────────────────────────
 
     /**
-     * Attaches to the given transport, starts it, and starts listening for messages.
-     *
-     * For pipe-shaped {@linkcode Transport}s (stdio, WebSocket, InMemory), builds a
-     * {@linkcode StreamDriver} internally and stores it as the {@linkcode OutboundChannel}.
-     *
-     * Transports that also implement {@linkcode RequestServerTransport} (e.g.
-     * {@linkcode WebStandardStreamableHTTPServerTransport}) are attached to this
-     * server first so their `handleRequest` can dispatch directly via
-     * {@linkcode shttpHandler}; the {@linkcode StreamDriver} is still built so
-     * outbound `notification()`/`request()` route through `transport.send()`.
+     * Attaches to the given transport. The transport handles its own wiring via
+     * {@linkcode AttachableTransport.attach | attach()}; for plain pipe-shaped
+     * {@linkcode Transport}s without `attach()`, {@linkcode attachPipeTransport}
+     * provides the back-compat wrapping. McpServer itself is agnostic to which
+     * adapter is used — it just stores whatever {@linkcode OutboundChannel} is returned.
      */
-    async connect(transport: Transport | (Transport & RequestServerTransport)): Promise<void> {
-        if (isRequestServerTransport(transport)) {
-            transport.attach(this);
-        }
-        const driverOpts: StreamDriverOptions = {
+    async connect(transport: Transport | AttachableTransport): Promise<void> {
+        const opts: AttachOptions = {
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
             buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
             interceptor: {
-                request: (jr, opts, id, settle, reject) => this._taskManager.processOutboundRequest(jr, opts, id, settle, reject),
-                notification: (n, opts) => this._taskManager.processOutboundNotification(n, opts),
+                request: (jr, o, id, settle, reject) => this._taskManager.processOutboundRequest(jr, o, id, settle, reject),
+                notification: (n, o) => this._taskManager.processOutboundNotification(n, o),
                 response: (r, id) => this._taskManager.processInboundResponse(r, id),
                 close: () => this._taskManager.onClose()
-            }
+            },
+            onclose: () => {
+                if (this._outbound === outbound) this._outbound = undefined;
+                this.onclose?.();
+            },
+            onerror: e => this.onerror?.(e)
         };
-        const driver = new StreamDriver(this, transport, driverOpts);
-        this._outbound = driver;
-        driver.onclose = () => {
-            if (this._outbound === driver) this._outbound = undefined;
-            this.onclose?.();
-        };
-        driver.onerror = error => this.onerror?.(error);
-        await driver.start();
+        const outbound =
+            typeof (transport as AttachableTransport).attach === 'function'
+                ? await (transport as AttachableTransport).attach(this, opts)
+                : await attachPipeTransport(transport as Transport, this, opts);
+        this._outbound = outbound;
     }
 
     /**

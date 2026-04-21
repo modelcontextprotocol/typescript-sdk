@@ -10,7 +10,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestServerTransport, Transport } from '@modelcontextprotocol/core';
+import type {
+    AttachableTransport,
+    AttachOptions,
+    AuthInfo,
+    JSONRPCMessage,
+    MessageExtraInfo,
+    OutboundChannel,
+    RequestId,
+    Transport
+} from '@modelcontextprotocol/core';
 import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
@@ -84,7 +93,7 @@ export function toNodeHttpHandler(
  * });
  * ```
  */
-export class NodeStreamableHTTPServerTransport implements Transport, RequestServerTransport {
+export class NodeStreamableHTTPServerTransport implements Transport, AttachableTransport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
     private _requestListener: ReturnType<typeof getRequestListener>;
     // Store auth and parsedBody per request for passing through to handleRequest
@@ -151,15 +160,15 @@ export class NodeStreamableHTTPServerTransport implements Transport, RequestServ
     }
 
     /**
-     * {@linkcode RequestServerTransport.attach} — called by `McpServer.connect()`.
+     * {@linkcode AttachableTransport.attach} — called by `McpServer.connect()`.
      */
-    attach(server: Parameters<WebStandardStreamableHTTPServerTransport['attach']>[0]): void {
-        this._webStandardTransport.attach(server);
+    attach(server: Parameters<WebStandardStreamableHTTPServerTransport['attach']>[0], options?: AttachOptions): Promise<OutboundChannel> {
+        return this._webStandardTransport.attach(server, options);
     }
 
     /** @deprecated Use {@linkcode attach}. */
     bind(server: Parameters<WebStandardStreamableHTTPServerTransport['attach']>[0]): void {
-        this.attach(server);
+        void this.attach(server);
     }
 
     /**
