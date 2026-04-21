@@ -7,10 +7,12 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    JSONRPCMessage,
     LoggingLevel,
     Notification,
     Progress,
     RelatedTaskMetadata,
+    Request,
     RequestId,
     RequestMeta,
     RequestMethod,
@@ -18,6 +20,7 @@ import type {
     ServerCapabilities,
     TaskCreationParams
 } from '../types/index.js';
+import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import type { TaskContext, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
 import type { TransportSendOptions } from './transport.js';
 
@@ -132,6 +135,30 @@ export type NotificationOptions = {
      */
     relatedTask?: RelatedTaskMetadata;
 };
+
+/**
+ * The minimal contract a {@linkcode Dispatcher} owner needs to send outbound
+ * requests/notifications to the connected peer. Decouples {@linkcode McpServer}
+ * (and the compat {@linkcode Protocol}) from any specific transport adapter:
+ * they hold an `OutboundChannel`, not a `StreamDriver`.
+ *
+ * {@linkcode StreamDriver} implements this for persistent pipes. Request-shaped
+ * paths can supply their own (e.g. routing through a backchannel).
+ */
+export interface OutboundChannel {
+    /** Send a request to the peer and resolve with the parsed result. */
+    request<T extends AnySchema>(req: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
+    /** Send a notification to the peer. */
+    notification(notification: Notification, options?: NotificationOptions): Promise<void>;
+    /** Close the underlying connection. */
+    close(): Promise<void>;
+    /** Clear a registered progress callback by its message id. Optional; pipe-channels expose this for {@linkcode TaskManager}. */
+    removeProgressHandler?(messageId: number): void;
+    /** Inform the channel which protocol version was negotiated (for header echoing etc.). Optional. */
+    setProtocolVersion?(version: string): void;
+    /** Write a raw JSON-RPC message on the same stream as a prior request. Optional; pipe-only. */
+    sendRaw?(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void>;
+}
 
 /**
  * Base context provided to all request handlers.

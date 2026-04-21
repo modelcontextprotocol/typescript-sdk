@@ -33,6 +33,7 @@ import type {
     Notification,
     NotificationMethod,
     NotificationOptions,
+    OutboundChannel,
     ProtocolOptions,
     Request,
     RequestId,
@@ -142,7 +143,7 @@ export type ServerOptions = Omit<ProtocolOptions, 'tasks'> & {
  * One instance can serve any number of concurrent requests.
  */
 export class McpServer extends Dispatcher<ServerContext> implements RegistriesHost {
-    private _driver?: StreamDriver;
+    private _outbound?: OutboundChannel;
     private readonly _registries = new ServerRegistries(this);
     private readonly _dispatchYielders = new Map<RequestId, (msg: JSONRPCMessage) => void>();
     private _dispatchOutboundId = 0;
@@ -276,7 +277,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         };
 
         // Queued task messages delivered via host.sendOnResponseStream are routed to this
-        // generator (instead of `_driver.pipe.send`) so they yield on the same stream.
+        // generator (instead of `_outbound.sendRaw`) so they yield on the same stream.
         const sideQueue: JSONRPCMessage[] = [];
         let wake: (() => void) | undefined;
         this._dispatchYielders.set(request.id, msg => {
@@ -419,9 +420,9 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
             buildEnv: (extra, base) => ({ ...base, _transportExtra: extra })
         };
         const driver = new StreamDriver(this, transport, driverOpts);
-        this._driver = driver;
+        this._outbound = driver;
         driver.onclose = () => {
-            if (this._driver === driver) this._driver = undefined;
+            if (this._outbound === driver) this._outbound = undefined;
             this.onclose?.();
         };
         driver.onerror = error => this.onerror?.(error);
@@ -432,18 +433,19 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
      * Closes the connection.
      */
     async close(): Promise<void> {
-        await this._driver?.close();
+        await this._outbound?.close();
     }
 
     /**
      * Checks if the server is connected to a transport.
      */
     isConnected(): boolean {
-        return this._driver !== undefined;
+        return this._outbound !== undefined;
     }
 
+    /** @deprecated The server is no longer coupled to a specific transport. Returns the underlying pipe only when connected via {@linkcode StreamDriver}. */
     get transport(): Transport | undefined {
-        return this._driver?.pipe;
+        return (this._outbound as { pipe?: Transport } | undefined)?.pipe;
     }
 
     /**
@@ -472,10 +474,10 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
 
     private _bindTaskManager(): void {
         const host: TaskManagerHost = {
-            request: (r, schema, opts) => this._driverRequest(r, schema as never, opts),
+            request: (r, schema, opts) => this._outboundRequest(r, schema as never, opts),
             notification: (n, opts) => this.notification(n, opts),
             reportError: e => (this.onerror ?? (() => {}))(e),
-            removeProgressHandler: t => this._driver?.removeProgressHandler(t),
+            removeProgressHandler: t => this._outbound?.removeProgressHandler?.(t),
             registerHandler: (m, h) => this.setRawRequestHandler(m, h as never),
             sendOnResponseStream: async (msg, relatedRequestId) => {
                 const yielder = relatedRequestId === undefined ? undefined : this._dispatchYielders.get(relatedRequestId);
@@ -483,7 +485,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                     yielder(msg);
                     return;
                 }
-                await this._driver?.pipe.send(msg, { relatedRequestId });
+                await this._outbound?.sendRaw?.(msg, { relatedRequestId });
             },
             enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
             assertTaskCapability: m => assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, m, 'Client'),
@@ -562,7 +564,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
-        this._driver?.pipe.setProtocolVersion?.(protocolVersion);
+        this._outbound?.setProtocolVersion?.(protocolVersion);
 
         return {
             protocolVersion,
@@ -597,7 +599,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
      * Registers new capabilities. Can only be called before connecting to a transport.
      */
     registerCapabilities(capabilities: ServerCapabilities): void {
-        if (this._driver) {
+        if (this._outbound) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
         const hadLogging = !!this._capabilities.logging;
@@ -675,24 +677,24 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     }
 
     // ───────────────────────────────────────────────────────────────────────
-    // Server→client requests (only work when connected via StreamDriver)
+    // Server→client requests (require a connected OutboundChannel)
     // ───────────────────────────────────────────────────────────────────────
 
-    private _requireDriver(): StreamDriver {
-        if (!this._driver) {
+    private _requireOutbound(): OutboundChannel {
+        if (!this._outbound) {
             throw new SdkError(
                 SdkErrorCode.NotConnected,
-                'Server is not connected to a stream transport. Use ctx.mcpReq.* inside handlers, or the MRTR-native return form, or call connect().'
+                'Server is not connected. Use ctx.mcpReq.* inside handlers, or the MRTR-native return form, or call connect().'
             );
         }
-        return this._driver;
+        return this._outbound;
     }
 
-    private _driverRequest<T>(req: Request, schema: { parse(v: unknown): T }, options?: RequestOptions): Promise<T> {
+    private _outboundRequest<T>(req: Request, schema: { parse(v: unknown): T }, options?: RequestOptions): Promise<T> {
         if (this._options?.enforceStrictCapabilities === true) {
             assertCapabilityForMethod(req.method as RequestMethod, this._clientCapabilities);
         }
-        return this._requireDriver().request(req, schema as never, options) as Promise<T>;
+        return this._requireOutbound().request(req, schema as never, options) as Promise<T>;
     }
 
     /**
@@ -703,11 +705,11 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         req: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
     ): Promise<ResultTypeMap[M]> {
-        return this._driverRequest(req as Request, getResultSchema(req.method), options) as Promise<ResultTypeMap[M]>;
+        return this._outboundRequest(req as Request, getResultSchema(req.method), options) as Promise<ResultTypeMap[M]>;
     }
 
     async ping(): Promise<Result> {
-        return this._driverRequest({ method: 'ping' }, EmptyResultSchema);
+        return this._outboundRequest({ method: 'ping' }, EmptyResultSchema);
     }
 
     /**
@@ -766,9 +768,9 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
             }
         }
         if (params.tools) {
-            return this._driverRequest({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+            return this._outboundRequest({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
-        return this._driverRequest({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return this._outboundRequest({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**
@@ -783,7 +785,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
                 }
                 const urlParams = params as ElicitRequestURLParams;
-                return this._driverRequest({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                return this._outboundRequest({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
             }
             case 'form': {
                 if (this._clientCapabilities && !this._clientCapabilities.elicitation?.form) {
@@ -791,7 +793,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                 }
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
-                const result = await this._driverRequest({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+                const result = await this._outboundRequest({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
                 return this._validateElicitResult(result, formParams);
             }
         }
@@ -830,7 +832,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
-        return this._driverRequest({ method: 'roots/list', params }, ListRootsResultSchema, options);
+        return this._outboundRequest({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -842,7 +844,7 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
         assertNotificationCapability(notification.method as NotificationMethod, this._capabilities, this._clientCapabilities);
-        await this._driver?.notification(notification, options);
+        await this._outbound?.notification(notification, options);
     }
 
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void> {

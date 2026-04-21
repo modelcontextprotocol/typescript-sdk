@@ -20,7 +20,7 @@ import type {
 } from '../types/index.js';
 import { getResultSchema, SUPPORTED_PROTOCOL_VERSIONS } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
-import type { BaseContext, NotificationOptions, ProtocolOptions, RequestOptions } from './context.js';
+import type { BaseContext, NotificationOptions, OutboundChannel, ProtocolOptions, RequestOptions } from './context.js';
 import type { DispatchEnv } from './dispatcher.js';
 import { Dispatcher } from './dispatcher.js';
 import { StreamDriver } from './streamDriver.js';
@@ -36,7 +36,7 @@ export * from './context.js';
  * {@linkcode StreamDriver} (per-connection state) to preserve the v1 surface.
  */
 export abstract class Protocol<ContextT extends BaseContext> {
-    private _driver?: StreamDriver;
+    private _outbound?: OutboundChannel;
     private readonly _dispatcher: Dispatcher<ContextT>;
 
     protected _supportedProtocolVersions: string[];
@@ -75,10 +75,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
             request: (r, schema, opts) => this._requestWithSchema(r, schema, opts),
             notification: (n, opts) => this.notification(n, opts),
             reportError: e => this.onerror?.(e),
-            removeProgressHandler: t => this._driver?.removeProgressHandler(t),
+            removeProgressHandler: t => this._outbound?.removeProgressHandler?.(t),
             registerHandler: (method, handler) => this._dispatcher.setRawRequestHandler(method, handler),
             sendOnResponseStream: async (message, relatedRequestId) => {
-                await this._driver?.pipe.send(message, { relatedRequestId });
+                await this._outbound?.sendRaw?.(message, { relatedRequestId });
             },
             enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
             assertTaskCapability: m => this.assertTaskCapability(m),
@@ -170,9 +170,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             enforceStrictCapabilities: this._options?.enforceStrictCapabilities,
             buildEnv: (extra, base) => ({ ...base, _transportExtra: extra })
         });
-        this._driver = driver;
+        this._outbound = driver;
         driver.onclose = () => {
-            if (this._driver === driver) this._driver = undefined;
+            if (this._outbound === driver) this._outbound = undefined;
             this.onclose?.();
         };
         driver.onerror = error => this.onerror?.(error);
@@ -183,11 +183,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Closes the connection.
      */
     async close(): Promise<void> {
-        await this._driver?.close();
+        await this._outbound?.close();
     }
 
+    /** @deprecated Protocol is no longer coupled to a specific transport. Returns the underlying pipe only when connected via {@linkcode StreamDriver}. */
     get transport(): Transport | undefined {
-        return this._driver?.pipe;
+        return (this._outbound as { pipe?: Transport } | undefined)?.pipe;
     }
 
     get taskManager(): TaskManager {
@@ -213,24 +214,24 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<SchemaOutput<T>> {
-        if (!this._driver) {
+        if (!this._outbound) {
             return Promise.reject(new SdkError(SdkErrorCode.NotConnected, 'Not connected'));
         }
         if (this._options?.enforceStrictCapabilities === true) {
             this.assertCapabilityForMethod(request.method as RequestMethod);
         }
-        return this._driver.request(request, resultSchema, options);
+        return this._outbound.request(request, resultSchema, options);
     }
 
     /**
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        if (!this._driver) {
+        if (!this._outbound) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
         this.assertNotificationCapability(notification.method as NotificationMethod);
-        return this._driver.notification(notification, options);
+        return this._outbound.notification(notification, options);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -245,6 +246,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /** @internal v1 tests reach into this. */
     protected get _responseHandlers(): Map<number, (r: unknown) => void> | undefined {
-        return (this._driver as unknown as { _responseHandlers?: Map<number, (r: unknown) => void> })?._responseHandlers;
+        return (this._outbound as unknown as { _responseHandlers?: Map<number, (r: unknown) => void> })?._responseHandlers;
     }
 }

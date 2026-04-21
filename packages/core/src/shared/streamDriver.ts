@@ -25,7 +25,7 @@ import {
 } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
-import type { NotificationOptions, ProgressCallback, RequestOptions } from './context.js';
+import type { NotificationOptions, OutboundChannel, ProgressCallback, RequestOptions } from './context.js';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
 import type { DispatchEnv, Dispatcher } from './dispatcher.js';
 import type { InboundContext, TaskManagerHost, TaskManagerOptions } from './taskManager.js';
@@ -72,7 +72,7 @@ export type StreamDriverOptions = {
  *
  * One driver per pipe. The dispatcher it wraps may be shared.
  */
-export class StreamDriver {
+export class StreamDriver implements OutboundChannel {
     private _requestMessageId = 0;
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
@@ -167,6 +167,16 @@ export class StreamDriver {
 
     async close(): Promise<void> {
         await this.pipe.close();
+    }
+
+    /** {@linkcode OutboundChannel.setProtocolVersion} — delegates to the pipe. */
+    setProtocolVersion(version: string): void {
+        this.pipe.setProtocolVersion?.(version);
+    }
+
+    /** {@linkcode OutboundChannel.sendRaw} — write a raw JSON-RPC message to the pipe. */
+    async sendRaw(message: Parameters<Transport['send']>[0], options?: { relatedRequestId?: RequestId }): Promise<void> {
+        await this.pipe.send(message, options);
     }
 
     /**
