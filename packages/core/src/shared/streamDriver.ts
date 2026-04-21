@@ -25,11 +25,9 @@ import {
 } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
-import type { NotificationOptions, OutboundChannel, ProgressCallback, RequestOptions } from './context.js';
+import type { NotificationOptions, OutboundChannel, OutboundInterceptor, ProgressCallback, RequestOptions } from './context.js';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
 import type { DispatchEnv, Dispatcher } from './dispatcher.js';
-import type { InboundContext, TaskManagerHost, TaskManagerOptions } from './taskManager.js';
-import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport } from './transport.js';
 
 type TimeoutInfo = {
@@ -50,19 +48,10 @@ export type StreamDriverOptions = {
      */
     buildEnv?: (extra: MessageExtraInfo | undefined, base: DispatchEnv) => DispatchEnv;
     /**
-     * A pre-constructed and already-bound {@linkcode TaskManager}. When provided the
-     * driver uses it directly. When omitted, the driver constructs one from
-     * {@linkcode StreamDriverOptions.tasks | tasks} (or a {@linkcode NullTaskManager}) and binds it itself.
+     * Hooks invoked at the request-correlation seam (before each outbound write,
+     * for each inbound response, on close). The driver is agnostic to what they do.
      */
-    taskManager?: TaskManager;
-    tasks?: TaskManagerOptions;
-    enforceStrictCapabilities?: boolean;
-    /**
-     * Set when the dispatcher's {@linkcode Dispatcher.dispatch | dispatch()} override handles
-     * {@linkcode TaskManager.processInboundRequest} itself (e.g. {@linkcode McpServer}).
-     * When true, the driver skips its own inbound task processing to avoid double-processing.
-     */
-    dispatcherHandlesTasks?: boolean;
+    interceptor?: OutboundInterceptor;
 };
 
 /**
@@ -81,7 +70,6 @@ export class StreamDriver implements OutboundChannel {
     private _pendingDebouncedNotifications = new Set<string>();
     private _closed = false;
     private _supportedProtocolVersions: string[];
-    private _taskManager: TaskManager;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -93,38 +81,11 @@ export class StreamDriver implements OutboundChannel {
         private _options: StreamDriverOptions = {}
     ) {
         this._supportedProtocolVersions = _options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
-        if (_options.taskManager) {
-            this._taskManager = _options.taskManager;
-        } else {
-            this._taskManager = _options.tasks ? new TaskManager(_options.tasks) : new NullTaskManager();
-            this._bindTaskManager();
-        }
     }
 
-    get taskManager(): TaskManager {
-        return this._taskManager;
-    }
-
-    /** Exposed so a {@linkcode TaskManagerHost} owned outside the driver can clear progress callbacks. */
+    /** {@linkcode OutboundChannel.removeProgressHandler}. */
     removeProgressHandler(token: number): void {
         this._progressHandlers.delete(token);
-    }
-
-    private _bindTaskManager(): void {
-        const host: TaskManagerHost = {
-            request: (r, schema, opts) => this.request(r, schema, opts),
-            notification: (n, opts) => this.notification(n, opts),
-            reportError: e => this._onerror(e),
-            removeProgressHandler: t => this.removeProgressHandler(t),
-            registerHandler: (method, handler) => this.dispatcher.setRawRequestHandler(method, handler),
-            sendOnResponseStream: async (message, relatedRequestId) => {
-                await this.pipe.send(message, { relatedRequestId });
-            },
-            enforceStrictCapabilities: this._options.enforceStrictCapabilities === true,
-            assertTaskCapability: () => {},
-            assertTaskHandlerCapability: () => {}
-        };
-        this._taskManager.bind(host);
     }
 
     /**
@@ -242,22 +203,24 @@ export class StreamDriver implements OutboundChannel {
                 options?.resetTimeoutOnProgress ?? false
             );
 
-            const sideChannelResponse = (resp: JSONRPCResultResponse | Error) => {
-                const h = this._responseHandlers.get(messageId);
-                if (h) h(resp);
-                else this._onerror(new Error(`Response handler missing for side-channeled request ${messageId}`));
-            };
-
             let queued = false;
-            try {
-                queued = this._taskManager.processOutboundRequest(jsonrpcRequest, options, messageId, sideChannelResponse, error => {
+            const intercept = this._options.interceptor?.request;
+            if (intercept) {
+                const sideChannelResponse = (resp: JSONRPCResultResponse | Error) => {
+                    const h = this._responseHandlers.get(messageId);
+                    if (h) h(resp);
+                    else this._onerror(new Error(`Response handler missing for side-channeled request ${messageId}`));
+                };
+                try {
+                    queued = intercept(jsonrpcRequest, options, messageId, sideChannelResponse, error => {
+                        this._progressHandlers.delete(messageId);
+                        reject(error);
+                    }).queued;
+                } catch (error) {
                     this._progressHandlers.delete(messageId);
                     reject(error);
-                }).queued;
-            } catch (error) {
-                this._progressHandlers.delete(messageId);
-                reject(error);
-                return;
+                    return;
+                }
             }
 
             if (!queued) {
@@ -279,9 +242,9 @@ export class StreamDriver implements OutboundChannel {
      * Sends a notification over the pipe. Supports debouncing per the constructor option.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        const taskResult = await this._taskManager.processOutboundNotification(notification, options);
-        if (taskResult.queued || this._closed) return;
-        const jsonrpc: JSONRPCNotification = taskResult.jsonrpcNotification ?? {
+        const intercepted = await this._options.interceptor?.notification?.(notification, options);
+        if (intercepted?.queued || this._closed) return;
+        const jsonrpc: JSONRPCNotification = intercepted?.jsonrpcNotification ?? {
             jsonrpc: '2.0',
             method: notification.method,
             params: notification.params
@@ -307,68 +270,23 @@ export class StreamDriver implements OutboundChannel {
         const abort = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abort);
 
-        const directSend = (r: Request, opts?: RequestOptions) =>
-            this.request(r, getResultSchema(r.method as RequestMethod), { ...opts, relatedRequestId: request.id }) as Promise<Result>;
-
-        let task: DispatchEnv['task'];
-        let send = directSend;
-        // eslint-disable-next-line unicorn/consistent-function-scoping -- conditionally reassigned below
-        let routeResponse = async (_m: JSONRPCResponse | JSONRPCErrorResponse) => false;
-        let drainNotification = (n: Notification, opts?: NotificationOptions) =>
-            this.notification(n, { ...opts, relatedRequestId: request.id });
-        let validateInbound: (() => void) | undefined;
-
-        if (!this._options.dispatcherHandlesTasks) {
-            const inboundCtx: InboundContext = {
-                sessionId: this.pipe.sessionId,
-                sendNotification: drainNotification,
-                sendRequest: (r, schema, opts) => this.request(r, schema, { ...opts, relatedRequestId: request.id })
-            };
-            const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
-            task = taskResult.taskContext;
-            send = (r, opts) => taskResult.sendRequest(r, getResultSchema(r.method as RequestMethod), opts) as Promise<Result>;
-            routeResponse = taskResult.routeResponse;
-            drainNotification = taskResult.sendNotification;
-            validateInbound = taskResult.validateInbound;
-        }
-
         const baseEnv: DispatchEnv = {
             signal: abort.signal,
             sessionId: this.pipe.sessionId,
             authInfo: extra?.authInfo,
             httpReq: extra?.request,
-            task,
-            send
+            send: (r, opts) =>
+                this.request(r, getResultSchema(r.method as RequestMethod), { ...opts, relatedRequestId: request.id }) as Promise<Result>
         };
         const env = this._options.buildEnv ? this._options.buildEnv(extra, baseEnv) : baseEnv;
 
         const drain = async () => {
-            if (validateInbound) {
-                try {
-                    validateInbound();
-                } catch (error) {
-                    const e = error as { code?: number; message?: string; data?: unknown };
-                    const errResp: JSONRPCErrorResponse = {
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        error: {
-                            code: Number.isSafeInteger(e?.code) ? (e.code as number) : -32_603,
-                            message: e?.message ?? 'Internal error',
-                            ...(e?.data !== undefined && { data: e.data })
-                        }
-                    };
-                    const routed = await routeResponse(errResp);
-                    if (!routed) await this.pipe.send(errResp, { relatedRequestId: request.id });
-                    return;
-                }
-            }
             for await (const out of this.dispatcher.dispatch(request, env)) {
                 if (out.kind === 'notification') {
-                    await drainNotification({ method: out.message.method, params: out.message.params });
+                    await this.notification({ method: out.message.method, params: out.message.params }, { relatedRequestId: request.id });
                 } else {
                     if (abort.signal.aborted) return;
-                    const routed = await routeResponse(out.message);
-                    if (!routed) await this.pipe.send(out.message, { relatedRequestId: request.id });
+                    await this.pipe.send(out.message, { relatedRequestId: request.id });
                 }
             }
         };
@@ -423,8 +341,8 @@ export class StreamDriver implements OutboundChannel {
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
-        const taskResult = this._taskManager.processInboundResponse(response, messageId);
-        if (taskResult.consumed) return;
+        const intercepted = this._options.interceptor?.response?.(response, messageId);
+        if (intercepted?.consumed) return;
 
         const handler = this._responseHandlers.get(messageId);
         if (handler === undefined) {
@@ -433,7 +351,7 @@ export class StreamDriver implements OutboundChannel {
         }
         this._responseHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
-        if (!taskResult.preserveProgress) {
+        if (!intercepted?.preserveProgress) {
             this._progressHandlers.delete(messageId);
         }
         if (isJSONRPCResultResponse(response)) {
@@ -448,7 +366,7 @@ export class StreamDriver implements OutboundChannel {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
-        this._taskManager.onClose();
+        this._options.interceptor?.close?.();
         this._pendingDebouncedNotifications.clear();
         for (const info of this._timeoutInfo.values()) clearTimeout(info.timeoutId);
         this._timeoutInfo.clear();

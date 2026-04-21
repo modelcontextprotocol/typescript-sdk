@@ -7,7 +7,12 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    JSONRPCErrorResponse,
     JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    JSONRPCResultResponse,
     LoggingLevel,
     Notification,
     Progress,
@@ -158,6 +163,35 @@ export interface OutboundChannel {
     setProtocolVersion?(version: string): void;
     /** Write a raw JSON-RPC message on the same stream as a prior request. Optional; pipe-only. */
     sendRaw?(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void>;
+}
+
+/**
+ * Hooks an {@linkcode OutboundChannel} owner can supply to a transport adapter
+ * (e.g. {@linkcode StreamDriver}) to intercept outbound writes and inbound responses
+ * at the request-correlation seam. The adapter knows nothing about *why* a message
+ * is queued or consumed; it just calls these hooks.
+ *
+ * In practice this is how {@linkcode TaskManager} threads task augmentation through
+ * a pipe — but the adapter is agnostic to that.
+ */
+export interface OutboundInterceptor {
+    /** Called before each outbound request hits the wire. Return `queued: true` to suppress the send (caller resolves via `settle`). */
+    request?(
+        jr: JSONRPCRequest,
+        options: RequestOptions | undefined,
+        messageId: number,
+        settle: (r: JSONRPCResultResponse | Error) => void,
+        reject: (e: unknown) => void
+    ): { queued: boolean };
+    /** Called before each outbound notification. May suppress and/or rewrite. */
+    notification?(
+        n: Notification,
+        options: NotificationOptions | undefined
+    ): Promise<{ queued: boolean; jsonrpcNotification?: JSONRPCNotification }>;
+    /** Called for each inbound response before correlation. `consumed: true` swallows it. */
+    response?(r: JSONRPCResponse | JSONRPCErrorResponse, messageId: number): { consumed: boolean; preserveProgress?: boolean };
+    /** Called on connection close. */
+    close?(): void;
 }
 
 /**

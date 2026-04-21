@@ -414,10 +414,13 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
         const driverOpts: StreamDriverOptions = {
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
-            taskManager: this._taskManager,
-            dispatcherHandlesTasks: true,
-            enforceStrictCapabilities: this._options?.enforceStrictCapabilities,
-            buildEnv: (extra, base) => ({ ...base, _transportExtra: extra })
+            buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
+            interceptor: {
+                request: (jr, opts, id, settle, reject) => this._taskManager.processOutboundRequest(jr, opts, id, settle, reject),
+                notification: (n, opts) => this._taskManager.processOutboundNotification(n, opts),
+                response: (r, id) => this._taskManager.processInboundResponse(r, id),
+                close: () => this._taskManager.onClose()
+            }
         };
         const driver = new StreamDriver(this, transport, driverOpts);
         this._outbound = driver;
@@ -793,7 +796,11 @@ export class McpServer extends Dispatcher<ServerContext> implements RegistriesHo
                 }
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
-                const result = await this._outboundRequest({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+                const result = await this._outboundRequest(
+                    { method: 'elicitation/create', params: formParams },
+                    ElicitResultSchema,
+                    options
+                );
                 return this._validateElicitResult(result, formParams);
             }
         }
