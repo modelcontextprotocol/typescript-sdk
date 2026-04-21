@@ -32,7 +32,6 @@ import type {
     Notification,
     NotificationMethod,
     NotificationOptions,
-    OutboundMiddleware,
     ProtocolOptions,
     ReadResourceRequest,
     Request,
@@ -55,7 +54,6 @@ import {
     CallToolResultSchema,
     CancelTaskResultSchema,
     CompleteResultSchema,
-    composeOutboundMiddleware,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
@@ -230,7 +228,6 @@ export class Client extends Dispatcher<ClientContext> {
     private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _taskManager: TaskManager;
-    private readonly _outboundMw: OutboundMiddleware[] = [];
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -249,7 +246,7 @@ export class Client extends Dispatcher<ClientContext> {
 
         const tasksOpts = extractTaskManagerOptions(_options?.capabilities?.tasks);
         this._taskManager = tasksOpts ? new TaskManager(tasksOpts) : new NullTaskManager();
-        const tasksOutbound = this._taskManager.attachTo(this, {
+        this._taskManager.attachTo(this, {
             channel: () =>
                 this._ct
                     ? {
@@ -264,7 +261,6 @@ export class Client extends Dispatcher<ClientContext> {
             assertTaskCapability: () => {},
             assertTaskHandlerCapability: () => {}
         });
-        this.useOutbound(tasksOutbound);
 
         // Strip runtime-only fields from advertised capabilities
         if (_options?.capabilities?.tasks) {
@@ -275,14 +271,6 @@ export class Client extends Dispatcher<ClientContext> {
         }
 
         super.setRequestHandler('ping', async () => ({}));
-    }
-
-    /**
-     * Register an {@linkcode OutboundMiddleware} applied at the request-correlation seam.
-     */
-    useOutbound(mw: OutboundMiddleware): this {
-        this._outboundMw.push(mw);
-        return this;
     }
 
     /**
@@ -297,7 +285,7 @@ export class Client extends Dispatcher<ClientContext> {
             const driverOpts: StreamDriverOptions = {
                 supportedProtocolVersions: this._supportedProtocolVersions,
                 debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
-                outboundMw: this._outboundMw
+                taskManager: this._taskManager
             };
             this._ct = channelAsClientTransport(transport, this, driverOpts);
             this._ct.driver!.onclose = () => this.onclose?.();
@@ -354,8 +342,7 @@ export class Client extends Dispatcher<ClientContext> {
                         return resp ?? { jsonrpc: '2.0', id: r.id, error: { code: -32_601, message: 'Method not found' } };
                     },
                     onresponse: r => {
-                        const mw = composeOutboundMiddleware(this._outboundMw);
-                        const consumed = mw.response?.(r, Number(r.id))?.consumed ?? false;
+                        const consumed = this._taskManager.processInboundResponse(r, Number(r.id)).consumed;
                         if (!consumed) this.onerror?.(new Error(`Unmatched response on standalone stream: ${JSON.stringify(r)}`));
                     }
                 });
@@ -699,8 +686,7 @@ export class Client extends Dispatcher<ClientContext> {
                 onresumptiontoken: options?.onresumptiontoken,
                 onnotification: n => void this.dispatchNotification(n).catch(error => this.onerror?.(error)),
                 onresponse: r => {
-                    const mw = composeOutboundMiddleware(this._outboundMw);
-                    const consumed = mw.response?.(r, Number(r.id))?.consumed ?? false;
+                    const consumed = this._taskManager.processInboundResponse(r, Number(r.id)).consumed;
                     if (!consumed) this.onerror?.(new Error(`Unmatched response on stream: ${JSON.stringify(r)}`));
                 },
                 onrequest: async r => {

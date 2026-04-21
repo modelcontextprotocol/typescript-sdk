@@ -20,15 +20,7 @@ import type {
 } from '../types/index.js';
 import { getResultSchema, SUPPORTED_PROTOCOL_VERSIONS } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
-import type {
-    BaseContext,
-    NotificationOptions,
-    Outbound,
-    OutboundMiddleware,
-    ProtocolOptions,
-    RequestEnv,
-    RequestOptions
-} from './context.js';
+import type { BaseContext, NotificationOptions, Outbound, ProtocolOptions, RequestEnv, RequestOptions } from './context.js';
 import type { DispatchMiddleware } from './dispatcher.js';
 import { Dispatcher } from './dispatcher.js';
 import { StreamDriver } from './streamDriver.js';
@@ -73,28 +65,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
         })();
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._ownTaskManager = _options?.tasks ? new TaskManager(_options.tasks) : new NullTaskManager();
-        const omw = this._ownTaskManager.attachTo(this._dispatcher, {
+        this._ownTaskManager.attachTo(this._dispatcher, {
             channel: () => this._outbound,
             reportError: e => this.onerror?.(e),
             enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
             assertTaskCapability: m => this.assertTaskCapability(m),
             assertTaskHandlerCapability: m => this.assertTaskHandlerCapability(m)
         });
-        this._outboundMw.push(omw);
     }
 
     private readonly _ownTaskManager: TaskManager;
-    private readonly _outboundMw: OutboundMiddleware[] = [];
 
     /** Register a {@linkcode DispatchMiddleware} on the inner dispatcher. */
     use(mw: DispatchMiddleware): this {
         this._dispatcher.use(mw);
-        return this;
-    }
-
-    /** Register an {@linkcode OutboundMiddleware} applied at the request-correlation seam. */
-    useOutbound(mw: OutboundMiddleware): this {
-        this._outboundMw.push(mw);
         return this;
     }
 
@@ -179,7 +163,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             supportedProtocolVersions: this._supportedProtocolVersions,
             debouncedNotificationMethods: this._options?.debouncedNotificationMethods,
             buildEnv: (extra, base) => ({ ...base, _transportExtra: extra }),
-            outboundMw: this._outboundMw
+            taskManager: this._ownTaskManager
         });
         this._outbound = driver;
         driver.onclose = () => {

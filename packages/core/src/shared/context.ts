@@ -7,12 +7,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
-    JSONRPCErrorResponse,
     JSONRPCMessage,
-    JSONRPCNotification,
-    JSONRPCRequest,
-    JSONRPCResponse,
-    JSONRPCResultResponse,
     LoggingLevel,
     Notification,
     Progress,
@@ -192,76 +187,6 @@ export interface Outbound {
     setProtocolVersion?(version: string): void;
     /** Write a raw JSON-RPC message on the same stream as a prior request. Optional; pipe-only. */
     sendRaw?(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void>;
-}
-
-/**
- * Middleware around the request-correlation seam of an {@linkcode Outbound}.
- * Registered via `useOutbound()` on {@linkcode McpServer} / {@linkcode Client};
- * the transport adapter (e.g. {@linkcode StreamDriver}) calls each hook without
- * knowing why a message is queued or consumed.
- *
- * Unlike {@linkcode DispatchMiddleware} (a single function wrapping `next`), the
- * outbound seam has four distinct call sites, so this is a record of optional hooks.
- * Multiple middleware are composed with {@linkcode composeOutboundMiddleware} —
- * first to claim wins for `request`/`notification`/`response`; all `close` run.
- */
-export interface OutboundMiddleware {
-    /** Called before each outbound request hits the wire. Return `queued: true` to suppress the send (caller resolves via `settle`). */
-    request?(
-        jr: JSONRPCRequest,
-        options: RequestOptions | undefined,
-        messageId: number,
-        settle: (r: JSONRPCResultResponse | Error) => void,
-        reject: (e: unknown) => void
-    ): { queued: boolean };
-    /** Called before each outbound notification. May suppress and/or rewrite. */
-    notification?(
-        n: Notification,
-        options: NotificationOptions | undefined
-    ): Promise<{ queued: boolean; jsonrpcNotification?: JSONRPCNotification }>;
-    /** Called for each inbound response before correlation. `consumed: true` swallows it. */
-    response?(r: JSONRPCResponse | JSONRPCErrorResponse, messageId: number): { consumed: boolean; preserveProgress?: boolean };
-    /** Called on connection close. */
-    close?(): void;
-}
-
-/**
- * Composes a list of {@linkcode OutboundMiddleware} into one, registration-order.
- * For `request`/`notification`/`response` the first middleware to claim (queued/consumed)
- * short-circuits the rest; `close` runs all.
- */
-export function composeOutboundMiddleware(mws: OutboundMiddleware[]): OutboundMiddleware {
-    if (mws.length <= 1) return mws[0] ?? {};
-    return {
-        request(jr, opts, id, settle, reject) {
-            for (const mw of mws) {
-                const r = mw.request?.(jr, opts, id, settle, reject);
-                if (r?.queued) return r;
-            }
-            return { queued: false };
-        },
-        async notification(n, opts) {
-            let rewritten: JSONRPCNotification | undefined;
-            for (const mw of mws) {
-                const r = await mw.notification?.(n, opts);
-                if (r?.queued) return r;
-                if (r?.jsonrpcNotification) rewritten = r.jsonrpcNotification;
-            }
-            return { queued: false, jsonrpcNotification: rewritten };
-        },
-        response(r, id) {
-            let preserveProgress = false;
-            for (const mw of mws) {
-                const out = mw.response?.(r, id);
-                if (out?.consumed) return out;
-                if (out?.preserveProgress) preserveProgress = true;
-            }
-            return { consumed: false, preserveProgress };
-        },
-        close() {
-            for (const mw of mws) mw.close?.();
-        }
-    };
 }
 
 /**

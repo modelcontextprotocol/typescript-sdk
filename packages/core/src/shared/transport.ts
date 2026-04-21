@@ -7,7 +7,8 @@ import type {
     MessageExtraInfo,
     RequestId
 } from '../types/index.js';
-import type { OutboundMiddleware, RequestEnv } from './context.js';
+import type { RequestEnv } from './context.js';
+import type { TaskManager } from './taskManager.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -156,7 +157,7 @@ export type Transport = ChannelTransport;
 export type AttachOptions = {
     supportedProtocolVersions?: string[];
     debouncedNotificationMethods?: string[];
-    outboundMw?: OutboundMiddleware[];
+    taskManager?: TaskManager;
     buildEnv?: (extra: MessageExtraInfo | undefined, base: RequestEnv) => RequestEnv;
     onclose?: () => void;
     onerror?: (error: Error) => void;

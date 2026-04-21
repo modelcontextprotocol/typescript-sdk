@@ -25,9 +25,10 @@ import {
 } from '../types/index.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
-import type { NotificationOptions, Outbound, OutboundMiddleware, ProgressCallback, RequestEnv, RequestOptions } from './context.js';
-import { composeOutboundMiddleware, DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
+import type { NotificationOptions, Outbound, ProgressCallback, RequestEnv, RequestOptions } from './context.js';
+import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
 import type { Dispatcher } from './dispatcher.js';
+import type { TaskManager } from './taskManager.js';
 import type { AttachOptions, Transport } from './transport.js';
 
 type TimeoutInfo = {
@@ -48,10 +49,12 @@ export type StreamDriverOptions = {
      */
     buildEnv?: (extra: MessageExtraInfo | undefined, base: RequestEnv) => RequestEnv;
     /**
-     * {@linkcode OutboundMiddleware} hooks invoked at the request-correlation seam.
-     * Composed in registration order via {@linkcode composeOutboundMiddleware}.
+     * Optional {@linkcode TaskManager}. When provided, the driver calls its
+     * `processOutbound*` / `processInboundResponse` / `onClose` hooks at the
+     * request-correlation seam. Inbound task processing happens via the
+     * TaskManager's dispatch middleware (registered by the caller), not here.
      */
-    outboundMw?: OutboundMiddleware[];
+    taskManager?: TaskManager;
 };
 
 /**
@@ -70,7 +73,7 @@ export class StreamDriver implements Outbound {
     private _pendingDebouncedNotifications = new Set<string>();
     private _closed = false;
     private _supportedProtocolVersions: string[];
-    private _mw: OutboundMiddleware;
+    private _taskManager?: TaskManager;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -82,7 +85,7 @@ export class StreamDriver implements Outbound {
         private _options: StreamDriverOptions = {}
     ) {
         this._supportedProtocolVersions = _options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
-        this._mw = composeOutboundMiddleware(_options.outboundMw ?? []);
+        this._taskManager = _options.taskManager;
     }
 
     /** {@linkcode Outbound.removeProgressHandler}. */
@@ -206,14 +209,14 @@ export class StreamDriver implements Outbound {
             );
 
             let queued = false;
-            if (this._mw.request) {
+            if (this._taskManager) {
                 const sideChannelResponse = (resp: JSONRPCResultResponse | Error) => {
                     const h = this._responseHandlers.get(messageId);
                     if (h) h(resp);
                     else this._onerror(new Error(`Response handler missing for side-channeled request ${messageId}`));
                 };
                 try {
-                    queued = this._mw.request(jsonrpcRequest, options, messageId, sideChannelResponse, error => {
+                    queued = this._taskManager.processOutboundRequest(jsonrpcRequest, options, messageId, sideChannelResponse, error => {
                         this._progressHandlers.delete(messageId);
                         reject(error);
                     }).queued;
@@ -243,9 +246,9 @@ export class StreamDriver implements Outbound {
      * Sends a notification over the pipe. Supports debouncing per the constructor option.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        const intercepted = await this._mw.notification?.(notification, options);
-        if (intercepted?.queued || this._closed) return;
-        const jsonrpc: JSONRPCNotification = intercepted?.jsonrpcNotification ?? {
+        const taskResult = await this._taskManager?.processOutboundNotification(notification, options);
+        if (taskResult?.queued || this._closed) return;
+        const jsonrpc: JSONRPCNotification = taskResult?.jsonrpcNotification ?? {
             jsonrpc: '2.0',
             method: notification.method,
             params: notification.params
@@ -342,8 +345,8 @@ export class StreamDriver implements Outbound {
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
-        const intercepted = this._mw.response?.(response, messageId);
-        if (intercepted?.consumed) return;
+        const taskResult = this._taskManager?.processInboundResponse(response, messageId);
+        if (taskResult?.consumed) return;
 
         const handler = this._responseHandlers.get(messageId);
         if (handler === undefined) {
@@ -352,7 +355,7 @@ export class StreamDriver implements Outbound {
         }
         this._responseHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
-        if (!intercepted?.preserveProgress) {
+        if (!taskResult?.preserveProgress) {
             this._progressHandlers.delete(messageId);
         }
         if (isJSONRPCResultResponse(response)) {
@@ -367,7 +370,7 @@ export class StreamDriver implements Outbound {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
-        this._mw.close?.();
+        this._taskManager?.onClose();
         this._pendingDebouncedNotifications.clear();
         for (const info of this._timeoutInfo.values()) clearTimeout(info.timeoutId);
         this._timeoutInfo.clear();
@@ -436,7 +439,7 @@ export async function attachChannelTransport(
     const driver = new StreamDriver(dispatcher, pipe, {
         supportedProtocolVersions: options?.supportedProtocolVersions,
         debouncedNotificationMethods: options?.debouncedNotificationMethods,
-        outboundMw: options?.outboundMw,
+        taskManager: options?.taskManager,
         buildEnv: options?.buildEnv
     });
     if (options?.onclose || options?.onerror) {

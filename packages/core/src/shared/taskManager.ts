@@ -32,7 +32,7 @@ import {
     TaskStatusNotificationSchema
 } from '../types/index.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
-import type { NotificationOptions, Outbound, OutboundMiddleware, RequestEnv, RequestOptions } from './context.js';
+import type { NotificationOptions, Outbound, RequestEnv, RequestOptions } from './context.js';
 import type { Dispatcher, DispatchFn, DispatchMiddleware, DispatchOutput } from './dispatcher.js';
 import type { ResponseMessage } from './responseMessage.js';
 
@@ -189,11 +189,12 @@ export class TaskManager {
     /**
      * Attaches this manager to a {@linkcode Dispatcher}: registers the dispatch middleware
      * via `d.use()`, installs `tasks/*` request handlers when a store is configured, and
-     * stores the {@linkcode TaskAttachHooks}. Returns the {@linkcode OutboundMiddleware}
-     * the caller registers via `useOutbound()` (kept separate so callers control ordering).
+     * stores the {@linkcode TaskAttachHooks}. Outbound-side hooks (request/notification
+     * augmentation, response correlation, close) are called directly by the channel adapter
+     * (see {@linkcode StreamDriver}), which receives this manager via {@linkcode AttachOptions}.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- attach is context-agnostic
-    attachTo(d: Dispatcher<any>, hooks: TaskAttachHooks): OutboundMiddleware {
+    attachTo(d: Dispatcher<any>, hooks: TaskAttachHooks): void {
         this._hooks = hooks;
         d.use(this.dispatchMiddleware);
 
@@ -225,8 +226,6 @@ export class TaskManager {
                 return this.handleCancelTask(params.taskId, ctx.sessionId);
             });
         }
-
-        return this.outboundMiddleware;
     }
 
     protected get _requireHooks(): TaskAttachHooks {
@@ -365,20 +364,6 @@ export class TaskManager {
                 }
                 yield* drain();
             } as DispatchFn;
-    }
-
-    /**
-     * The {@linkcode OutboundMiddleware}: adds `task`/`relatedTask` to outbound params,
-     * queues to the task-message-queue when `relatedTask` is set, consumes/correlates
-     * responses for queued requests, tracks progress-token lifetime for `CreateTaskResult`s.
-     */
-    get outboundMiddleware(): OutboundMiddleware {
-        return {
-            request: (jr, opts, id, settle, reject) => this.processOutboundRequest(jr, opts, id, settle, reject),
-            notification: (n, opts) => this.processOutboundNotification(n, opts),
-            response: (r, id) => this.processInboundResponse(r, id),
-            close: () => this.onClose()
-        };
     }
 
     get taskStore(): TaskStore | undefined {
@@ -819,7 +804,7 @@ export class TaskManager {
         };
     }
 
-    // -- OutboundMiddleware lifecycle methods --
+    // -- Outbound-seam lifecycle methods (called directly by StreamDriver) --
 
     processOutboundRequest(
         jsonrpcRequest: JSONRPCRequest,
