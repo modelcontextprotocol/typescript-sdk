@@ -22,6 +22,26 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
 
 /**
+ * Converts a web-standard `(Request) => Response` handler into a Node.js
+ * `(IncomingMessage, ServerResponse) => void` handler suitable for Express,
+ * `http.createServer`, etc.
+ *
+ * @example
+ * ```ts
+ * const app = express();
+ * app.post('/mcp', toNodeHttpHandler(req => mcpServer.handleHttp(req)));
+ * ```
+ */
+export function toNodeHttpHandler(
+    handler: (req: Request) => Response | Promise<Response>
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+    const listener = getRequestListener(handler, { overrideGlobalObjects: false });
+    return async (req, res) => {
+        await listener(req, res);
+    };
+}
+
+/**
  * Server transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It supports both SSE streaming and direct HTTP responses.
  *
