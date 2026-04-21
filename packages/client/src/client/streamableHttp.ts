@@ -1,10 +1,20 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type {
+    FetchLike,
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
+    Notification,
+    Transport
+} from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
     isInitializedNotification,
     isJSONRPCErrorResponse,
+    isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
@@ -16,6 +26,7 @@ import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 import type { AuthProvider, OAuthClientProvider } from './auth.js';
 import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import type { ClientFetchOptions, ClientTransport } from './clientTransport.js';
 
 /**
  * @deprecated Use {@linkcode SdkError} with {@linkcode SdkErrorCode}. Kept for v1 import compatibility.
@@ -178,8 +189,12 @@ export type StreamableHTTPClientTransportOptions = {
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
+ *
+ * Implements both the request-shaped {@linkcode ClientTransport} (the primary path used by
+ * {@linkcode Client.connect}) and the legacy pipe-shaped {@linkcode Transport} (deprecated; kept for
+ * direct callers and v1 compat).
  */
-export class StreamableHTTPClientTransport implements Transport {
+export class StreamableHTTPClientTransport implements ClientTransport, Transport {
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
@@ -197,8 +212,11 @@ export class StreamableHTTPClientTransport implements Transport {
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
 
+    /** @deprecated Pipe-shaped {@linkcode Transport} callback. The {@linkcode ClientTransport} path returns responses directly. */
     onclose?: () => void;
+    /** @deprecated Pipe-shaped {@linkcode Transport} callback. */
     onerror?: (error: Error) => void;
+    /** @deprecated Pipe-shaped {@linkcode Transport} callback. */
     onmessage?: (message: JSONRPCMessage) => void;
 
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
@@ -219,6 +237,10 @@ export class StreamableHTTPClientTransport implements Transport {
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
         this._reconnectionScheduler = opts?.reconnectionScheduler;
     }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Shared internals
+    // ───────────────────────────────────────────────────────────────────────
 
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
@@ -242,75 +264,88 @@ export class StreamableHTTPClientTransport implements Transport {
         });
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
-        const { resumptionToken } = options;
+    /**
+     * Single auth-aware HTTP request. Adds bearer header, captures session id, and
+     * handles 401 (one retry via {@linkcode AuthProvider.onUnauthorized}) and 403
+     * insufficient_scope (upscope via OAuth, with loop guard). Returns the Response
+     * even when not-ok for status codes other than the handled auth cases.
+     */
+    private async _authedHttpFetch(
+        build: (headers: Headers) => RequestInit,
+        opts: { signal?: AbortSignal } = {},
+        isAuthRetry = false
+    ): Promise<Response> {
+        const headers = await this._commonHeaders();
+        const init = { ...this._requestInit, ...build(headers), signal: opts.signal ?? this._abortController?.signal };
+        const response = await (this._fetch ?? fetch)(this._url, init);
 
-        try {
-            // Try to open an initial SSE stream with GET to listen for server messages
-            // This is optional according to the spec - server may not support it
-            const headers = await this._commonHeaders();
-            const userAccept = headers.get('accept');
-            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
-            headers.set('accept', [...new Set(types)].join(', '));
+        const sessionId = response.headers?.get('mcp-session-id');
+        if (sessionId) {
+            this._sessionId = sessionId;
+        }
+        if (response.ok) {
+            this._lastUpscopingHeader = undefined;
+            return response;
+        }
 
-            // Include Last-Event-ID header for resumable streams if provided
-            if (resumptionToken) {
-                headers.set('last-event-id', resumptionToken);
+        if (response.status === 401 && this._authProvider) {
+            if (response.headers.has('www-authenticate')) {
+                const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                this._resourceMetadataUrl = resourceMetadataUrl;
+                this._scope = scope;
             }
+            if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                await this._authProvider.onUnauthorized({
+                    response,
+                    serverUrl: this._url,
+                    fetchFn: this._fetchWithInit
+                });
+                await response.text?.().catch(() => {});
+                return this._authedHttpFetch(build, opts, true);
+            }
+            await response.text?.().catch(() => {});
+            if (isAuthRetry) {
+                throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', { status: 401 });
+            }
+            throw new UnauthorizedError();
+        }
 
-            const response = await (this._fetch ?? fetch)(this._url, {
-                ...this._requestInit,
-                method: 'GET',
-                headers,
-                signal: this._abortController?.signal
-            });
-
-            if (!response.ok) {
-                if (response.status === 401 && this._authProvider) {
-                    if (response.headers.has('www-authenticate')) {
-                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
-                    }
-
-                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
-                        await response.text?.().catch(() => {});
-                        // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._startOrAuthSse(options, true);
-                    }
-                    await response.text?.().catch(() => {});
-                    if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
-                        });
-                    }
+        if (response.status === 403 && this._oauthProvider) {
+            const text = await response.text?.().catch(() => null);
+            const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
+            if (error === 'insufficient_scope') {
+                const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+                if (this._lastUpscopingHeader === wwwAuthHeader) {
+                    throw new SdkError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
+                        status: 403,
+                        text
+                    });
+                }
+                if (scope) this._scope = scope;
+                if (resourceMetadataUrl) this._resourceMetadataUrl = resourceMetadataUrl;
+                this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
+                const result = await auth(this._oauthProvider, {
+                    serverUrl: this._url,
+                    resourceMetadataUrl: this._resourceMetadataUrl,
+                    scope: this._scope,
+                    fetchFn: this._fetchWithInit
+                });
+                if (result !== 'AUTHORIZED') {
                     throw new UnauthorizedError();
                 }
-
-                await response.text?.().catch(() => {});
-
-                // 405 indicates that the server does not offer an SSE stream at GET endpoint
-                // This is an expected case that should not trigger an error
-                if (response.status === 405) {
-                    return;
-                }
-
-                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
-                    status: response.status,
-                    statusText: response.statusText
-                });
+                return this._authedHttpFetch(build, opts, isAuthRetry);
             }
-
-            this._handleSseStream(response.body, options, true);
-        } catch (error) {
-            this.onerror?.(error as Error);
-            throw error;
+            // Re-wrap consumed-body 403 so caller's `await response.text()` doesn't blow up.
+            return new Response(text, { status: 403, headers: response.headers });
         }
+
+        return response;
+    }
+
+    private _setAccept(headers: Headers, ...required: string[]): void {
+        const userAccept = headers.get('accept');
+        const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), ...required];
+        headers.set('accept', [...new Set(types)].join(', '));
     }
 
     /**
@@ -320,39 +355,267 @@ export class StreamableHTTPClientTransport implements Transport {
      * @returns Time to wait in milliseconds before next reconnection attempt
      */
     private _getNextReconnectionDelay(attempt: number): number {
-        // Use server-provided retry value if available
-        if (this._serverRetryMs !== undefined) {
-            return this._serverRetryMs;
-        }
-
-        // Fall back to exponential backoff
+        if (this._serverRetryMs !== undefined) return this._serverRetryMs;
         const initialDelay = this._reconnectionOptions.initialReconnectionDelay;
         const growFactor = this._reconnectionOptions.reconnectionDelayGrowFactor;
         const maxDelay = this._reconnectionOptions.maxReconnectionDelay;
-
-        // Cap at maximum delay
         return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
+    }
+
+    private _sseReader(stream: ReadableStream<Uint8Array>) {
+        return stream
+            .pipeThrough(new TextDecoderStream() as ReadableWritablePair<string, Uint8Array>)
+            .pipeThrough(new EventSourceParserStream({ onRetry: ms => (this._serverRetryMs = ms) }))
+            .getReader();
+    }
+
+    private _linkSignal(a: AbortSignal | undefined): AbortSignal | undefined {
+        const b = this._abortController?.signal;
+        if (!a) return b;
+        if (!b) return a;
+        if (typeof (AbortSignal as { any?: (s: AbortSignal[]) => AbortSignal }).any === 'function') {
+            return (AbortSignal as unknown as { any: (s: AbortSignal[]) => AbortSignal }).any([a, b]);
+        }
+        const c = new AbortController();
+        const wire = (s: AbortSignal) =>
+            s.aborted ? c.abort(s.reason) : s.addEventListener('abort', () => c.abort(s.reason), { once: true });
+        wire(a);
+        wire(b);
+        return c.signal;
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // ClientTransport (request-shaped) — primary path
+    // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Send one JSON-RPC request and resolve with the terminal response. Progress and other
+     * notifications received before the response are surfaced via {@linkcode ClientFetchOptions}.
+     */
+    async fetch(request: JSONRPCRequest, opts: ClientFetchOptions = {}): Promise<JSONRPCResultResponse | JSONRPCErrorResponse> {
+        this._abortController ??= new AbortController();
+        return this._fetchOnce(request, opts, opts.resumptionToken, 0);
+    }
+
+    private async _fetchOnce(
+        request: JSONRPCRequest,
+        opts: ClientFetchOptions,
+        lastEventId: string | undefined,
+        attempt: number
+    ): Promise<JSONRPCResultResponse | JSONRPCErrorResponse> {
+        const signal = this._linkSignal(opts.signal);
+        const isResume = lastEventId !== undefined;
+        const res = await this._authedHttpFetch(
+            headers => {
+                if (isResume) {
+                    this._setAccept(headers, 'text/event-stream');
+                    headers.set('last-event-id', lastEventId);
+                    return { method: 'GET', headers };
+                }
+                headers.set('content-type', 'application/json');
+                this._setAccept(headers, 'application/json', 'text/event-stream');
+                return { method: 'POST', headers, body: JSON.stringify(request) };
+            },
+            { signal }
+        );
+
+        if (!res.ok) {
+            const text = await res.text?.().catch(() => null);
+            throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint (HTTP ${res.status}): ${text}`, {
+                status: res.status,
+                text
+            });
+        }
+        const ct = res.headers.get('content-type') ?? '';
+        if (ct.includes('text/event-stream')) {
+            return this._readSseToTerminal(res, request, opts, attempt);
+        }
+        if (ct.includes('application/json')) {
+            const data = await res.json();
+            const messages = Array.isArray(data) ? data : [data];
+            let terminal: JSONRPCResultResponse | JSONRPCErrorResponse | undefined;
+            for (const m of messages) {
+                const msg = JSONRPCMessageSchema.parse(m);
+                if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) terminal = msg;
+                else if (isJSONRPCNotification(msg)) this._routeFetchNotification(msg, opts);
+            }
+            if (!terminal) {
+                throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'JSON response contained no terminal response');
+            }
+            return terminal;
+        }
+        await res.text?.().catch(() => {});
+        throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, `Unexpected content type: ${ct}`, { contentType: ct });
+    }
+
+    private async _readSseToTerminal(
+        res: Response,
+        request: JSONRPCRequest,
+        opts: ClientFetchOptions,
+        attempt: number
+    ): Promise<JSONRPCResultResponse | JSONRPCErrorResponse> {
+        if (!res.body) throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'SSE response has no body');
+        let lastEventId: string | undefined;
+        let primed = false;
+        const reader = this._sseReader(res.body);
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                if (value.id) {
+                    lastEventId = value.id;
+                    primed = true;
+                    opts.onresumptiontoken?.(value.id);
+                }
+                if (!value.data) continue;
+                if (value.event && value.event !== 'message') continue;
+                const msg = JSONRPCMessageSchema.parse(JSON.parse(value.data));
+                if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) {
+                    if (msg.id === request.id) return msg;
+                    opts.onresponse?.(msg);
+                    continue;
+                }
+                if (isJSONRPCNotification(msg)) {
+                    this._routeFetchNotification(msg, opts);
+                } else if (isJSONRPCRequest(msg)) {
+                    void this._serviceInboundRequest(msg, opts);
+                }
+            }
+        } catch {
+            // fallthrough to resume below
+        } finally {
+            try {
+                reader.releaseLock();
+            } catch {
+                /* noop */
+            }
+        }
+        if (primed && attempt < this._reconnectionOptions.maxRetries && !this._abortController?.signal.aborted && !opts.signal?.aborted) {
+            await new Promise(r => setTimeout(r, this._getNextReconnectionDelay(attempt)));
+            return this._fetchOnce(request, opts, lastEventId, attempt + 1);
+        }
+        throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, 'SSE stream ended without a terminal response');
+    }
+
+    /** Handle a server-initiated request received on the SSE response stream and POST the reply back. */
+    private async _serviceInboundRequest(inbound: JSONRPCRequest, opts: ClientFetchOptions): Promise<void> {
+        if (!opts.onrequest) {
+            opts.onnotification?.(inbound as unknown as JSONRPCNotification);
+            return;
+        }
+        let response: JSONRPCResultResponse | JSONRPCErrorResponse;
+        try {
+            response = await opts.onrequest(inbound);
+        } catch (error) {
+            response = {
+                jsonrpc: '2.0',
+                id: inbound.id,
+                error: { code: -32_603, message: error instanceof Error ? error.message : String(error) }
+            };
+        }
+        try {
+            const r = await this._authedHttpFetch(headers => {
+                headers.set('content-type', 'application/json');
+                this._setAccept(headers, 'application/json', 'text/event-stream');
+                return { method: 'POST', headers, body: JSON.stringify(response) };
+            });
+            await r.text?.().catch(() => {});
+        } catch (error) {
+            this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+        }
+    }
+
+    private _routeFetchNotification(msg: JSONRPCNotification, opts: ClientFetchOptions): void {
+        if (msg.method === 'notifications/progress' && opts.onprogress) {
+            const { progressToken: _t, ...progress } = (msg.params ?? {}) as Record<string, unknown>;
+            void _t;
+            opts.onprogress(progress as never);
+            return;
+        }
+        opts.onnotification?.(msg);
+    }
+
+    /** Send a fire-and-forget JSON-RPC notification. */
+    async notify(n: Notification): Promise<void> {
+        this._abortController ??= new AbortController();
+        const res = await this._authedHttpFetch(headers => {
+            headers.set('content-type', 'application/json');
+            this._setAccept(headers, 'application/json', 'text/event-stream');
+            return { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', method: n.method, params: n.params }) };
+        });
+        await res.text?.().catch(() => {});
+        if (!res.ok && res.status !== 202) {
+            throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Notification POST failed: ${res.status}`, { status: res.status });
+        }
+    }
+
+    /**
+     * Open the standalone GET SSE stream and yield server-initiated notifications.
+     * Best-effort: if the server replies 405 (no SSE GET), the iterable completes immediately.
+     */
+    async *subscribe(): AsyncIterable<JSONRPCNotification> {
+        this._abortController ??= new AbortController();
+        const res = await this._authedHttpFetch(headers => {
+            this._setAccept(headers, 'text/event-stream');
+            return { method: 'GET', headers };
+        });
+        if (res.status === 405 || !res.ok || !res.body) {
+            await res.text?.().catch(() => {});
+            return;
+        }
+        const reader = this._sseReader(res.body);
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) return;
+                if (!value.data) continue;
+                const msg = JSONRPCMessageSchema.parse(JSON.parse(value.data));
+                if (isJSONRPCNotification(msg)) yield msg;
+            }
+        } finally {
+            reader.releaseLock();
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Transport (pipe-shaped) — deprecated compat surface
+    // ───────────────────────────────────────────────────────────────────────
+
+    private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
+        const { resumptionToken } = options;
+        try {
+            const response = await this._authedHttpFetch(headers => {
+                this._setAccept(headers, 'text/event-stream');
+                if (resumptionToken) headers.set('last-event-id', resumptionToken);
+                return { method: 'GET', headers };
+            });
+
+            if (!response.ok) {
+                await response.text?.().catch(() => {});
+                // 405 indicates that the server does not offer an SSE stream at GET endpoint
+                if (response.status === 405) return;
+                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                    status: response.status,
+                    statusText: response.statusText
+                });
+            }
+            this._handleSseStream(response.body, options, true);
+        } catch (error) {
+            this.onerror?.(error as Error);
+            throw error;
+        }
     }
 
     /**
      * Schedule a reconnection attempt using server-provided retry interval or backoff
-     *
-     * @param lastEventId The ID of the last received event for resumability
-     * @param attemptCount Current reconnection attempt count for this specific stream
      */
     private _scheduleReconnection(options: StartSSEOptions, attemptCount = 0): void {
-        // Use provided options or default options
         const maxRetries = this._reconnectionOptions.maxRetries;
-
-        // Check if we've exceeded maximum retry attempts
         if (attemptCount >= maxRetries) {
             this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
             return;
         }
-
-        // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
-
         const reconnect = (): void => {
             this._cancelReconnection = undefined;
             if (this._abortController?.signal.aborted) return;
@@ -365,7 +628,6 @@ export class StreamableHTTPClientTransport implements Transport {
                 }
             });
         };
-
         if (this._reconnectionScheduler) {
             const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
             this._cancelReconnection = typeof cancel === 'function' ? cancel : undefined;
@@ -376,60 +638,28 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
-        if (!stream) {
-            return;
-        }
+        if (!stream) return;
         const { onresumptiontoken, replayMessageId } = options;
 
         let lastEventId: string | undefined;
-        // Track whether we've received a priming event (event with ID)
-        // Per spec, server SHOULD send a priming event with ID before closing
         let hasPrimingEvent = false;
-        // Track whether we've received a response - if so, no need to reconnect
-        // Reconnection is for when server disconnects BEFORE sending response
         let receivedResponse = false;
         const processStream = async () => {
-            // this is the closest we can get to trying to catch network errors
-            // if something happens reader will throw
             try {
-                // Create a pipeline: binary stream -> text decoder -> SSE parser
-                const reader = stream
-                    .pipeThrough(new TextDecoderStream() as ReadableWritablePair<string, Uint8Array>)
-                    .pipeThrough(
-                        new EventSourceParserStream({
-                            onRetry: (retryMs: number) => {
-                                // Capture server-provided retry value for reconnection timing
-                                this._serverRetryMs = retryMs;
-                            }
-                        })
-                    )
-                    .getReader();
-
+                const reader = this._sseReader(stream);
                 while (true) {
                     const { value: event, done } = await reader.read();
-                    if (done) {
-                        break;
-                    }
-
-                    // Update last event ID if provided
+                    if (done) break;
                     if (event.id) {
                         lastEventId = event.id;
-                        // Mark that we've received a priming event - stream is now resumable
                         hasPrimingEvent = true;
                         onresumptiontoken?.(event.id);
                     }
-
-                    // Skip events with no data (priming events, keep-alives)
-                    if (!event.data) {
-                        continue;
-                    }
-
+                    if (!event.data) continue;
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            // Handle both success AND error responses for completion detection and ID remapping
                             if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-                                // Mark that we received a response - no need to reconnect for this request
                                 receivedResponse = true;
                                 if (replayMessageId !== undefined) {
                                     message.id = replayMessageId;
@@ -441,43 +671,18 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
                     }
                 }
-
-                // Handle graceful server-side disconnect
-                // Server may close connection after sending event ID and retry field
-                // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
-                // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
-                    this._scheduleReconnection(
-                        {
-                            resumptionToken: lastEventId,
-                            onresumptiontoken,
-                            replayMessageId
-                        },
-                        0
-                    );
+                    this._scheduleReconnection({ resumptionToken: lastEventId, onresumptiontoken, replayMessageId }, 0);
                 }
             } catch (error) {
-                // Handle stream errors - likely a network disconnect
                 this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
-
-                // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
-                // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
-                // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
-                    // Use the exponential backoff reconnection strategy
                     try {
-                        this._scheduleReconnection(
-                            {
-                                resumptionToken: lastEventId,
-                                onresumptiontoken,
-                                replayMessageId
-                            },
-                            0
-                        );
+                        this._scheduleReconnection({ resumptionToken: lastEventId, onresumptiontoken, replayMessageId }, 0);
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
                     }
@@ -487,13 +692,13 @@ export class StreamableHTTPClientTransport implements Transport {
         processStream();
     }
 
+    /** @deprecated Part of the pipe-shaped {@linkcode Transport} interface. {@linkcode Client.connect} uses the request-shaped path. */
     async start() {
         if (this._abortController) {
             throw new Error(
                 'StreamableHTTPClientTransport already started! If using Client class, note that connect() calls start() automatically.'
             );
         }
-
         this._abortController = new AbortController();
     }
 
@@ -504,7 +709,6 @@ export class StreamableHTTPClientTransport implements Transport {
         if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
-
         const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
@@ -527,161 +731,55 @@ export class StreamableHTTPClientTransport implements Transport {
         }
     }
 
+    /** @deprecated Part of the pipe-shaped {@linkcode Transport} interface. Use {@linkcode fetch} / {@linkcode notify}. */
     async send(
         message: JSONRPCMessage | JSONRPCMessage[],
         options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
-    ): Promise<void> {
-        return this._send(message, options, false);
-    }
-
-    private async _send(
-        message: JSONRPCMessage | JSONRPCMessage[],
-        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void } | undefined,
-        isAuthRetry: boolean
     ): Promise<void> {
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
 
             if (resumptionToken) {
-                // If we have a last event ID, we need to reconnect the SSE stream
                 this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
                     error => this.onerror?.(error)
                 );
                 return;
             }
 
-            const headers = await this._commonHeaders();
-            headers.set('content-type', 'application/json');
-            const userAccept = headers.get('accept');
-            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
-            headers.set('accept', [...new Set(types)].join(', '));
-
-            const init = {
-                ...this._requestInit,
-                method: 'POST',
-                headers,
-                body: JSON.stringify(message),
-                signal: this._abortController?.signal
-            };
-
-            const response = await (this._fetch ?? fetch)(this._url, init);
-
-            // Handle session ID received during initialization
-            const sessionId = response.headers.get('mcp-session-id');
-            if (sessionId) {
-                this._sessionId = sessionId;
-            }
+            const response = await this._authedHttpFetch(headers => {
+                headers.set('content-type', 'application/json');
+                this._setAccept(headers, 'application/json', 'text/event-stream');
+                return { method: 'POST', headers, body: JSON.stringify(message) };
+            });
 
             if (!response.ok) {
-                if (response.status === 401 && this._authProvider) {
-                    // Store WWW-Authenticate params for interactive finishAuth() path
-                    if (response.headers.has('www-authenticate')) {
-                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
-                    }
-
-                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
-                        await response.text?.().catch(() => {});
-                        // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._send(message, options, true);
-                    }
-                    await response.text?.().catch(() => {});
-                    if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
-                        });
-                    }
-                    throw new UnauthorizedError();
-                }
-
                 const text = await response.text?.().catch(() => null);
-
-                if (response.status === 403 && this._oauthProvider) {
-                    const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
-
-                    if (error === 'insufficient_scope') {
-                        const wwwAuthHeader = response.headers.get('WWW-Authenticate');
-
-                        // Check if we've already tried upscoping with this header to prevent infinite loops.
-                        if (this._lastUpscopingHeader === wwwAuthHeader) {
-                            throw new SdkError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
-                                status: 403,
-                                text
-                            });
-                        }
-
-                        if (scope) {
-                            this._scope = scope;
-                        }
-
-                        if (resourceMetadataUrl) {
-                            this._resourceMetadataUrl = resourceMetadataUrl;
-                        }
-
-                        // Mark that upscoping was tried.
-                        this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
-                        const result = await auth(this._oauthProvider, {
-                            serverUrl: this._url,
-                            resourceMetadataUrl: this._resourceMetadataUrl,
-                            scope: this._scope,
-                            fetchFn: this._fetchWithInit
-                        });
-
-                        if (result !== 'AUTHORIZED') {
-                            throw new UnauthorizedError();
-                        }
-
-                        return this._send(message, options, isAuthRetry);
-                    }
-                }
-
                 throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
                     status: response.status,
                     text
                 });
             }
 
-            this._lastUpscopingHeader = undefined;
-
-            // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
                 await response.text?.().catch(() => {});
-                // if the accepted notification is initialized, we start the SSE stream
-                // if it's supported by the server
                 if (isInitializedNotification(message)) {
-                    // Start without a lastEventId since this is a fresh connection
                     this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
                 }
                 return;
             }
 
-            // Get original message(s) for detecting request IDs
             const messages = Array.isArray(message) ? message : [message];
-
             const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
-
-            // Check the response type
             const contentType = response.headers.get('content-type');
 
             if (hasRequests) {
                 if (contentType?.includes('text/event-stream')) {
-                    // Handle SSE stream responses for requests
-                    // We use the same handler as standalone streams, which now supports
-                    // reconnection with the last event ID
                     this._handleSseStream(response.body, { onresumptiontoken }, false);
                 } else if (contentType?.includes('application/json')) {
-                    // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
                     const responseMessages = Array.isArray(data)
                         ? data.map(msg => JSONRPCMessageSchema.parse(msg))
                         : [JSONRPCMessageSchema.parse(data)];
-
                     for (const msg of responseMessages) {
                         this.onmessage?.(msg);
                     }
@@ -692,7 +790,6 @@ export class StreamableHTTPClientTransport implements Transport {
                     });
                 }
             } else {
-                // No requests in message but got 200 OK - still need to release connection
                 await response.text?.().catch(() => {});
             }
         } catch (error) {
@@ -717,32 +814,16 @@ export class StreamableHTTPClientTransport implements Transport {
      * the server does not allow clients to terminate sessions.
      */
     async terminateSession(): Promise<void> {
-        if (!this._sessionId) {
-            return; // No session to terminate
-        }
-
+        if (!this._sessionId) return;
         try {
-            const headers = await this._commonHeaders();
-
-            const init = {
-                ...this._requestInit,
-                method: 'DELETE',
-                headers,
-                signal: this._abortController?.signal
-            };
-
-            const response = await (this._fetch ?? fetch)(this._url, init);
+            const response = await this._authedHttpFetch(headers => ({ method: 'DELETE', headers }));
             await response.text?.().catch(() => {});
-
-            // We specifically handle 405 as a valid response according to the spec,
-            // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
                 throw new SdkError(SdkErrorCode.ClientHttpFailedToTerminateSession, `Failed to terminate session: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
                 });
             }
-
             this._sessionId = undefined;
         } catch (error) {
             this.onerror?.(error as Error);
@@ -761,13 +842,9 @@ export class StreamableHTTPClientTransport implements Transport {
      * Resume an SSE stream from a previous event ID.
      * Opens a `GET` SSE connection with `Last-Event-ID` header to replay missed events.
      *
-     * @param lastEventId The event ID to resume from
-     * @param options Optional callback to receive new resumption tokens
+     * @deprecated Part of the pipe-shaped {@linkcode Transport} surface; messages surface via {@linkcode onmessage}.
      */
     async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
-        await this._startOrAuthSse({
-            resumptionToken: lastEventId,
-            onresumptiontoken: options?.onresumptiontoken
-        });
+        await this._startOrAuthSse({ resumptionToken: lastEventId, onresumptiontoken: options?.onresumptiontoken });
     }
 }

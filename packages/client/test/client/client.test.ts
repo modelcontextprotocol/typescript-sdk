@@ -90,7 +90,8 @@ describe('Client (V2)', () => {
     describe('typed RPC sugar', () => {
         async function connected(handler: (req: JSONRPCRequest, opts?: ClientFetchOptions) => FetchResp | Promise<FetchResp>) {
             const m = mockTransport((req, opts) => {
-                if (req.method === 'server/discover') return ok(req.id, { capabilities: { tools: {}, prompts: {}, resources: {} } });
+                if (req.method === 'server/discover')
+                    return ok(req.id, { capabilities: { tools: {}, prompts: {}, resources: {} }, serverInfo: { name: 's', version: '1' } });
                 return handler(req, opts);
             });
             const c = new Client({ name: 'c', version: '1' });
@@ -133,7 +134,9 @@ describe('Client (V2)', () => {
 
         it('list* return empty when capability missing and not strict', async () => {
             const { ct } = mockTransport(r =>
-                r.method === 'server/discover' ? ok(r.id, { capabilities: {} }) : err(r.id, -32601, 'nope')
+                r.method === 'server/discover'
+                    ? ok(r.id, { capabilities: {}, serverInfo: { name: 's', version: '1' } })
+                    : err(r.id, -32601, 'nope')
             );
             const c = new Client({ name: 'c', version: '1' });
             await c.connect(ct);
@@ -166,7 +169,8 @@ describe('Client (V2)', () => {
                 params: { message: 'q', requestedSchema: { type: 'object', properties: {} } }
             };
             const { ct, sent } = mockTransport(r => {
-                if (r.method === 'server/discover') return ok(r.id, { capabilities: { tools: {} } });
+                if (r.method === 'server/discover')
+                    return ok(r.id, { capabilities: { tools: {} }, serverInfo: { name: 's', version: '1' } });
                 if (r.method === 'tools/call') {
                     round++;
                     if (round === 1) return ok(r.id, { ResultType: 'input_required', InputRequests: { ask: elicitArgs } });
@@ -188,7 +192,8 @@ describe('Client (V2)', () => {
 
         it('throws if no handler is registered for an InputRequest method', async () => {
             const { ct } = mockTransport(r => {
-                if (r.method === 'server/discover') return ok(r.id, { capabilities: { tools: {} } });
+                if (r.method === 'server/discover')
+                    return ok(r.id, { capabilities: { tools: {} }, serverInfo: { name: 's', version: '1' } });
                 if (r.method === 'tools/call') {
                     return ok(r.id, { ResultType: 'input_required', InputRequests: { s: { method: 'sampling/createMessage' } } });
                 }
@@ -201,7 +206,8 @@ describe('Client (V2)', () => {
 
         it('caps rounds at mrtrMaxRounds', async () => {
             const { ct } = mockTransport(r => {
-                if (r.method === 'server/discover') return ok(r.id, { capabilities: { tools: {} } });
+                if (r.method === 'server/discover')
+                    return ok(r.id, { capabilities: { tools: {} }, serverInfo: { name: 's', version: '1' } });
                 return ok(r.id, { ResultType: 'input_required', InputRequests: { p: { method: 'ping' } } });
             });
             const c = new Client({ name: 'c', version: '1' }, { mrtrMaxRounds: 3 });
@@ -253,7 +259,8 @@ describe('Client (V2)', () => {
             c.setRequestHandler('roots/list', handler);
             // Exercise via MRTR path:
             const { ct } = mockTransport(r => {
-                if (r.method === 'server/discover') return ok(r.id, { capabilities: { tools: {} } });
+                if (r.method === 'server/discover')
+                    return ok(r.id, { capabilities: { tools: {} }, serverInfo: { name: 's', version: '1' } });
                 if (r.method === 'tools/call') {
                     return ok(r.id, { ResultType: 'input_required', InputRequests: { r: { method: 'roots/list' } } });
                 }
@@ -272,7 +279,8 @@ describe('Client (V2)', () => {
         it('routes per-request notifications from transport to local notification handlers', async () => {
             const got: JSONRPCNotification[] = [];
             const { ct } = mockTransport(async (r, opts) => {
-                if (r.method === 'server/discover') return ok(r.id, { capabilities: { tools: {} } });
+                if (r.method === 'server/discover')
+                    return ok(r.id, { capabilities: { tools: {} }, serverInfo: { name: 's', version: '1' } });
                 opts?.onnotification?.({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'x' } });
                 return ok(r.id, { content: [] });
             });
@@ -287,7 +295,11 @@ describe('Client (V2)', () => {
     describe('tasks (SEP-1686 / SEP-2557)', () => {
         async function connected(handler: (req: JSONRPCRequest) => FetchResp | Promise<FetchResp>) {
             const m = mockTransport(req => {
-                if (req.method === 'server/discover') return ok(req.id, { capabilities: { tools: {}, tasks: { tools: { call: true } } } });
+                if (req.method === 'server/discover')
+                    return ok(req.id, {
+                        capabilities: { tools: {}, tasks: { tools: { call: true } } },
+                        serverInfo: { name: 's', version: '1' }
+                    });
                 return handler(req);
             });
             const c = new Client({ name: 'c', version: '1' });
@@ -348,9 +360,9 @@ describe('Client (V2)', () => {
             expect(sent.map(r => r.method).filter(m => m.startsWith('tasks/'))).toEqual(['tasks/get', 'tasks/list', 'tasks/cancel']);
         });
 
-        it('taskManager throws NotConnected when not connected via a pipe', async () => {
+        it('taskManager is available on the request-shaped path (Client-owned)', async () => {
             const { c } = await connected(r => ok(r.id, {}));
-            expect(() => c.taskManager).toThrow(/pipe-shaped Transport/);
+            expect(c.taskManager).toBeDefined();
         });
     });
 });

@@ -15,7 +15,9 @@ import type {
     GetTaskRequest,
     GetTaskResult,
     Implementation,
+    JSONRPCErrorResponse,
     JSONRPCRequest,
+    JSONRPCResultResponse,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -44,7 +46,7 @@ import type {
     StandardSchemaV1,
     StreamDriverOptions,
     SubscribeRequest,
-    TaskManager,
+    TaskManagerHost,
     TaskManagerOptions,
     Tool,
     Transport,
@@ -75,13 +77,16 @@ import {
     ListTasksResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
+    NullTaskManager,
     parseSchema,
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
+    RELATED_TASK_META_KEY,
     SdkError,
     SdkErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    TaskManager
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -226,6 +231,7 @@ export class Client {
     private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _tasksOptions?: TaskManagerOptions;
+    private _taskManager?: TaskManager;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -287,12 +293,42 @@ export class Client {
             return;
         }
         this._ct = transport;
+        this._bindTaskManager();
+        const t = transport as { sessionId?: string; setProtocolVersion?: (v: string) => void };
+        const setProtocolVersion = (v: string) => t.setProtocolVersion?.(v);
+        if (t.sessionId !== undefined) {
+            if (this._negotiatedProtocolVersion) setProtocolVersion(this._negotiatedProtocolVersion);
+            return;
+        }
         try {
-            await this._discoverOrInitialize(options);
+            await this._discoverOrInitialize(options, setProtocolVersion);
         } catch (error) {
             void this.close();
             throw error;
         }
+    }
+
+    /**
+     * Construct and bind a {@linkcode TaskManager} for the request-shaped {@linkcode ClientTransport}
+     * path. The pipe-shaped path uses the StreamDriver's TaskManager instead.
+     */
+    private _bindTaskManager(): void {
+        const tm = this._tasksOptions ? new TaskManager(this._tasksOptions) : new NullTaskManager();
+        const host: TaskManagerHost = {
+            request: (r, schema, opts) => this._request(r, schema, opts),
+            notification: (n, opts) => this.notification(n, opts),
+            reportError: e => this.onerror?.(e),
+            removeProgressHandler: () => {},
+            registerHandler: (method, handler) => this._localDispatcher.setRawRequestHandler(method, handler),
+            sendOnResponseStream: async () => {
+                throw new SdkError(SdkErrorCode.NotConnected, 'sendOnResponseStream is server-side only');
+            },
+            enforceStrictCapabilities: this._enforceStrictCapabilities,
+            assertTaskCapability: () => {},
+            assertTaskHandlerCapability: () => {}
+        };
+        tm.bind(host);
+        this._taskManager = tm;
     }
 
     async close(): Promise<void> {
@@ -546,12 +582,9 @@ export class Client {
      * transports have no per-connection task buffer.
      */
     get taskManager(): TaskManager {
-        const tm = this._ct?.driver?.taskManager;
+        const tm = this._ct?.driver?.taskManager ?? this._taskManager;
         if (!tm) {
-            throw new SdkError(
-                SdkErrorCode.NotConnected,
-                'taskManager is only available when connected via a pipe-shaped Transport (stdio/SSE/InMemory).'
-            );
+            throw new SdkError(SdkErrorCode.NotConnected, 'taskManager is unavailable: call connect() first.');
         }
         return tm;
     }
@@ -628,6 +661,15 @@ export class Client {
                 method: req.method,
                 params: req.params || round > 0 ? { ...req.params, _meta: Object.keys(meta).length > 0 ? meta : undefined } : undefined
             };
+            // Thread task augmentation into request params (mirrors TaskManager.prepareOutboundRequest
+            // for the request-shaped path; the pipe path threads via StreamDriver.request).
+            if (options?.task) jr.params = { ...jr.params, task: options.task };
+            if (options?.relatedTask) {
+                jr.params = {
+                    ...jr.params,
+                    _meta: { ...(jr.params?._meta as Record<string, unknown> | undefined), [RELATED_TASK_META_KEY]: options.relatedTask }
+                };
+            }
             const opts: ClientFetchOptions = {
                 signal: options?.signal,
                 timeout: options?.timeout,
@@ -639,7 +681,18 @@ export class Client {
                 relatedTask: options?.relatedTask,
                 resumptionToken: options?.resumptionToken,
                 onresumptiontoken: options?.onresumptiontoken,
-                onnotification: n => void this._localDispatcher.dispatchNotification(n).catch(error => this.onerror?.(error))
+                onnotification: n => void this._localDispatcher.dispatchNotification(n).catch(error => this.onerror?.(error)),
+                onresponse: r => {
+                    const consumed = this.taskManager.processInboundResponse(r, Number(r.id)).consumed;
+                    if (!consumed) this.onerror?.(new Error(`Unmatched response on stream: ${JSON.stringify(r)}`));
+                },
+                onrequest: async r => {
+                    let resp: JSONRPCResultResponse | JSONRPCErrorResponse | undefined;
+                    for await (const out of this._localDispatcher.dispatch(r)) {
+                        if (out.kind === 'response') resp = out.message;
+                    }
+                    return resp ?? { jsonrpc: '2.0', id: r.id, error: { code: -32_601, message: 'Method not found' } };
+                }
             };
             const resp = await this._ct.fetch(jr, opts);
             if (isJSONRPCErrorResponse(resp)) {
@@ -698,7 +751,7 @@ export class Client {
         }
     }
 
-    private async _discoverOrInitialize(options?: RequestOptions): Promise<void> {
+    private async _discoverOrInitialize(options: RequestOptions | undefined, setProtocolVersion: (v: string) => void): Promise<void> {
         // 2026-06: try server/discover, fall back to initialize. Discover schema
         // is not yet in spec types, so probe and accept the result loosely.
         try {
@@ -707,20 +760,26 @@ export class Client {
                 { timeout: options?.timeout, signal: options?.signal }
             );
             if (!isJSONRPCErrorResponse(resp)) {
-                const r = resp.result as { capabilities?: ServerCapabilities; serverInfo?: Implementation; instructions?: string };
-                this._serverCapabilities = r.capabilities;
-                this._serverVersion = r.serverInfo;
-                this._instructions = r.instructions;
-                return;
+                const r = resp.result as {
+                    capabilities?: ServerCapabilities;
+                    serverInfo?: Implementation;
+                    instructions?: string;
+                    protocolVersion?: string;
+                };
+                // Only accept discover if the result is shaped like a real discover response;
+                // pre-2026-06 servers may return an empty/echo result for unknown methods.
+                if (r?.serverInfo) {
+                    this._serverCapabilities = r.capabilities;
+                    this._serverVersion = r.serverInfo;
+                    this._instructions = r.instructions;
+                    if (r.protocolVersion) setProtocolVersion(r.protocolVersion);
+                    return;
+                }
             }
-            if (resp.error.code !== ProtocolErrorCode.MethodNotFound) {
-                throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
-            }
-        } catch (error) {
-            // Surface non-MethodNotFound protocol errors from discover; otherwise fall through to initialize.
-            if (error instanceof ProtocolError && error.code !== ProtocolErrorCode.MethodNotFound) throw error;
+        } catch {
+            // Any error from the discover probe falls through to initialize.
         }
-        await this._initializeHandshake(options, () => {});
+        await this._initializeHandshake(options, setProtocolVersion);
     }
 
     private _cacheToolMetadata(tools: Tool[]): void {

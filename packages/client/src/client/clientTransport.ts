@@ -26,6 +26,18 @@ export type ClientFetchOptions = {
     onprogress?: (progress: Progress) => void;
     /** Called for each non-progress notification received before the terminal response. */
     onnotification?: (notification: JSONRPCNotification) => void;
+    /**
+     * Called for each server-initiated request (elicitation/sampling/roots) received on the
+     * response stream. Must return the response to send back. If absent, such requests are
+     * surfaced via {@linkcode onnotification} (best-effort).
+     */
+    onrequest?: (request: JSONRPCRequest) => Promise<JSONRPCResultResponse | JSONRPCErrorResponse>;
+    /**
+     * Called for each JSON-RPC response on the stream whose `id` does NOT match the outbound
+     * request (e.g. queued task messages delivered via `sendOnResponseStream`). If absent,
+     * such responses are dropped.
+     */
+    onresponse?: (response: JSONRPCResultResponse | JSONRPCErrorResponse) => void;
     /** Per-request timeout (ms). */
     timeout?: number;
     /** Reset {@linkcode timeout} when a progress notification arrives. */
@@ -83,9 +95,13 @@ export interface ClientTransport {
 
 /**
  * Type guard distinguishing the legacy pipe-shaped {@linkcode Transport} from
- * a request-shaped {@linkcode ClientTransport}.
+ * a request-shaped {@linkcode ClientTransport}. A transport that implements
+ * both (e.g. {@linkcode StreamableHTTPClientTransport}) is treated as
+ * {@linkcode ClientTransport} so {@linkcode Client.connect} uses the
+ * request-shaped path.
  */
 export function isPipeTransport(t: Transport | ClientTransport): t is Transport {
+    if (typeof (t as ClientTransport).fetch === 'function') return false;
     return typeof (t as Transport).start === 'function' && typeof (t as Transport).send === 'function';
 }
 

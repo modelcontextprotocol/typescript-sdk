@@ -11,19 +11,16 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { NodeStreamableHTTPServerTransport, toNodeHttpHandler } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
 import express from 'express';
 import { z } from 'zod/v4';
 
-import { NodeStreamableHTTPServerTransport, toNodeHttpHandler } from '@modelcontextprotocol/node';
-import { McpServer } from '@modelcontextprotocol/server';
-
 const mcp = new McpServer({ name: 'hello-express', version: '1.0.0' });
 
-mcp.registerTool(
-    'greet',
-    { description: 'Say hello', inputSchema: z.object({ name: z.string() }) },
-    async ({ name }) => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] })
-);
+mcp.registerTool('greet', { description: 'Say hello', inputSchema: z.object({ name: z.string() }) }, async ({ name }) => ({
+    content: [{ type: 'text', text: `Hello, ${name}!` }]
+}));
 
 const app = express();
 
@@ -34,6 +31,9 @@ app.all('/mcp-v1style', express.json(), (req, res) => transport.handleRequest(re
 
 // ─── Way 2: new direct pattern (no connect, no transport instance) ─────────
 // Don't pre-parse the body — handleHttp reads it from the raw Request.
-app.post('/mcp', toNodeHttpHandler(req => mcp.handleHttp(req)));
+app.post(
+    '/mcp',
+    toNodeHttpHandler(req => mcp.handleHttp(req))
+);
 
 app.listen(3400, () => console.log('Express MCP server on :3400 — /mcp (new) and /mcp-v1style (existing)'));

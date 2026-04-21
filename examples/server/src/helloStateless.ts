@@ -5,18 +5,15 @@
  * Run: npx tsx examples/server/src/helloStateless.ts
  */
 import { serve } from '@hono/node-server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { Hono } from 'hono';
 import { z } from 'zod/v4';
 
-import { McpServer } from '@modelcontextprotocol/server';
-
 const mcp = new McpServer({ name: 'hello-stateless', version: '1.0.0' });
 
-mcp.registerTool(
-    'greet',
-    { description: 'Say hello', inputSchema: z.object({ name: z.string() }) },
-    async ({ name }) => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] })
-);
+mcp.registerTool('greet', { description: 'Say hello', inputSchema: z.object({ name: z.string() }) }, async ({ name }) => ({
+    content: [{ type: 'text', text: `Hello, ${name}!` }]
+}));
 
 const app = new Hono();
 app.post('/mcp', c => mcp.handleHttp(c.req.raw));
