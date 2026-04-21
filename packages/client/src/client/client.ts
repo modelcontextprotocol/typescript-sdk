@@ -209,7 +209,7 @@ export type ClientOptions = ProtocolOptions & {
  * and runs the 2025-11 initialize handshake for back-compat.
  */
 export class Client extends Dispatcher<ClientContext> {
-    private _ct?: ClientTransport;
+    private _clientTransport?: ClientTransport;
     private _capabilities: ClientCapabilities;
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
@@ -247,12 +247,12 @@ export class Client extends Dispatcher<ClientContext> {
         this._taskManager = tasksOpts ? new TaskManager(tasksOpts) : new NullTaskManager();
         this._taskManager.attachTo(this, {
             channel: () =>
-                this._ct
+                this._clientTransport
                     ? {
                           request: (r, schema, opts) => this._request(r, schema, opts),
                           notification: (n, opts) => this.notification(n, opts),
                           close: () => this.close(),
-                          removeProgressHandler: t => this._ct?.driver?.removeProgressHandler(t)
+                          removeProgressHandler: t => this._clientTransport?.driver?.removeProgressHandler(t)
                       }
                     : undefined,
             reportError: e => this.onerror?.(e),
@@ -284,13 +284,13 @@ export class Client extends Dispatcher<ClientContext> {
                 supportedProtocolVersions: this._supportedProtocolVersions,
                 debouncedNotificationMethods: this._options?.debouncedNotificationMethods
             };
-            this._ct = channelAsClientTransport(transport, this, driverOpts);
-            this._ct.driver!.onresponse = (r, id) => this._taskManager.processInboundResponse(r, id);
-            this._ct.driver!.onclose = () => {
+            this._clientTransport = channelAsClientTransport(transport, this, driverOpts);
+            this._clientTransport.driver!.onresponse = (r, id) => this._taskManager.processInboundResponse(r, id);
+            this._clientTransport.driver!.onclose = () => {
                 this._taskManager.onClose();
                 this.onclose?.();
             };
-            this._ct.driver!.onerror = e => this.onerror?.(e);
+            this._clientTransport.driver!.onerror = e => this.onerror?.(e);
             const skipInit = transport.sessionId !== undefined;
             if (skipInit) {
                 if (this._negotiatedProtocolVersion && transport.setProtocolVersion) {
@@ -306,7 +306,7 @@ export class Client extends Dispatcher<ClientContext> {
             }
             return;
         }
-        this._ct = transport;
+        this._clientTransport = transport;
         const t = transport as { sessionId?: string; setProtocolVersion?: (v: string) => void };
         const setProtocolVersion = (v: string) => t.setProtocolVersion?.(v);
         if (t.sessionId !== undefined) {
@@ -330,7 +330,7 @@ export class Client extends Dispatcher<ClientContext> {
      * {@linkcode ClientTransport} path. No-op if the transport doesn't support it.
      */
     private _startStandaloneStream(): void {
-        const ct = this._ct;
+        const ct = this._clientTransport;
         if (!ct?.subscribe) return;
         void (async () => {
             try {
@@ -357,8 +357,8 @@ export class Client extends Dispatcher<ClientContext> {
     }
 
     async close(): Promise<void> {
-        const ct = this._ct;
-        this._ct = undefined;
+        const ct = this._clientTransport;
+        this._clientTransport = undefined;
         for (const t of this._listChangedDebounceTimers.values()) clearTimeout(t);
         this._listChangedDebounceTimers.clear();
         // For pipe transports, driver.onclose (wired in connect) fires this.onclose.
@@ -369,12 +369,12 @@ export class Client extends Dispatcher<ClientContext> {
     }
 
     get transport(): Transport | undefined {
-        return this._ct?.driver?.pipe;
+        return this._clientTransport?.driver?.pipe;
     }
 
     /** Register additional capabilities. Must be called before {@linkcode connect}. */
     registerCapabilities(capabilities: ClientCapabilities): void {
-        if (this._ct) throw new Error('Cannot register capabilities after connecting to transport');
+        if (this._clientTransport) throw new Error('Cannot register capabilities after connecting to transport');
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
     }
 
@@ -472,9 +472,9 @@ export class Client extends Dispatcher<ClientContext> {
 
     /** Low-level: send a notification to the server. */
     async notification(n: Notification, _options?: NotificationOptions): Promise<void> {
-        if (!this._ct) throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        if (!this._clientTransport) throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         if (this._enforceStrictCapabilities) this._assertNotificationCapability(n.method as NotificationMethod);
-        await this._ct.notify(n);
+        await this._clientTransport.notify(n);
     }
 
     // -- typed RPC sugar ------------------------------------------------------
@@ -650,7 +650,7 @@ export class Client extends Dispatcher<ClientContext> {
 
     /** Like {@linkcode _request} but returns the unparsed result. Used where the result is polymorphic (e.g. SEP-2557 task results). */
     private async _requestRaw(req: Request, options?: RequestOptions): Promise<unknown> {
-        if (!this._ct) throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        if (!this._clientTransport) throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         if (this._enforceStrictCapabilities) this._assertCapabilityForMethod(req.method as RequestMethod);
         let inputResponses: Record<string, unknown> = {};
         for (let round = 0; round < this._mrtrMaxRounds; round++) {
@@ -698,7 +698,7 @@ export class Client extends Dispatcher<ClientContext> {
                     return resp ?? { jsonrpc: '2.0', id: r.id, error: { code: -32_601, message: 'Method not found' } };
                 }
             };
-            const resp = await this._ct.fetch(jr, opts);
+            const resp = await this._clientTransport.fetch(jr, opts);
             if (isJSONRPCErrorResponse(resp)) {
                 throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
             }
@@ -759,7 +759,7 @@ export class Client extends Dispatcher<ClientContext> {
         // Try server/discover (SEP-2575 stateless), fall back to initialize. Discover schema
         // is not yet in spec types, so probe and accept the result loosely.
         try {
-            const resp = await this._ct!.fetch(
+            const resp = await this._clientTransport!.fetch(
                 { jsonrpc: '2.0', id: this._requestMessageId++, method: 'server/discover' as RequestMethod },
                 { timeout: options?.timeout, signal: options?.signal }
             );

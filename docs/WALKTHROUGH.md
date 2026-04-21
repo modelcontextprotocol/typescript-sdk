@@ -72,23 +72,17 @@ A transport — whose job should be "bytes in, bytes out" — is parsing message
 
 ### What "stateless" looks like today
 
-The protocol direction (SEP-2575/2567) is: no `initialize`, no sessions, each request is independent. The SDK has a stateless mode. Here's the example:
+The protocol direction (SEP-2575/2567) is: no `initialize`, no sessions, each request is independent. You can do this today with a module-scope transport:
 
 ```ts
-// examples/server/src/simpleStatelessStreamableHttp.ts (paraphrased)
-app.post('/mcp', async (req, res) => {
-    const server = new McpServer(...);          // build a fresh server
-    server.registerTool('greet', ..., ...);     // register everything
-    const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined           // <-- magic flag
-    });
-    await server.connect(transport);            // connect to it
-    await transport.handleRequest(req, res, req.body);
-    // server and transport are GC'd after the request
-});
+const t = new NodeStreamableHTTPServerTransport({sessionIdGenerator: undefined});
+await mcp.connect(t);
+app.all('/mcp', (req, res) => t.handleRequest(req, res, req.body));
 ```
 
-Stateless = **build and tear down a stateful server per request**, signaled by `sessionIdGenerator: undefined` taking a different code path through the same 1038-line transport. This works, but it's stateless-by-accident, not stateless-by-design.
+`sessionIdGenerator: undefined` is the opt-out — it makes `handleRequest` skip the session-ID minting/validation branches in the transport. The request still goes through the pipe-shaped path (`onmessage → _onrequest → handler → send → _streamMapping` lookup), but without sessions the mapping is just per-in-flight-request.
+
+It works. It's not obvious — you have to know that `undefined` is the flag, that `connect()` is still needed, and that the transport class is doing pipe-correlation under a request/response API. (The shipped example actually constructs the transport per-request, which is unnecessary but suggests the authors weren't confident in the module-scope version either.)
 
 ### Why is Protocol 1100 lines?
 
