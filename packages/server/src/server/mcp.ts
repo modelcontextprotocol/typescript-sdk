@@ -1,6 +1,5 @@
 import type {
     BaseMetadata,
-    CallToolRequest,
     CallToolResult,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
@@ -46,6 +45,56 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * Lifecycle hooks for tool calls on the McpServer.
+ * These hooks enable server-wide cross-cutting concerns like logging,
+ * metrics, rate limiting, and output management.
+ */
+export type McpServerHooks = {
+    /**
+     * Called before a tool handler is executed.
+     * Throwing from this hook aborts the tool call and returns an error result.
+     *
+     * @param context.toolName - The name of the tool being called
+     * @param context.arguments - The validated input arguments
+     * @param context.serverContext - The server context for this request
+     */
+    beforeToolCall?: (context: { toolName: string; arguments: unknown; serverContext: ServerContext }) => void | Promise<void>;
+
+    /**
+     * Called after a tool handler has completed, with either a success or error result.
+     * Can optionally transform the result by returning a modified value.
+     *
+     * This hook is also called when the tool handler throws an error — the error
+     * is first converted to a `CallToolResult` with `isError: true`, then passed
+     * to this hook. Similarly, if `beforeToolCall` throws, the resulting error
+     * result is passed to this hook.
+     *
+     * @param context.toolName - The name of the tool that was called
+     * @param context.arguments - The validated input arguments
+     * @param context.result - The result from the tool handler
+     * @param context.serverContext - The server context for this request
+     * @returns The (optionally transformed) result
+     */
+    afterToolCall?: (context: {
+        toolName: string;
+        arguments: unknown;
+        result: CallToolResult | CreateTaskResult;
+        serverContext: ServerContext;
+    }) => CallToolResult | CreateTaskResult | Promise<CallToolResult | CreateTaskResult>;
+};
+
+/**
+ * Options for creating a new McpServer.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Optional lifecycle hooks for tool calls.
+     * Enable server-wide cross-cutting concerns like logging, metrics, and output management.
+     */
+    hooks?: McpServerHooks;
+};
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
@@ -71,9 +120,11 @@ export class McpServer {
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    private _hooks?: McpServerHooks;
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
+        this._hooks = options?.hooks;
     }
 
     /**
@@ -167,6 +218,9 @@ export class McpServer {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
             }
 
+            let response: CallToolResult | CreateTaskResult;
+            let validatedArgs: unknown = request.params.arguments;
+
             try {
                 const isTaskRequest = !!request.params.task;
                 const taskSupport = tool.execution?.taskSupport;
@@ -188,29 +242,56 @@ export class McpServer {
                     );
                 }
 
+                // Validate input
+                validatedArgs = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+
+                // Before hook — if this throws, the error is caught below and
+                // converted to an isError result that afterToolCall will also see.
+                if (this._hooks?.beforeToolCall) {
+                    await this._hooks.beforeToolCall({
+                        toolName: request.params.name,
+                        arguments: validatedArgs,
+                        serverContext: ctx
+                    });
+                }
+
                 // Handle taskSupport 'optional' without task augmentation - automatic polling
                 if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
-                    return await this.handleAutomaticTaskPolling(tool, request, ctx);
+                    response = await this.handleAutomaticTaskPolling(tool, validatedArgs, ctx);
+                } else {
+                    // Normal execution path
+                    response = await this.executeToolHandler(tool, validatedArgs, ctx);
+
+                    // Validate output schema for non-task requests
+                    if (!isTaskRequest) {
+                        await this.validateToolOutput(tool, response, request.params.name);
+                    }
                 }
-
-                // Normal execution path
-                const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-                const result = await this.executeToolHandler(tool, args, ctx);
-
-                // Return CreateTaskResult immediately for task requests
-                if (isTaskRequest) {
-                    return result;
-                }
-
-                // Validate output schema for non-task requests
-                await this.validateToolOutput(tool, result, request.params.name);
-                return result;
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
-                return this.createToolError(error instanceof Error ? error.message : String(error));
+                response = this.createToolError(error instanceof Error ? error.message : String(error));
             }
+
+            // After hook — runs on both success and error results.
+            // Errors thrown by this hook are converted to tool error results.
+            if (this._hooks?.afterToolCall) {
+                try {
+                    response = (await this._hooks.afterToolCall({
+                        toolName: request.params.name,
+                        arguments: validatedArgs,
+                        result: response,
+                        serverContext: ctx
+                    })) as CallToolResult | CreateTaskResult;
+                } catch (hookError) {
+                    response = this.createToolError(
+                        `afterToolCall hook error: ${hookError instanceof Error ? hookError.message : String(hookError)}`
+                    );
+                }
+            }
+
+            return response;
         });
 
         this._toolHandlersInitialized = true;
@@ -305,17 +386,11 @@ export class McpServer {
     /**
      * Handles automatic task polling for tools with `taskSupport` `'optional'`.
      */
-    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        tool: RegisteredTool,
-        request: RequestT,
-        ctx: ServerContext
-    ): Promise<CallToolResult> {
+    private async handleAutomaticTaskPolling(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult> {
         if (!ctx.task?.store) {
             throw new Error('No task store provided for task-capable tool.');
         }
 
-        // Validate input and create task using the executor
-        const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
         const createTaskResult = (await tool.executor(args, ctx)) as CreateTaskResult;
 
         // Poll until completion

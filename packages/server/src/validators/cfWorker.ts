@@ -6,5 +6,5 @@
  * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
  * ```
  */
-export { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core';
 export type { CfWorkerSchemaDraft } from '@modelcontextprotocol/core';
+export { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core';
