@@ -2333,6 +2333,82 @@ describe('outputSchema validation', () => {
             /Structured content does not match the tool's output schema/
         );
     });
+
+    /***
+     * Test: Skip outputSchema Validation When isError Is True
+     */
+    test('should skip outputSchema validation when isError is true', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: {},
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'error-tool',
+                    description: 'A tool that returns an error',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            result: { type: 'string' }
+                        },
+                        required: ['result'],
+                        additionalProperties: false
+                    }
+                }
+            ]
+        }));
+
+        server.setRequestHandler(CallToolRequestSchema, async request => {
+            if (request.params.name === 'error-tool') {
+                // Return isError: true with structuredContent that does NOT match the schema
+                return {
+                    isError: true,
+                    structuredContent: { unexpectedField: 'this violates additionalProperties: false' },
+                    content: [{ type: 'text', text: 'Something went wrong' }]
+                };
+            }
+            throw new Error('Unknown tool');
+        });
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // List tools to cache the schemas
+        await client.listTools();
+
+        // Call the tool - isError: true must bypass schema validation; error payload returned as-is
+        const result = await client.callTool({ name: 'error-tool' });
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual([{ type: 'text', text: 'Something went wrong' }]);
+    });
 });
 
 describe('Task-based execution', () => {
@@ -4094,6 +4170,84 @@ test('callToolStream() should not validate structuredContent when isError is tru
     if (messages[0].type === 'result') {
         expect(messages[0].result.isError).toBe(true);
         expect(messages[0].result.content).toEqual([{ type: 'text', text: 'Something went wrong' }]);
+    }
+
+    await client.close();
+    await server.close();
+});
+
+test('callToolStream() should skip outputSchema validation when isError is true and structuredContent is invalid', async () => {
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {}
+            }
+        }
+    );
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [
+            {
+                name: 'error-tool',
+                description: 'A tool that returns an error',
+                inputSchema: {
+                    type: 'object',
+                    properties: {}
+                },
+                outputSchema: {
+                    type: 'object',
+                    properties: {
+                        result: { type: 'string' }
+                    },
+                    required: ['result'],
+                    additionalProperties: false
+                }
+            }
+        ]
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async () => {
+        // Return isError: true with structuredContent that violates the schema
+        return {
+            isError: true,
+            structuredContent: { unexpectedField: 'violates additionalProperties: false' },
+            content: [{ type: 'text', text: 'Tool execution failed' }]
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await client.listTools();
+
+    const stream = client.experimental.tasks.callToolStream({ name: 'error-tool', arguments: {} });
+
+    const messages = [];
+    for await (const message of stream) {
+        messages.push(message);
+    }
+
+    // isError: true must bypass schema validation; error payload returned as-is
+    expect(messages.length).toBe(1);
+    expect(messages[0].type).toBe('result');
+    if (messages[0].type === 'result') {
+        expect(messages[0].result.isError).toBe(true);
+        expect(messages[0].result.content).toEqual([{ type: 'text', text: 'Tool execution failed' }]);
     }
 
     await client.close();

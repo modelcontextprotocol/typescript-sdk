@@ -122,7 +122,7 @@ export class ExperimentalClientTasks<
                 }
 
                 // Only validate structured content if present (not when there's an error)
-                if (result.structuredContent) {
+                if (result.structuredContent && !result.isError) {
                     try {
                         // Validate the structured content against the schema
                         const validationResult = validator(result.structuredContent);
