@@ -31,6 +31,7 @@ describe('integration', () => {
             `import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
             ``,
             `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `const transport = new StreamableHTTPServerTransport({});`,
             ``,
             `server.tool('greet', 'Say hello', { name: z.string() }, async ({ name }, extra) => {`,
             `    const s = extra.signal;`,
@@ -61,8 +62,10 @@ describe('integration', () => {
         expect(output).toContain('@modelcontextprotocol/node');
         expect(output).not.toContain('@modelcontextprotocol/sdk');
 
-        // Symbol renames
+        // Symbol renames + body references updated
         expect(output).toContain('NodeStreamableHTTPServerTransport');
+        expect(output).toContain('new NodeStreamableHTTPServerTransport({})');
+        expect(output).not.toMatch(/(?<!Node)StreamableHTTPServerTransport/);
         expect(output).toContain('ProtocolErrorCode.InvalidParams');
         expect(output).toContain('SdkErrorCode.RequestTimeout');
 
@@ -184,6 +187,52 @@ describe('integration', () => {
         expect(output).toContain("server.tool('ping'");
         // McpError should NOT be renamed (symbols transform was not selected)
         expect(output).toContain('McpError');
+    });
+
+    it('applies new transforms (removed APIs, SchemaInput, express middleware)', () => {
+        const dir = createTempDir();
+        const input = [
+            `import { McpServer, schemaToJson, IsomorphicHeaders } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `import type { SchemaInput } from '@modelcontextprotocol/sdk/types.js';`,
+            `import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';`,
+            `import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware.js';`,
+            ``,
+            `type Input = SchemaInput<typeof mySchema>;`,
+            `const h: IsomorphicHeaders = {};`,
+            `if (error instanceof StreamableHTTPError) {}`,
+            `app.use(hostHeaderValidation({ allowedHosts: ['localhost'] }));`,
+            ``
+        ].join('\n');
+
+        writeFileSync(path.join(dir, 'server.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.filesChanged).toBe(1);
+
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+
+        // SchemaInput rewritten
+        expect(output).toContain('StandardSchemaWithJSON.InferInput<typeof mySchema>');
+        expect(output).not.toContain('SchemaInput');
+
+        // IsomorphicHeaders replaced with global Headers
+        expect(output).toContain('const h: Headers');
+        expect(output).not.toContain('IsomorphicHeaders');
+
+        // StreamableHTTPError renamed to SdkError
+        expect(output).toContain('instanceof SdkError');
+        expect(output).not.toContain('StreamableHTTPError');
+
+        // schemaToJson removed (import gone)
+        expect(output).not.toContain('schemaToJson');
+
+        // hostHeaderValidation signature migrated
+        expect(output).toContain("hostHeaderValidation(['localhost'])");
+        expect(output).not.toContain('allowedHosts');
+
+        // Diagnostics emitted
+        expect(result.diagnostics.length).toBeGreaterThan(0);
     });
 
     it('emits diagnostics for removed imports', () => {

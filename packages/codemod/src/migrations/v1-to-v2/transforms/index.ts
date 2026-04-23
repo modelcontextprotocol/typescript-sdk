@@ -1,9 +1,11 @@
 import type { Transform } from '../../../types.js';
 import { contextTypesTransform } from './contextTypes.js';
+import { expressMiddlewareTransform } from './expressMiddleware.js';
 import { handlerRegistrationTransform } from './handlerRegistration.js';
 import { importPathsTransform } from './importPaths.js';
 import { mcpServerApiTransform } from './mcpServerApi.js';
 import { mockPathsTransform } from './mockPaths.js';
+import { removedApisTransform } from './removedApis.js';
 import { schemaParamRemovalTransform } from './schemaParamRemoval.js';
 import { symbolRenamesTransform } from './symbolRenames.js';
 
@@ -14,23 +16,30 @@ import { symbolRenamesTransform } from './symbolRenames.js';
 //    transforms depend on the rewritten import declarations.
 //
 // 2. symbolRenames runs early: renames imported symbols (e.g., McpError →
-//    ProtocolError) that later transforms may reference.
+//    ProtocolError) and rewrites type references (e.g., SchemaInput<T> →
+//    StandardSchemaWithJSON.InferInput<T>).
 //
-// 3. mcpServerApi SHOULD run before contextTypes: it rewrites .tool() etc.
+// 3. removedApis runs after symbolRenames: handles removed Zod helpers,
+//    IsomorphicHeaders, and StreamableHTTPError. Conceptually different
+//    from renames — these are removals with diagnostic guidance.
+//
+// 4. mcpServerApi SHOULD run before contextTypes: it rewrites .tool() etc.
 //    to .registerTool() etc. contextTypes handles both old and new names,
 //    but running mcpServerApi first ensures consistent argument structure.
 //
-// 4. handlerRegistration and schemaParamRemoval are independent of each
-//    other but both depend on importPaths having run.
+// 5. handlerRegistration, schemaParamRemoval, and expressMiddleware are
+//    independent of each other but all depend on importPaths having run.
 //
-// 5. mockPaths runs last: handles test mocks and dynamic imports,
+// 6. mockPaths runs last: handles test mocks and dynamic imports,
 //    independent of the other transforms.
 export const v1ToV2Transforms: Transform[] = [
     importPathsTransform,
     symbolRenamesTransform,
+    removedApisTransform,
     mcpServerApiTransform,
     handlerRegistrationTransform,
     schemaParamRemovalTransform,
+    expressMiddlewareTransform,
     contextTypesTransform,
     mockPathsTransform
 ];

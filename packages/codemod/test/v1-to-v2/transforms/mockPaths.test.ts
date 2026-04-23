@@ -37,7 +37,7 @@ describe('mock-paths transform', () => {
             const result = applyTransform(input);
             expect(result).toContain(`'@modelcontextprotocol/node'`);
             expect(result).toContain('NodeStreamableHTTPServerTransport');
-            expect(result).not.toContain(/(?<!Node)StreamableHTTPServerTransport/);
+            expect(result).not.toMatch(/(?<!Node)StreamableHTTPServerTransport/);
         });
 
         it('rewrites webStandardStreamableHttp path', () => {
@@ -104,6 +104,18 @@ describe('mock-paths transform', () => {
             const result = applyTransform(input);
             expect(result).toContain(`import('@modelcontextprotocol/node')`);
             expect(result).toContain('NodeStreamableHTTPServerTransport');
+        });
+
+        it('preserves local binding when renaming dynamic import destructuring', () => {
+            const input = [
+                `const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');`,
+                `const transport = new StreamableHTTPServerTransport({});`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/node')`);
+            expect(result).toContain('NodeStreamableHTTPServerTransport: StreamableHTTPServerTransport');
+            expect(result).toContain('new StreamableHTTPServerTransport({})');
         });
 
         it('rewrites dynamic import for server/mcp.js', () => {

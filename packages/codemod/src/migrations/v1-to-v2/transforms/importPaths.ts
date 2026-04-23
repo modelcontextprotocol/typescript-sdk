@@ -1,6 +1,7 @@
 import type { SourceFile } from 'ts-morph';
 
 import type { Transform, TransformContext, TransformResult } from '../../../types.js';
+import { renameAllReferences } from '../../../utils/astUtils.js';
 import { warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
@@ -53,9 +54,11 @@ export const importPathsTransform: Transform = {
 
         for (const imp of sdkImports) {
             const specifier = imp.getModuleSpecifierValue();
-            const namedImports = imp.getNamedImports().map(n => n.getName());
+            const namedImports = imp.getNamedImports();
             const typeOnly = isTypeOnlyImport(imp);
             const line = imp.getStartLineNumber();
+            const defaultImport = imp.getDefaultImport();
+            const namespaceImport = imp.getNamespaceImport();
 
             let mapping = IMPORT_MAP[specifier];
 
@@ -84,9 +87,31 @@ export const importPathsTransform: Transform = {
                 targetPackage = resolveTypesPackage(context, hasClientImport, hasServerImport);
             }
 
-            let resolvedNames = namedImports;
             if (mapping.renamedSymbols) {
-                resolvedNames = namedImports.map(name => mapping.renamedSymbols?.[name] ?? name);
+                for (const [oldName, newName] of Object.entries(mapping.renamedSymbols)) {
+                    renameAllReferences(sourceFile, oldName, newName);
+                }
+            }
+
+            const hasAlias = namedImports.some(n => n.getAliasNode() !== undefined);
+            if (defaultImport || namespaceImport || hasAlias) {
+                imp.setModuleSpecifier(targetPackage);
+                if (mapping.renamedSymbols) {
+                    for (const n of namedImports) {
+                        const newName = mapping.renamedSymbols[n.getName()];
+                        if (newName) {
+                            n.setName(newName);
+                        }
+                    }
+                }
+                changesCount++;
+                continue;
+            }
+
+            const names = namedImports.map(n => n.getName());
+            let resolvedNames = names;
+            if (mapping.renamedSymbols) {
+                resolvedNames = names.map(name => mapping.renamedSymbols?.[name] ?? name);
             }
 
             addPending(targetPackage, resolvedNames, typeOnly);

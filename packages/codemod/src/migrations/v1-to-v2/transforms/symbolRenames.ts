@@ -1,8 +1,11 @@
 import type { SourceFile } from 'ts-morph';
 import { Node } from 'ts-morph';
 
-import type { Transform, TransformContext, TransformResult } from '../../../types.js';
-import { warning } from '../../../utils/diagnostics.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
+import { renameAllReferences } from '../../../utils/astUtils.js';
+import { info, warning } from '../../../utils/diagnostics.js';
+import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils.js';
+import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { ERROR_CODE_SDK_MEMBERS, SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
 const SERVER_GENERIC_ARGS = new Set(['ServerRequest', 'ServerNotification']);
@@ -12,7 +15,7 @@ export const symbolRenamesTransform: Transform = {
     name: 'Symbol renames',
     id: 'symbols',
     apply(sourceFile: SourceFile, context: TransformContext): TransformResult {
-        const diagnostics: ReturnType<typeof warning>[] = [];
+        const diagnostics: Diagnostic[] = [];
         let changesCount = 0;
 
         const imports = sourceFile.getImportDeclarations();
@@ -34,26 +37,11 @@ export const symbolRenamesTransform: Transform = {
 
         changesCount += handleErrorCodeSplit(sourceFile, diagnostics);
         changesCount += handleRequestHandlerExtra(sourceFile, context, diagnostics);
+        changesCount += handleSchemaInput(sourceFile, context, diagnostics);
 
         return { changesCount, diagnostics };
     }
 };
-
-function renameAllReferences(sourceFile: SourceFile, oldName: string, newName: string): void {
-    sourceFile.forEachDescendant(node => {
-        if (Node.isIdentifier(node) && node.getText() === oldName) {
-            const parent = node.getParent();
-            if (!parent) return;
-            if (Node.isImportSpecifier(parent)) return;
-            if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return;
-            if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) return;
-            if (Node.isPropertySignature(parent) && parent.getNameNode() === node) return;
-            if (Node.isMethodDeclaration(parent) && parent.getNameNode() === node) return;
-            if (Node.isPropertyDeclaration(parent) && parent.getNameNode() === node) return;
-            node.replaceWithText(newName);
-        }
-    });
-}
 
 function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: ReturnType<typeof warning>[]): number {
     let changesCount = 0;
@@ -204,6 +192,78 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
                 sourceFile.getFilePath(),
                 extraImportDecl!.getStartLineNumber(),
                 `RequestHandlerExtra renamed to ${defaultTarget}. Generic type arguments removed. Verify the migration is correct.`
+            )
+        );
+    }
+
+    return changesCount;
+}
+
+function handleSchemaInput(sourceFile: SourceFile, context: TransformContext, diagnostics: Diagnostic[]): number {
+    let changesCount = 0;
+
+    const imports = sourceFile.getImportDeclarations();
+    let schemaInputImport: ReturnType<(typeof imports)[0]['getNamedImports']>[0] | undefined;
+    let schemaInputImportDecl: (typeof imports)[0] | undefined;
+
+    for (const imp of imports) {
+        if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
+        for (const namedImport of imp.getNamedImports()) {
+            if (namedImport.getName() === 'SchemaInput') {
+                schemaInputImport = namedImport;
+                schemaInputImportDecl = imp;
+                break;
+            }
+        }
+        if (schemaInputImport) break;
+    }
+
+    if (!schemaInputImport || !schemaInputImportDecl) return 0;
+
+    sourceFile.forEachDescendant(node => {
+        if (!Node.isTypeReference(node)) return;
+        const typeName = node.getTypeName();
+        if (!Node.isIdentifier(typeName) || typeName.getText() !== 'SchemaInput') return;
+
+        const typeArgs = node.getTypeArguments();
+        if (typeArgs.length > 0) {
+            const argText = typeArgs[0]!.getText();
+            node.replaceWithText(`StandardSchemaWithJSON.InferInput<${argText}>`);
+        } else {
+            node.replaceWithText('StandardSchemaWithJSON.InferInput<unknown>');
+        }
+        changesCount++;
+    });
+
+    if (changesCount > 0) {
+        schemaInputImport.remove();
+        if (
+            schemaInputImportDecl.getNamedImports().length === 0 &&
+            !schemaInputImportDecl.getDefaultImport() &&
+            !schemaInputImportDecl.getNamespaceImport()
+        ) {
+            schemaInputImportDecl.remove();
+        }
+
+        const isClientFile = sourceFile.getImportDeclarations().some(i => {
+            const spec = i.getModuleSpecifierValue();
+            return spec.includes('/client') || spec === '@modelcontextprotocol/client';
+        });
+        const isServerFile = sourceFile.getImportDeclarations().some(i => {
+            const spec = i.getModuleSpecifierValue();
+            return spec.includes('/server') || spec === '@modelcontextprotocol/server';
+        });
+        const targetModule = resolveTypesPackage(context, isClientFile, isServerFile);
+
+        const insertIndex = sourceFile.getImportDeclarations().length;
+        addOrMergeImport(sourceFile, targetModule, ['StandardSchemaWithJSON'], true, insertIndex);
+        changesCount++;
+
+        diagnostics.push(
+            info(
+                sourceFile.getFilePath(),
+                1,
+                'SchemaInput<T> replaced with StandardSchemaWithJSON.InferInput<T>. Verify the migration is correct.'
             )
         );
     }

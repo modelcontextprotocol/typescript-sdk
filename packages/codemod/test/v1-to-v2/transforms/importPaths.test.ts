@@ -123,6 +123,56 @@ describe('import-paths transform', () => {
         expect(result).toContain(`from "@modelcontextprotocol/express"`);
     });
 
+    it('renames body references when renamedSymbols applies', () => {
+        const input = [
+            `import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+            `const transport = new StreamableHTTPServerTransport({});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('new NodeStreamableHTTPServerTransport({})');
+        expect(result).not.toMatch(/(?<!Node)StreamableHTTPServerTransport/);
+    });
+
+    it('preserves aliased imports', () => {
+        const input = [
+            `import { Client as MCPClient } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `const c = new MCPClient({});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('MCPClient');
+        expect(result).toContain('@modelcontextprotocol/client');
+        expect(result).toContain('new MCPClient({})');
+    });
+
+    it('preserves namespace imports by rewriting module specifier', () => {
+        const input = [`import * as types from '@modelcontextprotocol/sdk/types.js';`, `const x: types.Tool = {};`, ''].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('import * as types');
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).toContain('types.Tool');
+    });
+
+    it('preserves default imports by rewriting module specifier', () => {
+        const input = [`import sdk from '@modelcontextprotocol/sdk/types.js';`, `const x = sdk.foo;`, ''].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('import sdk');
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
+    it('handles aliased renamedSymbols correctly', () => {
+        const input = [
+            `import { StreamableHTTPServerTransport as SHST } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+            `const t = new SHST({});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('NodeStreamableHTTPServerTransport as SHST');
+        expect(result).toContain('new SHST({})');
+        expect(result).toContain('@modelcontextprotocol/node');
+    });
+
     it('removes auth imports with warning', () => {
         const input = `import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });

@@ -173,7 +173,11 @@ function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext
                             const bindingName = element.getName();
                             const newName = resolved.renamedSymbols[bindingName];
                             if (newName) {
-                                element.getNameNode().replaceWithText(newName);
+                                if (element.getPropertyNameNode()) {
+                                    element.getPropertyNameNode()!.replaceWithText(newName);
+                                } else {
+                                    element.replaceWithText(`${newName}: ${bindingName}`);
+                                }
                                 changes++;
                             }
                         }

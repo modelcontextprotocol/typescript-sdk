@@ -27,7 +27,7 @@ describe('symbol-renames transform', () => {
         );
         const result = applyTransform(input);
         expect(result).toContain('JSONRPCErrorResponse');
-        expect(result).not.toContain(/\bJSONRPCError\b/);
+        expect(result).not.toMatch(/\bJSONRPCError\b/);
     });
 
     it('renames isJSONRPCError to isJSONRPCErrorResponse', () => {
@@ -171,5 +171,55 @@ describe('symbol-renames transform', () => {
         symbolRenamesTransform.apply(sourceFile, { projectType: 'client' });
         const result = sourceFile.getFullText();
         expect(result).toContain('ClientContext');
+    });
+
+    it('replaces SchemaInput<T> with StandardSchemaWithJSON.InferInput<T>', () => {
+        const input = [
+            `import type { SchemaInput } from '@modelcontextprotocol/server';`,
+            `type Input = SchemaInput<typeof mySchema>;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('StandardSchemaWithJSON.InferInput<typeof mySchema>');
+        expect(result).not.toContain('SchemaInput');
+    });
+
+    it('replaces bare SchemaInput with StandardSchemaWithJSON.InferInput<unknown>', () => {
+        const input = [`import type { SchemaInput } from '@modelcontextprotocol/server';`, `type Input = SchemaInput;`, ''].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('StandardSchemaWithJSON.InferInput<unknown>');
+        expect(result).not.toContain('SchemaInput');
+    });
+
+    it('adds StandardSchemaWithJSON type import for SchemaInput migration', () => {
+        const input = [
+            `import type { SchemaInput } from '@modelcontextprotocol/server';`,
+            `type Input = SchemaInput<typeof mySchema>;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('StandardSchemaWithJSON');
+        expect(result).toMatch(/import type.*StandardSchemaWithJSON/);
+    });
+
+    it('removes SchemaInput import after migration', () => {
+        const input = [
+            `import type { SchemaInput } from '@modelcontextprotocol/server';`,
+            `type Input = SchemaInput<typeof mySchema>;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toMatch(/import.*SchemaInput/);
+    });
+
+    it('is idempotent for SchemaInput transform', () => {
+        const input = [
+            `import type { SchemaInput } from '@modelcontextprotocol/server';`,
+            `type Input = SchemaInput<typeof mySchema>;`,
+            ''
+        ].join('\n');
+        const first = applyTransform(input);
+        const second = applyTransform(first);
+        expect(second).toBe(first);
     });
 });
