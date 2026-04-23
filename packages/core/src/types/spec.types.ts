@@ -2875,6 +2875,7 @@ export type PrimitiveSchemaDefinition = StringSchema | NumberSchema | BooleanSch
  * @category `elicitation/create`
  */
 export interface StringSchema {
+    [key: string]: unknown;
     type: 'string';
     title?: string;
     description?: string;
@@ -2891,6 +2892,7 @@ export interface StringSchema {
  * @category `elicitation/create`
  */
 export interface NumberSchema {
+    [key: string]: unknown;
     type: 'number' | 'integer';
     title?: string;
     description?: string;
@@ -2906,6 +2908,7 @@ export interface NumberSchema {
  * @category `elicitation/create`
  */
 export interface BooleanSchema {
+    [key: string]: unknown;
     type: 'boolean';
     title?: string;
     description?: string;

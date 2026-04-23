@@ -1722,7 +1722,7 @@ export const BooleanSchemaSchema = z.object({
     title: z.string().optional(),
     description: z.string().optional(),
     default: z.boolean().optional()
-});
+}).passthrough();
 
 /**
  * Primitive schema definition for string fields.
@@ -1735,7 +1735,7 @@ export const StringSchemaSchema = z.object({
     maxLength: z.number().optional(),
     format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
     default: z.string().optional()
-});
+}).passthrough();
 
 /**
  * Primitive schema definition for number fields.
@@ -1747,7 +1747,7 @@ export const NumberSchemaSchema = z.object({
     minimum: z.number().optional(),
     maximum: z.number().optional(),
     default: z.number().optional()
-});
+}).passthrough();
 
 /**
  * Schema for single-selection enumeration without display titles for options.
