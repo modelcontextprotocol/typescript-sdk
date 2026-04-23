@@ -134,7 +134,7 @@ function renameSymbolsInFactory(factoryArg: import('ts-morph').Node, renamedSymb
     return changes;
 }
 
-function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext, _diagnostics: ReturnType<typeof warning>[]): number {
+function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext, diagnostics: ReturnType<typeof warning>[]): number {
     let changes = 0;
 
     sourceFile.forEachDescendant(node => {
@@ -153,7 +153,26 @@ function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext
         if (!isSdkSpecifier(specifier)) return;
 
         const resolved = resolveTarget(specifier, context, sourceFile);
-        if (resolved === null || resolved === 'removed') return;
+        if (resolved === null) {
+            diagnostics.push(
+                warning(
+                    sourceFile.getFilePath(),
+                    node.getStartLineNumber(),
+                    `Unknown SDK dynamic import path: ${specifier}. Manual migration required.`
+                )
+            );
+            return;
+        }
+        if (resolved === 'removed') {
+            diagnostics.push(
+                warning(
+                    sourceFile.getFilePath(),
+                    node.getStartLineNumber(),
+                    `Dynamic import references removed SDK path: ${specifier}. Manual migration required.`
+                )
+            );
+            return;
+        }
 
         firstArg.setLiteralValue(resolved.target);
         changes++;

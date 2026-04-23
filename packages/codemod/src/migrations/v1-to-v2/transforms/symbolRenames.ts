@@ -21,6 +21,7 @@ export const symbolRenamesTransform: Transform = {
         const imports = sourceFile.getImportDeclarations();
 
         for (const imp of imports) {
+            if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
             for (const namedImport of imp.getNamedImports()) {
                 const name = namedImport.getName();
                 const newName = SIMPLE_RENAMES[name];
@@ -50,6 +51,7 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: ReturnType<ty
     let errorCodeImport: ReturnType<(typeof imports)[0]['getNamedImports']>[0] | undefined;
 
     for (const imp of imports) {
+        if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
         for (const namedImport of imp.getNamedImports()) {
             if (namedImport.getName() === 'ErrorCode') {
                 errorCodeImport = namedImport;
@@ -81,7 +83,15 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: ReturnType<ty
     });
 
     if (changesCount > 0) {
+        const errorCodeImportDecl = errorCodeImport.getImportDeclaration();
         errorCodeImport.remove();
+        if (
+            errorCodeImportDecl.getNamedImports().length === 0 &&
+            !errorCodeImportDecl.getDefaultImport() &&
+            !errorCodeImportDecl.getNamespaceImport()
+        ) {
+            errorCodeImportDecl.remove();
+        }
 
         const imp = sourceFile.getImportDeclarations().find(i => {
             const spec = i.getModuleSpecifierValue();
@@ -131,6 +141,7 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
     let extraImportDecl: (typeof imports)[0] | undefined;
 
     for (const imp of imports) {
+        if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
         for (const namedImport of imp.getNamedImports()) {
             if (namedImport.getName() === 'RequestHandlerExtra') {
                 extraImport = namedImport;
@@ -190,7 +201,15 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
     });
 
     if (changesCount > 0) {
+        const extraImportLine = extraImportDecl!.getStartLineNumber();
         extraImport.remove();
+        if (
+            extraImportDecl!.getNamedImports().length === 0 &&
+            !extraImportDecl!.getDefaultImport() &&
+            !extraImportDecl!.getNamespaceImport()
+        ) {
+            extraImportDecl!.remove();
+        }
 
         const newImports: Array<{ name: string; target: string }> = [];
         if (needsServerContext) newImports.push({ name: 'ServerContext', target: '@modelcontextprotocol/server' });
@@ -226,7 +245,7 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
         diagnostics.push(
             warning(
                 sourceFile.getFilePath(),
-                extraImportDecl!.getStartLineNumber(),
+                extraImportLine,
                 `RequestHandlerExtra renamed to ${targets}. Generic type arguments removed. Verify the migration is correct.`
             )
         );
