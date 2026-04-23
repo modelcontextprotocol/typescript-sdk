@@ -29,7 +29,6 @@ export const mockPathsTransform: Transform = {
                     changesCount += rewriteMockCall(call, sourceFile, context, diagnostics);
                 }
             }
-
         }
 
         changesCount += rewriteDynamicImports(sourceFile, context, diagnostics);

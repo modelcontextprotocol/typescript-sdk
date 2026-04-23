@@ -197,18 +197,14 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
         if (needsClientContext) newImports.push({ name: 'ClientContext', target: '@modelcontextprotocol/client' });
 
         for (const { name, target } of newImports) {
-            const existingImp = sourceFile
-                .getImportDeclarations()
-                .find(i => i.getModuleSpecifierValue() === target && i.isTypeOnly());
+            const existingImp = sourceFile.getImportDeclarations().find(i => i.getModuleSpecifierValue() === target && i.isTypeOnly());
             if (existingImp) {
                 const existingNames = new Set(existingImp.getNamedImports().map(n => n.getName()));
                 if (!existingNames.has(name)) {
                     existingImp.addNamedImports([name]);
                 }
             } else {
-                const valueImp = sourceFile
-                    .getImportDeclarations()
-                    .find(i => i.getModuleSpecifierValue() === target && !i.isTypeOnly());
+                const valueImp = sourceFile.getImportDeclarations().find(i => i.getModuleSpecifierValue() === target && !i.isTypeOnly());
                 if (valueImp) {
                     const existingNames = new Set(valueImp.getNamedImports().map(n => n.getName()));
                     if (!existingNames.has(name)) {
