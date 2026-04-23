@@ -212,6 +212,22 @@ describe('symbol-renames transform', () => {
         expect(result).not.toMatch(/import.*SchemaInput/);
     });
 
+    it('imports both ServerContext and ClientContext when file has both generic arg types', () => {
+        const input = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';`,
+            `type S = RequestHandlerExtra<ServerRequest, ServerNotification>;`,
+            `type C = RequestHandlerExtra<ClientRequest, ClientNotification>;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('type S = ServerContext;');
+        expect(result).toContain('type C = ClientContext;');
+        expect(result).toMatch(/import.*ServerContext/);
+        expect(result).toMatch(/import.*ClientContext/);
+        expect(result).not.toContain('RequestHandlerExtra');
+    });
+
     it('is idempotent for SchemaInput transform', () => {
         const input = [
             `import type { SchemaInput } from '@modelcontextprotocol/server';`,

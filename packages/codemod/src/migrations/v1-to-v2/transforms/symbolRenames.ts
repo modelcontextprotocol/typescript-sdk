@@ -159,6 +159,9 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
         defaultTarget = 'ClientContext';
     }
 
+    let needsServerContext = false;
+    let needsClientContext = false;
+
     sourceFile.forEachDescendant(node => {
         if (!Node.isTypeReference(node)) return;
         const typeName = node.getTypeName();
@@ -175,6 +178,9 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
             }
         }
 
+        if (target === 'ServerContext') needsServerContext = true;
+        if (target === 'ClientContext') needsClientContext = true;
+
         if (typeArgs.length > 0) {
             node.replaceWithText(target);
         } else {
@@ -184,14 +190,48 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
     });
 
     if (changesCount > 0) {
-        extraImport.setName(defaultTarget);
+        extraImport.remove();
+
+        const newImports: Array<{ name: string; target: string }> = [];
+        if (needsServerContext) newImports.push({ name: 'ServerContext', target: '@modelcontextprotocol/server' });
+        if (needsClientContext) newImports.push({ name: 'ClientContext', target: '@modelcontextprotocol/client' });
+
+        for (const { name, target } of newImports) {
+            const existingImp = sourceFile
+                .getImportDeclarations()
+                .find(i => i.getModuleSpecifierValue() === target && i.isTypeOnly());
+            if (existingImp) {
+                const existingNames = new Set(existingImp.getNamedImports().map(n => n.getName()));
+                if (!existingNames.has(name)) {
+                    existingImp.addNamedImports([name]);
+                }
+            } else {
+                const valueImp = sourceFile
+                    .getImportDeclarations()
+                    .find(i => i.getModuleSpecifierValue() === target && !i.isTypeOnly());
+                if (valueImp) {
+                    const existingNames = new Set(valueImp.getNamedImports().map(n => n.getName()));
+                    if (!existingNames.has(name)) {
+                        valueImp.addNamedImports([name]);
+                    }
+                } else {
+                    sourceFile.addImportDeclaration({
+                        isTypeOnly: true,
+                        moduleSpecifier: target,
+                        namedImports: [name]
+                    });
+                }
+            }
+        }
+
         changesCount++;
 
+        const targets = newImports.map(i => i.name).join(' and ');
         diagnostics.push(
             warning(
                 sourceFile.getFilePath(),
                 extraImportDecl!.getStartLineNumber(),
-                `RequestHandlerExtra renamed to ${defaultTarget}. Generic type arguments removed. Verify the migration is correct.`
+                `RequestHandlerExtra renamed to ${targets}. Generic type arguments removed. Verify the migration is correct.`
             )
         );
     }

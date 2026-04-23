@@ -37,10 +37,7 @@ export const mcpServerApiTransform: Transform = {
                     break;
                 }
                 case 'resource': {
-                    {
-                        resourceCalls.push(call);
-                        // No default
-                    }
+                    resourceCalls.push(call);
                     break;
                 }
             }

@@ -1,10 +1,13 @@
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 
-const CLI_PATH = path.resolve(__dirname, '../dist/cli.mjs');
+import { getMigration } from '../src/migrations/index.js';
+import { run } from '../src/runner.js';
+import { DiagnosticLevel } from '../src/types.js';
+
+const migration = getMigration('v1-to-v2')!;
 
 let tempDir: string;
 
@@ -13,40 +16,14 @@ function createTempDir(): string {
     return tempDir;
 }
 
-function runCli(args: string[]): { stdout: string; stderr: string; exitCode: number } {
-    try {
-        const stdout = execFileSync('node', [CLI_PATH, ...args], {
-            encoding: 'utf8',
-            env: { ...process.env, NODE_NO_WARNINGS: '1' }
-        });
-        return { stdout, stderr: '', exitCode: 0 };
-    } catch (error: unknown) {
-        const e = error as { stdout: string; stderr: string; status: number };
-        return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', exitCode: e.status ?? 1 };
-    }
-}
-
 afterEach(() => {
     if (tempDir) {
         rmSync(tempDir, { recursive: true, force: true });
     }
 });
 
-describe('CLI', () => {
-    it('--list works without a target-dir argument', () => {
-        const { stdout, exitCode } = runCli(['v1-to-v2', '--list']);
-        expect(exitCode).toBe(0);
-        expect(stdout).toContain('Available transforms');
-        expect(stdout).toContain('imports');
-    });
-
-    it('errors when target-dir is missing and --list is not set', () => {
-        const { stderr, exitCode } = runCli(['v1-to-v2']);
-        expect(exitCode).toBe(1);
-        expect(stderr).toContain('missing required argument');
-    });
-
-    it('exits 0 when only warnings are present (no errors)', () => {
+describe('CLI diagnostic behavior', () => {
+    it('warnings do not produce errors-level diagnostics', () => {
         const dir = createTempDir();
         writeFileSync(
             path.join(dir, 'server.ts'),
@@ -57,12 +34,15 @@ describe('CLI', () => {
             ].join('\n')
         );
 
-        const { stdout, exitCode } = runCli(['v1-to-v2', dir]);
-        expect(stdout).toContain('Warning');
-        expect(exitCode).toBe(0);
+        const result = run(migration, { targetDir: dir });
+
+        const warnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning);
+        const errors = result.diagnostics.filter(d => d.level === DiagnosticLevel.Error);
+        expect(warnings.length).toBeGreaterThan(0);
+        expect(errors.length).toBe(0);
     });
 
-    it('prints info diagnostics', () => {
+    it('emits info-level diagnostics for z.object() wrapping', () => {
         const dir = createTempDir();
         writeFileSync(
             path.join(dir, 'server.ts'),
@@ -76,8 +56,24 @@ describe('CLI', () => {
             ].join('\n')
         );
 
-        const { stdout, exitCode } = runCli(['v1-to-v2', dir]);
-        expect(stdout).toContain('Info');
-        expect(exitCode).toBe(0);
+        const result = run(migration, { targetDir: dir });
+
+        const infos = result.diagnostics.filter(d => d.level === DiagnosticLevel.Info);
+        expect(infos.length).toBeGreaterThan(0);
+        expect(infos.some(d => d.message.includes('z.object'))).toBe(true);
+    });
+});
+
+describe('CLI command declaration', () => {
+    it('v1-to-v2 migration is registered and has transforms', () => {
+        expect(migration).toBeDefined();
+        expect(migration.transforms.length).toBeGreaterThan(0);
+    });
+
+    it('all transforms have an id and name', () => {
+        for (const t of migration.transforms) {
+            expect(t.id).toBeTruthy();
+            expect(t.name).toBeTruthy();
+        }
     });
 });

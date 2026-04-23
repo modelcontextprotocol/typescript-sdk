@@ -49,7 +49,7 @@ export const contextTypesTransform: Transform = {
             extraParam.rename(CTX_PARAM_NAME);
             changesCount++;
 
-            const body = Node.isArrowFunction(callbackArg) ? callbackArg.getBody() : callbackArg.getBody();
+            const body = callbackArg.getBody();
 
             if (!body) continue;
 

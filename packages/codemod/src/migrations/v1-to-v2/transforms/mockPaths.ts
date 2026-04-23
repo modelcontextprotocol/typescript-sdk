@@ -30,9 +30,6 @@ export const mockPathsTransform: Transform = {
                 }
             }
 
-            if (Node.isImportExpression(expr) || call.getExpression().getText() === 'import') {
-                continue;
-            }
         }
 
         changesCount += rewriteDynamicImports(sourceFile, context, diagnostics);
