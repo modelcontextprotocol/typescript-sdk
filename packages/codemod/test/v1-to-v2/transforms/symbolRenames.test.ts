@@ -274,11 +274,9 @@ describe('symbol-renames transform', () => {
     });
 
     it('cleans up empty import declaration after ErrorCode split', () => {
-        const input = [
-            `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
-            `const a = ErrorCode.InvalidParams;`,
-            ''
-        ].join('\n');
+        const input = [`import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`, `const a = ErrorCode.InvalidParams;`, ''].join(
+            '\n'
+        );
         const result = applyTransform(input);
         expect(result).not.toMatch(/import\s*\{\s*\}/);
     });
