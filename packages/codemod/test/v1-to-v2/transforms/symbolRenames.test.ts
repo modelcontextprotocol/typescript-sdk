@@ -228,6 +228,72 @@ describe('symbol-renames transform', () => {
         expect(result).not.toContain('RequestHandlerExtra');
     });
 
+    it('does not rename symbols from non-MCP imports', () => {
+        const input = [
+            `import { ErrorCode } from '@grpc/grpc-js';`,
+            `import { ResourceReference } from '@google-cloud/asset';`,
+            `if (err.code === ErrorCode.NOT_FOUND) {}`,
+            `const ref: ResourceReference = {};`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('ErrorCode.NOT_FOUND');
+        expect(result).toContain('ResourceReference');
+        expect(result).not.toContain('ProtocolErrorCode');
+        expect(result).not.toContain('SdkErrorCode');
+        expect(result).not.toContain('ResourceTemplateReference');
+    });
+
+    it('does not split ErrorCode from non-MCP imports', () => {
+        const input = [
+            `import { ErrorCode } from '@grpc/grpc-js';`,
+            `const a = ErrorCode.NOT_FOUND;`,
+            `const b = ErrorCode.CANCELLED;`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = symbolRenamesTransform.apply(sourceFile, ctx);
+        expect(result.changesCount).toBe(0);
+        expect(sourceFile.getFullText()).toContain('ErrorCode.NOT_FOUND');
+        expect(sourceFile.getFullText()).toContain('ErrorCode.CANCELLED');
+    });
+
+    it('does not rename RequestHandlerExtra from non-MCP imports', () => {
+        const input = [
+            `import type { RequestHandlerExtra } from './my-local-types.js';`,
+            `type MyHandler = (extra: RequestHandlerExtra) => void;`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = symbolRenamesTransform.apply(sourceFile, ctx);
+        expect(result.changesCount).toBe(0);
+        expect(sourceFile.getFullText()).toContain('RequestHandlerExtra');
+        expect(sourceFile.getFullText()).not.toContain('ServerContext');
+    });
+
+    it('cleans up empty import declaration after ErrorCode split', () => {
+        const input = [
+            `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `const a = ErrorCode.InvalidParams;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toMatch(/import\s*\{\s*\}/);
+    });
+
+    it('cleans up empty import declaration after RequestHandlerExtra removal', () => {
+        const input = [
+            `import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';`,
+            `type Extra = RequestHandlerExtra;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toMatch(/import\s+type\s*\{\s*\}/);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/shared/protocol.js');
+    });
+
     it('is idempotent for SchemaInput transform', () => {
         const input = [
             `import type { SchemaInput } from '@modelcontextprotocol/server';`,

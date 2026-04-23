@@ -148,6 +148,24 @@ describe('mock-paths transform', () => {
             expect(second).toBe(first);
         });
 
+        it('emits warning for unknown SDK dynamic import path', () => {
+            const input = [`const m = await import('@modelcontextprotocol/sdk/unknown/path.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.length).toBeGreaterThan(0);
+            expect(result.diagnostics[0]!.message).toContain('Unknown SDK dynamic import path');
+        });
+
+        it('emits warning for removed SDK dynamic import path', () => {
+            const input = [`const m = await import('@modelcontextprotocol/sdk/server/sse.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.length).toBeGreaterThan(0);
+            expect(result.diagnostics[0]!.message).toContain('Dynamic import references removed SDK path');
+        });
+
         it('emits warning for unknown SDK mock path', () => {
             const input = [`vi.doMock('@modelcontextprotocol/sdk/unknown/path.js', () => ({}));`, ''].join('\n');
             const project = new Project({ useInMemoryFileSystem: true });
