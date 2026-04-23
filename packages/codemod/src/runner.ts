@@ -7,9 +7,18 @@ import { analyzeProject } from './utils/projectAnalyzer.js';
 export function run(migration: Migration, options: RunnerOptions): RunnerResult {
     const context = analyzeProject(options.targetDir);
 
-    const enabledTransforms = options.transforms
-        ? migration.transforms.filter(t => options.transforms!.includes(t.id))
-        : migration.transforms;
+    let enabledTransforms = migration.transforms;
+    if (options.transforms) {
+        const validIds = new Set(migration.transforms.map(t => t.id));
+        const unknown = options.transforms.filter(id => !validIds.has(id));
+        if (unknown.length > 0) {
+            throw new Error(
+                `Unknown transform ID(s): ${unknown.join(', ')}. ` +
+                    `Available: ${[...validIds].join(', ')}. Use --list to see all transforms.`
+            );
+        }
+        enabledTransforms = migration.transforms.filter(t => options.transforms!.includes(t.id));
+    }
 
     const project = new Project({
         tsConfigFilePath: undefined,
@@ -30,6 +39,8 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         '**/.nuxt/**',
         '**/coverage/**',
         '**/__generated__/**',
+        '**/*.d.ts',
+        '**/*.d.mts',
         ...(options.ignore ?? [])
     ];
 
@@ -41,7 +52,9 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
 
     const sourceFiles = project.getSourceFiles().filter(sf => {
         const fp = sf.getFilePath();
-        return !fp.includes('/node_modules/') && !fp.includes('/dist/');
+        if (fp.includes('/node_modules/') || fp.includes('/dist/')) return false;
+        if (fp.endsWith('.d.ts') || fp.endsWith('.d.mts')) return false;
+        return true;
     });
     const fileResults: FileResult[] = [];
     const allDiagnostics: Diagnostic[] = [];

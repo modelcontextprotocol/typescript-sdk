@@ -64,6 +64,57 @@ describe('CLI diagnostic behavior', () => {
     });
 });
 
+describe('--transforms validation', () => {
+    it('throws on unknown transform IDs', () => {
+        const dir = createTempDir();
+        writeFileSync(path.join(dir, 'test.ts'), `const x = 1;\n`);
+
+        expect(() => run(migration, { targetDir: dir, transforms: ['import-paths', 'symbol-renames'] })).toThrow(/Unknown transform ID/);
+    });
+
+    it('error message lists the unknown IDs and available IDs', () => {
+        const dir = createTempDir();
+        writeFileSync(path.join(dir, 'test.ts'), `const x = 1;\n`);
+
+        expect(() => run(migration, { targetDir: dir, transforms: ['bogus'] })).toThrow(/bogus.*Available:/);
+    });
+
+    it('accepts valid transform IDs', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'test.ts'),
+            [`import { McpError } from '@modelcontextprotocol/sdk/types.js';`, `throw new McpError(1, 'e');`, ''].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir, transforms: ['symbols'] });
+        expect(result.totalChanges).toBeGreaterThan(0);
+    });
+});
+
+describe('.d.ts exclusion', () => {
+    it('skips .d.ts files', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'types.d.ts'),
+            [`import type { McpError } from '@modelcontextprotocol/sdk/types.js';`, `export type E = McpError;`, ''].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+        expect(result.filesChanged).toBe(0);
+    });
+
+    it('skips .d.mts files', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'types.d.mts'),
+            [`import type { McpError } from '@modelcontextprotocol/sdk/types.js';`, `export type E = McpError;`, ''].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+        expect(result.filesChanged).toBe(0);
+    });
+});
+
 describe('CLI command declaration', () => {
     it('v1-to-v2 migration is registered and has transforms', () => {
         expect(migration).toBeDefined();
