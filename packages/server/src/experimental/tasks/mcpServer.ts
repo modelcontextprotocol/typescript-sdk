@@ -5,7 +5,7 @@
  * @experimental
  */
 
-import type { StandardSchemaWithJSON, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
+import type { Icon, StandardSchemaWithJSON, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
 
 import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
 import type { ToolTaskHandler } from './interfaces.js';
@@ -24,6 +24,7 @@ interface McpServerInternal {
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
+        icons: Icon[] | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool;
 }
@@ -85,6 +86,7 @@ export class ExperimentalMcpServerTasks {
             annotations?: ToolAnnotations;
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
+            icons?: Icon[];
         },
         handler: ToolTaskHandler<undefined>
     ): RegisteredTool;
@@ -99,6 +101,7 @@ export class ExperimentalMcpServerTasks {
             annotations?: ToolAnnotations;
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
+            icons?: Icon[];
         },
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool;
@@ -113,6 +116,7 @@ export class ExperimentalMcpServerTasks {
             annotations?: ToolAnnotations;
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
+            icons?: Icon[];
         },
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool {
@@ -133,6 +137,7 @@ export class ExperimentalMcpServerTasks {
             config.annotations,
             execution,
             config._meta,
+            config.icons,
             handler as AnyToolHandler<StandardSchemaWithJSON | undefined>
         );
     }
