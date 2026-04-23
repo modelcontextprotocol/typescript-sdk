@@ -3,9 +3,23 @@ import path from 'node:path';
 
 import type { TransformContext } from '../types.js';
 
+const PROJECT_ROOT_MARKERS = ['.git', 'node_modules'];
+
+function findPackageJson(startDir: string): string | undefined {
+    let dir = path.resolve(startDir);
+    const root = path.parse(dir).root;
+    while (true) {
+        const candidate = path.join(dir, 'package.json');
+        if (existsSync(candidate)) return candidate;
+        if (dir === root) return undefined;
+        if (PROJECT_ROOT_MARKERS.some(m => existsSync(path.join(dir, m)))) return undefined;
+        dir = path.dirname(dir);
+    }
+}
+
 export function analyzeProject(targetDir: string): TransformContext {
-    const pkgJsonPath = path.join(targetDir, 'package.json');
-    if (!existsSync(pkgJsonPath)) {
+    const pkgJsonPath = findPackageJson(targetDir);
+    if (!pkgJsonPath) {
         return { projectType: 'unknown' };
     }
 

@@ -20,14 +20,14 @@ program.name('mcp-codemod').description('Codemod to migrate MCP TypeScript SDK c
 
 for (const [name, migration] of listMigrations()) {
     program
-        .command(`${name} <target-dir>`)
+        .command(`${name} [target-dir]`)
         .description(migration.description)
         .option('-d, --dry-run', 'Preview changes without writing files')
         .option('-t, --transforms <ids>', 'Comma-separated transform IDs to run (default: all)')
         .option('-v, --verbose', 'Show detailed per-change output')
         .option('--ignore <patterns...>', 'Additional glob patterns to ignore')
         .option('--list', 'List available transforms for this migration')
-        .action((targetDir: string, opts: Record<string, unknown>) => {
+        .action((targetDir: string | undefined, opts: Record<string, unknown>) => {
             try {
                 if (opts['list']) {
                     console.log(`\nAvailable transforms for ${name}:\n`);
@@ -35,6 +35,12 @@ for (const [name, migration] of listMigrations()) {
                         console.log(`  ${t.id.padEnd(20)} ${t.name}`);
                     }
                     console.log('');
+                    return;
+                }
+
+                if (!targetDir) {
+                    console.error(`\nError: missing required argument <target-dir>.\n`);
+                    process.exitCode = 1;
                     return;
                 }
 
@@ -98,7 +104,15 @@ for (const [name, migration] of listMigrations()) {
                         console.log(formatDiagnostic(d));
                     }
                     console.log('');
-                    process.exitCode = 1;
+                }
+
+                const infos = result.diagnostics.filter(d => d.level === DiagnosticLevel.Info);
+                if (infos.length > 0) {
+                    console.log(`Info (${infos.length}):`);
+                    for (const d of infos) {
+                        console.log(formatDiagnostic(d));
+                    }
+                    console.log('');
                 }
 
                 if (opts['dryRun']) {
