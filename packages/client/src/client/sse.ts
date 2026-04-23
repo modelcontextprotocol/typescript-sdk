@@ -135,8 +135,15 @@ export class SSEClientTransport implements Transport {
                         this._last401Response = response;
                         if (response.headers.has('www-authenticate')) {
                             const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                            this._resourceMetadataUrl = resourceMetadataUrl;
-                            this._scope = scope;
+                            // Only update when the Bearer challenge advertises a URL; a non-Bearer
+                            // scheme (e.g. Negotiate) must not clear a previously-stored value so
+                            // the well-known fallback can still run with the right starting point.
+                            if (resourceMetadataUrl !== undefined) {
+                                this._resourceMetadataUrl = resourceMetadataUrl;
+                            }
+                            if (scope !== undefined) {
+                                this._scope = scope;
+                            }
                         }
                     }
 
@@ -151,15 +158,22 @@ export class SSEClientTransport implements Transport {
                         const response = this._last401Response;
                         this._last401Response = undefined;
                         this._eventSource?.close();
-                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
-                            // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
-                            () => this._startOrAuth().then(resolve, reject),
-                            // onUnauthorized failed → not yet reported.
-                            error => {
-                                this.onerror?.(error);
-                                reject(error);
-                            }
-                        );
+                        this._authProvider
+                            .onUnauthorized({
+                                response,
+                                serverUrl: this._url,
+                                fetchFn: this._fetchWithInit,
+                                resourceMetadataUrl: this._resourceMetadataUrl
+                            })
+                            .then(
+                                // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
+                                () => this._startOrAuth().then(resolve, reject),
+                                // onUnauthorized failed → not yet reported.
+                                error => {
+                                    this.onerror?.(error);
+                                    reject(error);
+                                }
+                            );
                         return;
                     }
                     const error = new UnauthorizedError();
@@ -270,15 +284,23 @@ export class SSEClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
+                        // Only update when the Bearer challenge advertises a URL; a non-Bearer
+                        // scheme (e.g. Negotiate) must not clear a previously-stored value so
+                        // the well-known fallback can still run with the right starting point.
+                        if (resourceMetadataUrl !== undefined) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
+                        if (scope !== undefined) {
+                            this._scope = scope;
+                        }
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
+                            fetchFn: this._fetchWithInit,
+                            resourceMetadataUrl: this._resourceMetadataUrl
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
