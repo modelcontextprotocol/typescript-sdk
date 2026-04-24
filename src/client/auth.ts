@@ -239,6 +239,58 @@ export class UnauthorizedError extends Error {
     }
 }
 
+/**
+ * Thrown when RFC 9207 `iss` parameter validation fails. The authorization
+ * code MUST NOT be sent to any token endpoint after this is thrown.
+ */
+export class IssuerMismatchError extends UnauthorizedError {
+    constructor(message: string) {
+        super(message);
+        this.name = 'IssuerMismatchError';
+    }
+}
+
+/**
+ * Validates the `iss` parameter from an authorization response against the
+ * authorization server's metadata, per RFC 9207 §2.4. The four cases are
+ * keyed on whether the AS advertises `authorization_response_iss_parameter_supported`:
+ *
+ * | advertised | iss present | outcome |
+ * |---|---|---|
+ * | true | yes, matches | accept |
+ * | true | yes, mismatch | reject |
+ * | true | no | reject (server promised it) |
+ * | false/undefined | yes | reject (unexpected, possible injection) |
+ * | false/undefined | no | accept (server doesn't support 9207) |
+ *
+ * Comparison is simple string comparison per RFC 3986 §6.2.1 — no
+ * normalization of case, ports, or trailing slashes.
+ */
+export function validateAuthorizationResponseIssuer(
+    receivedIss: string | undefined,
+    metadata: AuthorizationServerMetadata | undefined
+): void {
+    const supported = metadata?.authorization_response_iss_parameter_supported === true;
+    const expectedIssuer = metadata?.issuer;
+
+    if (supported) {
+        if (receivedIss === undefined) {
+            throw new IssuerMismatchError(
+                'Authorization server advertises authorization_response_iss_parameter_supported but no iss parameter was received'
+            );
+        }
+        if (receivedIss !== expectedIssuer) {
+            throw new IssuerMismatchError(
+                `Authorization response iss "${receivedIss}" does not match expected issuer "${expectedIssuer}"`
+            );
+        }
+    } else if (receivedIss !== undefined) {
+        throw new IssuerMismatchError(
+            'Authorization server does not advertise authorization_response_iss_parameter_supported but an iss parameter was received'
+        );
+    }
+}
+
 type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
 function isClientAuthMethod(method: string): method is ClientAuthMethod {
@@ -403,6 +455,13 @@ export async function auth(
     options: {
         serverUrl: string | URL;
         authorizationCode?: string;
+        /**
+         * The `iss` parameter from the authorization response redirect URI
+         * (RFC 9207). When provided alongside `authorizationCode`, it is
+         * validated against the authorization server metadata before the
+         * code is exchanged.
+         */
+        authorizationResponseIssuer?: string;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
@@ -430,12 +489,14 @@ async function authInternal(
     {
         serverUrl,
         authorizationCode,
+        authorizationResponseIssuer,
         scope,
         resourceMetadataUrl,
         fetchFn
     }: {
         serverUrl: string | URL;
         authorizationCode?: string;
+        authorizationResponseIssuer?: string;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
@@ -559,6 +620,9 @@ async function authInternal(
 
     // Exchange authorization code for tokens, or fetch tokens directly for non-interactive flows
     if (authorizationCode !== undefined || nonInteractiveFlow) {
+        if (authorizationCode !== undefined) {
+            validateAuthorizationResponseIssuer(authorizationResponseIssuer, metadata);
+        }
         const tokens = await fetchToken(provider, authorizationServerUrl, {
             metadata,
             resource,

@@ -421,8 +421,11 @@ export class StreamableHTTPClientTransport implements Transport {
 
     /**
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
+     *
+     * @param authorizationCode - The `code` parameter from the redirect URI.
+     * @param iss - The `iss` parameter from the redirect URI, if present (RFC 9207). When the authorization server advertises support, omitting this will cause auth to fail.
      */
-    async finishAuth(authorizationCode: string): Promise<void> {
+    async finishAuth(authorizationCode: string, iss?: string): Promise<void> {
         if (!this._authProvider) {
             throw new UnauthorizedError('No auth provider');
         }
@@ -430,6 +433,7 @@ export class StreamableHTTPClientTransport implements Transport {
         const result = await auth(this._authProvider, {
             serverUrl: this._url,
             authorizationCode,
+            authorizationResponseIssuer: iss,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
             fetchFn: this._fetchWithInit

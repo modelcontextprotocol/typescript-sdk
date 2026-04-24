@@ -13,7 +13,9 @@ import {
     auth,
     type OAuthClientProvider,
     selectClientAuthMethod,
-    isHttpsUrl
+    isHttpsUrl,
+    validateAuthorizationResponseIssuer,
+    IssuerMismatchError
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../../src/server/auth/errors.js';
@@ -3680,6 +3682,64 @@ describe('OAuth Authorization', () => {
                 client_secret: 'generated-secret',
                 redirect_uris: ['http://localhost:3000/callback']
             });
+        });
+    });
+
+    describe('validateAuthorizationResponseIssuer (RFC 9207)', () => {
+        const issuer = 'https://auth.example.com';
+        const baseMetadata: AuthorizationServerMetadata = {
+            issuer,
+            authorization_endpoint: `${issuer}/authorize`,
+            token_endpoint: `${issuer}/token`,
+            response_types_supported: ['code']
+        };
+
+        it('accepts matching iss when server advertises support', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer(issuer, {
+                    ...baseMetadata,
+                    authorization_response_iss_parameter_supported: true
+                })
+            ).not.toThrow();
+        });
+
+        it('rejects mismatched iss when server advertises support', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer('https://attacker.example.com', {
+                    ...baseMetadata,
+                    authorization_response_iss_parameter_supported: true
+                })
+            ).toThrow(IssuerMismatchError);
+        });
+
+        it('rejects absent iss when server advertises support', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer(undefined, {
+                    ...baseMetadata,
+                    authorization_response_iss_parameter_supported: true
+                })
+            ).toThrow(IssuerMismatchError);
+        });
+
+        it('rejects unexpected iss when server does not advertise support', () => {
+            expect(() => validateAuthorizationResponseIssuer(issuer, baseMetadata)).toThrow(IssuerMismatchError);
+        });
+
+        it('accepts absent iss when server does not advertise support', () => {
+            expect(() => validateAuthorizationResponseIssuer(undefined, baseMetadata)).not.toThrow();
+        });
+
+        it('accepts absent iss when metadata is undefined', () => {
+            expect(() => validateAuthorizationResponseIssuer(undefined, undefined)).not.toThrow();
+        });
+
+        it('uses simple string comparison without normalization', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer(`${issuer}/`, {
+                    ...baseMetadata,
+                    authorization_response_iss_parameter_supported: true
+                })
+            ).toThrow(IssuerMismatchError);
         });
     });
 });
