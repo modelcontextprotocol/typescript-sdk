@@ -7,7 +7,11 @@ export function renameAllReferences(sourceFile: SourceFile, oldName: string, new
             const parent = node.getParent();
             if (!parent) return;
             if (Node.isImportSpecifier(parent)) return;
-            if (Node.isExportSpecifier(parent)) return;
+            if (Node.isExportSpecifier(parent)) {
+                if (!parent.getAliasNode()) parent.setAlias(oldName);
+                parent.getNameNode().replaceWithText(newName);
+                return;
+            }
             if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return;
             if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) return;
             if (Node.isPropertySignature(parent) && parent.getNameNode() === node) return;

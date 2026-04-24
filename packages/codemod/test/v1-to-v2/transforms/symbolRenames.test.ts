@@ -304,10 +304,10 @@ describe('symbol-renames transform', () => {
         expect(result).toContain('new ProtocolError');
     });
 
-    it('does not rename export specifiers', () => {
+    it('preserves export specifier public name with alias', () => {
         const input = [`import { McpError } from '@modelcontextprotocol/sdk/types.js';`, `export { McpError };`, ''].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain('export { McpError }');
+        expect(result).toContain('export { ProtocolError as McpError }');
     });
 
     it('is idempotent for SchemaInput transform', () => {
