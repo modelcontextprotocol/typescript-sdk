@@ -260,7 +260,7 @@ export class IssuerMismatchError extends UnauthorizedError {
  * | true | yes, matches | accept |
  * | true | yes, mismatch | reject |
  * | true | no | reject (server promised it) |
- * | false/undefined | yes | reject (unexpected, possible injection) |
+ * | false/undefined | yes | compare (lenient vs RFC 9207 — accommodates servers that emit iss before advertising) |
  * | false/undefined | no | accept (server doesn't support 9207) |
  *
  * Comparison is simple string comparison per RFC 3986 §6.2.1 — no
@@ -273,20 +273,14 @@ export function validateAuthorizationResponseIssuer(
     const supported = metadata?.authorization_response_iss_parameter_supported === true;
     const expectedIssuer = metadata?.issuer;
 
-    if (supported) {
-        if (receivedIss === undefined) {
-            throw new IssuerMismatchError(
-                'Authorization server advertises authorization_response_iss_parameter_supported but no iss parameter was received'
-            );
-        }
-        if (receivedIss !== expectedIssuer) {
-            throw new IssuerMismatchError(
-                `Authorization response iss "${receivedIss}" does not match expected issuer "${expectedIssuer}"`
-            );
-        }
-    } else if (receivedIss !== undefined) {
+    if (supported && receivedIss === undefined) {
         throw new IssuerMismatchError(
-            'Authorization server does not advertise authorization_response_iss_parameter_supported but an iss parameter was received'
+            'Authorization server advertises authorization_response_iss_parameter_supported but no iss parameter was received'
+        );
+    }
+    if (receivedIss !== undefined && receivedIss !== expectedIssuer) {
+        throw new IssuerMismatchError(
+            `Authorization response iss "${receivedIss}" does not match expected issuer "${expectedIssuer}"`
         );
     }
 }

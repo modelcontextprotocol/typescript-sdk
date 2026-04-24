@@ -3721,8 +3721,14 @@ describe('OAuth Authorization', () => {
             ).toThrow(IssuerMismatchError);
         });
 
-        it('rejects unexpected iss when server does not advertise support', () => {
-            expect(() => validateAuthorizationResponseIssuer(issuer, baseMetadata)).toThrow(IssuerMismatchError);
+        it('accepts matching iss when server does not advertise support', () => {
+            expect(() => validateAuthorizationResponseIssuer(issuer, baseMetadata)).not.toThrow();
+        });
+
+        it('rejects mismatched iss when server does not advertise support', () => {
+            expect(() => validateAuthorizationResponseIssuer('https://attacker.example.com', baseMetadata)).toThrow(
+                IssuerMismatchError
+            );
         });
 
         it('accepts absent iss when server does not advertise support', () => {
