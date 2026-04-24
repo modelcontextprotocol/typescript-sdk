@@ -1557,7 +1557,7 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.get('prompt')).toBe('consent');
         });
 
-        it('merges consent into existing prompt parameter from authorization_endpoint instead of duplicating', async () => {
+        it('overwrites existing prompt parameter from authorization_endpoint instead of duplicating', async () => {
             const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
                 metadata: {
                     issuer: 'https://auth.example.com',
@@ -1571,7 +1571,7 @@ describe('OAuth Authorization', () => {
                 scope: 'read offline_access'
             });
 
-            expect(authorizationUrl.searchParams.getAll('prompt')).toEqual(['select_account consent']);
+            expect(authorizationUrl.searchParams.getAll('prompt')).toEqual(['consent']);
         });
 
         it.each([validMetadata, validOpenIdMetadata])('uses metadata authorization_endpoint when provided', async baseMetadata => {
