@@ -82,4 +82,15 @@ describe('express-middleware transform', () => {
         const { text: second } = applyTransform(first);
         expect(second).toBe(first);
     });
+
+    it('does not modify calls when hostHeaderValidation is not from MCP', () => {
+        const input = [
+            `import { hostHeaderValidation } from './my-middleware.js';`,
+            `app.use(hostHeaderValidation({ allowedHosts: ['localhost'] }));`,
+            ''
+        ].join('\n');
+        const { text, result } = applyTransform(input);
+        expect(result.changesCount).toBe(0);
+        expect(text).toContain("{ allowedHosts: ['localhost'] }");
+    });
 });

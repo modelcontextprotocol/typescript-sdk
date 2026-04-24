@@ -90,4 +90,29 @@ describe('handler-registration transform', () => {
         expect(result).toContain("'tools/call'");
         expect(result).toContain("'tools/list'");
     });
+
+    it('does not replace schema identifiers from non-MCP packages', () => {
+        const input = [
+            `import { CallToolRequestSchema } from './local-schemas.js';`,
+            `server.setRequestHandler(CallToolRequestSchema, async (request) => {`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('CallToolRequestSchema');
+        expect(result).not.toContain("'tools/call'");
+    });
+
+    it('only removes MCP import when same symbol exists in non-MCP package', () => {
+        const input = [
+            `import { CallToolRequestSchema } from './local-schemas.js';`,
+            `import { CallToolRequestSchema as McpSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `server.setRequestHandler(McpSchema, async () => ({ content: [] }));`,
+            `validateSchema(CallToolRequestSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("from './local-schemas.js'");
+    });
 });

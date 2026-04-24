@@ -114,4 +114,17 @@ describe('analyzeProject', () => {
         const result = analyzeProject(dir);
         expect(result.projectType).toBe('server');
     });
+
+    it('returns unknown for v1 SDK package (falls through to per-file resolution)', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'package.json'),
+            JSON.stringify({
+                dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' }
+            })
+        );
+
+        const result = analyzeProject(dir);
+        expect(result.projectType).toBe('unknown');
+    });
 });

@@ -273,6 +273,8 @@ function migrateResourceCall(call: CallExpression, _sourceFile: SourceFile): boo
     } else if (args.length === 4) {
         // server.resource(name, uri, metadata, callback) → server.registerResource(name, uri, metadata, callback)
         // Already has metadata, just rename the method
+    } else {
+        return false;
     }
 
     return true;

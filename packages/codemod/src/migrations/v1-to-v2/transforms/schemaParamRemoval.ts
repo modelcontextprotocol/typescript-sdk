@@ -43,5 +43,5 @@ export const schemaParamRemovalTransform: Transform = {
 function isSchemaReference(node: Node): boolean {
     if (!Node.isIdentifier(node)) return false;
     const text = node.getText();
-    return text.endsWith('Schema') || text.endsWith('ResultSchema');
+    return text.endsWith('Schema');
 }

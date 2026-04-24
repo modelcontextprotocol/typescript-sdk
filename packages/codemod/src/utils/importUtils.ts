@@ -56,7 +56,8 @@ export function addOrMergeImport(
             existing.addNamedImports(newNames);
         }
     } else {
-        sourceFile.insertImportDeclaration(insertIndex, {
+        const clampedIndex = Math.min(insertIndex, sourceFile.getImportDeclarations().length);
+        sourceFile.insertImportDeclaration(clampedIndex, {
             moduleSpecifier,
             namedImports: [...new Set(namedImports)],
             isTypeOnly
@@ -79,7 +80,7 @@ export function isImportedFromMcp(sourceFile: SourceFile, symbolName: string): b
     });
 }
 
-export function removeUnusedImport(sourceFile: SourceFile, symbolName: string): void {
+export function removeUnusedImport(sourceFile: SourceFile, symbolName: string, onlyMcpImports?: boolean): void {
     let referenceCount = 0;
     sourceFile.forEachDescendant(node => {
         if (Node.isIdentifier(node) && node.getText() === symbolName) {
@@ -92,6 +93,7 @@ export function removeUnusedImport(sourceFile: SourceFile, symbolName: string): 
 
     if (referenceCount === 0) {
         for (const imp of sourceFile.getImportDeclarations()) {
+            if (onlyMcpImports && !isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
             for (const namedImport of imp.getNamedImports()) {
                 if (namedImport.getName() === symbolName) {
                     namedImport.remove();

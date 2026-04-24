@@ -190,6 +190,13 @@ describe('import-paths transform', () => {
         );
     });
 
+    it('rewrites re-export with renamedSymbols and preserves public name', () => {
+        const input = `export { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain('@modelcontextprotocol/node');
+        expect(result).toContain('NodeStreamableHTTPServerTransport as StreamableHTTPServerTransport');
+    });
+
     it('removes auth imports with warning', () => {
         const input = `import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });
@@ -197,5 +204,33 @@ describe('import-paths transform', () => {
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         expect(result.diagnostics.length).toBeGreaterThan(0);
         expect(result.diagnostics[0]!.message).toContain('auth removed');
+    });
+
+    it('handles per-specifier type modifiers', () => {
+        const input = [
+            `import { McpServer, type ServerContext } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const s = new McpServer({});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toMatch(/import\s*\{[^}]*McpServer[^}]*\}\s*from\s*['"]@modelcontextprotocol\/server['"]/);
+        expect(result).toMatch(/import\s+type\s*\{[^}]*ServerContext[^}]*\}\s*from\s*['"]@modelcontextprotocol\/server['"]/);
+    });
+
+    it('does not crash when value import merges into existing import', () => {
+        const input = [
+            `import { Client } from '@modelcontextprotocol/client';`,
+            `import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';`,
+            `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+            `const c = new Client({});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'client' });
+        expect(result.changesCount).toBeGreaterThan(0);
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/client');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
     });
 });

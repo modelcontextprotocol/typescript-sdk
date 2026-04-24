@@ -320,4 +320,63 @@ describe('symbol-renames transform', () => {
         const second = applyTransform(first);
         expect(second).toBe(first);
     });
+
+    it('handles aliased ErrorCode import', () => {
+        const input = [
+            `import { ErrorCode as EC } from '@modelcontextprotocol/server';`,
+            `const a = EC.InvalidParams;`,
+            `const b = EC.RequestTimeout;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('ProtocolErrorCode.InvalidParams');
+        expect(result).toContain('SdkErrorCode.RequestTimeout');
+        expect(result).not.toMatch(/\bEC\./);
+    });
+
+    it('handles aliased RequestHandlerExtra import', () => {
+        const input = [
+            `import type { RequestHandlerExtra as RHE } from '@modelcontextprotocol/server';`,
+            `type MyHandler = (extra: RHE) => void;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('ServerContext');
+        expect(result).not.toMatch(/\bRHE\b/);
+    });
+
+    it('handles aliased SchemaInput import', () => {
+        const input = [
+            `import type { SchemaInput as SI } from '@modelcontextprotocol/server';`,
+            `type Input = SI<typeof mySchema>;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('StandardSchemaWithJSON.InferInput<typeof mySchema>');
+        expect(result).not.toMatch(/\bSI\b/);
+    });
+
+    it('does not rename method signature names that match renamed symbols', () => {
+        const input = [
+            `import { McpError } from '@modelcontextprotocol/server';`,
+            `interface ErrorHandler { McpError(): void; }`,
+            `throw new McpError('test');`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('interface ErrorHandler { McpError(): void; }');
+        expect(result).toContain('new ProtocolError(');
+    });
+
+    it('does not rename enum member names that match renamed symbols', () => {
+        const input = [
+            `import { McpError } from '@modelcontextprotocol/server';`,
+            `enum Errors { McpError = 1 }`,
+            `throw new McpError('test');`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('enum Errors { McpError = 1 }');
+        expect(result).toContain('new ProtocolError(');
+    });
 });

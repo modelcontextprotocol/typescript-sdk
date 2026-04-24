@@ -63,13 +63,15 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: ReturnType<ty
 
     if (!errorCodeImport) return 0;
 
+    const errorCodeLocalName = errorCodeImport.getAliasNode()?.getText() ?? 'ErrorCode';
+
     let needsProtocolErrorCode = false;
     let needsSdkErrorCode = false;
 
     sourceFile.forEachDescendant(node => {
         if (!Node.isPropertyAccessExpression(node)) return;
         const expr = node.getExpression();
-        if (!Node.isIdentifier(expr) || expr.getText() !== 'ErrorCode') return;
+        if (!Node.isIdentifier(expr) || expr.getText() !== errorCodeLocalName) return;
 
         const member = node.getName();
         if (ERROR_CODE_SDK_MEMBERS.has(member)) {
@@ -154,6 +156,8 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
 
     if (!extraImport) return 0;
 
+    const extraLocalName = extraImport.getAliasNode()?.getText() ?? 'RequestHandlerExtra';
+
     const isClientFile = sourceFile.getImportDeclarations().some(i => {
         const spec = i.getModuleSpecifierValue();
         return spec.includes('/client/') || spec === '@modelcontextprotocol/client';
@@ -176,7 +180,7 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
     sourceFile.forEachDescendant(node => {
         if (!Node.isTypeReference(node)) return;
         const typeName = node.getTypeName();
-        if (!Node.isIdentifier(typeName) || typeName.getText() !== 'RequestHandlerExtra') return;
+        if (!Node.isIdentifier(typeName) || typeName.getText() !== extraLocalName) return;
 
         let target = defaultTarget;
         const typeArgs = node.getTypeArguments();
@@ -275,10 +279,12 @@ function handleSchemaInput(sourceFile: SourceFile, context: TransformContext, di
 
     if (!schemaInputImport || !schemaInputImportDecl) return 0;
 
+    const schemaInputLocalName = schemaInputImport.getAliasNode()?.getText() ?? 'SchemaInput';
+
     sourceFile.forEachDescendant(node => {
         if (!Node.isTypeReference(node)) return;
         const typeName = node.getTypeName();
-        if (!Node.isIdentifier(typeName) || typeName.getText() !== 'SchemaInput') return;
+        if (!Node.isIdentifier(typeName) || typeName.getText() !== schemaInputLocalName) return;
 
         const typeArgs = node.getTypeArguments();
         if (typeArgs.length > 0) {
@@ -302,7 +308,7 @@ function handleSchemaInput(sourceFile: SourceFile, context: TransformContext, di
 
         const isClientFile = sourceFile.getImportDeclarations().some(i => {
             const spec = i.getModuleSpecifierValue();
-            return spec.includes('/client') || spec === '@modelcontextprotocol/client';
+            return spec.includes('/client/') || spec === '@modelcontextprotocol/client';
         });
         const isServerFile = sourceFile.getImportDeclarations().some(i => {
             const spec = i.getModuleSpecifierValue();

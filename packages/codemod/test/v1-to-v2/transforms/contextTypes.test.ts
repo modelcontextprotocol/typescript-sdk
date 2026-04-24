@@ -6,9 +6,11 @@ import type { TransformContext } from '../../../src/types.js';
 
 const ctx: TransformContext = { projectType: 'server' };
 
+const MCP_IMPORT = `import { McpServer } from '@modelcontextprotocol/server';\n`;
+
 function applyTransform(code: string): string {
     const project = new Project({ useInMemoryFileSystem: true });
-    const sourceFile = project.createSourceFile('test.ts', code);
+    const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + code);
     contextTypesTransform.apply(sourceFile, ctx);
     return sourceFile.getFullText();
 }
@@ -132,10 +134,26 @@ describe('context-types transform', () => {
             ''
         ].join('\n');
         const project = new Project({ useInMemoryFileSystem: true });
-        const sourceFile = project.createSourceFile('test.ts', input);
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
         const result = contextTypesTransform.apply(sourceFile, ctx);
         expect(result.diagnostics.length).toBeGreaterThan(0);
         expect(result.diagnostics[0]!.message).toContain('Destructuring');
+    });
+
+    it('emits warning when context parameter is destructured in signature', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, { signal, authInfo }) => {`,
+            `    if (signal.aborted) return;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = contextTypesTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('Destructuring');
+        expect(result.diagnostics[0]!.message).toContain('signal');
     });
 
     it('works with registerTool callbacks', () => {
@@ -148,5 +166,67 @@ describe('context-types transform', () => {
         ].join('\n');
         const result = applyTransform(input);
         expect(result).toContain('ctx.mcpReq.signal');
+    });
+
+    it('does not transform files without MCP imports', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    const s = extra.signal;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = contextTypesTransform.apply(sourceFile, ctx);
+        expect(result.changesCount).toBe(0);
+        expect(sourceFile.getFullText()).toContain('extra.signal');
+    });
+
+    it('emits warning when ctx variable already exists in scope', () => {
+        const input = [
+            `const ctx = getApplicationContext();`,
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    console.log(ctx.appName);`,
+            `    const s = extra.signal;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = contextTypesTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('ctx');
+        expect(result.diagnostics[0]!.message).toContain('already referenced');
+        expect(sourceFile.getFullText()).toContain('extra.signal');
+    });
+
+    it('handles optional chaining on context properties', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    const s = extra?.signal;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('ctx.mcpReq.signal');
+        expect(result).not.toContain('extra');
+    });
+
+    it('does not inflate change count for identity mappings like sessionId', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    const id = extra.sessionId;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = contextTypesTransform.apply(sourceFile, ctx);
+        expect(result.changesCount).toBe(1);
+        expect(sourceFile.getFullText()).toContain('ctx.sessionId');
     });
 });

@@ -95,4 +95,13 @@ describe('mcp-server-api transform', () => {
         expect(result).toContain('inputSchema: z.object({ name: z.string() })');
         expect(result).not.toContain('z.object(z.object(');
     });
+
+    it('emits warning for .resource() with 5+ arguments', () => {
+        const input = [`server.resource('name', 'uri://x', metadata, callback, extraArg);`, ''].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('Could not automatically migrate .resource()');
+    });
 });

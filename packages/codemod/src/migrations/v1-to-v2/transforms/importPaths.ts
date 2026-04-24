@@ -118,13 +118,12 @@ export const importPathsTransform: Transform = {
                 continue;
             }
 
-            const names = namedImports.map(n => n.getName());
-            let resolvedNames = names;
-            if (mapping.renamedSymbols) {
-                resolvedNames = names.map(name => mapping.renamedSymbols?.[name] ?? name);
+            for (const n of namedImports) {
+                const name = n.getName();
+                const resolvedName = mapping.renamedSymbols?.[name] ?? name;
+                const specifierTypeOnly = typeOnly || n.isTypeOnly();
+                addPending(targetPackage, [resolvedName], specifierTypeOnly);
             }
-
-            addPending(targetPackage, resolvedNames, typeOnly);
             imp.remove();
             changesCount++;
         }
@@ -205,6 +204,15 @@ function rewriteExportDeclarations(
         }
 
         exp.setModuleSpecifier(targetPackage);
+        if (mapping.renamedSymbols) {
+            for (const spec of exp.getNamedExports()) {
+                const newName = mapping.renamedSymbols[spec.getName()];
+                if (newName) {
+                    if (!spec.getAliasNode()) spec.setAlias(spec.getName());
+                    spec.setName(newName);
+                }
+            }
+        }
         changesCount++;
     }
 
