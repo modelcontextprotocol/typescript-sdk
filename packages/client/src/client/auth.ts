@@ -131,7 +131,7 @@ export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider 
             if (!tokens?.access_token) return;
 
             if (tokens.expires_in !== undefined && tokens.expires_in <= 60) {
-                return undefined;
+                return;
             }
             return tokens.access_token;
         },
