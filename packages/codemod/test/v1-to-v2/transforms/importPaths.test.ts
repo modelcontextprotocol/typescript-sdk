@@ -185,7 +185,9 @@ describe('import-paths transform', () => {
         expect(sourceFile.getFullText()).toContain('import * as transport');
         expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/node');
         expect(result.diagnostics.length).toBeGreaterThan(0);
-        expect(result.diagnostics.some(d => d.message.includes('renamed') && d.message.includes('StreamableHTTPServerTransport'))).toBe(true);
+        expect(result.diagnostics.some(d => d.message.includes('renamed') && d.message.includes('StreamableHTTPServerTransport'))).toBe(
+            true
+        );
     });
 
     it('removes auth imports with warning', () => {

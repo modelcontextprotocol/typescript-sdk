@@ -104,9 +104,14 @@ export const importPathsTransform: Transform = {
                         }
                     }
                     if (namespaceImport) {
-                        diagnostics.push(warning(filePath, line,
-                            `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
-                            `were renamed in ${targetPackage}. Update qualified accesses manually.`));
+                        diagnostics.push(
+                            warning(
+                                filePath,
+                                line,
+                                `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
+                                    `were renamed in ${targetPackage}. Update qualified accesses manually.`
+                            )
+                        );
                     }
                 }
                 changesCount++;

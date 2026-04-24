@@ -305,11 +305,7 @@ describe('symbol-renames transform', () => {
     });
 
     it('does not rename export specifiers', () => {
-        const input = [
-            `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
-            `export { McpError };`,
-            ''
-        ].join('\n');
+        const input = [`import { McpError } from '@modelcontextprotocol/sdk/types.js';`, `export { McpError };`, ''].join('\n');
         const result = applyTransform(input);
         expect(result).toContain('export { McpError }');
     });
