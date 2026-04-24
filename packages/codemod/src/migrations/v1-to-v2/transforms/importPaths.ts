@@ -105,7 +105,14 @@ export const importPathsTransform: Transform = {
 
             const hasAlias = namedImports.some(n => n.getAliasNode() !== undefined);
             if (defaultImport || namespaceImport || hasAlias) {
-                imp.setModuleSpecifier(targetPackage);
+                let effectiveTarget = targetPackage;
+                if (mapping.symbolTargetOverrides && !namespaceImport && !defaultImport) {
+                    const allOverridden = namedImports.length > 0 && namedImports.every(n => n.getName() in mapping.symbolTargetOverrides!);
+                    if (allOverridden) {
+                        effectiveTarget = mapping.symbolTargetOverrides[namedImports[0]!.getName()]!;
+                    }
+                }
+                imp.setModuleSpecifier(effectiveTarget);
                 if (mapping.renamedSymbols) {
                     for (const n of namedImports) {
                         const newName = mapping.renamedSymbols[n.getName()];
@@ -119,7 +126,7 @@ export const importPathsTransform: Transform = {
                                 filePath,
                                 line,
                                 `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
-                                    `were renamed in ${targetPackage}. Update qualified accesses manually.`
+                                    `were renamed in ${effectiveTarget}. Update qualified accesses manually.`
                             )
                         );
                     }
@@ -132,7 +139,8 @@ export const importPathsTransform: Transform = {
                 const name = n.getName();
                 const resolvedName = mapping.renamedSymbols?.[name] ?? name;
                 const specifierTypeOnly = typeOnly || n.isTypeOnly();
-                addPending(targetPackage, [resolvedName], specifierTypeOnly);
+                const symbolTarget = mapping.symbolTargetOverrides?.[name] ?? targetPackage;
+                addPending(symbolTarget, [resolvedName], specifierTypeOnly);
             }
             imp.remove();
             changesCount++;
@@ -213,6 +221,13 @@ function rewriteExportDeclarations(
             targetPackage = resolveTypesPackage(context, hasClientImport, hasServerImport);
         }
 
+        if (mapping.symbolTargetOverrides) {
+            const namedExports = exp.getNamedExports();
+            const allOverridden = namedExports.length > 0 && namedExports.every(s => s.getName() in mapping.symbolTargetOverrides!);
+            if (allOverridden) {
+                targetPackage = mapping.symbolTargetOverrides[namedExports[0]!.getName()]!;
+            }
+        }
         exp.setModuleSpecifier(targetPackage);
         for (const spec of exp.getNamedExports()) {
             const name = spec.getName();

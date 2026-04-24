@@ -2,6 +2,8 @@ export interface ImportMapping {
     target: string;
     status: 'moved' | 'removed' | 'renamed';
     renamedSymbols?: Record<string, string>;
+    /** Route specific symbols to a different target package than `target`. */
+    symbolTargetOverrides?: Record<string, string>;
     removalMessage?: string;
 }
 
@@ -45,10 +47,13 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/server/streamableHttp.js': {
-        target: '@modelcontextprotocol/node',
+        target: '@modelcontextprotocol/server',
         status: 'renamed',
         renamedSymbols: {
             StreamableHTTPServerTransport: 'NodeStreamableHTTPServerTransport'
+        },
+        symbolTargetOverrides: {
+            StreamableHTTPServerTransport: '@modelcontextprotocol/node'
         }
     },
     '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js': {
@@ -114,6 +119,20 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
     '@modelcontextprotocol/sdk/shared/stdio.js': {
         target: 'RESOLVE_BY_CONTEXT',
+        status: 'moved'
+    },
+
+    '@modelcontextprotocol/sdk/server/completable.js': {
+        target: '@modelcontextprotocol/server',
+        status: 'moved'
+    },
+
+    '@modelcontextprotocol/sdk/experimental/tasks': {
+        target: '@modelcontextprotocol/server',
+        status: 'moved'
+    },
+    '@modelcontextprotocol/sdk/experimental/tasks.js': {
+        target: '@modelcontextprotocol/server',
         status: 'moved'
     },
 

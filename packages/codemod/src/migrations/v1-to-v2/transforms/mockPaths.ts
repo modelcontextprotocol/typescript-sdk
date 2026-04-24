@@ -42,7 +42,7 @@ function resolveTarget(
     specifier: string,
     context: TransformContext,
     sourceFile: SourceFile
-): { target: string; renamedSymbols?: Record<string, string> } | 'removed' | null {
+): { target: string; renamedSymbols?: Record<string, string>; symbolTargetOverrides?: Record<string, string> } | 'removed' | null {
     const mapping = IMPORT_MAP[specifier];
     if (!mapping && isAuthImport(specifier)) return 'removed';
     if (!mapping) return null;
@@ -61,7 +61,7 @@ function resolveTarget(
         target = resolveTypesPackage(context, hasClient, hasServer);
     }
 
-    return { target, renamedSymbols: mapping.renamedSymbols };
+    return { target, renamedSymbols: mapping.renamedSymbols, symbolTargetOverrides: mapping.symbolTargetOverrides };
 }
 
 function rewriteMockCall(
@@ -99,7 +99,15 @@ function rewriteMockCall(
 
     let changes = 0;
 
-    firstArg.setLiteralValue(resolved.target);
+    let effectiveTarget = resolved.target;
+    if (resolved.symbolTargetOverrides && args.length >= 2) {
+        const factorySymbols = collectFactorySymbols(args[1]!);
+        if (factorySymbols.length > 0 && factorySymbols.every(s => s in resolved.symbolTargetOverrides!)) {
+            effectiveTarget = resolved.symbolTargetOverrides[factorySymbols[0]!]!;
+        }
+    }
+
+    firstArg.setLiteralValue(effectiveTarget);
     changes++;
 
     const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.renamedSymbols };
@@ -108,6 +116,16 @@ function rewriteMockCall(
     }
 
     return changes;
+}
+
+function collectFactorySymbols(factoryArg: import('ts-morph').Node): string[] {
+    const symbols: string[] = [];
+    factoryArg.forEachDescendant(node => {
+        if (Node.isPropertyAssignment(node) || Node.isShorthandPropertyAssignment(node)) {
+            symbols.push(node.getName());
+        }
+    });
+    return symbols;
 }
 
 function renameSymbolsInFactory(factoryArg: import('ts-morph').Node, renamedSymbols: Record<string, string>): number {
@@ -176,10 +194,36 @@ function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext
             return;
         }
 
-        firstArg.setLiteralValue(resolved.target);
+        let effectiveTarget = resolved.target;
+        const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.renamedSymbols };
+
+        // Check if destructured symbols should route to an override target
+        if (resolved.symbolTargetOverrides) {
+            const parent = node.getParent();
+            if (parent && Node.isAwaitExpression(parent)) {
+                const grandParent = parent.getParent();
+                if (grandParent && Node.isVariableDeclaration(grandParent)) {
+                    const nameNode = grandParent.getNameNode();
+                    if (Node.isObjectBindingPattern(nameNode)) {
+                        const elements = nameNode.getElements();
+                        const allOverridden =
+                            elements.length > 0 &&
+                            elements.every(el => {
+                                const key = el.getPropertyNameNode()?.getText() ?? el.getName();
+                                return key in resolved.symbolTargetOverrides!;
+                            });
+                        if (allOverridden) {
+                            effectiveTarget =
+                                resolved.symbolTargetOverrides[elements[0]!.getPropertyNameNode()?.getText() ?? elements[0]!.getName()]!;
+                        }
+                    }
+                }
+            }
+        }
+
+        firstArg.setLiteralValue(effectiveTarget);
         changes++;
 
-        const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.renamedSymbols };
         const parent = node.getParent();
         if (parent && Node.isAwaitExpression(parent)) {
             const grandParent = parent.getParent();

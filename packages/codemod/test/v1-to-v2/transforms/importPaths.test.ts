@@ -173,6 +173,32 @@ describe('import-paths transform', () => {
         expect(result).toContain('@modelcontextprotocol/node');
     });
 
+    it('splits streamableHttp import: transport to /node, types to /server', () => {
+        const input = [
+            `import { StreamableHTTPServerTransport, EventStore } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('NodeStreamableHTTPServerTransport');
+        expect(result).toContain('@modelcontextprotocol/node');
+        expect(result).toContain('EventStore');
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('splits streamableHttp type import: transport to /node, types to /server', () => {
+        const input = [
+            `import type { StreamableHTTPServerTransport, EventStore, StreamId } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('NodeStreamableHTTPServerTransport');
+        expect(result).toContain('@modelcontextprotocol/node');
+        expect(result).toContain('EventStore');
+        expect(result).toContain('StreamId');
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
     it('emits warning for namespace import with renamedSymbols', () => {
         const input = [
             `import * as transport from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
@@ -183,7 +209,7 @@ describe('import-paths transform', () => {
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         expect(sourceFile.getFullText()).toContain('import * as transport');
-        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/node');
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/server');
         expect(result.diagnostics.length).toBeGreaterThan(0);
         expect(result.diagnostics.some(d => d.message.includes('renamed') && d.message.includes('StreamableHTTPServerTransport'))).toBe(
             true
