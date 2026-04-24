@@ -20,9 +20,8 @@ for (const [pkg, dir] of Object.entries(PACKAGE_DIRS)) {
     versions[pkg] = `^${pkgJson.version}`;
 }
 
-const lines = Object.entries(versions)
-    .map(([pkg, ver]) => `    '${pkg}': '${ver}',`)
-    .join('\n');
+const entries = Object.entries(versions);
+const lines = entries.map(([pkg, ver], i) => `    '${pkg}': '${ver}'${i < entries.length - 1 ? ',' : ''}`).join('\n');
 
 const output = `// AUTO-GENERATED — do not edit. Run \`pnpm run generate:versions\` to regenerate.
 export const V2_PACKAGE_VERSIONS: Record<string, string> = {

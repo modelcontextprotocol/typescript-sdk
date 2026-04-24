@@ -34,7 +34,7 @@
     ],
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
-        "generate:versions": "tsx scripts/generate-versions.ts",
+        "generate:versions": "tsx scripts/generateVersions.ts",
         "prebuild": "pnpm run generate:versions",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
