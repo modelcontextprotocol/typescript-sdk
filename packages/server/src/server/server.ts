@@ -59,6 +59,13 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims'
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
+// V1x protocol versions do not support listChanged capability
+const V1X_PROTOCOL_VERSIONS = ['2024-11-05', '2024-10-07'] as const;
+
+function isV1ProtocolVersion(version: string): boolean {
+    return V1X_PROTOCOL_VERSIONS.includes(version as (typeof V1X_PROTOCOL_VERSIONS)[number]);
+}
+
 /**
  * Extended tasks capability that includes runtime configuration (store, messageQueue).
  * The runtime-only fields are stripped before advertising capabilities to clients.
@@ -435,9 +442,14 @@ export class Server extends Protocol<ServerContext> {
 
         this.transport?.setProtocolVersion?.(protocolVersion);
 
+        // V1x protocol does not support listChanged capability, so strip it
+        const capabilities = isV1ProtocolVersion(protocolVersion)
+            ? this.stripListChangedFromCapabilities(this.getCapabilities())
+            : this.getCapabilities();
+
         return {
             protocolVersion,
-            capabilities: this.getCapabilities(),
+            capabilities,
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
         };
@@ -462,6 +474,27 @@ export class Server extends Protocol<ServerContext> {
      */
     public getCapabilities(): ServerCapabilities {
         return this._capabilities;
+    }
+
+    /**
+     * Strips listChanged capability from all capability types for V1x protocol compatibility.
+     * V1x protocol does not support listChanged, so we remove it to avoid advertising unsupported capability.
+     */
+    private stripListChangedFromCapabilities(capabilities: ServerCapabilities): ServerCapabilities {
+        const result = { ...capabilities };
+        if (result.tools) {
+            result.tools = { ...result.tools };
+            delete result.tools.listChanged;
+        }
+        if (result.resources) {
+            result.resources = { ...result.resources };
+            delete result.resources.listChanged;
+        }
+        if (result.prompts) {
+            result.prompts = { ...result.prompts };
+            delete result.prompts.listChanged;
+        }
+        return result;
     }
 
     async ping() {
