@@ -74,4 +74,15 @@ describe('schema-param-removal transform', () => {
         const second = applyTransform(first);
         expect(second).toBe(first);
     });
+
+    it('removes schema from v1 sendRequest calls', () => {
+        const input = [
+            `import { CreateMessageResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await extra.sendRequest({ method: 'sampling/createMessage', params }, CreateMessageResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toContain('CreateMessageResultSchema');
+        expect(result).toContain('extra.sendRequest(');
+    });
 });

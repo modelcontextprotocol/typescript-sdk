@@ -104,15 +104,39 @@ describe('handler-registration transform', () => {
         expect(result).not.toContain("'tools/call'");
     });
 
-    it('only removes MCP import when same symbol exists in non-MCP package', () => {
+    it('does not remove non-MCP import when MCP import of same name is consumed', () => {
         const input = [
             `import { CallToolRequestSchema } from './local-schemas.js';`,
             `import { CallToolRequestSchema as McpSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `server.setRequestHandler(McpSchema, async () => ({ content: [] }));`,
-            `validateSchema(CallToolRequestSchema);`,
+            `server.setRequestHandler(CallToolRequestSchema, async () => ({ content: [] }));`,
+            `validateSchema(McpSchema);`,
             ''
         ].join('\n');
         const result = applyTransform(input);
         expect(result).toContain("from './local-schemas.js'");
+        expect(result).toContain("'tools/call'");
+        expect(result).not.toMatch(/setRequestHandler\(CallToolRequestSchema/);
+    });
+
+    it('replaces ListRootsRequestSchema with method string', () => {
+        const input = [
+            `import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots: [] }));`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("'roots/list'");
+        expect(result).not.toContain('ListRootsRequestSchema');
+    });
+
+    it('replaces RootsListChangedNotificationSchema with method string', () => {
+        const input = [
+            `import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("'notifications/roots/list_changed'");
+        expect(result).not.toContain('RootsListChangedNotificationSchema');
     });
 });

@@ -3,13 +3,13 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { info } from '../../../utils/diagnostics.js';
-import { hasMcpImports } from '../../../utils/importUtils.js';
+import { isImportedFromMcp } from '../../../utils/importUtils.js';
 
 export const expressMiddlewareTransform: Transform = {
     name: 'Express middleware signature migration',
     id: 'express-middleware',
     apply(sourceFile: SourceFile, _context: TransformContext): TransformResult {
-        if (!hasMcpImports(sourceFile)) {
+        if (!isImportedFromMcp(sourceFile, 'hostHeaderValidation')) {
             return { changesCount: 0, diagnostics: [] };
         }
 

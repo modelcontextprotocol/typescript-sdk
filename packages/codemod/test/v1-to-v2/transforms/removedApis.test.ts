@@ -229,5 +229,31 @@ describe('removed-apis transform', () => {
             const { text: second } = applyTransform(first);
             expect(second).toBe(first);
         });
+
+        it('handles aliased StreamableHTTPError import', () => {
+            const input = [
+                `import { StreamableHTTPError as SHE } from '@modelcontextprotocol/client';`,
+                `if (error instanceof SHE) {}`,
+                `throw new SHE(404, 'Not Found');`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('instanceof SdkError');
+            expect(text).not.toMatch(/\bSHE\b/);
+            expect(text).toMatch(/import.*SdkError/);
+            const constructorWarning = result.diagnostics.find(d => d.message.includes('Constructor arguments differ'));
+            expect(constructorWarning).toBeDefined();
+        });
+    });
+
+    describe('IsomorphicHeaders alias', () => {
+        it('handles aliased IsomorphicHeaders import', () => {
+            const input = [`import { IsomorphicHeaders as IH } from '@modelcontextprotocol/server';`, `const h: IH = new IH();`, ''].join(
+                '\n'
+            );
+            const { text } = applyTransform(input);
+            expect(text).toContain('const h: Headers = new Headers()');
+            expect(text).not.toMatch(/\bIH\b/);
+        });
     });
 });

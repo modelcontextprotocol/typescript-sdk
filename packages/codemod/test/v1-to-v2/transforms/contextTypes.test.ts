@@ -183,6 +183,22 @@ describe('context-types transform', () => {
         expect(sourceFile.getFullText()).toContain('extra.signal');
     });
 
+    it('emits warning when another parameter is already named ctx', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (ctx, extra) => {`,
+            `    const s = extra.signal;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = contextTypesTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('another parameter');
+        expect(sourceFile.getFullText()).toContain('extra.signal');
+    });
+
     it('emits warning when ctx variable already exists in scope', () => {
         const input = [
             `const ctx = getApplicationContext();`,

@@ -261,10 +261,9 @@ function migrateResourceCall(call: CallExpression, _sourceFile: SourceFile): boo
     const uriArg = args[1]!;
     const uriText = uriArg.getText();
 
-    expr.getNameNode().replaceWithText('registerResource');
-
     if (args.length === 3) {
         // server.resource(name, uri, callback) → server.registerResource(name, uri, {}, callback)
+        expr.getNameNode().replaceWithText('registerResource');
         const callbackText = args[2]!.getText();
         for (let i = args.length - 1; i >= 0; i--) {
             call.removeArgument(i);
@@ -273,6 +272,7 @@ function migrateResourceCall(call: CallExpression, _sourceFile: SourceFile): boo
     } else if (args.length === 4) {
         // server.resource(name, uri, metadata, callback) → server.registerResource(name, uri, metadata, callback)
         // Already has metadata, just rename the method
+        expr.getNameNode().replaceWithText('registerResource');
     } else {
         return false;
     }

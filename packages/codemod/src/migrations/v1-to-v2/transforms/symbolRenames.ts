@@ -312,7 +312,7 @@ function handleSchemaInput(sourceFile: SourceFile, context: TransformContext, di
         });
         const isServerFile = sourceFile.getImportDeclarations().some(i => {
             const spec = i.getModuleSpecifierValue();
-            return spec.includes('/server') || spec === '@modelcontextprotocol/server';
+            return spec.includes('/server/') || spec === '@modelcontextprotocol/server';
         });
         const targetModule = resolveTypesPackage(context, isClientFile, isServerFile);
 

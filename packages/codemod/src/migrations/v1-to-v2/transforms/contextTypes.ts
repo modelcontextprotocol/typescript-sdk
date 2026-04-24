@@ -65,6 +65,18 @@ export const contextTypesTransform: Transform = {
 
             const body = callbackArg.getBody();
 
+            const otherParams = callbackArg.getParameters().filter(p => p !== extraParam);
+            if (otherParams.some(p => p.getName() === CTX_PARAM_NAME)) {
+                diagnostics.push(
+                    warning(
+                        sourceFile.getFilePath(),
+                        extraParam.getStartLineNumber(),
+                        `Cannot rename '${EXTRA_PARAM_NAME}' to '${CTX_PARAM_NAME}': another parameter is already named '${CTX_PARAM_NAME}'. Manual migration required.`
+                    )
+                );
+                continue;
+            }
+
             if (body) {
                 let ctxAlreadyInScope = false;
                 body.forEachDescendant(node => {

@@ -103,5 +103,8 @@ describe('mcp-server-api transform', () => {
         const result = mcpServerApiTransform.apply(sourceFile, ctx);
         expect(result.diagnostics.length).toBeGreaterThan(0);
         expect(result.diagnostics[0]!.message).toContain('Could not automatically migrate .resource()');
+        // Verify the method name was NOT mutated when migration fails
+        expect(sourceFile.getFullText()).toContain('.resource(');
+        expect(sourceFile.getFullText()).not.toContain('registerResource');
     });
 });

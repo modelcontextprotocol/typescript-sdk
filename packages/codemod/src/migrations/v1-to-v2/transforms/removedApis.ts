@@ -93,9 +93,10 @@ function handleIsomorphicHeaders(sourceFile: SourceFile, diagnostics: Diagnostic
 
     if (!foundImport || !foundImportDecl) return 0;
 
+    const localName = foundImport.getAliasNode()?.getText() ?? 'IsomorphicHeaders';
     const line = foundImportDecl.getStartLineNumber();
 
-    renameAllReferences(sourceFile, 'IsomorphicHeaders', 'Headers');
+    renameAllReferences(sourceFile, localName, 'Headers');
     changesCount++;
 
     foundImport.remove();
@@ -134,12 +135,13 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
 
     if (!foundImport || !foundImportDecl) return 0;
 
+    const localName = foundImport.getAliasNode()?.getText() ?? 'StreamableHTTPError';
     const line = foundImportDecl.getStartLineNumber();
     const moduleSpec = foundImportDecl.getModuleSpecifierValue();
 
     for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
         const expr = node.getExpression();
-        if (!Node.isIdentifier(expr) || expr.getText() !== 'StreamableHTTPError') continue;
+        if (!Node.isIdentifier(expr) || expr.getText() !== localName) continue;
         diagnostics.push(
             warning(
                 sourceFile.getFilePath(),
@@ -150,7 +152,7 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
         );
     }
 
-    renameAllReferences(sourceFile, 'StreamableHTTPError', 'SdkError');
+    renameAllReferences(sourceFile, localName, 'SdkError');
     changesCount++;
 
     foundImport.remove();
