@@ -32,7 +32,7 @@ describe('updatePackageJson', () => {
         writePkgJson(dir, {
             dependencies: {
                 '@modelcontextprotocol/sdk': '^1.0.0',
-                'express': '^4.0.0'
+                express: '^4.0.0'
             }
         });
 
@@ -98,11 +98,7 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(
-            dir,
-            new Set(['@modelcontextprotocol/server', '@modelcontextprotocol/node']),
-            false
-        );
+        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/server', '@modelcontextprotocol/node']), false);
 
         expect(result).toBeDefined();
         expect(result!.added).toContain('@modelcontextprotocol/node');
@@ -122,7 +118,7 @@ describe('updatePackageJson', () => {
         const dir = createTempDir();
         writePkgJson(dir, {
             dependencies: {
-                'express': '^4.0.0'
+                express: '^4.0.0'
             }
         });
 
@@ -157,11 +153,7 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(
-            dir,
-            new Set(['@modelcontextprotocol/core', '@modelcontextprotocol/server']),
-            false
-        );
+        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/core', '@modelcontextprotocol/server']), false);
 
         expect(result).toBeDefined();
         expect(result!.added).not.toContain('@modelcontextprotocol/core');
@@ -174,11 +166,15 @@ describe('updatePackageJson', () => {
 
     it('preserves 4-space indentation', () => {
         const dir = createTempDir();
-        writePkgJson(dir, {
-            dependencies: {
-                '@modelcontextprotocol/sdk': '^1.0.0'
-            }
-        }, 4);
+        writePkgJson(
+            dir,
+            {
+                dependencies: {
+                    '@modelcontextprotocol/sdk': '^1.0.0'
+                }
+            },
+            4
+        );
 
         updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
 
@@ -206,7 +202,7 @@ describe('updatePackageJson', () => {
         writePkgJson(dir, {
             dependencies: {
                 '@modelcontextprotocol/sdk': '^1.0.0',
-                'express': '^4.0.0'
+                express: '^4.0.0'
             }
         });
 

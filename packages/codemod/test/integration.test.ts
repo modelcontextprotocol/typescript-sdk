@@ -247,7 +247,7 @@ describe('integration', () => {
                 {
                     dependencies: {
                         '@modelcontextprotocol/sdk': '^1.0.0',
-                        'express': '^4.0.0'
+                        express: '^4.0.0'
                     }
                 },
                 null,
@@ -286,10 +286,7 @@ describe('integration', () => {
                 '@modelcontextprotocol/sdk': '^1.0.0'
             }
         });
-        writeFileSync(
-            path.join(dir, 'server.ts'),
-            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`
-        );
+        writeFileSync(path.join(dir, 'server.ts'), `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`);
 
         const result = run(migration, { targetDir: dir, dryRun: true });
 

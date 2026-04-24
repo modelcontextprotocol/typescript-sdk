@@ -12,11 +12,7 @@ function detectIndent(text: string): string {
     return match ? match[1]! : '  ';
 }
 
-export function updatePackageJson(
-    targetDir: string,
-    usedPackages: Set<string>,
-    dryRun: boolean
-): PackageJsonChange | undefined {
+export function updatePackageJson(targetDir: string, usedPackages: Set<string>, dryRun: boolean): PackageJsonChange | undefined {
     const pkgJsonPath = findPackageJson(targetDir);
     if (!pkgJsonPath) return undefined;
 
@@ -35,9 +31,7 @@ export function updatePackageJson(
     const inDevDeps = devDeps !== undefined && V1_PACKAGE in devDeps;
     if (!inDeps && !inDevDeps) return undefined;
 
-    const packagesToAdd = [...usedPackages].filter(
-        pkg => !PRIVATE_PACKAGES.has(pkg) && pkg in V2_PACKAGE_VERSIONS
-    );
+    const packagesToAdd = [...usedPackages].filter(pkg => !PRIVATE_PACKAGES.has(pkg) && pkg in V2_PACKAGE_VERSIONS);
 
     // Determine which section to add v2 packages to.
     // If v1 SDK was in both, prefer dependencies.
@@ -69,7 +63,7 @@ export function updatePackageJson(
     }
 
     return {
-        added: added.sort(),
+        added: added.toSorted(),
         removed,
         packageJsonPath: pkgJsonPath
     };
