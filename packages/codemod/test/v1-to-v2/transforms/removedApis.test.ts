@@ -82,6 +82,18 @@ describe('removed-apis transform', () => {
             expect(result.changesCount).toBe(0);
         });
 
+        it('does not remove same-named import from non-MCP package when MCP import is also present', () => {
+            const input = [
+                `import { McpServer, schemaToJson } from '@modelcontextprotocol/server';`,
+                `import { schemaToJson as otherToJson } from 'some-json-schema-lib';`,
+                `const json = otherToJson(schema);`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain("import { schemaToJson as otherToJson } from 'some-json-schema-lib'");
+            expect(text).toContain('otherToJson(schema)');
+        });
+
         it('is idempotent', () => {
             const input = [`import { schemaToJson } from '@modelcontextprotocol/server';`, `const json = schemaToJson(schema);`, ''].join(
                 '\n'

@@ -292,6 +292,28 @@ describe('symbol-renames transform', () => {
         expect(result).not.toContain('@modelcontextprotocol/sdk/shared/protocol.js');
     });
 
+    it('preserves shorthand property keys when renaming', () => {
+        const input = [
+            `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
+            `const errors = { McpError };`,
+            `throw new McpError(1, 'error');`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('McpError: ProtocolError');
+        expect(result).toContain('new ProtocolError');
+    });
+
+    it('does not rename export specifiers', () => {
+        const input = [
+            `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
+            `export { McpError };`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('export { McpError }');
+    });
+
     it('is idempotent for SchemaInput transform', () => {
         const input = [
             `import type { SchemaInput } from '@modelcontextprotocol/server';`,

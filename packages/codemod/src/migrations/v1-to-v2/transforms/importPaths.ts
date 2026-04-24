@@ -103,6 +103,11 @@ export const importPathsTransform: Transform = {
                             n.setName(newName);
                         }
                     }
+                    if (namespaceImport) {
+                        diagnostics.push(warning(filePath, line,
+                            `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
+                            `were renamed in ${targetPackage}. Update qualified accesses manually.`));
+                    }
                 }
                 changesCount++;
                 continue;

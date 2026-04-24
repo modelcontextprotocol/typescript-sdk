@@ -57,6 +57,7 @@ function handleRemovedZodHelpers(sourceFile: SourceFile, diagnostics: Diagnostic
 
     for (const removal of removals) {
         for (const imp of sourceFile.getImportDeclarations()) {
+            if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
             for (const namedImport of imp.getNamedImports()) {
                 if (namedImport.getName() === removal.importName) {
                     namedImport.remove();

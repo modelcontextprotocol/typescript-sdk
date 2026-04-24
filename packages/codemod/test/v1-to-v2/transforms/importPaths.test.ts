@@ -173,6 +173,21 @@ describe('import-paths transform', () => {
         expect(result).toContain('@modelcontextprotocol/node');
     });
 
+    it('emits warning for namespace import with renamedSymbols', () => {
+        const input = [
+            `import * as transport from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+            `const t = new transport.StreamableHTTPServerTransport({});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(sourceFile.getFullText()).toContain('import * as transport');
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/node');
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics.some(d => d.message.includes('renamed') && d.message.includes('StreamableHTTPServerTransport'))).toBe(true);
+    });
+
     it('removes auth imports with warning', () => {
         const input = `import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });
