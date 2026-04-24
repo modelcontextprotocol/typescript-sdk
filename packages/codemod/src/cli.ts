@@ -115,9 +115,28 @@ for (const [name, migration] of listMigrations()) {
                     console.log('');
                 }
 
+                if (result.packageJsonChanges) {
+                    const pc = result.packageJsonChanges;
+                    if (opts['dryRun']) {
+                        console.log('package.json changes (dry run — not applied):');
+                    } else {
+                        console.log('package.json updated:');
+                    }
+                    if (pc.removed.length > 0) {
+                        console.log(`  Removed: ${pc.removed.join(', ')}`);
+                    }
+                    if (pc.added.length > 0) {
+                        console.log(`  Added:   ${pc.added.join(', ')}`);
+                    }
+                    console.log('');
+                }
+
                 if (opts['dryRun']) {
                     console.log('Run without --dry-run to apply changes.\n');
                 } else {
+                    if (result.packageJsonChanges) {
+                        console.log('Run your package manager to install the new packages.\n');
+                    }
                     console.log('Migration complete. Review the changes and run your build/tests.\n');
                 }
             } catch (error) {

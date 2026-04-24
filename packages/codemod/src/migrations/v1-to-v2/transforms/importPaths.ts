@@ -22,6 +22,7 @@ export const importPathsTransform: Transform = {
     id: 'imports',
     apply(sourceFile: SourceFile, context: TransformContext): TransformResult {
         const diagnostics: ReturnType<typeof warning>[] = [];
+        const usedPackages = new Set<string>();
         let changesCount = 0;
 
         const sdkImports = getSdkImports(sourceFile);
@@ -32,7 +33,7 @@ export const importPathsTransform: Transform = {
 
         const filePath = sourceFile.getFilePath();
 
-        changesCount += rewriteExportDeclarations(sdkExports, sourceFile, filePath, context, diagnostics);
+        changesCount += rewriteExportDeclarations(sdkExports, sourceFile, filePath, context, diagnostics, usedPackages);
 
         if (sdkImports.length === 0) {
             return { changesCount, diagnostics };
@@ -112,6 +113,7 @@ export const importPathsTransform: Transform = {
                         effectiveTarget = mapping.symbolTargetOverrides[namedImports[0]!.getName()]!;
                     }
                 }
+                usedPackages.add(effectiveTarget);
                 imp.setModuleSpecifier(effectiveTarget);
                 if (mapping.renamedSymbols) {
                     for (const n of namedImports) {
@@ -140,6 +142,7 @@ export const importPathsTransform: Transform = {
                 const resolvedName = mapping.renamedSymbols?.[name] ?? name;
                 const specifierTypeOnly = typeOnly || n.isTypeOnly();
                 const symbolTarget = mapping.symbolTargetOverrides?.[name] ?? targetPackage;
+                usedPackages.add(symbolTarget);
                 addPending(symbolTarget, [resolvedName], specifierTypeOnly);
             }
             imp.remove();
@@ -168,7 +171,7 @@ export const importPathsTransform: Transform = {
             }
         }
 
-        return { changesCount, diagnostics };
+        return { changesCount, diagnostics, usedPackages };
     }
 };
 
@@ -177,7 +180,8 @@ function rewriteExportDeclarations(
     sourceFile: import('ts-morph').SourceFile,
     filePath: string,
     context: TransformContext,
-    diagnostics: ReturnType<typeof warning>[]
+    diagnostics: ReturnType<typeof warning>[],
+    usedPackages: Set<string>
 ): number {
     let changesCount = 0;
 
@@ -228,6 +232,7 @@ function rewriteExportDeclarations(
                 targetPackage = mapping.symbolTargetOverrides[namedExports[0]!.getName()]!;
             }
         }
+        usedPackages.add(targetPackage);
         exp.setModuleSpecifier(targetPackage);
         for (const spec of exp.getNamedExports()) {
             const name = spec.getName();

@@ -5,7 +5,7 @@ import type { TransformContext } from '../types.js';
 
 const PROJECT_ROOT_MARKERS = ['.git', 'node_modules'];
 
-function findPackageJson(startDir: string): string | undefined {
+export function findPackageJson(startDir: string): string | undefined {
     let dir = path.resolve(startDir);
     const root = path.parse(dir).root;
     while (true) {

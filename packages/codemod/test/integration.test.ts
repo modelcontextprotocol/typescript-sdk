@@ -9,6 +9,10 @@ import { DiagnosticLevel } from '../src/types.js';
 
 const migration = getMigration('v1-to-v2')!;
 
+function writePkgJson(dir: string, content: Record<string, unknown>): void {
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify(content, null, 2) + '\n');
+}
+
 let tempDir: string;
 
 function createTempDir(): string {
@@ -233,6 +237,206 @@ describe('integration', () => {
 
         // Diagnostics emitted
         expect(result.diagnostics.length).toBeGreaterThan(0);
+    });
+
+    it('updates package.json: removes v1 SDK and adds detected v2 packages', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'package.json'),
+            JSON.stringify(
+                {
+                    dependencies: {
+                        '@modelcontextprotocol/sdk': '^1.0.0',
+                        'express': '^4.0.0'
+                    }
+                },
+                null,
+                2
+            ) + '\n'
+        );
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+                `const server = new McpServer({ name: 'test', version: '1.0' });`,
+                `const transport = new StreamableHTTPServerTransport({});`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/node');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/server']).toBeDefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/node']).toBeDefined();
+        expect(pkgJson.dependencies['express']).toBe('^4.0.0');
+    });
+
+    it('does not modify package.json in dry-run mode', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: {
+                '@modelcontextprotocol/sdk': '^1.0.0'
+            }
+        });
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`
+        );
+
+        const result = run(migration, { targetDir: dir, dryRun: true });
+
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBe('^1.0.0');
+    });
+
+    it('package.json: client-only project adds only @modelcontextprotocol/client', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' }
+        });
+        writeFileSync(
+            path.join(dir, 'client.ts'),
+            [
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `const client = new Client({ name: 'test', version: '1.0' });`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/client');
+        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/node');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/client']).toBeDefined();
+    });
+
+    it('package.json: client + server project adds both packages', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' }
+        });
+        mkdirSync(path.join(dir, 'src'), { recursive: true });
+        writeFileSync(
+            path.join(dir, 'src', 'server.ts'),
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `const server = new McpServer({ name: 'test', version: '1.0' });`,
+                ``
+            ].join('\n')
+        );
+        writeFileSync(
+            path.join(dir, 'src', 'client.ts'),
+            [
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `const client = new Client({ name: 'test', version: '1.0' });`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/client');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/server']).toBeDefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/client']).toBeDefined();
+    });
+
+    it('package.json: express middleware import adds @modelcontextprotocol/express', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' }
+        });
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware.js';`,
+                `app.use(hostHeaderValidation({ allowedHosts: ['localhost'] }));`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/express');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/express']).toBeDefined();
+    });
+
+    it('package.json: works when no package.json is present', () => {
+        const dir = createTempDir();
+        mkdirSync(path.join(dir, '.git'), { recursive: true });
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `const server = new McpServer({ name: 'test', version: '1.0' });`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.filesChanged).toBe(1);
+        expect(result.packageJsonChanges).toBeUndefined();
+
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+        expect(output).toContain('@modelcontextprotocol/server');
+    });
+
+    it('package.json: split import adds both /server and /node', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' }
+        });
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { StreamableHTTPServerTransport, EventStore } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+                `const transport = new StreamableHTTPServerTransport({});`,
+                `const store: EventStore = {} as any;`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/node');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/server']).toBeDefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/node']).toBeDefined();
     });
 
     it('emits diagnostics for removed imports', () => {

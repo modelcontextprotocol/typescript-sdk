@@ -16,6 +16,7 @@ export interface Diagnostic {
 export interface TransformResult {
     changesCount: number;
     diagnostics: Diagnostic[];
+    usedPackages?: Set<string>;
 }
 
 export interface Transform {
@@ -48,9 +49,16 @@ export interface FileResult {
     diagnostics: Diagnostic[];
 }
 
+export interface PackageJsonChange {
+    added: string[];
+    removed: string[];
+    packageJsonPath: string;
+}
+
 export interface RunnerResult {
     filesChanged: number;
     totalChanges: number;
     diagnostics: Diagnostic[];
     fileResults: FileResult[];
+    packageJsonChanges?: PackageJsonChange;
 }

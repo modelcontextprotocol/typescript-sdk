@@ -1,7 +1,8 @@
 import { Project } from 'ts-morph';
 
 import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types.js';
-import { error } from './utils/diagnostics.js';
+import { error, info } from './utils/diagnostics.js';
+import { updatePackageJson } from './utils/packageJsonUpdater.js';
 import { analyzeProject } from './utils/projectAnalyzer.js';
 
 export function run(migration: Migration, options: RunnerOptions): RunnerResult {
@@ -58,6 +59,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     });
     const fileResults: FileResult[] = [];
     const allDiagnostics: Diagnostic[] = [];
+    const allUsedPackages = new Set<string>();
     let totalChanges = 0;
     let filesChanged = 0;
 
@@ -70,6 +72,11 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
                 const result = transform.apply(sourceFile, context);
                 fileChanges += result.changesCount;
                 fileDiagnostics.push(...result.diagnostics);
+                if (result.usedPackages) {
+                    for (const pkg of result.usedPackages) {
+                        allUsedPackages.add(pkg);
+                    }
+                }
             }
         } catch (error_) {
             const filePath = sourceFile.getFilePath();
@@ -90,6 +97,19 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     }
 
+    if (allUsedPackages.has('@modelcontextprotocol/core')) {
+        allDiagnostics.push(
+            info(
+                'package.json',
+                0,
+                '@modelcontextprotocol/core is a private package not published to npm. ' +
+                    'If you use InMemoryTransport, you may need to find an alternative or use a local reference.'
+            )
+        );
+    }
+
+    const packageJsonChanges = updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false);
+
     if (!options.dryRun) {
         project.saveSync();
     }
@@ -98,6 +118,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         filesChanged,
         totalChanges,
         diagnostics: allDiagnostics,
-        fileResults
+        fileResults,
+        packageJsonChanges
     };
 }

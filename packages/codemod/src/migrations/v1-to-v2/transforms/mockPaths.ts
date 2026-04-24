@@ -16,6 +16,7 @@ export const mockPathsTransform: Transform = {
     id: 'mock-paths',
     apply(sourceFile: SourceFile, context: TransformContext): TransformResult {
         const diagnostics: ReturnType<typeof warning>[] = [];
+        const usedPackages = new Set<string>();
         let changesCount = 0;
 
         const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
@@ -27,14 +28,14 @@ export const mockPathsTransform: Transform = {
                 const objName = expr.getExpression().getText();
                 const methodName = expr.getName();
                 if (MOCK_CALLERS.has(objName) && MOCK_METHODS.has(methodName)) {
-                    changesCount += rewriteMockCall(call, sourceFile, context, diagnostics);
+                    changesCount += rewriteMockCall(call, sourceFile, context, diagnostics, usedPackages);
                 }
             }
         }
 
-        changesCount += rewriteDynamicImports(sourceFile, context, diagnostics);
+        changesCount += rewriteDynamicImports(sourceFile, context, diagnostics, usedPackages);
 
-        return { changesCount, diagnostics };
+        return { changesCount, diagnostics, usedPackages };
     }
 };
 
@@ -68,7 +69,8 @@ function rewriteMockCall(
     call: import('ts-morph').CallExpression,
     sourceFile: SourceFile,
     context: TransformContext,
-    diagnostics: ReturnType<typeof warning>[]
+    diagnostics: ReturnType<typeof warning>[],
+    usedPackages: Set<string>
 ): number {
     const args = call.getArguments();
     if (args.length === 0) return 0;
@@ -107,6 +109,7 @@ function rewriteMockCall(
         }
     }
 
+    usedPackages.add(effectiveTarget);
     firstArg.setLiteralValue(effectiveTarget);
     changes++;
 
@@ -154,7 +157,12 @@ function renameSymbolsInFactory(factoryArg: import('ts-morph').Node, renamedSymb
     return changes;
 }
 
-function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext, diagnostics: ReturnType<typeof warning>[]): number {
+function rewriteDynamicImports(
+    sourceFile: SourceFile,
+    context: TransformContext,
+    diagnostics: ReturnType<typeof warning>[],
+    usedPackages: Set<string>
+): number {
     let changes = 0;
 
     sourceFile.forEachDescendant(node => {
@@ -221,6 +229,7 @@ function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext
             }
         }
 
+        usedPackages.add(effectiveTarget);
         firstArg.setLiteralValue(effectiveTarget);
         changes++;
 
