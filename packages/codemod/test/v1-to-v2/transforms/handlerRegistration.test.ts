@@ -104,7 +104,7 @@ describe('handler-registration transform', () => {
         expect(result).not.toContain("'tools/call'");
     });
 
-    it('does not remove non-MCP import when MCP import of same name is consumed', () => {
+    it('does not rewrite local import when aliased MCP import has same export name', () => {
         const input = [
             `import { CallToolRequestSchema } from './local-schemas.js';`,
             `import { CallToolRequestSchema as McpSchema } from '@modelcontextprotocol/sdk/types.js';`,
@@ -114,8 +114,8 @@ describe('handler-registration transform', () => {
         ].join('\n');
         const result = applyTransform(input);
         expect(result).toContain("from './local-schemas.js'");
-        expect(result).toContain("'tools/call'");
-        expect(result).not.toMatch(/setRequestHandler\(CallToolRequestSchema/);
+        expect(result).toContain('setRequestHandler(CallToolRequestSchema');
+        expect(result).not.toContain("'tools/call'");
     });
 
     it('replaces ListRootsRequestSchema with method string', () => {
@@ -138,5 +138,18 @@ describe('handler-registration transform', () => {
         const result = applyTransform(input);
         expect(result).toContain("'notifications/roots/list_changed'");
         expect(result).not.toContain('RootsListChangedNotificationSchema');
+    });
+
+    it('handles aliased schema imports', () => {
+        const input = [
+            `import { CallToolRequestSchema as CTRS } from '@modelcontextprotocol/sdk/types.js';`,
+            `server.setRequestHandler(CTRS, async (request) => {`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("'tools/call'");
+        expect(result).not.toContain('CTRS');
     });
 });

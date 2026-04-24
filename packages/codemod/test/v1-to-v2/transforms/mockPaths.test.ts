@@ -118,6 +118,18 @@ describe('mock-paths transform', () => {
             expect(result).toContain('new StreamableHTTPServerTransport({})');
         });
 
+        it('handles aliased dynamic import destructuring', () => {
+            const input = [
+                `const { StreamableHTTPServerTransport: MyTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');`,
+                `const t = new MyTransport({});`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/node')`);
+            expect(result).toContain('NodeStreamableHTTPServerTransport: MyTransport');
+            expect(result).toContain('new MyTransport({})');
+        });
+
         it('rewrites dynamic import for server/mcp.js', () => {
             const input = [`const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');`, ''].join('\n');
             const result = applyTransform(input);
@@ -173,6 +185,45 @@ describe('mock-paths transform', () => {
             const result = mockPathsTransform.apply(sourceFile, ctx);
             expect(result.diagnostics.length).toBeGreaterThan(0);
             expect(result.diagnostics[0]!.message).toContain('Unknown SDK mock path');
+        });
+
+        it('renames SIMPLE_RENAMES symbols in mock factory', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`,
+                `    McpError: vi.fn(),`,
+                `    ResourceReference: { type: 'resource' },`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain('@modelcontextprotocol/server');
+            expect(result).toContain('ProtocolError');
+            expect(result).toContain('ResourceTemplateReference');
+            expect(result).not.toMatch(/(?<!Protocol)\bMcpError\b/);
+        });
+
+        it('renames SIMPLE_RENAMES symbols in dynamic import destructuring', () => {
+            const input = [
+                `const { McpError, ResourceReference } = await import('@modelcontextprotocol/sdk/types.js');`,
+                `const err = new McpError('fail');`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain('@modelcontextprotocol/server');
+            expect(result).toContain('ProtocolError: McpError');
+            expect(result).toContain('ResourceTemplateReference: ResourceReference');
+            expect(result).toContain('new McpError(');
+        });
+
+        it('renames SIMPLE_RENAMES symbols in aliased dynamic import destructuring', () => {
+            const input = [
+                `const { McpError: MyError } = await import('@modelcontextprotocol/sdk/types.js');`,
+                `throw new MyError('fail');`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain('ProtocolError: MyError');
+            expect(result).toContain('new MyError(');
         });
     });
 });

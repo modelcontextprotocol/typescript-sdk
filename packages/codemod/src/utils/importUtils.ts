@@ -76,8 +76,22 @@ export function hasMcpImports(sourceFile: SourceFile): boolean {
 export function isImportedFromMcp(sourceFile: SourceFile, symbolName: string): boolean {
     return sourceFile.getImportDeclarations().some(imp => {
         if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) return false;
-        return imp.getNamedImports().some(n => n.getName() === symbolName);
+        return imp.getNamedImports().some(n => {
+            const localName = n.getAliasNode()?.getText() ?? n.getName();
+            return localName === symbolName;
+        });
     });
+}
+
+export function resolveOriginalImportName(sourceFile: SourceFile, localName: string): string | undefined {
+    for (const imp of sourceFile.getImportDeclarations()) {
+        for (const n of imp.getNamedImports()) {
+            const alias = n.getAliasNode()?.getText();
+            if (alias === localName) return n.getName();
+            if (!alias && n.getName() === localName) return localName;
+        }
+    }
+    return undefined;
 }
 
 export function removeUnusedImport(sourceFile: SourceFile, symbolName: string, onlyMcpImports?: boolean): void {
@@ -95,7 +109,7 @@ export function removeUnusedImport(sourceFile: SourceFile, symbolName: string, o
         for (const imp of sourceFile.getImportDeclarations()) {
             if (onlyMcpImports && !isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
             for (const namedImport of imp.getNamedImports()) {
-                if (namedImport.getName() === symbolName) {
+                if ((namedImport.getAliasNode()?.getText() ?? namedImport.getName()) === symbolName) {
                     namedImport.remove();
                     if (imp.getNamedImports().length === 0 && !imp.getDefaultImport() && !imp.getNamespaceImport()) {
                         imp.remove();

@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Transform, TransformContext, TransformResult } from '../../../types.js';
-import { isImportedFromMcp, removeUnusedImport } from '../../../utils/importUtils.js';
+import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
 import { NOTIFICATION_SCHEMA_TO_METHOD, SCHEMA_TO_METHOD } from '../mappings/schemaToMethodMap.js';
 
 const ALL_SCHEMA_TO_METHOD: Record<string, string> = {
@@ -34,7 +34,8 @@ export const handlerRegistrationTransform: Transform = {
             if (!Node.isIdentifier(firstArg)) continue;
 
             const schemaName = firstArg.getText();
-            const methodString = ALL_SCHEMA_TO_METHOD[schemaName];
+            const originalName = resolveOriginalImportName(sourceFile, schemaName) ?? schemaName;
+            const methodString = ALL_SCHEMA_TO_METHOD[originalName];
             if (!methodString) continue;
 
             if (!isImportedFromMcp(sourceFile, schemaName)) continue;

@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Transform, TransformContext, TransformResult } from '../../../types.js';
-import { isImportedFromMcp, removeUnusedImport } from '../../../utils/importUtils.js';
+import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
 
 const TARGET_METHODS = new Set(['request', 'callTool', 'send', 'sendRequest']);
 
@@ -25,9 +25,11 @@ export const schemaParamRemovalTransform: Transform = {
             if (args.length < 2) continue;
 
             const secondArg = args[1]!;
-            if (!isSchemaReference(secondArg)) continue;
+            if (!Node.isIdentifier(secondArg)) continue;
 
             const schemaName = secondArg.getText();
+            const originalName = resolveOriginalImportName(sourceFile, schemaName) ?? schemaName;
+            if (!originalName.endsWith('Schema')) continue;
             if (!isImportedFromMcp(sourceFile, schemaName)) continue;
 
             call.removeArgument(1);
@@ -39,9 +41,3 @@ export const schemaParamRemovalTransform: Transform = {
         return { changesCount, diagnostics: [] };
     }
 };
-
-function isSchemaReference(node: Node): boolean {
-    if (!Node.isIdentifier(node)) return false;
-    const text = node.getText();
-    return text.endsWith('Schema');
-}

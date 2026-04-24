@@ -19,6 +19,7 @@ export function renameAllReferences(sourceFile: SourceFile, oldName: string, new
             if (Node.isMethodSignature(parent) && parent.getNameNode() === node) return;
             if (Node.isPropertyDeclaration(parent) && parent.getNameNode() === node) return;
             if (Node.isEnumMember(parent) && parent.getNameNode() === node) return;
+            if (Node.isBindingElement(parent) && parent.getPropertyNameNode() === node) return;
             if (Node.isGetAccessorDeclaration(parent) && parent.getNameNode() === node) return;
             if (Node.isSetAccessorDeclaration(parent) && parent.getNameNode() === node) return;
             if (Node.isShorthandPropertyAssignment(parent)) {

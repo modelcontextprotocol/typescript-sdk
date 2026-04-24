@@ -6,6 +6,7 @@ import { warning } from '../../../utils/diagnostics.js';
 import { isSdkSpecifier } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
+import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
 const MOCK_METHODS = new Set(['mock', 'doMock']);
 const MOCK_CALLERS = new Set(['vi', 'jest']);
@@ -101,8 +102,9 @@ function rewriteMockCall(
     firstArg.setLiteralValue(resolved.target);
     changes++;
 
-    if (resolved.renamedSymbols && args.length >= 2) {
-        changes += renameSymbolsInFactory(args[1]!, resolved.renamedSymbols);
+    const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.renamedSymbols };
+    if (args.length >= 2) {
+        changes += renameSymbolsInFactory(args[1]!, allRenames);
     }
 
     return changes;
@@ -177,24 +179,25 @@ function rewriteDynamicImports(sourceFile: SourceFile, context: TransformContext
         firstArg.setLiteralValue(resolved.target);
         changes++;
 
-        if (resolved.renamedSymbols) {
-            const parent = node.getParent();
-            if (parent && Node.isAwaitExpression(parent)) {
-                const grandParent = parent.getParent();
-                if (grandParent && Node.isVariableDeclaration(grandParent)) {
-                    const nameNode = grandParent.getNameNode();
-                    if (Node.isObjectBindingPattern(nameNode)) {
-                        for (const element of nameNode.getElements()) {
-                            const bindingName = element.getName();
-                            const newName = resolved.renamedSymbols[bindingName];
-                            if (newName) {
-                                if (element.getPropertyNameNode()) {
-                                    element.getPropertyNameNode()!.replaceWithText(newName);
-                                } else {
-                                    element.replaceWithText(`${newName}: ${bindingName}`);
-                                }
-                                changes++;
+        const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.renamedSymbols };
+        const parent = node.getParent();
+        if (parent && Node.isAwaitExpression(parent)) {
+            const grandParent = parent.getParent();
+            if (grandParent && Node.isVariableDeclaration(grandParent)) {
+                const nameNode = grandParent.getNameNode();
+                if (Node.isObjectBindingPattern(nameNode)) {
+                    for (const element of nameNode.getElements()) {
+                        const propertyName = element.getPropertyNameNode()?.getText();
+                        const bindingName = element.getName();
+                        const lookupKey = propertyName ?? bindingName;
+                        const newName = allRenames[lookupKey];
+                        if (newName) {
+                            if (propertyName) {
+                                element.getPropertyNameNode()!.replaceWithText(newName);
+                            } else {
+                                element.replaceWithText(`${newName}: ${bindingName}`);
                             }
+                            changes++;
                         }
                     }
                 }

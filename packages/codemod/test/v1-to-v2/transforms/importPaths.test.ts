@@ -233,4 +233,41 @@ describe('import-paths transform', () => {
         expect(output).toContain('@modelcontextprotocol/client');
         expect(output).not.toContain('@modelcontextprotocol/sdk');
     });
+
+    it('applies SIMPLE_RENAMES to re-export specifiers', () => {
+        const input = `export { McpError, ResourceReference } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain('ProtocolError as McpError');
+        expect(result).toContain('ResourceTemplateReference as ResourceReference');
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
+    it('emits warning for re-exported ErrorCode', () => {
+        const input = `export { ErrorCode } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('ErrorCode');
+        expect(result.diagnostics[0]!.message).toContain('split');
+    });
+
+    it('emits warning for re-exported RequestHandlerExtra', () => {
+        const input = `export { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('RequestHandlerExtra');
+    });
+
+    it('emits warning for re-exported IsomorphicHeaders', () => {
+        const input = `export { IsomorphicHeaders } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('IsomorphicHeaders');
+        expect(result.diagnostics[0]!.message).toContain('removed');
+    });
 });

@@ -379,4 +379,16 @@ describe('symbol-renames transform', () => {
         expect(result).toContain('enum Errors { McpError = 1 }');
         expect(result).toContain('new ProtocolError(');
     });
+
+    it('does not rename destructuring property names that match renamed symbols', () => {
+        const input = [
+            `import { McpError } from '@modelcontextprotocol/server';`,
+            `const { McpError: localErr } = someObject;`,
+            `throw new McpError('test');`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('{ McpError: localErr }');
+        expect(result).toContain('new ProtocolError(');
+    });
 });

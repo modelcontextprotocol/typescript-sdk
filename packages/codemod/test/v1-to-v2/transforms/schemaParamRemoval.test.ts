@@ -85,4 +85,16 @@ describe('schema-param-removal transform', () => {
         expect(result).not.toContain('CreateMessageResultSchema');
         expect(result).toContain('extra.sendRequest(');
     });
+
+    it('removes aliased schema from sendRequest calls', () => {
+        const input = [
+            `import { CreateMessageResultSchema as CMRS } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await extra.sendRequest({ method: 'sampling/createMessage', params }, CMRS);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toContain('CMRS');
+        expect(result).toContain('extra.sendRequest(');
+        expect(result).not.toContain('CreateMessageResultSchema');
+    });
 });

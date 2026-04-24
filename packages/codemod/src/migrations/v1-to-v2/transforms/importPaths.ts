@@ -6,6 +6,16 @@ import { warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
+import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
+
+const REEXPORT_WARNINGS: Record<string, string> = {
+    ErrorCode: 'Re-exported ErrorCode was split into ProtocolErrorCode and SdkErrorCode in v2. Update this re-export manually.',
+    RequestHandlerExtra:
+        'Re-exported RequestHandlerExtra was renamed to ServerContext/ClientContext in v2. Update this re-export manually.',
+    IsomorphicHeaders: 'Re-exported IsomorphicHeaders was removed in v2 (replaced by standard Headers API). Remove this re-export.',
+    StreamableHTTPError:
+        'Re-exported StreamableHTTPError was renamed to SdkError in v2 with different constructor. Update this re-export manually.'
+};
 
 export const importPathsTransform: Transform = {
     name: 'Import path rewrites',
@@ -204,13 +214,15 @@ function rewriteExportDeclarations(
         }
 
         exp.setModuleSpecifier(targetPackage);
-        if (mapping.renamedSymbols) {
-            for (const spec of exp.getNamedExports()) {
-                const newName = mapping.renamedSymbols[spec.getName()];
-                if (newName) {
-                    if (!spec.getAliasNode()) spec.setAlias(spec.getName());
-                    spec.setName(newName);
-                }
+        for (const spec of exp.getNamedExports()) {
+            const name = spec.getName();
+            const newName = mapping.renamedSymbols?.[name] ?? SIMPLE_RENAMES[name];
+            if (newName) {
+                if (!spec.getAliasNode()) spec.setAlias(name);
+                spec.setName(newName);
+            }
+            if (REEXPORT_WARNINGS[name]) {
+                diagnostics.push(warning(filePath, line, REEXPORT_WARNINGS[name]!));
             }
         }
         changesCount++;
