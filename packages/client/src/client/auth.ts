@@ -1420,7 +1420,14 @@ export async function startAuthorization(
         // if the request includes the OIDC-only "offline_access" scope,
         // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
         // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
-        authorizationUrl.searchParams.append('prompt', 'consent');
+        // RFC 6749 §3.1: the authorization endpoint URI MAY include a query component which MUST be
+        // retained, and parameters MUST NOT be included more than once. OIDC Core §3.1.2.1 defines
+        // `prompt` as space-delimited, so merge into any existing value rather than appending a duplicate.
+        const existingPrompt = authorizationUrl.searchParams.get('prompt');
+        authorizationUrl.searchParams.set(
+            'prompt',
+            existingPrompt ? [...new Set([...existingPrompt.split(' '), 'consent'])].join(' ') : 'consent'
+        );
     }
 
     if (resource) {

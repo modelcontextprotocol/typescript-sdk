@@ -1557,6 +1557,23 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.get('prompt')).toBe('consent');
         });
 
+        it('merges consent into existing prompt parameter from authorization_endpoint instead of duplicating', async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                metadata: {
+                    issuer: 'https://auth.example.com',
+                    authorization_endpoint: 'https://auth.example.com/authorize?prompt=select_account',
+                    token_endpoint: 'https://auth.example.com/token',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256']
+                },
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                scope: 'read offline_access'
+            });
+
+            expect(authorizationUrl.searchParams.getAll('prompt')).toEqual(['select_account consent']);
+        });
+
         it.each([validMetadata, validOpenIdMetadata])('uses metadata authorization_endpoint when provided', async baseMetadata => {
             const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
                 metadata: baseMetadata,
