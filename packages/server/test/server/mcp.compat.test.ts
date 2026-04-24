@@ -3,6 +3,7 @@ import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@m
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 import { McpServer } from '../../src/index.js';
+import { completable } from '../../src/server/completable.js';
 
 describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () => {
     it('registerTool accepts a raw shape for inputSchema and auto-wraps it', () => {
@@ -53,6 +54,25 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
 
         const prompts = (server as unknown as { _registeredPrompts: Record<string, { argsSchema?: unknown }> })._registeredPrompts;
         expect(Object.keys(prompts)).toContain('p');
+        expect(isStandardSchema(prompts['p']?.argsSchema)).toBe(true);
+    });
+
+    it('registerPrompt raw shape accepts completable() fields (v1 pattern)', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        server.registerPrompt(
+            'p',
+            {
+                argsSchema: {
+                    language: completable(z.string(), v => ['typescript', 'python'].filter(l => l.startsWith(v)))
+                }
+            },
+            async ({ language }) => ({
+                messages: [{ role: 'user' as const, content: { type: 'text' as const, text: language } }]
+            })
+        );
+
+        const prompts = (server as unknown as { _registeredPrompts: Record<string, { argsSchema?: unknown }> })._registeredPrompts;
         expect(isStandardSchema(prompts['p']?.argsSchema)).toBe(true);
     });
 
