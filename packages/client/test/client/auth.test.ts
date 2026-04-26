@@ -5,6 +5,7 @@ import { expect, vi } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
+    adaptOAuthProvider,
     auth,
     buildDiscoveryUrls,
     determineScope,
@@ -4053,6 +4054,206 @@ describe('OAuth Authorization', () => {
 
                 expect(result).toBe('mcp:read mcp:write');
             });
+        });
+    });
+
+    describe('adaptOAuthProvider', () => {
+        // Helper: mock fetch for a minimal OAuth token refresh flow.
+        // Handles discovery (404 for PRM, returns auth-server metadata) and
+        // the token endpoint (returns newTokens).
+        function mockRefreshFlow(newTokens: OAuthTokens): void {
+            mockFetch.mockImplementation((url: string | URL) => {
+                const urlStr = url.toString();
+                if (urlStr.includes('oauth-protected-resource')) {
+                    return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('') });
+                }
+                if (urlStr.includes('oauth-authorization-server') || urlStr.includes('openid-configuration')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () =>
+                            Promise.resolve({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code']
+                            })
+                    });
+                }
+                if (urlStr.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve(newTokens)
+                    });
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlStr}`));
+            });
+        }
+
+        // Helper: trigger onUnauthorized so that auth() calls proxied.saveTokens, recording issuedAt.
+        async function triggerSaveTokensViaUnauthorized(adapted: ReturnType<typeof adaptOAuthProvider>): Promise<void> {
+            const mockResponse = { ok: false, status: 401, headers: new Headers() } as unknown as Response;
+            await adapted.onUnauthorized!({
+                response: mockResponse,
+                serverUrl: new URL('https://example.com/'),
+                fetchFn: mockFetch
+            });
+        }
+
+        it('returns access_token when no expires_in is set', async () => {
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'https://example.com/callback';
+                },
+                get clientMetadata(): OAuthClientMetadata {
+                    return { redirect_uris: ['https://example.com/callback'] };
+                },
+                clientInformation: () => ({ client_id: 'test-client' }),
+                tokens: () => ({ access_token: 'tok', token_type: 'bearer' }),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: () => {},
+                saveCodeVerifier: () => {},
+                codeVerifier: () => 'verifier'
+            };
+            const adapted = adaptOAuthProvider(provider);
+            expect(await adapted.token()).toBe('tok');
+        });
+
+        it('returns access_token when issuedAt is unknown and expires_in is present', async () => {
+            // Token loaded from storage before saveTokens was intercepted — no issuedAt, so no expiry check
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'https://example.com/callback';
+                },
+                get clientMetadata(): OAuthClientMetadata {
+                    return { redirect_uris: ['https://example.com/callback'] };
+                },
+                clientInformation: () => ({ client_id: 'test-client' }),
+                tokens: () => ({ access_token: 'tok', token_type: 'bearer', expires_in: 3600 }),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: () => {},
+                saveCodeVerifier: () => {},
+                codeVerifier: () => 'verifier'
+            };
+            const adapted = adaptOAuthProvider(provider);
+            expect(await adapted.token()).toBe('tok');
+        });
+
+        it('returns undefined when no tokens', async () => {
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'https://example.com/callback';
+                },
+                get clientMetadata(): OAuthClientMetadata {
+                    return { redirect_uris: ['https://example.com/callback'] };
+                },
+                clientInformation: () => ({ client_id: 'test-client' }),
+                tokens: () => undefined,
+                saveTokens: vi.fn(),
+                redirectToAuthorization: () => {},
+                saveCodeVerifier: () => {},
+                codeVerifier: () => 'verifier'
+            };
+            const adapted = adaptOAuthProvider(provider);
+            expect(await adapted.token()).toBeUndefined();
+        });
+
+        // Helper: create a minimal client_credentials provider for expiry tests.
+        // prepareTokenRequest is required for the non-interactive flow.
+        function makeClientCredentialsProvider(): { provider: OAuthClientProvider; getCurrentTokens: () => OAuthTokens | undefined } {
+            let currentTokens: OAuthTokens | undefined;
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return undefined;
+                },
+                get clientMetadata(): OAuthClientMetadata {
+                    return { redirect_uris: [], grant_types: ['client_credentials'] };
+                },
+                clientInformation: () => ({ client_id: 'test-client', client_secret: 'secret' }),
+                tokens: () => currentTokens,
+                saveTokens: vi.fn(tokens => {
+                    currentTokens = tokens;
+                }),
+                redirectToAuthorization: () => {},
+                saveCodeVerifier: () => {},
+                codeVerifier: () => 'verifier',
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' })
+            };
+            return { provider, getCurrentTokens: () => currentTokens };
+        }
+
+        it('returns access_token for a freshly saved token (issuedAt just set)', async () => {
+            const { provider } = makeClientCredentialsProvider();
+            const adapted = adaptOAuthProvider(provider);
+
+            mockRefreshFlow({ access_token: 'fresh', token_type: 'Bearer', expires_in: 3600 });
+            await triggerSaveTokensViaUnauthorized(adapted);
+
+            expect(await adapted.token()).toBe('fresh');
+        });
+
+        it('returns undefined for a token saved more than (expires_in - 60)s ago', async () => {
+            vi.useFakeTimers();
+            try {
+                const { provider } = makeClientCredentialsProvider();
+                const adapted = adaptOAuthProvider(provider);
+
+                // Trigger auth flow at t=0; saves token with expires_in=3600
+                mockRefreshFlow({ access_token: 'tok', token_type: 'Bearer', expires_in: 3600 });
+                await triggerSaveTokensViaUnauthorized(adapted);
+
+                // Fast-forward to just before the 60-second buffer (3539 s elapsed, 61 s remaining)
+                vi.advanceTimersByTime(3539 * 1000);
+                expect(await adapted.token()).toBe('tok');
+
+                // Fast-forward 2 more seconds (3541 s elapsed, 59 s remaining — inside buffer)
+                vi.advanceTimersByTime(2000);
+                expect(await adapted.token()).toBeUndefined();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('returns undefined for an already-expired token (elapsed >= expires_in)', async () => {
+            vi.useFakeTimers();
+            try {
+                const { provider } = makeClientCredentialsProvider();
+                const adapted = adaptOAuthProvider(provider);
+
+                mockRefreshFlow({ access_token: 'expired', token_type: 'Bearer', expires_in: 3600 });
+                await triggerSaveTokensViaUnauthorized(adapted);
+
+                // Fast-forward past full expiry
+                vi.advanceTimersByTime(4000 * 1000);
+                expect(await adapted.token()).toBeUndefined();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('resets issuedAt after a second saveTokens call, making refreshed token valid again', async () => {
+            vi.useFakeTimers();
+            try {
+                const { provider } = makeClientCredentialsProvider();
+                const adapted = adaptOAuthProvider(provider);
+
+                // First auth at t=0
+                mockRefreshFlow({ access_token: 'first', token_type: 'Bearer', expires_in: 3600 });
+                await triggerSaveTokensViaUnauthorized(adapted);
+                expect(await adapted.token()).toBe('first');
+
+                // Advance past expiry buffer — token should be stale
+                vi.advanceTimersByTime(3600 * 1000);
+                expect(await adapted.token()).toBeUndefined();
+
+                // Second auth at t=3600 — new token saved, issuedAt reset
+                mockRefreshFlow({ access_token: 'refreshed', token_type: 'Bearer', expires_in: 3600 });
+                await triggerSaveTokensViaUnauthorized(adapted);
+                expect(await adapted.token()).toBe('refreshed');
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 });
