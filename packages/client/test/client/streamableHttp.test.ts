@@ -2017,4 +2017,195 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onclose).toHaveBeenCalledTimes(1);
         });
     });
+
+    describe('HTTP 429 rate-limit handling', () => {
+        let rateLimitTransport: StreamableHTTPClientTransport;
+
+        // Use fake timers so the transport's Retry-After sleep doesn't block the test.
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(async () => {
+            vi.useRealTimers();
+            await rateLimitTransport?.close().catch(() => {});
+        });
+
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const okResponse = (overrides: Partial<{ status: number; contentType: string; body: unknown }> = {}) => ({
+            ok: true,
+            status: overrides.status ?? 202,
+            headers: new Headers(overrides.contentType ? { 'content-type': overrides.contentType } : {}),
+            text: () => Promise.resolve(''),
+            json: () => Promise.resolve(overrides.body ?? null)
+        });
+
+        const rateLimitedResponse = (retryAfter?: string) => ({
+            ok: false,
+            status: 429,
+            statusText: 'Too Many Requests',
+            text: () => Promise.resolve('rate limited'),
+            headers: new Headers(retryAfter !== undefined ? { 'retry-after': retryAfter } : {})
+        });
+
+        it('honours numeric Retry-After on 429 and retries after the indicated delay', async () => {
+            rateLimitTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                rateLimitOptions: { maxRetries: 3, defaultRetryAfterMs: 10, maxRetryAfterMs: 60_000 }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce(rateLimitedResponse('2'));
+            fetchMock.mockResolvedValueOnce(okResponse({ status: 202 }));
+
+            const sendPromise = rateLimitTransport.send(message);
+            // Drain microtasks so the first fetch resolves and the sleep begins.
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // Half-way through the wait we still should not have retried.
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // Once the full Retry-After has elapsed the retry should fire.
+            await vi.advanceTimersByTimeAsync(1_000);
+            await sendPromise;
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('parses HTTP-date Retry-After values', async () => {
+            rateLimitTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                rateLimitOptions: { maxRetries: 3, defaultRetryAfterMs: 10, maxRetryAfterMs: 60_000 }
+            });
+
+            const baseNow = new Date('2026-01-01T00:00:00Z').getTime();
+            vi.setSystemTime(baseNow);
+            const httpDate = new Date(baseNow + 3_000).toUTCString();
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce(rateLimitedResponse(httpDate));
+            fetchMock.mockResolvedValueOnce(okResponse({ status: 202 }));
+
+            const sendPromise = rateLimitTransport.send(message);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(2_999);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(2);
+            await sendPromise;
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('falls back to defaultRetryAfterMs when Retry-After is absent', async () => {
+            rateLimitTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                rateLimitOptions: { maxRetries: 3, defaultRetryAfterMs: 250, maxRetryAfterMs: 60_000 }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce(rateLimitedResponse(undefined));
+            fetchMock.mockResolvedValueOnce(okResponse({ status: 202 }));
+
+            const sendPromise = rateLimitTransport.send(message);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // Below the fallback delay nothing should retry yet.
+            await vi.advanceTimersByTimeAsync(100);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // After the fallback delay elapses the retry fires.
+            await vi.advanceTimersByTimeAsync(200);
+            await sendPromise;
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('clamps oversize Retry-After values to maxRetryAfterMs', async () => {
+            rateLimitTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                rateLimitOptions: { maxRetries: 3, defaultRetryAfterMs: 10, maxRetryAfterMs: 50 }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            // Server asks for an hour — we should not actually wait that long.
+            fetchMock.mockResolvedValueOnce(rateLimitedResponse('3600'));
+            fetchMock.mockResolvedValueOnce(okResponse({ status: 202 }));
+
+            const sendPromise = rateLimitTransport.send(message);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(60);
+            await sendPromise;
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('throws ClientHttpRateLimited after maxRetries consecutive 429 responses', async () => {
+            rateLimitTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                rateLimitOptions: { maxRetries: 3, defaultRetryAfterMs: 10, maxRetryAfterMs: 60_000 }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            // 4 consecutive 429s: 1 initial + 3 retries, then the throw.
+            for (let i = 0; i < 4; i += 1) {
+                fetchMock.mockResolvedValueOnce(rateLimitedResponse('0'));
+            }
+            const errorSpy = vi.fn();
+            rateLimitTransport.onerror = errorSpy;
+
+            const sendPromise = rateLimitTransport.send(message);
+            // Drive each Retry-After=0 sleep through the queue.
+            for (let i = 0; i < 5; i += 1) {
+                await vi.advanceTimersByTimeAsync(10);
+            }
+
+            await expect(sendPromise).rejects.toMatchObject({
+                code: SdkErrorCode.ClientHttpRateLimited
+            });
+            expect(fetchMock).toHaveBeenCalledTimes(4);
+            expect(errorSpy).toHaveBeenCalled();
+        });
+
+        it('does not retry when maxRetries is 0', async () => {
+            rateLimitTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                rateLimitOptions: { maxRetries: 0, defaultRetryAfterMs: 10, maxRetryAfterMs: 60_000 }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce(rateLimitedResponse('1'));
+
+            const errorSpy = vi.fn();
+            rateLimitTransport.onerror = errorSpy;
+
+            await expect(rateLimitTransport.send(message)).rejects.toMatchObject({
+                code: SdkErrorCode.ClientHttpRateLimited
+            });
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('parses Retry-After in static helper across formats', () => {
+            const parse = (StreamableHTTPClientTransport as unknown as Record<string, (h: string | null | undefined) => number | undefined>)[
+                '_parseRetryAfter'
+            ];
+
+            expect(parse(null)).toBeUndefined();
+            expect(parse(undefined)).toBeUndefined();
+            expect(parse('')).toBeUndefined();
+            expect(parse('not-a-number')).toBeUndefined();
+            expect(parse('5')).toBe(5_000);
+            expect(parse('  7  ')).toBe(7_000);
+            expect(parse('0')).toBe(0);
+            expect(parse('1.5')).toBe(1_500);
+
+            const baseNow = new Date('2026-01-01T00:00:00Z').getTime();
+            vi.setSystemTime(baseNow);
+            const future = new Date(baseNow + 4_000).toUTCString();
+            const past = new Date(baseNow - 4_000).toUTCString();
+            expect(parse(future)).toBe(4_000);
+            // Past dates collapse to a zero-delay retry rather than a negative wait.
+            expect(parse(past)).toBe(0);
+        });
+    });
 });
