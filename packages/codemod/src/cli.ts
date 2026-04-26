@@ -70,7 +70,7 @@ for (const [name, migration] of listMigrations()) {
                     ignore: opts['ignore'] as string[] | undefined
                 });
 
-                if (result.filesChanged === 0 && result.diagnostics.length === 0) {
+                if (result.filesChanged === 0 && result.diagnostics.length === 0 && !result.packageJsonChanges) {
                     console.log('No changes needed — code already migrated or no SDK imports found.\n');
                     return;
                 }

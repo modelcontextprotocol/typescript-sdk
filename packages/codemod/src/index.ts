@@ -4,6 +4,7 @@ export type {
     Diagnostic,
     FileResult,
     Migration,
+    PackageJsonChange,
     RunnerOptions,
     RunnerResult,
     Transform,

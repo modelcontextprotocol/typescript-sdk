@@ -8,6 +8,7 @@ export function renameAllReferences(sourceFile: SourceFile, oldName: string, new
             if (!parent) return;
             if (Node.isImportSpecifier(parent)) return;
             if (Node.isExportSpecifier(parent)) {
+                if (parent.getAliasNode() === node) return;
                 if (!parent.getAliasNode()) parent.setAlias(oldName);
                 parent.getNameNode().replaceWithText(newName);
                 return;

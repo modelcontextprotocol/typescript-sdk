@@ -94,6 +94,18 @@ describe('express-middleware transform', () => {
         expect(text).toContain("{ allowedHosts: ['localhost'] }");
     });
 
+    it('applies transform when hostHeaderValidation is aliased', () => {
+        const input = [
+            `import { hostHeaderValidation as hhv } from '@modelcontextprotocol/express';`,
+            `app.use(hhv({ allowedHosts: ['localhost'] }));`,
+            ''
+        ].join('\n');
+        const { text, result } = applyTransform(input);
+        expect(result.changesCount).toBe(1);
+        expect(text).toContain("hhv(['localhost'])");
+        expect(text).not.toContain('allowedHosts');
+    });
+
     it('does not modify non-MCP hostHeaderValidation even when other MCP imports exist', () => {
         const input = [
             `import { McpServer } from '@modelcontextprotocol/server';`,

@@ -108,7 +108,10 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         );
     }
 
-    const packageJsonChanges = updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false);
+    const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports' || t.id === 'mock-paths');
+    const packageJsonChanges = hasImportsTransform
+        ? updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false)
+        : undefined;
 
     if (!options.dryRun) {
         project.saveSync();

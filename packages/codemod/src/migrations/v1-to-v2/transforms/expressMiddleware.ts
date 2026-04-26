@@ -3,33 +3,34 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { info } from '../../../utils/diagnostics.js';
-import { isImportedFromMcp } from '../../../utils/importUtils.js';
+import { isExportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils.js';
 
 export const expressMiddlewareTransform: Transform = {
     name: 'Express middleware signature migration',
     id: 'express-middleware',
     apply(sourceFile: SourceFile, _context: TransformContext): TransformResult {
-        if (!isImportedFromMcp(sourceFile, 'hostHeaderValidation')) {
+        if (!isExportedFromMcp(sourceFile, 'hostHeaderValidation')) {
             return { changesCount: 0, diagnostics: [] };
         }
 
         const diagnostics: Diagnostic[] = [];
         let changesCount = 0;
 
-        changesCount += rewriteHostHeaderValidation(sourceFile, diagnostics);
+        const localName = resolveLocalImportName(sourceFile, 'hostHeaderValidation') ?? 'hostHeaderValidation';
+        changesCount += rewriteHostHeaderValidation(sourceFile, localName, diagnostics);
 
         return { changesCount, diagnostics };
     }
 };
 
-function rewriteHostHeaderValidation(sourceFile: SourceFile, diagnostics: Diagnostic[]): number {
+function rewriteHostHeaderValidation(sourceFile: SourceFile, targetName: string, diagnostics: Diagnostic[]): number {
     let changesCount = 0;
 
     const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
 
     for (const call of calls) {
         const expr = call.getExpression();
-        if (!Node.isIdentifier(expr) || expr.getText() !== 'hostHeaderValidation') continue;
+        if (!Node.isIdentifier(expr) || expr.getText() !== targetName) continue;
 
         const args = call.getArguments();
         if (args.length !== 1) continue;

@@ -121,38 +121,66 @@ function rewriteMockCall(
     return changes;
 }
 
-function collectFactorySymbols(factoryArg: import('ts-morph').Node): string[] {
-    const symbols: string[] = [];
-    factoryArg.forEachDescendant(node => {
-        if (Node.isPropertyAssignment(node) || Node.isShorthandPropertyAssignment(node)) {
-            symbols.push(node.getName());
+function getTopLevelObjectLiteral(factoryArg: import('ts-morph').Node): import('ts-morph').ObjectLiteralExpression | undefined {
+    if (Node.isObjectLiteralExpression(factoryArg)) return factoryArg;
+
+    if (Node.isArrowFunction(factoryArg) || Node.isFunctionExpression(factoryArg)) {
+        const body = factoryArg.getBody();
+        if (Node.isObjectLiteralExpression(body)) return body;
+        if (Node.isParenthesizedExpression(body)) {
+            const inner = body.getExpression();
+            if (Node.isObjectLiteralExpression(inner)) return inner;
         }
-    });
+        if (Node.isBlock(body)) {
+            for (const stmt of body.getStatements()) {
+                if (Node.isReturnStatement(stmt)) {
+                    const expr = stmt.getExpression();
+                    if (expr && Node.isObjectLiteralExpression(expr)) return expr;
+                }
+            }
+        }
+    }
+
+    return undefined;
+}
+
+function collectFactorySymbols(factoryArg: import('ts-morph').Node): string[] {
+    const obj = getTopLevelObjectLiteral(factoryArg);
+    if (!obj) return [];
+
+    const symbols: string[] = [];
+    for (const prop of obj.getProperties()) {
+        if (Node.isPropertyAssignment(prop) || Node.isShorthandPropertyAssignment(prop)) {
+            symbols.push(prop.getName());
+        }
+    }
     return symbols;
 }
 
 function renameSymbolsInFactory(factoryArg: import('ts-morph').Node, renamedSymbols: Record<string, string>): number {
+    const obj = getTopLevelObjectLiteral(factoryArg);
+    if (!obj) return 0;
+
     let changes = 0;
-
-    factoryArg.forEachDescendant(node => {
-        if (Node.isPropertyAssignment(node)) {
-            const name = node.getName();
+    for (const prop of obj.getProperties()) {
+        if (Node.isPropertyAssignment(prop)) {
+            const name = prop.getName();
             const newName = renamedSymbols[name];
             if (newName) {
-                node.getNameNode().replaceWithText(newName);
+                prop.getNameNode().replaceWithText(newName);
                 changes++;
             }
         }
 
-        if (Node.isShorthandPropertyAssignment(node)) {
-            const name = node.getName();
+        if (Node.isShorthandPropertyAssignment(prop)) {
+            const name = prop.getName();
             const newName = renamedSymbols[name];
             if (newName) {
-                node.replaceWithText(`${newName}: ${name}`);
+                prop.replaceWithText(`${newName}: ${name}`);
                 changes++;
             }
         }
-    });
+    }
 
     return changes;
 }

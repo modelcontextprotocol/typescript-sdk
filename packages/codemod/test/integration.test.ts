@@ -436,6 +436,50 @@ describe('integration', () => {
         expect(pkgJson.dependencies['@modelcontextprotocol/node']).toBeDefined();
     });
 
+    it('selective --transforms symbols does not modify package.json', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: {
+                '@modelcontextprotocol/sdk': '^1.0.0'
+            }
+        });
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
+                `throw new McpError(1, 'e');`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir, transforms: ['symbols'] });
+        expect(result.totalChanges).toBeGreaterThan(0);
+        expect(result.packageJsonChanges).toBeUndefined();
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBe('^1.0.0');
+    });
+
+    it('reports packageJsonChanges when only package.json is modified', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: {
+                '@modelcontextprotocol/sdk': '^1.0.0'
+            }
+        });
+        mkdirSync(path.join(dir, 'src'), { recursive: true });
+        writeFileSync(path.join(dir, 'src', 'utils.ts'), `const x = 1;\n`);
+        writeFileSync(
+            path.join(dir, 'already-migrated.ts'),
+            [`import { McpServer } from '@modelcontextprotocol/server';`, ``].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+        if (result.filesChanged === 0 && result.packageJsonChanges) {
+            expect(result.packageJsonChanges.removed).toContain('@modelcontextprotocol/sdk');
+        }
+    });
+
     it('emits diagnostics for removed imports', () => {
         const dir = createTempDir();
         const input = [

@@ -187,6 +187,36 @@ describe('mock-paths transform', () => {
             expect(result.diagnostics[0]!.message).toContain('Unknown SDK mock path');
         });
 
+        it('does not pick up nested properties for symbolTargetOverrides routing', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({`,
+                `    StreamableHTTPServerTransport: vi.fn().mockImplementation(() => ({`,
+                `        handleRequest: vi.fn()`,
+                `    }))`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/node'`);
+            expect(result).toContain('NodeStreamableHTTPServerTransport');
+        });
+
+        it('does not rename nested property keys in mock factory', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`,
+                `    McpError: vi.fn().mockImplementation(() => ({`,
+                `        McpError: 'nested prop should not be renamed'`,
+                `    }))`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain('ProtocolError:');
+            const lines = result.split('\n');
+            const nestedLine = lines.find(l => l.includes("'nested prop should not be renamed'"));
+            expect(nestedLine).toContain('McpError');
+        });
+
         it('renames SIMPLE_RENAMES symbols in mock factory', () => {
             const input = [
                 `vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`,

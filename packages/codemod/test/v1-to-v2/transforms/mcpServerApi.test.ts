@@ -74,6 +74,22 @@ describe('mcp-server-api transform', () => {
         expect(result).toContain('{}');
     });
 
+    it('applies transform when McpServer is aliased', () => {
+        const input = [
+            `import { McpServer as Server } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new Server({ name: 'test', version: '1.0' });`,
+            `server.tool('ping', async () => {`,
+            `    return { content: [{ type: 'text', text: 'pong' }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(result.changesCount).toBeGreaterThan(0);
+        expect(sourceFile.getFullText()).toContain('registerTool');
+    });
+
     it('does not modify .tool() calls in files without MCP imports', () => {
         const input = [`import { someLib } from 'other-package';`, `someLib.tool('test', async () => {});`, ''].join('\n');
         const project = new Project({ useInMemoryFileSystem: true });

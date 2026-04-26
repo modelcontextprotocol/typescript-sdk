@@ -287,6 +287,35 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('RequestHandlerExtra');
     });
 
+    it('emits warning for aliased import mixing symbols from different v2 packages', () => {
+        const input = [
+            `import { StreamableHTTPServerTransport as T, EventStore } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols') && d.message.includes('Split'))).toBe(true);
+    });
+
+    it('emits warning for re-export mixing symbols from different v2 packages', () => {
+        const input = `export { StreamableHTTPServerTransport, EventStore } from '@modelcontextprotocol/sdk/server/streamableHttp.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols') && d.message.includes('Split'))).toBe(true);
+    });
+
+    it('returns usedPackages on early return when only re-exports exist', () => {
+        const input = `export { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.usedPackages).toBeDefined();
+        expect(result.usedPackages!.has('@modelcontextprotocol/server')).toBe(true);
+    });
+
     it('emits warning for re-exported IsomorphicHeaders', () => {
         const input = `export { IsomorphicHeaders } from '@modelcontextprotocol/sdk/types.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });

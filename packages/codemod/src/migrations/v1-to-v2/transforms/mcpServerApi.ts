@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { info, warning } from '../../../utils/diagnostics.js';
-import { isImportedFromMcp } from '../../../utils/importUtils.js';
+import { isExportedFromMcp } from '../../../utils/importUtils.js';
 
 export const mcpServerApiTransform: Transform = {
     name: 'McpServer API migration',
@@ -12,7 +12,7 @@ export const mcpServerApiTransform: Transform = {
         const diagnostics: Diagnostic[] = [];
         let changesCount = 0;
 
-        if (!isImportedFromMcp(sourceFile, 'McpServer')) {
+        if (!isExportedFromMcp(sourceFile, 'McpServer')) {
             return { changesCount: 0, diagnostics: [] };
         }
 

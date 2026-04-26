@@ -83,6 +83,25 @@ export function isImportedFromMcp(sourceFile: SourceFile, symbolName: string): b
     });
 }
 
+export function isExportedFromMcp(sourceFile: SourceFile, exportName: string): boolean {
+    return sourceFile.getImportDeclarations().some(imp => {
+        if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) return false;
+        return imp.getNamedImports().some(n => n.getName() === exportName);
+    });
+}
+
+export function resolveLocalImportName(sourceFile: SourceFile, exportName: string): string | undefined {
+    for (const imp of sourceFile.getImportDeclarations()) {
+        if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
+        for (const n of imp.getNamedImports()) {
+            if (n.getName() === exportName) {
+                return n.getAliasNode()?.getText() ?? exportName;
+            }
+        }
+    }
+    return undefined;
+}
+
 export function resolveOriginalImportName(sourceFile: SourceFile, localName: string): string | undefined {
     for (const imp of sourceFile.getImportDeclarations()) {
         for (const n of imp.getNamedImports()) {

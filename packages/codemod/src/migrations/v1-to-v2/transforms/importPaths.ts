@@ -36,7 +36,7 @@ export const importPathsTransform: Transform = {
         changesCount += rewriteExportDeclarations(sdkExports, sourceFile, filePath, context, diagnostics, usedPackages);
 
         if (sdkImports.length === 0) {
-            return { changesCount, diagnostics };
+            return { changesCount, diagnostics, usedPackages };
         }
 
         const hasClientImport = sdkImports.some(imp => {
@@ -111,6 +111,15 @@ export const importPathsTransform: Transform = {
                     const allOverridden = namedImports.length > 0 && namedImports.every(n => n.getName() in mapping.symbolTargetOverrides!);
                     if (allOverridden) {
                         effectiveTarget = mapping.symbolTargetOverrides[namedImports[0]!.getName()]!;
+                    } else if (namedImports.some(n => n.getName() in mapping.symbolTargetOverrides!)) {
+                        diagnostics.push(
+                            warning(
+                                filePath,
+                                line,
+                                `Aliased import from ${specifier} mixes symbols that belong to different v2 packages. ` +
+                                    `Split the import manually so each symbol targets the correct package.`
+                            )
+                        );
                     }
                 }
                 usedPackages.add(effectiveTarget);
@@ -230,6 +239,15 @@ function rewriteExportDeclarations(
             const allOverridden = namedExports.length > 0 && namedExports.every(s => s.getName() in mapping.symbolTargetOverrides!);
             if (allOverridden) {
                 targetPackage = mapping.symbolTargetOverrides[namedExports[0]!.getName()]!;
+            } else if (namedExports.some(s => s.getName() in mapping.symbolTargetOverrides!)) {
+                diagnostics.push(
+                    warning(
+                        filePath,
+                        line,
+                        `Re-export from ${specifier} mixes symbols that belong to different v2 packages. ` +
+                            `Split the export manually so each symbol targets the correct package.`
+                    )
+                );
             }
         }
         usedPackages.add(targetPackage);

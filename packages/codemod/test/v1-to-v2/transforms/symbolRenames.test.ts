@@ -391,4 +391,27 @@ describe('symbol-renames transform', () => {
         expect(result).toContain('{ McpError: localErr }');
         expect(result).toContain('new ProtocolError(');
     });
+
+    it('does not corrupt export specifier alias when renaming', () => {
+        const input = [
+            `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
+            `export { McpError as MyCustomError };`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('export { ProtocolError as MyCustomError }');
+        expect(result).not.toContain('export { ProtocolError as ProtocolError }');
+    });
+
+    it('does not overwrite local binding in aliased export specifier', () => {
+        const input = [
+            `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
+            `const Foo = McpError;`,
+            `export { Foo as McpError };`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('const Foo = ProtocolError');
+        expect(result).toContain('export { Foo as McpError }');
+    });
 });
