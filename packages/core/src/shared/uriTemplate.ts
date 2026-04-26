@@ -211,14 +211,7 @@ export class UriTemplate {
         }
 
         if (part.operator === '?' || part.operator === '&') {
-            for (let i = 0; i < part.names.length; i++) {
-                const name = part.names[i]!;
-                const prefix = i === 0 ? '\\' + part.operator : '&';
-                patterns.push({
-                    pattern: prefix + this.escapeRegExp(name) + '=([^&]+)',
-                    name
-                });
-            }
+            // Query params are handled directly in match() — skip here
             return patterns;
         }
 
@@ -227,7 +220,8 @@ export class UriTemplate {
 
         switch (part.operator) {
             case '': {
-                pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
+                // Exclude ? and # so path variables don't consume query/fragment delimiters
+                pattern = part.exploded ? '([^/?#,]+(?:,[^/?#,]+)*)' : '([^/?#,]+)';
                 break;
             }
             case '+':
@@ -256,10 +250,23 @@ export class UriTemplate {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
         const names: Array<{ name: string; exploded: boolean }> = [];
+        const queryParamNames: string[] = [];
+        let hasQueryOperator = false;
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
+            } else if (part.operator === '?' || part.operator === '&') {
+                // Validate variable name length for matching
+                for (const name of part.names) {
+                    UriTemplate.validateLength(name, MAX_VARIABLE_LENGTH, 'Variable name');
+                    queryParamNames.push(name);
+                }
+                // Allow an optional query string; the actual param extraction happens below
+                if (!hasQueryOperator) {
+                    pattern += String.raw`(?:\?[^#]*)?`;
+                    hasQueryOperator = true;
+                }
             } else {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
@@ -283,6 +290,23 @@ export class UriTemplate {
             const cleanName = name.replace('*', '');
 
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+        }
+
+        // Parse query params for ?/& template variables — order-independent, all optional
+        if (queryParamNames.length > 0) {
+            const qIdx = uri.indexOf('?');
+            if (qIdx !== -1) {
+                for (const pair of uri.slice(qIdx + 1).split('&')) {
+                    const eqIdx = pair.indexOf('=');
+                    if (eqIdx !== -1) {
+                        const key = pair.slice(0, eqIdx);
+                        const val = pair.slice(eqIdx + 1);
+                        if (queryParamNames.includes(key)) {
+                            result[key] = val;
+                        }
+                    }
+                }
+            }
         }
 
         return result;
