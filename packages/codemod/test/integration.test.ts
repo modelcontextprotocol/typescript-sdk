@@ -445,11 +445,7 @@ describe('integration', () => {
         });
         writeFileSync(
             path.join(dir, 'server.ts'),
-            [
-                `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
-                `throw new McpError(1, 'e');`,
-                ``
-            ].join('\n')
+            [`import { McpError } from '@modelcontextprotocol/sdk/types.js';`, `throw new McpError(1, 'e');`, ``].join('\n')
         );
 
         const result = run(migration, { targetDir: dir, transforms: ['symbols'] });
@@ -469,10 +465,7 @@ describe('integration', () => {
         });
         mkdirSync(path.join(dir, 'src'), { recursive: true });
         writeFileSync(path.join(dir, 'src', 'utils.ts'), `const x = 1;\n`);
-        writeFileSync(
-            path.join(dir, 'already-migrated.ts'),
-            [`import { McpServer } from '@modelcontextprotocol/server';`, ``].join('\n')
-        );
+        writeFileSync(path.join(dir, 'already-migrated.ts'), [`import { McpServer } from '@modelcontextprotocol/server';`, ``].join('\n'));
 
         const result = run(migration, { targetDir: dir });
         if (result.filesChanged === 0 && result.packageJsonChanges) {

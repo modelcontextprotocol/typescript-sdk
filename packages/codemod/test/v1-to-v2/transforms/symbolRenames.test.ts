@@ -393,11 +393,9 @@ describe('symbol-renames transform', () => {
     });
 
     it('does not corrupt export specifier alias when renaming', () => {
-        const input = [
-            `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
-            `export { McpError as MyCustomError };`,
-            ''
-        ].join('\n');
+        const input = [`import { McpError } from '@modelcontextprotocol/sdk/types.js';`, `export { McpError as MyCustomError };`, ''].join(
+            '\n'
+        );
         const result = applyTransform(input);
         expect(result).toContain('export { ProtocolError as MyCustomError }');
         expect(result).not.toContain('export { ProtocolError as ProtocolError }');
