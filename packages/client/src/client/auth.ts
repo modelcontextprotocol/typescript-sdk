@@ -143,10 +143,10 @@ export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider 
     return {
         token: async () => {
             const tokens = await provider.tokens();
-            if (!tokens?.access_token) return undefined;
+            if (!tokens?.access_token) return;
             if (tokens.expires_in !== undefined && issuedAt !== undefined) {
                 const elapsed = Math.floor(Date.now() / 1000) - issuedAt;
-                if (elapsed >= tokens.expires_in - 60) return undefined;
+                if (elapsed >= tokens.expires_in - 60) return;
             }
             return tokens.access_token;
         },
