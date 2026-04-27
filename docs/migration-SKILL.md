@@ -191,6 +191,8 @@ Individual OAuth error classes replaced with single `OAuthError` class and `OAut
 
 Removed: `OAUTH_ERRORS` constant.
 
+For server-side Authorization-Server implementations, the v1 subclass hierarchy (and `OAUTH_ERRORS`) is still available from `@modelcontextprotocol/server-auth-legacy` (frozen v1 copy). For client-side error handling, use `OAuthError` + `OAuthErrorCode` as below.
+
 Update OAuth error handling:
 
 ```typescript
