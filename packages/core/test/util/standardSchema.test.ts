@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 
-import { isZodRawShape, normalizeRawShapeSchema, standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
+import { standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
+import { isZodRawShape, normalizeRawShapeSchema } from '../../src/util/zodCompat.js';
 
 describe('isZodRawShape', () => {
     test('treats empty object as a raw shape (matches v1)', () => {
@@ -30,6 +31,9 @@ describe('normalizeRawShapeSchema', () => {
     });
     test('returns undefined for undefined input', () => {
         expect(normalizeRawShapeSchema(undefined)).toBeUndefined();
+    });
+    test('throws TypeError for an invalid object that is neither raw shape nor Standard Schema', () => {
+        expect(() => normalizeRawShapeSchema({ a: 'not a zod schema' } as never)).toThrow(TypeError);
     });
 });
 

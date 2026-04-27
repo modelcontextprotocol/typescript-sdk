@@ -1118,7 +1118,7 @@ export class ResourceTemplate {
 export type ZodRawShape = Record<string, z.ZodType>;
 
 /** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
-export type InferRawShape<S extends ZodRawShape> = { [K in keyof S]: z.output<S[K]> };
+export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape

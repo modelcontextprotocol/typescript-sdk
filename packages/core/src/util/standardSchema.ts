@@ -6,8 +6,6 @@
 
 /* eslint-disable @typescript-eslint/no-namespace */
 
-import * as z from 'zod/v4';
-
 // Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
 export interface StandardTypedV1<Input = unknown, Output = Input> {
@@ -136,45 +134,6 @@ export function isStandardSchema(schema: unknown): schema is StandardSchemaV1 {
 
 export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSchemaWithJSON {
     return isStandardJSONSchema(schema) && isStandardSchema(schema);
-}
-
-function isZodSchema(v: unknown): v is z.ZodType {
-    if (typeof v !== 'object' || v === null) return false;
-    if ('_def' in v) return true;
-    return isStandardSchema(v) && (v as StandardSchemaV1)['~standard'].vendor === 'zod';
-}
-
-/**
- * Detects a "raw shape" — a plain object whose values are Zod field schemas,
- * e.g. `{ name: z.string() }`. Powers the auto-wrap in
- * {@linkcode normalizeRawShapeSchema}, which wraps with `z.object()`, so only
- * Zod values are supported.
- *
- * @internal
- */
-export function isZodRawShape(obj: unknown): obj is Record<string, z.ZodType> {
-    if (typeof obj !== 'object' || obj === null) return false;
-    if (isStandardSchema(obj)) return false;
-    // [].every() is true, so an empty object is a valid raw shape (matches v1).
-    return Object.values(obj).every(v => isZodSchema(v));
-}
-
-/**
- * Accepts either a {@linkcode StandardSchemaWithJSON} or a raw Zod shape
- * `{ field: z.string() }` and returns a {@linkcode StandardSchemaWithJSON}.
- * Raw shapes are wrapped with `z.object()` so the rest of the pipeline sees a
- * uniform schema type; already-wrapped schemas pass through unchanged.
- *
- * @internal
- */
-export function normalizeRawShapeSchema(
-    schema: StandardSchemaWithJSON | Record<string, z.ZodType> | undefined
-): StandardSchemaWithJSON | undefined {
-    if (schema === undefined) return undefined;
-    if (isZodRawShape(schema)) {
-        return z.object(schema) as StandardSchemaWithJSON;
-    }
-    return schema;
 }
 
 // JSON Schema conversion

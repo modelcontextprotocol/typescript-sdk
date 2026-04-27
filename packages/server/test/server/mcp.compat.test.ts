@@ -1,8 +1,9 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 import { McpServer } from '../../src/index.js';
+import type { InferRawShape } from '../../src/server/mcp.js';
 import { completable } from '../../src/server/completable.js';
 
 describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () => {
@@ -117,5 +118,12 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
         expect(result.result?.content[0]?.text).toBe('7');
 
         await server.close();
+    });
+});
+
+describe('InferRawShape', () => {
+    it('preserves optionality from .optional() as ?: keys', () => {
+        type S = InferRawShape<{ a: z.ZodString; b: z.ZodOptional<z.ZodString> }>;
+        expectTypeOf<S>().toEqualTypeOf<{ a: string; b?: string | undefined }>();
     });
 });
