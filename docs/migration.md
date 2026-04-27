@@ -471,21 +471,19 @@ const client = new Client(
 );
 ```
 
-### `InMemoryTransport` removed from public API
+### `InMemoryTransport` moved
 
-`InMemoryTransport` has been removed from the public API surface. It was previously used for in-process client-server connections and testing.
-
-For **testing**, import it directly from the internal core package:
+`InMemoryTransport` is now exported from `@modelcontextprotocol/client` and `@modelcontextprotocol/server` (both re-export it). It is still intended for in-process client-server connections and testing.
 
 ```typescript
 // v1
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-// v2 (testing only — @modelcontextprotocol/core is internal, not for production use)
-import { InMemoryTransport } from '@modelcontextprotocol/core';
+// v2
+import { InMemoryTransport } from '@modelcontextprotocol/server';
+// or
+import { InMemoryTransport } from '@modelcontextprotocol/client';
 ```
-
-For **production in-process connections**, use `StreamableHTTPClientTransport` with a local server URL, or connect client and server via paired streams.
 
 ### Removed type aliases and deprecated exports
 
