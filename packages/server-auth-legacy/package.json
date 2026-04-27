@@ -1,0 +1,84 @@
+{
+    "name": "@modelcontextprotocol/server-auth-legacy",
+    "private": false,
+    "version": "2.0.0-alpha.2",
+    "description": "Frozen v1 OAuth Authorization Server helpers (mcpAuthRouter, ProxyOAuthServerProvider) for the Model Context Protocol TypeScript SDK. Deprecated; use a dedicated OAuth server in production.",
+    "deprecated": "The MCP SDK no longer ships an Authorization Server implementation. This package is a frozen copy of the v1 src/server/auth helpers for migration purposes only and will not receive new features. Use a dedicated OAuth Authorization Server (e.g. an IdP) and the Resource Server helpers in @modelcontextprotocol/express instead.",
+    "license": "MIT",
+    "author": "Anthropic, PBC (https://anthropic.com)",
+    "homepage": "https://modelcontextprotocol.io",
+    "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "keywords": [
+        "modelcontextprotocol",
+        "mcp",
+        "oauth",
+        "express",
+        "legacy"
+    ],
+    "types": "./dist/index.d.mts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.mts",
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.mjs"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "typecheck": "tsgo -p tsconfig.json --noEmit",
+        "build": "tsdown",
+        "build:watch": "tsdown --watch",
+        "prepack": "npm run build",
+        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
+        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
+        "check": "pnpm run typecheck && pnpm run lint",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "dependencies": {
+        "cors": "catalog:runtimeServerOnly",
+        "express-rate-limit": "^8.2.1",
+        "pkce-challenge": "catalog:runtimeShared",
+        "zod": "catalog:runtimeShared"
+    },
+    "peerDependencies": {
+        "express": "catalog:runtimeServerOnly"
+    },
+    "peerDependenciesMeta": {
+        "express": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@eslint/js": "catalog:devTools",
+        "@types/cors": "catalog:devTools",
+        "@types/express": "catalog:devTools",
+        "@types/express-serve-static-core": "catalog:devTools",
+        "@types/supertest": "catalog:devTools",
+        "@typescript/native-preview": "catalog:devTools",
+        "eslint": "catalog:devTools",
+        "eslint-config-prettier": "catalog:devTools",
+        "eslint-plugin-n": "catalog:devTools",
+        "express": "catalog:runtimeServerOnly",
+        "prettier": "catalog:devTools",
+        "supertest": "catalog:devTools",
+        "tsdown": "catalog:devTools",
+        "typescript": "catalog:devTools",
+        "typescript-eslint": "catalog:devTools",
+        "vitest": "catalog:devTools"
+    }
+}

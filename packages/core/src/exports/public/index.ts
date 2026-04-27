@@ -38,7 +38,8 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
-// Protocol types (NOT the Protocol class itself or mergeCapabilities)
+// Protocol types. The Protocol class is exported for v1-compat (subclassed by
+// some consumers); new code should use Dispatcher / McpServer / Client directly.
 export type {
     BaseContext,
     ClientContext,
@@ -48,7 +49,10 @@ export type {
     RequestOptions,
     ServerContext
 } from '../../shared/protocol.js';
-export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
+export { DEFAULT_REQUEST_TIMEOUT_MSEC, mergeCapabilities, Protocol } from '../../shared/protocol.js';
+
+// In-memory transport (testing + v1 compat)
+export { InMemoryTransport } from '../../util/inMemory.js';
 
 // Task manager types (NOT TaskManager class itself — internal)
 export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
@@ -67,8 +71,9 @@ export { takeResult, toArrayAsync } from '../../shared/responseMessage.js';
 // stdio message framing utilities (for custom transport authors)
 export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/stdio.js';
 
-// Transport types (NOT normalizeHeaders)
-export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
+// Transport types (NOT normalizeHeaders). RequestTransport stays internal until
+// SEP-2598 (pluggable transports) finalizes.
+export type { ChannelTransport, FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
 export { createFetchWithInit } from '../../shared/transport.js';
 export { InMemoryTransport } from '../../util/inMemory.js';
 
@@ -137,7 +142,7 @@ export { isTerminal } from '../../experimental/tasks/interfaces.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
-export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
+export type { StandardSchemaV1, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages

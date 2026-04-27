@@ -75,9 +75,10 @@ Notes:
 
 ## 4. Renamed Symbols
 
-| v1 symbol                       | v2 symbol                           | v2 package                   |
-| ------------------------------- | ----------------------------------- | ---------------------------- |
-| `StreamableHTTPServerTransport` | `NodeStreamableHTTPServerTransport` | `@modelcontextprotocol/node` |
+| v1 symbol                       | v2 symbol                           | v2 package                            |
+| ------------------------------- | ----------------------------------- | ------------------------------------- |
+| `StreamableHTTPServerTransport` | `NodeStreamableHTTPServerTransport` | `@modelcontextprotocol/node`          |
+| `Transport` (interface)         | `ChannelTransport`                  | `@modelcontextprotocol/{client,server}` (deprecated alias `Transport` kept) |
 
 ## 5. Removed / Renamed Type Aliases and Symbols
 

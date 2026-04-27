@@ -6,6 +6,9 @@
 
 /* eslint-disable @typescript-eslint/no-namespace */
 
+import type { ZodType as zType } from 'zod/v4';
+import { toJSONSchema as zToJSONSchema } from 'zod/v4';
+
 // Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
 export interface StandardTypedV1<Input = unknown, Output = Input> {
@@ -149,7 +152,16 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
  * since that cannot satisfy the MCP spec.
  */
 export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
-    const result = schema['~standard'].jsonSchema[io]({ target: 'draft-2020-12' });
+    // For zod schemas, use the package-level converter which handles cross-instance
+    // children (consumer's zod ≠ SDK's zod). The schema-local `~standard.jsonSchema`
+    // is constructed with empty processors and throws on cross-instance children.
+    let result: Record<string, unknown>;
+    if ('_zod' in schema) {
+        result = zToJSONSchema(schema as unknown as zType, { io }) as Record<string, unknown>;
+        delete result.$schema;
+    } else {
+        result = schema['~standard'].jsonSchema[io]({ target: 'draft-2020-12' });
+    }
     if (result.type !== undefined && result.type !== 'object') {
         throw new Error(
             `MCP tool and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +

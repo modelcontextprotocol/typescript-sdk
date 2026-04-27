@@ -1,4 +1,13 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
+import type {
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
+    MessageExtraInfo,
+    RequestId
+} from '../types/index.js';
+import type { RequestEnv } from './context.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -69,9 +78,19 @@ export type TransportSendOptions = {
     onresumptiontoken?: ((token: string) => void) | undefined;
 };
 /**
- * Describes the minimal contract for an MCP transport that a client or server can communicate over.
+ * Describes the minimal contract for a persistent, bidirectional MCP message channel
+ * (stdio, WebSocket, in-memory). The SDK wraps this in a {@linkcode StreamDriver} to
+ * do request/response correlation.
+ *
+ * For request/response-shaped transports (Streamable HTTP), see {@linkcode RequestTransport}.
  */
-export interface Transport {
+export interface ChannelTransport {
+    /**
+     * Explicit shape brand. Optional (defaults to `'channel'`) so existing
+     * `Transport` implementations don't need to declare it.
+     */
+    readonly kind?: 'channel';
+
     /**
      * Starts processing messages on the transport, including any connection steps that might need to be taken.
      *
@@ -131,4 +150,81 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+}
+
+/** @deprecated Use {@linkcode ChannelTransport}. Renamed for clarity alongside {@linkcode RequestTransport}; kept as an alias. */
+export type Transport = ChannelTransport;
+
+/**
+ * Options McpServer passes when wiring a {@linkcode ChannelTransport} via {@linkcode attachChannelTransport}.
+ * @internal
+ */
+export type AttachOptions = {
+    supportedProtocolVersions?: string[];
+    debouncedNotificationMethods?: string[];
+    buildEnv?: (extra: MessageExtraInfo | undefined, base: RequestEnv) => RequestEnv;
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    /** Tap for every inbound response. See {@linkcode StreamDriver.onresponse}. */
+    onresponse?: (
+        response: JSONRPCResultResponse | JSONRPCErrorResponse,
+        messageId: number
+    ) => { consumed: boolean; preserveProgress?: boolean };
+};
+
+/**
+ * A request/response-shaped server transport (e.g. Streamable HTTP). Unlike
+ * {@linkcode ChannelTransport}, there is no persistent pipe: the transport receives
+ * one HTTP request at a time and calls {@linkcode onrequest} for each, streaming the
+ * yielded messages back as the HTTP response.
+ *
+ * The `on*` callback slots are set by `McpServer.connect()`; the transport calls them
+ * per inbound message. The transport itself never imports or references a `Dispatcher`.
+ */
+export interface RequestTransport {
+    /** Explicit shape brand. Required so {@linkcode isRequestTransport} can discriminate without duck-typing. */
+    readonly kind: 'request';
+
+    /**
+     * Callback slot for inbound JSON-RPC requests. Set by `McpServer.connect()`.
+     * The transport calls this per request and writes the yielded messages
+     * (notifications + one terminal response) to the HTTP response stream.
+     */
+    onrequest?: ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined;
+
+    /** Callback slot for inbound notifications (e.g. `notifications/initialized`). */
+    onnotification?: (n: JSONRPCNotification) => void | Promise<void>;
+
+    /**
+     * Callback slot for inbound JSON-RPC responses (a client POSTing back the answer to
+     * a server-initiated request). Returns `true` if the response was claimed.
+     */
+    onresponse?: (r: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean;
+
+    /** Aborts in-flight handlers and releases resources (open SSE streams, session map). */
+    close(): Promise<void>;
+
+    /**
+     * 2025-11 back-compat: write an unsolicited notification to the session's standalone
+     * GET subscription stream.
+     */
+    notify?(n: JSONRPCNotification): Promise<void>;
+
+    /**
+     * 2025-11 back-compat: send an unsolicited server→client request via the standalone
+     * GET stream and await the client's POSTed-back response.
+     */
+    request?(r: JSONRPCRequest): Promise<JSONRPCResultResponse | JSONRPCErrorResponse>;
+
+    /** Callback for when the transport is closed for any reason. */
+    onclose?: (() => void) | undefined;
+    /** Callback for transport-level errors. */
+    onerror?: ((error: Error) => void) | undefined;
+    /** Session id (single-session compat mode). */
+    sessionId?: string | undefined;
+}
+
+/** Type guard distinguishing {@linkcode RequestTransport} from {@linkcode ChannelTransport}. */
+export function isRequestTransport(t: ChannelTransport | RequestTransport): t is RequestTransport {
+    return (t as RequestTransport).kind === 'request';
 }

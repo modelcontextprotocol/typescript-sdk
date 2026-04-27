@@ -39,12 +39,12 @@ import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 
 // Test Protocol subclass for testing
 class TestProtocolImpl extends Protocol<BaseContext> {
-    protected assertCapabilityForMethod(): void {}
-    protected assertNotificationCapability(): void {}
-    protected assertRequestHandlerCapability(): void {}
-    protected assertTaskCapability(): void {}
-    protected assertTaskHandlerCapability(): void {}
-    protected buildContext(ctx: BaseContext): BaseContext {
+    protected override assertCapabilityForMethod(): void {}
+    protected override assertNotificationCapability(): void {}
+    protected override assertRequestHandlerCapability(): void {}
+    protected override assertTaskCapability(): void {}
+    protected override assertTaskHandlerCapability(): void {}
+    protected override buildContext(ctx: BaseContext): BaseContext {
         return ctx;
     }
 }
@@ -2069,7 +2069,8 @@ describe('Task-based execution', () => {
                         taskId: task.taskId,
                         status: 'working'
                     })
-                })
+                }),
+                expect.anything()
             );
 
             // Verify _meta is not present or doesn't contain RELATED_TASK_META_KEY
@@ -2186,7 +2187,8 @@ describe('Task-based execution', () => {
                             }
                         })
                     })
-                })
+                }),
+                expect.anything()
             );
         });
 
@@ -2419,7 +2421,8 @@ describe('Request Cancellation vs Task Cancellation', () => {
                         code: ProtocolErrorCode.InvalidParams,
                         message: expect.stringContaining('Cannot cancel task in terminal status')
                     })
-                })
+                }),
+                expect.anything()
             );
         });
 
@@ -2451,7 +2454,8 @@ describe('Request Cancellation vs Task Cancellation', () => {
                         code: ProtocolErrorCode.InvalidParams,
                         message: expect.stringContaining('Task not found')
                     })
-                })
+                }),
+                expect.anything()
             );
         });
     });
@@ -2804,48 +2808,32 @@ describe('Progress notification support for tasks', () => {
         const messageId = sentRequest.id;
         const progressToken = sentRequest.params._meta.progressToken;
 
-        // Simulate CreateTaskResult response
-        const taskId = 'test-task-456';
+        // Create the task in the store so the ctx.task.store path can find it.
+        const createdTask = await taskStore.createTask({ ttl: 60_000 }, messageId, request);
+        const taskId = createdTask.taskId;
         if (transport.onmessage) {
             transport.onmessage({
                 jsonrpc: '2.0',
                 id: messageId,
-                result: {
-                    task: {
-                        taskId,
-                        status: 'working',
-                        ttl: 60000,
-                        createdAt: new Date().toISOString()
-                    }
-                }
+                result: { task: createdTask }
             });
         }
 
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // Simulate task failure via storeTaskResult
-        await taskStore.storeTaskResult(taskId, 'failed', {
-            content: [],
-            isError: true
+        // Simulate task failure via the public ctx.task.store path (same as the
+        // (completed) variant), which is what triggers progress-handler cleanup.
+        protocol.setRequestHandler('ping', async (_request, ctx) => {
+            if (ctx.task?.store) {
+                await ctx.task.store.storeTaskResult(taskId, 'failed', { content: [], isError: true });
+            }
+            return {};
         });
-
-        // Manually trigger the status notification
         if (transport.onmessage) {
-            transport.onmessage({
-                jsonrpc: '2.0',
-                method: 'notifications/tasks/status',
-                params: {
-                    taskId,
-                    status: 'failed',
-                    ttl: 60000,
-                    createdAt: new Date().toISOString(),
-                    lastUpdatedAt: new Date().toISOString(),
-                    statusMessage: 'Task failed'
-                }
-            });
+            transport.onmessage({ jsonrpc: '2.0', id: 998, method: 'ping', params: {} });
         }
 
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise(resolve => setTimeout(resolve, 50));
 
         // Try to send progress notification after task failure - should be ignored
         progressCallback.mockClear();
@@ -2896,45 +2884,32 @@ describe('Progress notification support for tasks', () => {
         const messageId = sentRequest.id;
         const progressToken = sentRequest.params._meta.progressToken;
 
-        // Simulate CreateTaskResult response
-        const taskId = 'test-task-789';
+        // Create the task in the store so the ctx.task.store path can find it.
+        const createdTask = await taskStore.createTask({ ttl: 60_000 }, messageId, request);
+        const taskId = createdTask.taskId;
         if (transport.onmessage) {
             transport.onmessage({
                 jsonrpc: '2.0',
                 id: messageId,
-                result: {
-                    task: {
-                        taskId,
-                        status: 'working',
-                        ttl: 60000,
-                        createdAt: new Date().toISOString()
-                    }
-                }
+                result: { task: createdTask }
             });
         }
 
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // Simulate task cancellation via updateTaskStatus
-        await taskStore.updateTaskStatus(taskId, 'cancelled', 'User cancelled');
-
-        // Manually trigger the status notification
+        // Simulate task cancellation via the public ctx.task.store path (same as the
+        // (completed) variant), which is what triggers progress-handler cleanup.
+        protocol.setRequestHandler('ping', async (_request, ctx) => {
+            if (ctx.task?.store) {
+                await ctx.task.store.updateTaskStatus(taskId, 'cancelled', 'User cancelled');
+            }
+            return {};
+        });
         if (transport.onmessage) {
-            transport.onmessage({
-                jsonrpc: '2.0',
-                method: 'notifications/tasks/status',
-                params: {
-                    taskId,
-                    status: 'cancelled',
-                    ttl: 60000,
-                    createdAt: new Date().toISOString(),
-                    lastUpdatedAt: new Date().toISOString(),
-                    statusMessage: 'User cancelled'
-                }
-            });
+            transport.onmessage({ jsonrpc: '2.0', id: 997, method: 'ping', params: {} });
         }
 
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise(resolve => setTimeout(resolve, 50));
 
         // Try to send progress notification after cancellation - should be ignored
         progressCallback.mockClear();
@@ -3899,7 +3874,8 @@ describe('Message Interception', () => {
                     jsonrpc: '2.0',
                     id: requestId,
                     result: { content: [{ type: 'text', text: 'done' }] }
-                })
+                }),
+                expect.anything()
             );
         });
     });
@@ -5633,7 +5609,8 @@ describe('Protocol without task configuration', () => {
                 jsonrpc: '2.0',
                 id: 1,
                 result: { content: 'ok' }
-            })
+            }),
+            expect.anything()
         );
     });
 });
@@ -5647,12 +5624,12 @@ describe('TaskManager lifecycle via Protocol', () => {
         protocol = new TestProtocolImpl();
     });
 
-    test('bind() is called during Protocol construction', () => {
-        const bindSpy = vi.spyOn(TaskManager.prototype, 'bind');
+    test('attachTo() is called during Protocol construction', () => {
+        const attachSpy = vi.spyOn(TaskManager.prototype, 'attachTo');
         const p = new TestProtocolImpl({ tasks: {} });
-        expect(bindSpy).toHaveBeenCalled();
+        expect(attachSpy).toHaveBeenCalled();
         expect(p.taskManager).toBeInstanceOf(TaskManager);
-        bindSpy.mockRestore();
+        attachSpy.mockRestore();
     });
 
     test('NullTaskManager is created when no tasks config is provided', () => {

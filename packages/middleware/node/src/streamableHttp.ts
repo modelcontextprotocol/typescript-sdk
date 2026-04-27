@@ -10,7 +10,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResultResponse,
+    MessageExtraInfo,
+    RequestEnv,
+    RequestId,
+    RequestTransport
+} from '@modelcontextprotocol/core';
 import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
@@ -20,6 +31,26 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
  * This is an alias for {@linkcode WebStandardStreamableHTTPServerTransportOptions} for backward compatibility.
  */
 export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
+
+/**
+ * Converts a web-standard `(Request) => Response` handler into a Node.js
+ * `(IncomingMessage, ServerResponse) => void` handler suitable for Express,
+ * `http.createServer`, etc.
+ *
+ * @example
+ * ```ts
+ * const app = express();
+ * app.post('/mcp', toNodeHttpHandler(req => mcpServer.handleHttp(req)));
+ * ```
+ */
+export function toNodeHttpHandler(
+    handler: (req: Request) => Response | Promise<Response>
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+    const listener = getRequestListener(handler, { overrideGlobalObjects: false });
+    return async (req, res) => {
+        await listener(req, res);
+    };
+}
 
 /**
  * Server transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
@@ -64,7 +95,9 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * });
  * ```
  */
-export class NodeStreamableHTTPServerTransport implements Transport {
+export class NodeStreamableHTTPServerTransport implements RequestTransport {
+    readonly kind = 'request' as const;
+
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
     private _requestListener: ReturnType<typeof getRequestListener>;
     // Store auth and parsedBody per request for passing through to handleRequest
@@ -128,6 +161,35 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 
     get onmessage(): ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined {
         return this._webStandardTransport.onmessage;
+    }
+
+    // RequestTransport callback slots — delegate to the wrapped web-standard transport.
+    get onrequest(): ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined {
+        return this._webStandardTransport.onrequest;
+    }
+    set onrequest(h: ((req: JSONRPCRequest, env?: RequestEnv) => AsyncIterable<JSONRPCMessage>) | undefined) {
+        this._webStandardTransport.onrequest = h;
+    }
+    get onnotification(): ((n: JSONRPCNotification) => void | Promise<void>) | undefined {
+        return this._webStandardTransport.onnotification;
+    }
+    set onnotification(h: ((n: JSONRPCNotification) => void | Promise<void>) | undefined) {
+        this._webStandardTransport.onnotification = h;
+    }
+    get onresponse(): ((r: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean) | undefined {
+        return this._webStandardTransport.onresponse;
+    }
+    set onresponse(h: ((r: JSONRPCResultResponse | JSONRPCErrorResponse) => boolean) | undefined) {
+        this._webStandardTransport.onresponse = h;
+    }
+
+    /** {@linkcode RequestTransport.notify} — delegates to the wrapped transport. */
+    notify(n: JSONRPCNotification): Promise<void> {
+        return this._webStandardTransport.notify(n);
+    }
+    /** {@linkcode RequestTransport.request} — delegates to the wrapped transport. */
+    request(r: JSONRPCRequest): Promise<JSONRPCResultResponse | JSONRPCErrorResponse> {
+        return this._webStandardTransport.request(r);
     }
 
     /**

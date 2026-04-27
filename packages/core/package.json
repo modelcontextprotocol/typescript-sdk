@@ -83,5 +83,19 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"
+    },
+    "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "public": [
+                "./dist/exports/public/index.d.mts"
+            ],
+            "types": [
+                "./dist/types/index.d.mts"
+            ],
+            "*": [
+                "./dist/*.d.mts"
+            ]
+        }
     }
 }

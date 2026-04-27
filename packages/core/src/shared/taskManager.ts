@@ -32,54 +32,25 @@ import {
     TaskStatusNotificationSchema
 } from '../types/index.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
-import type { BaseContext, NotificationOptions, RequestOptions } from './protocol.js';
+import type { NotificationOptions, Outbound, RequestEnv, RequestOptions } from './context.js';
+import type { Dispatcher, DispatchFn, DispatchMiddleware, DispatchOutput } from './dispatcher.js';
 import type { ResponseMessage } from './responseMessage.js';
 
 /**
- * Host interface for TaskManager to call back into Protocol. @internal
+ * Hooks {@linkcode TaskManager.attachTo} needs from its owner. The owner is whoever
+ * holds the {@linkcode Outbound} (McpServer/Client/Protocol). Replaces the
+ * previous wider host vtable: most of what the vtable provided is reachable via
+ * `channel()` or via the {@linkcode Dispatcher} passed to `attachTo`.
+ * @internal
  */
-export interface TaskManagerHost {
-    request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
-    notification(notification: Notification, options?: NotificationOptions): Promise<void>;
+export interface TaskAttachHooks {
+    /** Current outbound channel (may be undefined before connect). */
+    channel(): Outbound | undefined;
+    /** Surface non-fatal errors. */
     reportError(error: Error): void;
-    removeProgressHandler(token: number): void;
-    registerHandler(method: string, handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>): void;
-    sendOnResponseStream(message: JSONRPCNotification | JSONRPCRequest, relatedRequestId: RequestId): Promise<void>;
     enforceStrictCapabilities: boolean;
     assertTaskCapability(method: string): void;
     assertTaskHandlerCapability(method: string): void;
-}
-
-/**
- * Context provided to TaskManager when processing an inbound request.
- * @internal
- */
-export interface InboundContext {
-    sessionId?: string;
-    sendNotification: (notification: Notification, options?: NotificationOptions) => Promise<void>;
-    sendRequest: <U extends AnySchema>(request: Request, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
-}
-
-/**
- * Result returned by TaskManager after processing an inbound request.
- * @internal
- */
-export interface InboundResult {
-    taskContext?: BaseContext['task'];
-    sendNotification: (notification: Notification) => Promise<void>;
-    sendRequest: <U extends AnySchema>(
-        request: Request,
-        resultSchema: U,
-        options?: Omit<RequestOptions, 'relatedTask'>
-    ) => Promise<SchemaOutput<U>>;
-    routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean>;
-    hasTaskCreationParams: boolean;
-    /**
-     * Optional validation to run inside the async handler chain (before the request handler).
-     * Throwing here produces a proper JSON-RPC error response, matching the behavior of
-     * capability checks on main.
-     */
-    validateInbound?: () => void;
 }
 
 /**
@@ -152,6 +123,13 @@ export type TaskContext = {
     id?: string;
     store: RequestTaskStore;
     requestedTtl?: number;
+    /**
+     * Yield a queued task message on the *current* dispatch's response stream.
+     * Set by the dispatch middleware; used by the `tasks/result` handler so queued
+     * messages flow on the same stream as that handler's terminal response.
+     * @internal
+     */
+    sendOnResponseStream?: (message: JSONRPCNotification | JSONRPCRequest) => void;
 };
 
 export type TaskManagerOptions = {
@@ -195,10 +173,12 @@ export function extractTaskManagerOptions(tasksCapability: TaskManagerOptions | 
 export class TaskManager {
     private _taskStore?: TaskStore;
     private _taskMessageQueue?: TaskMessageQueue;
+    /** @internal id allocator for dispatch-middleware-queued requests (independent of any transport's id space). */
+    _dispatchOutboundId = 0;
     private _taskProgressTokens: Map<string, number> = new Map();
     private _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _options: TaskManagerOptions;
-    private _host?: TaskManagerHost;
+    private _hooks?: TaskAttachHooks;
 
     constructor(options: TaskManagerOptions) {
         this._options = options;
@@ -206,46 +186,184 @@ export class TaskManager {
         this._taskMessageQueue = options.taskMessageQueue;
     }
 
-    bind(host: TaskManagerHost): void {
-        this._host = host;
+    /**
+     * Attaches this manager to a {@linkcode Dispatcher}: registers the dispatch middleware
+     * via `d.use()`, installs `tasks/*` request handlers when a store is configured, and
+     * stores the {@linkcode TaskAttachHooks}. Outbound-side hooks (request/notification
+     * augmentation, response correlation, close) are called directly by the channel adapter
+     * (see {@linkcode StreamDriver}), which receives this manager via {@linkcode AttachOptions}.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- attach is context-agnostic
+    attachTo(d: Dispatcher<any>, hooks: TaskAttachHooks): void {
+        this._hooks = hooks;
+        d.use(this.dispatchMiddleware);
 
         if (this._taskStore) {
-            host.registerHandler('tasks/get', async (request, ctx) => {
+            d.setRawRequestHandler('tasks/get', async (request, ctx) => {
                 const params = request.params as { taskId: string };
-                const task = await this.handleGetTask(params.taskId, ctx.sessionId);
-                // Per spec: tasks/get responses SHALL NOT include related-task metadata
-                // as the taskId parameter is the source of truth
-                return {
-                    ...task
-                } as Result;
+                return (await this.handleGetTask(params.taskId, ctx.sessionId)) as Result;
             });
 
-            host.registerHandler('tasks/result', async (request, ctx) => {
+            d.setRawRequestHandler('tasks/result', async (request, ctx) => {
                 const params = request.params as { taskId: string };
-                return await this.handleGetTaskPayload(params.taskId, ctx.sessionId, ctx.mcpReq.signal, async message => {
-                    // Send the message on the response stream by passing the relatedRequestId
-                    // This tells the transport to write the message to the tasks/result response stream
-                    await host.sendOnResponseStream(message, ctx.mcpReq.id);
+                return this.handleGetTaskPayload(params.taskId, ctx.sessionId, ctx.mcpReq.signal, async message => {
+                    const sink =
+                        ctx.task?.sendOnResponseStream ??
+                        ((m: JSONRPCNotification | JSONRPCRequest) => {
+                            void hooks.channel()?.sendRaw?.(m, { relatedRequestId: ctx.mcpReq.id });
+                        });
+                    sink(message);
                 });
             });
 
-            host.registerHandler('tasks/list', async (request, ctx) => {
+            d.setRawRequestHandler('tasks/list', async (request, ctx) => {
                 const params = request.params as { cursor?: string } | undefined;
                 return (await this.handleListTasks(params?.cursor, ctx.sessionId)) as Result;
             });
 
-            host.registerHandler('tasks/cancel', async (request, ctx) => {
+            d.setRawRequestHandler('tasks/cancel', async (request, ctx) => {
                 const params = request.params as { taskId: string };
-                return await this.handleCancelTask(params.taskId, ctx.sessionId);
+                return this.handleCancelTask(params.taskId, ctx.sessionId);
             });
         }
     }
 
-    protected get _requireHost(): TaskManagerHost {
-        if (!this._host) {
-            throw new ProtocolError(ProtocolErrorCode.InternalError, 'TaskManager is not bound to a Protocol host — call bind() first');
+    protected get _requireHooks(): TaskAttachHooks {
+        if (!this._hooks) {
+            throw new ProtocolError(ProtocolErrorCode.InternalError, 'TaskManager is not attached to a Dispatcher — call attachTo() first');
         }
-        return this._host;
+        return this._hooks;
+    }
+
+    /**
+     * The {@linkcode DispatchMiddleware}: detects task-augmented inbound requests, builds
+     * `env.task` (with the request-scoped store + side-channel sink), wraps `env.send` to
+     * carry `relatedTask`, intercepts yielded notifications/response for queueing.
+     */
+    get dispatchMiddleware(): DispatchMiddleware {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias, unicorn/no-this-assignment
+        const tm = this;
+        return next =>
+            async function* (request, env = {}) {
+                const taskInfo = tm.extractInboundTaskContext(request, env.sessionId);
+                const relatedTaskId = taskInfo?.relatedTaskId;
+                const hasTaskCreationParams = !!taskInfo?.taskCreationParams;
+
+                if (hasTaskCreationParams) {
+                    try {
+                        tm._requireHooks.assertTaskHandlerCapability(request.method);
+                    } catch (error) {
+                        const e = error as { code?: number; message?: string; data?: unknown };
+                        yield {
+                            kind: 'response',
+                            message: {
+                                jsonrpc: '2.0',
+                                id: request.id,
+                                error: {
+                                    code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
+                                    message: e?.message ?? 'Internal error',
+                                    ...(e?.data !== undefined && { data: e.data })
+                                }
+                            }
+                        };
+                        return;
+                    }
+                }
+
+                // Side-channel sink so `tasks/result` (and any handler) can yield arbitrary
+                // queued messages on this dispatch's stream. Drained interleaved with `next()`.
+                const sideQueue: (JSONRPCNotification | JSONRPCRequest)[] = [];
+                let wake: (() => void) | undefined;
+                const sendOnResponseStream = (m: JSONRPCNotification | JSONRPCRequest) => {
+                    sideQueue.push(m);
+                    wake?.();
+                };
+                const drain = function* (): Generator<DispatchOutput> {
+                    while (sideQueue.length > 0) {
+                        const m = sideQueue.shift()!;
+                        yield { kind: 'notification', message: m as JSONRPCNotification };
+                    }
+                };
+
+                const wrappedSend: NonNullable<RequestEnv['send']> = async (r, opts) => {
+                    const relatedTask = relatedTaskId && !opts?.relatedTask ? { taskId: relatedTaskId } : opts?.relatedTask;
+                    const effectiveTaskId = relatedTask?.taskId;
+                    if (effectiveTaskId && taskInfo?.taskContext?.store) {
+                        await taskInfo.taskContext.store.updateTaskStatus(effectiveTaskId, 'input_required');
+                    }
+                    if (effectiveTaskId) {
+                        // Queue to the task message queue (delivered via tasks/result), don't hit env.send.
+                        return new Promise<Result>((resolve, reject) => {
+                            const messageId = tm._dispatchOutboundId++;
+                            const wire: JSONRPCRequest = { jsonrpc: '2.0', id: messageId, method: r.method, params: r.params };
+                            const settle = (resp: { result: Result } | Error) =>
+                                resp instanceof Error ? reject(resp) : resolve(resp.result);
+                            const { queued } = tm.processOutboundRequest(wire, { ...opts, relatedTask }, messageId, settle, reject);
+                            if (queued) return;
+                            if (env.send) {
+                                env.send(r, { ...opts, relatedTask }).then(result => settle({ result }), reject);
+                            } else {
+                                reject(new ProtocolError(ProtocolErrorCode.InternalError, 'env.send unavailable'));
+                            }
+                        });
+                    }
+                    if (env.send) return env.send(r, { ...opts, relatedTask });
+                    throw new ProtocolError(ProtocolErrorCode.InternalError, 'env.send unavailable');
+                };
+
+                const taskCtx: TaskContext | undefined = taskInfo?.taskContext
+                    ? { ...taskInfo.taskContext, sendOnResponseStream }
+                    : tm._taskStore
+                      ? { store: tm.createRequestTaskStore(request, env.sessionId), sendOnResponseStream }
+                      : undefined;
+
+                const taskEnv: RequestEnv = {
+                    ...env,
+                    task: taskCtx ?? env.task,
+                    send: relatedTaskId || taskInfo?.taskContext ? wrappedSend : env.send
+                };
+
+                const inner = next(request, taskEnv);
+                let pending: Promise<IteratorResult<DispatchOutput>> | undefined;
+                while (true) {
+                    yield* drain();
+                    pending ??= inner.next();
+                    const wakeP = new Promise<'side'>(resolve => {
+                        wake = () => resolve('side');
+                    });
+                    if (sideQueue.length > 0) {
+                        wake = undefined;
+                        continue;
+                    }
+                    const r = await Promise.race([pending, wakeP]);
+                    wake = undefined;
+                    if (r === 'side') continue;
+                    pending = undefined;
+                    if (r.done) break;
+                    const out = r.value;
+                    if (out.kind === 'response') {
+                        const routed = relatedTaskId ? await tm.routeResponse(relatedTaskId, out.message, env.sessionId) : false;
+                        if (!routed) {
+                            yield* drain();
+                            yield out;
+                        }
+                    } else if (relatedTaskId === undefined) {
+                        yield out;
+                    } else {
+                        // Handler-emitted notifications inside a related-task request are queued
+                        // (not yielded) so they deliver via tasks/result, avoiding duplicate
+                        // delivery on bidirectional transports.
+                        const result = await tm.processOutboundNotification(
+                            { method: out.message.method, params: out.message.params },
+                            { relatedTask: { taskId: relatedTaskId } }
+                        );
+                        if (!result.queued && result.jsonrpcNotification) {
+                            yield { kind: 'notification', message: result.jsonrpcNotification };
+                        }
+                    }
+                }
+                yield* drain();
+            } as DispatchFn;
     }
 
     get taskStore(): TaskStore | undefined {
@@ -263,18 +381,23 @@ export class TaskManager {
         return this._taskMessageQueue;
     }
 
+    private _outboundRequest<T extends AnySchema>(req: Request, schema: T, opts?: RequestOptions): Promise<SchemaOutput<T>> {
+        const ch = this._requireHooks.channel();
+        if (!ch) throw new ProtocolError(ProtocolErrorCode.InternalError, 'Not connected');
+        return this.sendRequest(req, schema, opts, ch);
+    }
+
     // -- Public API (client-facing) --
     async *requestStream<T extends AnyObjectSchema>(
         request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
-        const host = this._requireHost;
         const { task } = options ?? {};
 
         if (!task) {
             try {
-                const result = await host.request(request, resultSchema, options);
+                const result = await this._outboundRequest(request, resultSchema, options);
                 yield { type: 'result', result };
             } catch (error) {
                 yield {
@@ -287,7 +410,7 @@ export class TaskManager {
 
         let taskId: string | undefined;
         try {
-            const createResult = await host.request(request, CreateTaskResultSchema, options);
+            const createResult = await this._outboundRequest(request, CreateTaskResultSchema, options);
 
             if (createResult.task) {
                 taskId = createResult.task.taskId;
@@ -338,7 +461,7 @@ export class TaskManager {
     }
 
     async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
-        return this._requireHost.request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
+        return this._outboundRequest({ method: 'tasks/get', params }, GetTaskResultSchema, options);
     }
 
     async getTaskResult<T extends AnySchema>(
@@ -346,15 +469,15 @@ export class TaskManager {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<SchemaOutput<T>> {
-        return this._requireHost.request({ method: 'tasks/result', params }, resultSchema, options);
+        return this._outboundRequest({ method: 'tasks/result', params }, resultSchema, options);
     }
 
     async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
-        return this._requireHost.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
+        return this._outboundRequest({ method: 'tasks/list', params }, ListTasksResultSchema, options);
     }
 
     async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
-        return this._requireHost.request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
+        return this._outboundRequest({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
     }
 
     // -- Handler bodies (delegated from Protocol's registered handlers) --
@@ -392,7 +515,7 @@ export class TaskManager {
                             }
                         } else {
                             const messageType = queuedMessage.type === 'response' ? 'Response' : 'Error';
-                            this._host?.reportError(new Error(`${messageType} handler missing for request ${requestId}`));
+                            this._hooks?.reportError(new Error(`${messageType} handler missing for request ${requestId}`));
                         }
                         continue;
                     }
@@ -550,36 +673,6 @@ export class TaskManager {
         };
     }
 
-    private wrapSendNotification(
-        relatedTaskId: string,
-        originalSendNotification: (notification: Notification, options?: NotificationOptions) => Promise<void>
-    ): (notification: Notification) => Promise<void> {
-        return async (notification: Notification) => {
-            const notificationOptions: NotificationOptions = { relatedTask: { taskId: relatedTaskId } };
-            await originalSendNotification(notification, notificationOptions);
-        };
-    }
-
-    private wrapSendRequest(
-        relatedTaskId: string,
-        taskStore: RequestTaskStore | undefined,
-        originalSendRequest: <V extends AnySchema>(request: Request, resultSchema: V, options?: RequestOptions) => Promise<SchemaOutput<V>>
-    ): <V extends AnySchema>(request: Request, resultSchema: V, options?: TaskRequestOptions) => Promise<SchemaOutput<V>> {
-        return async <V extends AnySchema>(request: Request, resultSchema: V, options?: TaskRequestOptions) => {
-            const requestOptions: RequestOptions = { ...options };
-            if (relatedTaskId && !requestOptions.relatedTask) {
-                requestOptions.relatedTask = { taskId: relatedTaskId };
-            }
-
-            const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
-            if (effectiveTaskId && taskStore) {
-                await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
-            }
-
-            return await originalSendRequest(request, resultSchema, requestOptions);
-        };
-    }
-
     private handleResponse(response: JSONRPCResponse | JSONRPCErrorResponse): boolean {
         const messageId = Number(response.id);
         const resolver = this._requestResolvers.get(messageId);
@@ -653,7 +746,7 @@ export class TaskManager {
 
     private createRequestTaskStore(request?: JSONRPCRequest, sessionId?: string): RequestTaskStore {
         const taskStore = this._requireTaskStore;
-        const host = this._host;
+        const hooks = this._hooks;
 
         return {
             createTask: async taskParams => {
@@ -673,7 +766,7 @@ export class TaskManager {
                         method: 'notifications/tasks/status',
                         params: task
                     });
-                    await host?.notification(notification as Notification);
+                    await hooks?.channel()?.notification(notification as Notification);
                     if (isTerminal(task.status)) {
                         this._cleanupTaskProgressHandler(taskId);
                     }
@@ -698,7 +791,7 @@ export class TaskManager {
                         method: 'notifications/tasks/status',
                         params: updatedTask
                     });
-                    await host?.notification(notification as Notification);
+                    await hooks?.channel()?.notification(notification as Notification);
                     if (isTerminal(updatedTask.status)) {
                         this._cleanupTaskProgressHandler(taskId);
                     }
@@ -708,39 +801,42 @@ export class TaskManager {
         };
     }
 
-    // -- Lifecycle methods (called by Protocol directly) --
+    // -- Outbound helpers (called by McpServer/Client/Protocol before delegating to Outbound) --
 
-    processInboundRequest(request: JSONRPCRequest, ctx: InboundContext): InboundResult {
-        const taskInfo = this.extractInboundTaskContext(request, ctx.sessionId);
-        const relatedTaskId = taskInfo?.relatedTaskId;
+    /**
+     * Task-aware request send: routes through {@linkcode RequestOptions.intercept} so the
+     * channel adapter builds the wire (id/progressToken/handlers) and TaskManager decides
+     * whether to queue it. Use this where instance-level outbound requests are made
+     * (Protocol/McpServer/Client), so the channel adapter stays task-agnostic.
+     */
+    sendRequest<T extends AnySchema>(
+        request: Request,
+        resultSchema: T,
+        options: RequestOptions | undefined,
+        outbound: Outbound
+    ): Promise<SchemaOutput<T>> {
+        if (!options?.relatedTask && !options?.task) {
+            return outbound.request(request, resultSchema, options);
+        }
+        return outbound.request(request, resultSchema, {
+            ...options,
+            intercept: (wire, messageId, settle, onError) => this.processOutboundRequest(wire, options, messageId, settle, onError).queued
+        });
+    }
 
-        const sendNotification = relatedTaskId
-            ? this.wrapSendNotification(relatedTaskId, ctx.sendNotification)
-            : (notification: Notification) => ctx.sendNotification(notification);
-
-        const sendRequest = relatedTaskId
-            ? this.wrapSendRequest(relatedTaskId, taskInfo?.taskContext?.store, ctx.sendRequest)
-            : taskInfo?.taskContext
-              ? this.wrapSendRequest('', taskInfo.taskContext.store, ctx.sendRequest)
-              : ctx.sendRequest;
-
-        const hasTaskCreationParams = !!taskInfo?.taskCreationParams;
-
-        return {
-            taskContext: taskInfo?.taskContext,
-            sendNotification,
-            sendRequest,
-            routeResponse: async (message: JSONRPCResponse | JSONRPCErrorResponse) => {
-                if (relatedTaskId) {
-                    return this.routeResponse(relatedTaskId, message, ctx.sessionId);
-                }
-                return false;
-            },
-            hasTaskCreationParams,
-            // Deferred validation: runs inside the async handler chain so errors
-            // produce proper JSON-RPC error responses (matching main's behavior).
-            validateInbound: hasTaskCreationParams ? () => this._requireHost.assertTaskHandlerCapability(request.method) : undefined
-        };
+    /**
+     * Task-aware notification send: queues when `options.relatedTask` is set, otherwise
+     * delegates to `outbound.notification()` with related-task metadata attached.
+     */
+    async sendNotification(notification: Notification, options: NotificationOptions | undefined, outbound: Outbound): Promise<void> {
+        const result = await this.processOutboundNotification(notification, options);
+        if (result.queued) return;
+        await outbound.notification(
+            result.jsonrpcNotification
+                ? { method: result.jsonrpcNotification.method, params: result.jsonrpcNotification.params }
+                : notification,
+            options
+        );
     }
 
     processOutboundRequest(
@@ -750,9 +846,8 @@ export class TaskManager {
         responseHandler: (response: JSONRPCResultResponse | Error) => void,
         onError: (error: unknown) => void
     ): { queued: boolean } {
-        // Check task capability when sending a task-augmented request (matches main's enforceStrictCapabilities gate)
-        if (this._requireHost.enforceStrictCapabilities && options?.task) {
-            this._requireHost.assertTaskCapability(jsonrpcRequest.method);
+        if (this._requireHooks.enforceStrictCapabilities && options?.task) {
+            this._requireHooks.assertTaskCapability(jsonrpcRequest.method);
         }
 
         const queued = this.prepareOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, onError);
@@ -821,7 +916,7 @@ export class TaskManager {
                         resolver(new ProtocolError(ProtocolErrorCode.InternalError, 'Task cancelled or completed'));
                         this._requestResolvers.delete(requestId);
                     } else {
-                        this._host?.reportError(new Error(`Resolver missing for request ${requestId} during task ${taskId} cleanup`));
+                        this._hooks?.reportError(new Error(`Resolver missing for request ${requestId} during task ${taskId} cleanup`));
                     }
                 }
             }
@@ -851,7 +946,7 @@ export class TaskManager {
     private _cleanupTaskProgressHandler(taskId: string): void {
         const progressToken = this._taskProgressTokens.get(taskId);
         if (progressToken !== undefined) {
-            this._host?.removeProgressHandler(progressToken);
+            this._hooks?.channel()?.removeProgressHandler?.(progressToken);
             this._taskProgressTokens.delete(taskId);
         }
     }
@@ -859,31 +954,43 @@ export class TaskManager {
 
 /**
  * No-op TaskManager used when tasks capability is not configured.
- * Provides passthrough implementations for the hot paths, avoiding
- * unnecessary task extraction logic on every request.
+ * Its middleware getters return identity / no-op so registering it costs nothing.
  */
 export class NullTaskManager extends TaskManager {
     constructor() {
         super({});
     }
 
-    override processInboundRequest(request: JSONRPCRequest, ctx: InboundContext): InboundResult {
-        const hasTaskCreationParams = isTaskAugmentedRequestParams(request.params) && !!request.params.task;
-        return {
-            taskContext: undefined,
-            sendNotification: (notification: Notification) => ctx.sendNotification(notification),
-            sendRequest: ctx.sendRequest,
-            routeResponse: async () => false,
-            hasTaskCreationParams,
-            validateInbound: hasTaskCreationParams ? () => this._requireHost.assertTaskHandlerCapability(request.method) : undefined
-        };
+    override get dispatchMiddleware(): DispatchMiddleware {
+        // No store → identity middleware. Only validate task-creation capability so the
+        // "client sent params.task but server has no tasks capability" error path matches.
+        // eslint-disable-next-line @typescript-eslint/no-this-alias, unicorn/no-this-assignment
+        const tm = this;
+        return next =>
+            async function* (req, env) {
+                if (isTaskAugmentedRequestParams(req.params) && req.params.task) {
+                    try {
+                        tm._requireHooks.assertTaskHandlerCapability(req.method);
+                    } catch (error) {
+                        const e = error as { code?: number; message?: string; data?: unknown };
+                        yield {
+                            kind: 'response',
+                            message: {
+                                jsonrpc: '2.0',
+                                id: req.id,
+                                error: {
+                                    code: Number.isSafeInteger(e?.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
+                                    message: e?.message ?? 'Internal error',
+                                    ...(e?.data !== undefined && { data: e.data })
+                                }
+                            }
+                        };
+                        return;
+                    }
+                }
+                yield* next(req, env);
+            } as DispatchFn;
     }
-
-    // processOutboundRequest is inherited - it handles task/relatedTask augmentation
-    // and only queues if relatedTask is set (which won't happen without a task store)
-
-    // processInboundResponse is inherited - it checks _requestResolvers (empty for NullTaskManager)
-    // and _taskProgressTokens (empty for NullTaskManager)
 
     override async processOutboundNotification(
         notification: Notification,

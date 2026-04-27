@@ -24,7 +24,8 @@
     "exports": {
         ".": {
             "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.mjs"
         }
     },
     "files": [
@@ -63,5 +64,6 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"
-    }
+    },
+    "types": "./dist/index.d.mts"
 }
