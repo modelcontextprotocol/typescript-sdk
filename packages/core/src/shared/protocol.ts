@@ -1100,8 +1100,28 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Builds a request handler from a `paramsSchema` + params-only user handler. Strips `_meta`,
-     * validates `params` against the schema, and invokes the user handler with the parsed params.
+     * Shared by the 3-arg `setRequestHandler`/`setNotificationHandler` dispatch:
+     * strips protocol-level `_meta`, validates remaining `params` against `paramsSchema`,
+     * and returns the parsed value. Throws via `makeError` so each caller can use the
+     * error class appropriate for its path (JSON-RPC error for requests, local error for notifications).
+     */
+    private async _parseParamsWithSchema(
+        method: string,
+        paramsSchema: StandardSchemaV1,
+        rawParams: unknown,
+        makeError: (msg: string) => Error
+    ): Promise<unknown> {
+        const { _meta, ...userParams } = (rawParams ?? {}) as Record<string, unknown>;
+        void _meta;
+        const parsed = await parseStandardSchema(paramsSchema, userParams);
+        if (!parsed.success) {
+            throw makeError(`Invalid params for ${method}: ${parsed.error.message}`);
+        }
+        return parsed.data;
+    }
+
+    /**
+     * Builds a request handler from a `paramsSchema` + params-only user handler.
      * Shared by {@linkcode setRequestHandler}'s 3-arg dispatch and `Client`/`Server` overrides
      * so that per-method wrapping can be applied uniformly to the normalized handler.
      */
@@ -1111,13 +1131,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         userHandler: (params: unknown, ctx: ContextT) => unknown
     ): (request: Request, ctx: ContextT) => Promise<Result> {
         return async (request, ctx) => {
-            const { _meta, ...userParams } = (request.params ?? {}) as Record<string, unknown>;
-            void _meta;
-            const parsed = await parseStandardSchema(paramsSchema, userParams);
-            if (!parsed.success) {
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
-            }
-            return userHandler(parsed.data, ctx) as Result;
+            const data = await this._parseParamsWithSchema(method, paramsSchema, request.params, msg => {
+                return new ProtocolError(ProtocolErrorCode.InvalidParams, msg);
+            });
+            return userHandler(data, ctx) as Result;
         };
     }
 
@@ -1209,13 +1226,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const paramsSchema = schemaOrHandler as StandardSchemaV1;
         this._notificationHandlers.set(method, async notification => {
-            const { _meta, ...userParams } = (notification.params ?? {}) as Record<string, unknown>;
-            void _meta;
-            const parsed = await parseStandardSchema(paramsSchema, userParams);
-            if (!parsed.success) {
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error.message}`);
-            }
-            return maybeHandler(parsed.data);
+            // Notification handler errors never cross the wire (no JSON-RPC response); they go to onerror.
+            const data = await this._parseParamsWithSchema(method, paramsSchema, notification.params, msg => new Error(msg));
+            return maybeHandler(data);
         });
     }
 

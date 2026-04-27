@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { CreateMessageRequestSchema, ElicitRequestSchema, InMemoryTransport } from '@modelcontextprotocol/core';
 
@@ -70,5 +71,21 @@ describe('Client.setRequestHandler — Zod-schema form parity', () => {
 
         expect((stringRes.error as { message: string }).message).toContain('Invalid');
         expect(schemaRes.error).toEqual(stringRes.error);
+    });
+
+    it('three-arg form gets the same result-validation as string form (elicitation/create)', async () => {
+        const invalidElicitResult = { action: 'nope' };
+        const params = { mode: 'form', message: 'q', requestedSchema: { type: 'object', properties: {} } };
+        const viaThreeArg = await setup(c =>
+            c.setRequestHandler('elicitation/create', z.object({ mode: z.string() }).passthrough(), () => invalidElicitResult as never)
+        );
+        const res = await send(viaThreeArg.ct, 'elicitation/create', params);
+        expect((res.error as { message: string }).message).toContain('Invalid elicitation result');
+    });
+
+    it('three-arg form handles non-spec methods through Client', async () => {
+        const { ct } = await setup(c => c.setRequestHandler('acme/echo', z.object({ msg: z.string() }), p => ({ reply: p.msg })));
+        const res = await send(ct, 'acme/echo', { msg: 'hi' });
+        expect(res.result).toEqual({ reply: 'hi' });
     });
 });

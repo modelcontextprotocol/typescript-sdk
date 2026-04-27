@@ -77,6 +77,21 @@ describe('setNotificationHandler — three-arg paramsSchema form', () => {
         await new Promise(r => setTimeout(r, 0));
         expect(received).toEqual([{ n: 1 }, { n: 2 }]);
     });
+
+    it('forwards param-validation failures to onerror (no JSON-RPC error response)', async () => {
+        const { a, b } = await makePair();
+        const errs: Error[] = [];
+        b.onerror = e => errs.push(e);
+        let invoked = false;
+        b.setNotificationHandler('acme/tick', z.object({ n: z.number() }), () => {
+            invoked = true;
+        });
+        await a.notification({ method: 'acme/tick', params: { n: 'not-a-number' } });
+        await new Promise(r => setTimeout(r, 0));
+        expect(invoked).toBe(false);
+        expect(errs.length).toBe(1);
+        expect(String(errs[0])).toMatch(/Invalid params for acme\/tick/);
+    });
 });
 
 describe('non-Zod StandardSchemaV1', () => {

@@ -82,4 +82,25 @@ describe('Server.setRequestHandler — Zod-schema form parity', () => {
         });
         expect(res.result).toEqual({ reply: 'hi' });
     });
+
+    it('three-arg form gets the same task-result validation as string form', async () => {
+        const invalidTaskResult = { content: [{ type: 'text' as const, text: 'not a task result' }] };
+        const viaThreeArg = await setup(s =>
+            s.setRequestHandler('tools/call', z.object({ name: z.string() }).passthrough(), () => invalidTaskResult)
+        );
+        const res = await callToolWithTask(viaThreeArg.ct);
+        expect((res.error as { message: string }).message).toContain('Invalid task creation result');
+    });
+
+    it('three-arg form handles non-spec methods through Server', async () => {
+        const { ct } = await setup(s => s.setRequestHandler('acme/echo', z.object({ msg: z.string() }), p => ({ reply: p.msg })));
+        const res = await new Promise<{ result?: unknown; error?: unknown }>(resolve => {
+            ct.onmessage = m => {
+                const msg = m as { result?: unknown; error?: unknown };
+                if ('result' in msg || 'error' in msg) resolve(msg);
+            };
+            ct.send({ jsonrpc: '2.0', id: 1, method: 'acme/echo', params: { msg: 'hi' } });
+        });
+        expect(res.result).toEqual({ reply: 'hi' });
+    });
 });
