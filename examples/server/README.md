@@ -39,12 +39,38 @@ pnpm tsx src/simpleStreamableHttp.ts
 | Task interactive server                   | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                           |
 | Hono Streamable HTTP server               | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)           |
 | SSE polling demo server                   | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                   |
+| External OAuth Authorization Server       | Pure OAuth 2.0 resource server: validates JWT bearer tokens minted by an external AS via JWKS.  | [`src/externalAuthStreamableHttp.ts`](src/externalAuthStreamableHttp.ts)                 |
 
 ## OAuth demo flags (Streamable HTTP server)
 
 ```bash
 pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts --oauth
 ```
+
+## External Authorization Server (resource-server pattern)
+
+`simpleStreamableHttp.ts --oauth` co-locates an Authorization Server with the
+MCP server for demos. In production, the Authorization Server is usually a
+separate system (Auth0, Okta, Keycloak, Entra ID, AWS Cognito, an in-house
+IdP, ...) and the MCP server is a pure OAuth 2.0 *resource server* that
+validates incoming bearer tokens. `externalAuthStreamableHttp.ts` shows that
+pattern.
+
+The example reads its trust anchors from environment variables, validates
+JWTs against the AS's published JWKS, enforces the RFC 8707 audience claim,
+and serves RFC 9728 Protected Resource Metadata so clients can discover the
+AS automatically:
+
+```bash
+export MCP_JWKS_URL=https://<tenant>.auth0.com/.well-known/jwks.json
+export MCP_ISSUER=https://<tenant>.auth0.com/
+export MCP_AUDIENCE=http://localhost:3000/mcp
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/externalAuthStreamableHttp.ts
+```
+
+Tools registered:
+- `whoami` — requires `mcp:read`. Echoes the validated subject and scopes.
+- `echo` — requires `mcp:write`. Demonstrates per-tool scope enforcement.
 
 ## URL elicitation example (server + client)
 

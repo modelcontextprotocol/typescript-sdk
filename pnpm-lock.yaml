@@ -372,6 +372,9 @@ importers:
       hono:
         specifier: catalog:runtimeServerOnly
         version: 4.12.9
+      jose:
+        specifier: catalog:runtimeClientOnly
+        version: 6.2.2
       valibot:
         specifier: catalog:devTools
         version: 1.3.1(typescript@5.9.3)
