@@ -1,17 +1,18 @@
 /**
  * v1-compat re-export of all protocol Zod schemas.
  *
- * Prefer {@linkcode specTypeSchema} for runtime validation. These are Zod
- * schemas; their TS type may change with internal Zod upgrades.
+ * Prefer `specTypeSchemas` / `isSpecType` (from `@modelcontextprotocol/server`)
+ * for runtime validation. These are Zod schemas; their TS type may change with
+ * internal Zod upgrades.
  *
- * @deprecated Use `specTypeSchema()` for runtime validation.
+ * @deprecated Use `specTypeSchemas` / `isSpecType` for runtime validation.
  * @packageDocumentation
  */
 
-/** @deprecated Use `specTypeSchema()` for runtime validation. */
+/** @deprecated Use `specTypeSchemas` / `isSpecType` for runtime validation. */
 export * from '@modelcontextprotocol/core/schemas';
 
-/** @deprecated Use `specTypeSchema()` for runtime validation. */
+/** @deprecated Use `specTypeSchemas` / `isSpecType` for runtime validation. */
 export {
     IdJagTokenExchangeResponseSchema,
     OAuthClientInformationFullSchema,
@@ -30,5 +31,7 @@ export {
 } from '@modelcontextprotocol/core';
 export {
     /** @deprecated Use {@linkcode JSONRPCErrorResponseSchema}. */
-    JSONRPCErrorResponseSchema as JSONRPCErrorSchema
+    JSONRPCErrorResponseSchema as JSONRPCErrorSchema,
+    /** @deprecated Use {@linkcode ResourceTemplateReferenceSchema}. */
+    ResourceTemplateReferenceSchema as ResourceReferenceSchema
 } from '@modelcontextprotocol/core/schemas';
