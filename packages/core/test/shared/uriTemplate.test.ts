@@ -191,10 +191,104 @@ describe('UriTemplate', () => {
             expect(template.variableNames).toEqual(['q', 'page']);
         });
 
+        it('should handle partial query parameter matches correctly', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?q=test');
+            expect(match).toEqual({ q: 'test' });
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should match multiple query parameters if provided in a different order', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?page=1&q=test');
+            expect(match).toEqual({ q: 'test', page: '1' });
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should still match if additional query parameters are provided', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?q=test&page=1&sort=desc');
+            expect(match).toEqual({ q: 'test', page: '1' });
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should match omitted query parameters', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search');
+            expect(match).toEqual({});
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should distinguish absent from empty query parameters', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?q=');
+            expect(match).toEqual({ q: '' });
+        });
+
+        it('should match nested path segments with query parameters', () => {
+            const template = new UriTemplate('/api/{version}/{resource}{?apiKey,q,p,sort}');
+            const match = template.match('/api/v1/users?apiKey=testkey&q=user');
+            expect(match).toEqual({
+                version: 'v1',
+                resource: 'users',
+                apiKey: 'testkey',
+                q: 'user'
+            });
+            expect(template.variableNames).toEqual(['version', 'resource', 'apiKey', 'q', 'p', 'sort']);
+        });
+
         it('should handle partial matches correctly', () => {
             const template = new UriTemplate('/users/{id}');
             expect(template.match('/users/123/extra')).toBeNull();
             expect(template.match('/users')).toBeNull();
+        });
+
+        it('should handle encoded query parameters', () => {
+            const template = new UriTemplate('/search{?q}');
+            const match = template.match('/search?q=hello%20world');
+            expect(match).toEqual({ q: 'hello world' });
+            expect(template.variableNames).toEqual(['q']);
+        });
+
+        it('should not throw on malformed percent-encoding in query parameters', () => {
+            const template = new UriTemplate('/search{?q}');
+            expect(template.match('/search?q=100%')).toEqual({ q: '100%' });
+            expect(template.match('/search?q=%ZZ')).toEqual({ q: '%ZZ' });
+        });
+
+        it('should not throw on literal ? in a string segment (expand-only usage)', () => {
+            expect(() => new UriTemplate('/path?fixed=1')).not.toThrow();
+            expect(() => new UriTemplate('http://e.com/?literal').expand({})).not.toThrow();
+            expect(new UriTemplate('http://e.com/?literal').expand({})).toBe('http://e.com/?literal');
+        });
+
+        it('should let {+var} capture across ? when template has no query operators', () => {
+            const template = new UriTemplate('http://e.com{+rest}');
+            expect(template.match('http://e.com/search?q=hello')).toEqual({ rest: '/search?q=hello' });
+        });
+
+        it('should let {#var} capture the fragment', () => {
+            const template = new UriTemplate('/page{#section}');
+            expect(template.match('/page#intro')).toEqual({ section: '#intro' });
+        });
+
+        it('should accept templates using {?param} for query parameters', () => {
+            // The supported way to express query parameters
+            const template = new UriTemplate('/path{?fixed}');
+            expect(template.match('/path?fixed=1')).toEqual({ fixed: '1' });
+            expect(template.match('/path')).toEqual({});
+        });
+
+        it('should strip fragments before matching query parameters', () => {
+            const template = new UriTemplate('/path{?a}');
+            expect(template.match('/path?a=1#frag')).toEqual({ a: '1' });
+            expect(template.match('/path?a=1&b=2#frag')).toEqual({ a: '1' });
+        });
+
+        it('should strip fragments when the URI has no query string', () => {
+            const template = new UriTemplate('/path{?a}');
+            expect(template.match('/path#frag')).toEqual({});
+            expect(template.match('/path')).toEqual({});
         });
     });
 
