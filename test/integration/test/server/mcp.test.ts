@@ -7039,4 +7039,354 @@ describe('Zod v4', () => {
             taskStore.cleanup();
         });
     });
+
+    describe('hooks', () => {
+        test('beforeToolCall is called with correct arguments', async () => {
+            const hookCalls: Array<{ toolName: string; arguments: unknown }> = [];
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        beforeToolCall: async ({ toolName, arguments: args }) => {
+                            hookCalls.push({ toolName, arguments: args });
+                        }
+                    }
+                }
+            );
+
+            mcpServer.registerTool(
+                'greet',
+                {
+                    inputSchema: z.object({ name: z.string() })
+                },
+                async ({ name }) => ({
+                    content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
+                })
+            );
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+
+            expect(hookCalls).toHaveLength(1);
+            expect(hookCalls[0]!.toolName).toBe('greet');
+            expect(hookCalls[0]!.arguments).toEqual({ name: 'World' });
+        });
+
+        test('afterToolCall is called with correct arguments and result', async () => {
+            const hookCalls: Array<{ toolName: string; arguments: unknown; result: unknown }> = [];
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        afterToolCall: async ({ toolName, arguments: args, result }) => {
+                            hookCalls.push({ toolName, arguments: args, result });
+                            return result;
+                        }
+                    }
+                }
+            );
+
+            mcpServer.registerTool(
+                'greet',
+                {
+                    inputSchema: z.object({ name: z.string() })
+                },
+                async ({ name }) => ({
+                    content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
+                })
+            );
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+
+            expect(hookCalls).toHaveLength(1);
+            expect(hookCalls[0]!.toolName).toBe('greet');
+            expect(hookCalls[0]!.arguments).toEqual({ name: 'World' });
+            expect(hookCalls[0]!.result).toMatchObject({
+                content: [{ type: 'text', text: 'Hello, World!' }]
+            });
+        });
+
+        test('beforeToolCall can abort a tool call by throwing', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        beforeToolCall: async () => {
+                            throw new Error('Rate limit exceeded');
+                        }
+                    }
+                }
+            );
+
+            let toolCalled = false;
+            mcpServer.registerTool('test', {}, async () => {
+                toolCalled = true;
+                return {
+                    content: [{ type: 'text' as const, text: 'should not reach here' }]
+                };
+            });
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = (await client.callTool({ name: 'test' })) as CallToolResult;
+
+            expect(result.isError).toBe(true);
+            expect((result.content[0] as TextContent).text).toBe('Rate limit exceeded');
+            expect(toolCalled).toBe(false);
+        });
+
+        test('afterToolCall can transform the result', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        afterToolCall: async ({ result }) => {
+                            // Transform the result by appending metadata
+                            if ('content' in result) {
+                                return {
+                                    ...result,
+                                    content: [...result.content, { type: 'text' as const, text: '[hook: processed]' }]
+                                };
+                            }
+                            return result;
+                        }
+                    }
+                }
+            );
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text' as const, text: 'original result' }]
+            }));
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = (await client.callTool({ name: 'test' })) as CallToolResult;
+
+            expect(result.content).toHaveLength(2);
+            expect((result.content[0] as TextContent).text).toBe('original result');
+            expect((result.content[1] as TextContent).text).toBe('[hook: processed]');
+        });
+
+        test('hooks are not called for unknown tools', async () => {
+            let beforeCalled = false;
+            let afterCalled = false;
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        beforeToolCall: async () => {
+                            beforeCalled = true;
+                        },
+                        afterToolCall: async ({ result }) => {
+                            afterCalled = true;
+                            return result;
+                        }
+                    }
+                }
+            );
+
+            // Register a tool so the handler is set up
+            mcpServer.registerTool('existing', {}, async () => ({
+                content: [{ type: 'text' as const, text: 'ok' }]
+            }));
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Call a non-existent tool - should throw ProtocolError before hooks run
+            await expect(
+                client.request({
+                    method: 'tools/call',
+                    params: { name: 'nonexistent' }
+                })
+            ).rejects.toThrow();
+
+            expect(beforeCalled).toBe(false);
+            expect(afterCalled).toBe(false);
+        });
+
+        test('both hooks work together in correct order', async () => {
+            const callOrder: string[] = [];
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        beforeToolCall: async () => {
+                            callOrder.push('before');
+                        },
+                        afterToolCall: async ({ result }) => {
+                            callOrder.push('after');
+                            return result;
+                        }
+                    }
+                }
+            );
+
+            mcpServer.registerTool('test', {}, async () => {
+                callOrder.push('handler');
+                return {
+                    content: [{ type: 'text' as const, text: 'result' }]
+                };
+            });
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            await client.callTool({ name: 'test' });
+
+            expect(callOrder).toEqual(['before', 'handler', 'after']);
+        });
+
+        test('tools work normally when no hooks are provided', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    inputSchema: z.object({ value: z.number() })
+                },
+                async ({ value }) => ({
+                    content: [{ type: 'text' as const, text: `Result: ${value * 2}` }]
+                })
+            );
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = (await client.callTool({
+                name: 'test',
+                arguments: { value: 21 }
+            })) as CallToolResult;
+
+            expect((result.content[0] as TextContent).text).toBe('Result: 42');
+        });
+
+        test('async hooks work correctly', async () => {
+            const timestamps: { before?: number; handler?: number; after?: number } = {};
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        beforeToolCall: async () => {
+                            // Simulate async work
+                            await new Promise(resolve => setTimeout(resolve, 10));
+                            timestamps.before = Date.now();
+                        },
+                        afterToolCall: async ({ result }) => {
+                            // Simulate async work
+                            await new Promise(resolve => setTimeout(resolve, 10));
+                            timestamps.after = Date.now();
+                            return result;
+                        }
+                    }
+                }
+            );
+
+            mcpServer.registerTool('test', {}, async () => {
+                timestamps.handler = Date.now();
+                return {
+                    content: [{ type: 'text' as const, text: 'result' }]
+                };
+            });
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            await client.callTool({ name: 'test' });
+
+            expect(timestamps.before).toBeDefined();
+            expect(timestamps.handler).toBeDefined();
+            expect(timestamps.after).toBeDefined();
+            expect(timestamps.before!).toBeLessThanOrEqual(timestamps.handler!);
+            expect(timestamps.handler!).toBeLessThanOrEqual(timestamps.after!);
+        });
+
+        test('afterToolCall processes error results when tool throws an exception', async () => {
+            let receivedResult: CallToolResult | Record<string, unknown> | undefined;
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        afterToolCall: async ({ result }) => {
+                            receivedResult = result;
+                            if ('isError' in result && result.isError) {
+                                return {
+                                    content: [{ type: 'text' as const, text: 'Enriched error: intercepted' }],
+                                    isError: true
+                                } as CallToolResult;
+                            }
+                            return result;
+                        }
+                    }
+                }
+            );
+
+            mcpServer.registerTool('error_tool', {}, async () => {
+                throw new Error('Original panic message');
+            });
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = (await client.callTool({ name: 'error_tool' })) as CallToolResult;
+
+            // Verify the hook received the converted error
+            expect(receivedResult).toBeDefined();
+            const received = receivedResult as CallToolResult;
+            expect(received.isError).toBe(true);
+            expect((received.content[0] as TextContent).text).toBe('Original panic message');
+
+            // Verify the hook was able to transform the error returned to the client
+            expect(result.isError).toBe(true);
+            expect((result.content[0] as TextContent).text).toBe('Enriched error: intercepted');
+        });
+
+        test('afterToolCall hook errors are caught and returned as tool errors', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    hooks: {
+                        afterToolCall: async () => {
+                            throw new Error('Hook exploded');
+                        }
+                    }
+                }
+            );
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text' as const, text: 'ok' }]
+            }));
+
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = (await client.callTool({ name: 'test' })) as CallToolResult;
+
+            expect(result.isError).toBe(true);
+            expect((result.content[0] as TextContent).text).toBe('afterToolCall hook error: Hook exploded');
+        });
+    });
 });
