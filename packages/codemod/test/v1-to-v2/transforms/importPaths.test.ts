@@ -336,15 +336,30 @@ describe('import-paths transform', () => {
         expect(result.diagnostics.some(d => d.message.includes('Server auth removed'))).toBe(true);
     });
 
-    it('emits v2-gap diagnostic for InMemoryTransport', () => {
+    it('rewrites InMemoryTransport to @modelcontextprotocol/server for server projects', () => {
         const input = `import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';\n`;
-        const project = new Project({ useInMemoryFileSystem: true });
-        const sourceFile = project.createSourceFile('test.ts', input);
-        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
-        expect(result.changesCount).toBe(1);
-        expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk');
-        const v2GapDiags = result.diagnostics.filter(d => d.category === 'v2-gap');
-        expect(v2GapDiags.length).toBe(1);
-        expect(v2GapDiags[0]!.message).toContain('not yet exported from any public v2 package');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/server"`);
+        expect(result).toContain('InMemoryTransport');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('rewrites InMemoryTransport to @modelcontextprotocol/client for client projects', () => {
+        const input = `import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';\n`;
+        const result = applyTransform(input, { projectType: 'client' });
+        expect(result).toContain(`from "@modelcontextprotocol/client"`);
+        expect(result).toContain('InMemoryTransport');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('resolves InMemoryTransport based on sibling client imports', () => {
+        const input = [
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'both' });
+        expect(result).toContain(`from "@modelcontextprotocol/client"`);
+        expect(result).toContain('InMemoryTransport');
     });
 });

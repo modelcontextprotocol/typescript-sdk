@@ -572,7 +572,7 @@ describe('integration', () => {
         expect(output).not.toContain('@modelcontextprotocol/sdk');
     });
 
-    it('groups v2-gap diagnostics with correct category', () => {
+    it('rewrites InMemoryTransport to server package by default', () => {
         const dir = createTempDir();
         const input = [
             `import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';`,
@@ -583,10 +583,14 @@ describe('integration', () => {
         writeFileSync(path.join(dir, 'test-utils.ts'), input);
 
         const result = run(migration, { targetDir: dir });
+        expect(result.filesChanged).toBe(1);
+
+        const output = readFileSync(path.join(dir, 'test-utils.ts'), 'utf8');
+        expect(output).toContain('@modelcontextprotocol/server');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(output).toContain('InMemoryTransport');
+
         const v2Gaps = result.diagnostics.filter(d => d.category === 'v2-gap');
-        expect(v2Gaps.length).toBe(1);
-        expect(v2Gaps[0]!.message).toContain('not yet exported from any public v2 package');
-        const normalWarnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning && d.category !== 'v2-gap');
-        expect(normalWarnings.every(d => d.category !== 'v2-gap')).toBe(true);
+        expect(v2Gaps.length).toBe(0);
     });
 });

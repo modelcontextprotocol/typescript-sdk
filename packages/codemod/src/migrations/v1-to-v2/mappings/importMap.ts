@@ -138,12 +138,8 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
 
     '@modelcontextprotocol/sdk/inMemory.js': {
-        target: '',
-        status: 'removed',
-        isV2Gap: true,
-        removalMessage:
-            'InMemoryTransport is not yet exported from any public v2 package (v2 gap). ' +
-            'For now, import from @modelcontextprotocol/core (internal) as a devDependency for tests.'
+        target: 'RESOLVE_BY_CONTEXT',
+        status: 'moved'
     }
 };
 
