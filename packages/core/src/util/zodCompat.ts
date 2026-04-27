@@ -7,7 +7,7 @@
 import * as z from 'zod/v4';
 
 import type { StandardSchemaV1, StandardSchemaWithJSON } from './standardSchema.js';
-import { isStandardSchema } from './standardSchema.js';
+import { isStandardSchema, isStandardSchemaWithJSON } from './standardSchema.js';
 
 function isZodSchema(v: unknown): v is z.ZodType {
     if (typeof v !== 'object' || v === null) return false;
@@ -45,9 +45,9 @@ export function normalizeRawShapeSchema(
     if (isZodRawShape(schema)) {
         return z.object(schema) as StandardSchemaWithJSON;
     }
-    if (!isStandardSchema(schema)) {
+    if (!isStandardSchemaWithJSON(schema)) {
         throw new TypeError(
-            'inputSchema/outputSchema/argsSchema must be a Standard Schema (e.g. z.object({...})) or a raw Zod shape ({ field: z.string() }).'
+            'inputSchema/outputSchema/argsSchema must be a Standard Schema with JSON Schema export (`~standard.jsonSchema`, e.g. z.object({...}) from zod >=4.2.0) or a raw Zod shape ({ field: z.string() }).'
         );
     }
     return schema;
