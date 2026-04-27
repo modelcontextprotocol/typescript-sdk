@@ -2,67 +2,74 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
-import { isSpecType, specTypeSchema } from '../../src/types/specTypeSchema.js';
+import { isSpecType, specTypeSchemas } from '../../src/types/specTypeSchema.js';
 import type { CallToolResult, ContentBlock, Implementation, JSONRPCRequest, Tool } from '../../src/types/types.js';
 
-describe('specTypeSchema()', () => {
+describe('specTypeSchemas', () => {
     it('returns a StandardSchemaV1 validator that accepts valid values', () => {
-        const schema = specTypeSchema('Implementation');
-        const result = schema['~standard'].validate({ name: 'x', version: '1.0.0' });
+        const result = specTypeSchemas.Implementation['~standard'].validate({ name: 'x', version: '1.0.0' });
         expect((result as { issues?: unknown }).issues).toBeUndefined();
     });
 
     it('returns a validator that rejects invalid values with issues', () => {
-        const schema = specTypeSchema('Implementation');
-        const result = schema['~standard'].validate({ name: 'x' });
+        const result = specTypeSchemas.Implementation['~standard'].validate({ name: 'x' });
         expect((result as { issues?: readonly unknown[] }).issues?.length).toBeGreaterThan(0);
     });
 
-    it('throws TypeError for an unknown name', () => {
-        expect(() => specTypeSchema('NotASpecType' as SpecTypeName)).toThrow(TypeError);
+    it('rejects unknown names at compile time and is undefined at runtime', () => {
+        // @ts-expect-error - 'NotASpecType' is not a SpecTypeName
+        expect(specTypeSchemas['NotASpecType']).toBeUndefined();
     });
 
     it('covers JSON-RPC envelope types', () => {
-        const ok = specTypeSchema('JSONRPCRequest')['~standard'].validate({ jsonrpc: '2.0', id: 1, method: 'ping' });
+        const ok = specTypeSchemas.JSONRPCRequest['~standard'].validate({ jsonrpc: '2.0', id: 1, method: 'ping' });
         expect((ok as { issues?: unknown }).issues).toBeUndefined();
     });
 
     it('covers OAuth types from shared/auth.ts', () => {
-        const ok = specTypeSchema('OAuthTokens')['~standard'].validate({ access_token: 'x', token_type: 'Bearer' });
+        const ok = specTypeSchemas.OAuthTokens['~standard'].validate({ access_token: 'x', token_type: 'Bearer' });
         expect((ok as { issues?: unknown }).issues).toBeUndefined();
-        const bad = specTypeSchema('OAuthTokens')['~standard'].validate({ token_type: 'Bearer' });
+        const bad = specTypeSchemas.OAuthTokens['~standard'].validate({ token_type: 'Bearer' });
         expect((bad as { issues?: readonly unknown[] }).issues?.length).toBeGreaterThan(0);
     });
 });
 
-describe('isSpecType()', () => {
+describe('isSpecType', () => {
     it('CallToolResult — accepts valid, rejects invalid/null/primitive', () => {
-        expect(isSpecType('CallToolResult', { content: [{ type: 'text', text: 'hi' }] })).toBe(true);
-        expect(isSpecType('CallToolResult', { content: 'not-an-array' })).toBe(false);
-        expect(isSpecType('CallToolResult', null)).toBe(false);
-        expect(isSpecType('CallToolResult', 'string')).toBe(false);
+        expect(isSpecType.CallToolResult({ content: [{ type: 'text', text: 'hi' }] })).toBe(true);
+        expect(isSpecType.CallToolResult({ content: 'not-an-array' })).toBe(false);
+        expect(isSpecType.CallToolResult(null)).toBe(false);
+        expect(isSpecType.CallToolResult('string')).toBe(false);
     });
 
     it('ContentBlock — accepts text block, rejects wrong shape', () => {
-        expect(isSpecType('ContentBlock', { type: 'text', text: 'hi' })).toBe(true);
-        expect(isSpecType('ContentBlock', { type: 'text' })).toBe(false);
-        expect(isSpecType('ContentBlock', {})).toBe(false);
+        expect(isSpecType.ContentBlock({ type: 'text', text: 'hi' })).toBe(true);
+        expect(isSpecType.ContentBlock({ type: 'text' })).toBe(false);
+        expect(isSpecType.ContentBlock({})).toBe(false);
     });
 
     it('Tool — accepts valid, rejects missing inputSchema', () => {
-        expect(isSpecType('Tool', { name: 'echo', inputSchema: { type: 'object' } })).toBe(true);
-        expect(isSpecType('Tool', { name: 'echo' })).toBe(false);
+        expect(isSpecType.Tool({ name: 'echo', inputSchema: { type: 'object' } })).toBe(true);
+        expect(isSpecType.Tool({ name: 'echo' })).toBe(false);
     });
 
-    it('returns false (not throw) for unknown name', () => {
-        expect(isSpecType('NotASpecType' as SpecTypeName, {})).toBe(false);
+    it('rejects unknown names at compile time and is undefined at runtime', () => {
+        // @ts-expect-error - 'NotASpecType' is not a SpecTypeName
+        expect(isSpecType['NotASpecType']).toBeUndefined();
     });
 
     it('narrows the value type', () => {
         const v: unknown = { name: 'x', version: '1.0.0' };
-        if (isSpecType('Implementation', v)) {
+        if (isSpecType.Implementation(v)) {
             expectTypeOf(v).toEqualTypeOf<SpecTypes['Implementation']>();
         }
+    });
+
+    it('guards work as filter callbacks and narrow the element type', () => {
+        const mixed: unknown[] = [{ type: 'text', text: 'hi' }, 42, { type: 'text' }];
+        const blocks = mixed.filter(isSpecType.ContentBlock);
+        expect(blocks).toHaveLength(1);
+        expectTypeOf(blocks).toEqualTypeOf<ContentBlock[]>();
     });
 });
 

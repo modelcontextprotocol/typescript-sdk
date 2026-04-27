@@ -33,56 +33,55 @@ export type SpecTypes = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaModule[K] extends z.ZodType<infer T> ? T : never;
 };
 
-const specTypeSchemas: Record<string, z.ZodTypeAny> = {};
+type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1<SpecTypes[K]> };
+type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypes[K] };
+
+const _specTypeSchemas: Record<string, z.ZodTypeAny> = {};
+const _isSpecType: Record<string, (value: unknown) => boolean> = {};
 for (const source of [schemas, authSchemas]) {
     for (const [key, value] of Object.entries(source)) {
         if (key.endsWith('Schema') && value !== null && typeof value === 'object') {
-            specTypeSchemas[key.slice(0, -'Schema'.length)] = value as z.ZodTypeAny;
+            const name = key.slice(0, -'Schema'.length);
+            const schema = value as z.ZodTypeAny;
+            _specTypeSchemas[name] = schema;
+            _isSpecType[name] = (v: unknown) => schema.safeParse(v).success;
         }
     }
 }
 
 /**
- * Returns a {@linkcode StandardSchemaV1} validator for the named MCP spec type.
+ * Runtime validators for every MCP spec type, keyed by type name.
  *
- * Use this when you need to validate a spec-defined shape at a boundary the SDK does not own —
- * for example, an extension's custom-method payload that embeds a `CallToolResult`, or a value
- * read from storage that should be a `Tool`.
+ * Use this when you need to validate a spec-defined shape at a boundary the SDK does not own, for
+ * example an extension's custom-method payload that embeds a `CallToolResult`, or a value read from
+ * storage that should be a `Tool`.
  *
- * The returned object implements the Standard Schema interface
- * (`schema['~standard'].validate(value)`), so it composes with any Standard-Schema-aware library.
- *
- * @throws {TypeError} if `name` is not a known spec type.
+ * Each entry implements the Standard Schema interface (`schema['~standard'].validate(value)`), so it
+ * composes with any Standard-Schema-aware library.
  *
  * @example
  * ```ts
- * const schema = specTypeSchema('CallToolResult');
- * const result = schema['~standard'].validate(untrusted);
+ * const result = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
  * if (result.issues === undefined) {
  *     // result.value is CallToolResult
  * }
  * ```
  */
-export function specTypeSchema<K extends SpecTypeName>(name: K): StandardSchemaV1<SpecTypes[K]> {
-    const schema = specTypeSchemas[name];
-    if (schema === undefined) {
-        throw new TypeError(`Unknown MCP spec type: "${name}"`);
-    }
-    return schema as unknown as StandardSchemaV1<SpecTypes[K]>;
-}
+export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas) as unknown as SchemaRecord;
 
 /**
- * Type predicate: returns `true` if `value` structurally matches the named MCP spec type.
+ * Type predicates for every MCP spec type, keyed by type name.
  *
- * Convenience wrapper over {@linkcode specTypeSchema} for boolean checks.
+ * Returns `true` if the value structurally matches the named spec type. Each guard is a standalone
+ * function, so it can be passed directly as a callback.
  *
  * @example
  * ```ts
- * if (isSpecType('ContentBlock', value)) {
+ * if (isSpecType.ContentBlock(value)) {
  *     // value is ContentBlock
  * }
+ *
+ * const blocks = mixed.filter(isSpecType.ContentBlock);
  * ```
  */
-export function isSpecType<K extends SpecTypeName>(name: K, value: unknown): value is SpecTypes[K] {
-    return specTypeSchemas[name]?.safeParse(value).success ?? false;
-}
+export const isSpecType: GuardRecord = Object.freeze(_isSpecType) as unknown as GuardRecord;

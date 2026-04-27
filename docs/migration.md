@@ -489,7 +489,7 @@ The return type is now inferred from the method name via `ResultTypeMap`. For ex
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
-If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `isSpecType()` or `specTypeSchema()`:
+If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `isSpecType` or `specTypeSchemas`:
 
 ```typescript
 // v1: runtime validation with Zod schema
@@ -500,17 +500,17 @@ if (CallToolResultSchema.safeParse(value).success) {
 
 // v2: keyed type predicate
 import { isSpecType } from '@modelcontextprotocol/client';
-if (isSpecType('CallToolResult', value)) {
+if (isSpecType.CallToolResult(value)) {
     /* ... */
 }
+const blocks = mixed.filter(isSpecType.ContentBlock);
 
 // v2: or get the StandardSchemaV1 validator object directly
-import { specTypeSchema } from '@modelcontextprotocol/client';
-const schema = specTypeSchema('CallToolResult');
-const result = schema['~standard'].validate(value);
+import { specTypeSchemas } from '@modelcontextprotocol/client';
+const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-The `name` argument is typed as `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchema()` returns a `StandardSchemaV1<T>`, which composes with any Standard-Schema-aware library and is accepted
+`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1<T>`, which composes with any Standard-Schema-aware library and is accepted
 by `setCustomRequestHandler`/`sendCustomRequest`. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
