@@ -231,7 +231,7 @@ export class Server extends Protocol<ServerContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void;
-    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
+    /** @deprecated Use the 3-arg `(method, paramsSchema, handler)` form for custom methods, or the method-string form for spec methods. */
     public override setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ServerContext) => Result | Promise<Result>
@@ -239,7 +239,8 @@ export class Server extends Protocol<ServerContext> {
     public override setRequestHandler(methodOrSchema: string | ZodLikeRequestSchema, schemaHandler: unknown): void {
         let method: string;
         let handler: (request: Request, ctx: ServerContext) => ServerResult | Promise<ServerResult>;
-        if (isZodLikeSchema(methodOrSchema)) {
+        const fromSchema = isZodLikeSchema(methodOrSchema);
+        if (fromSchema) {
             const schema = methodOrSchema;
             const userHandler = schemaHandler as (request: unknown, ctx: ServerContext) => Result | Promise<Result>;
             method = extractMethodLiteral(schema);
@@ -285,12 +286,12 @@ export class Server extends Protocol<ServerContext> {
                 return validationResult.data;
             };
 
-            // Install the wrapped handler
-            return this._setRequestHandlerByMethod(method, wrappedHandler);
+            // wrappedHandler validates with the spec schema itself; skip the extra parse in the base helper.
+            return this._setRequestHandlerByMethod(method, wrappedHandler, true);
         }
 
-        // Other handlers use default behavior
-        return this._setRequestHandlerByMethod(method, handler);
+        // Other methods: skip the spec parse only when the user supplied their own schema (it is the source of truth).
+        return this._setRequestHandlerByMethod(method, handler, fromSchema);
     }
 
     protected assertCapabilityForMethod(method: RequestMethod): void {

@@ -49,5 +49,5 @@ export * from './validators/fromJsonSchema.js';
 
 // Core types only - implementations are exported via separate entry points
 export type { ZodLikeRequestSchema } from './util/compatSchema.js';
-export { extractMethodLiteral, isZodLikeSchema } from './util/compatSchema.js';
+export { extractMethodLiteral, isResultSchemaLike, isZodLikeSchema } from './util/compatSchema.js';
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';

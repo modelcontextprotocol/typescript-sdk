@@ -45,7 +45,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types/index.js';
 import type { ZodLikeRequestSchema } from '../util/compatSchema.js';
-import { extractMethodLiteral, isZodLikeSchema } from '../util/compatSchema.js';
+import { extractMethodLiteral, isResultSchemaLike, isZodLikeSchema } from '../util/compatSchema.js';
 import type { AnySchema, SchemaOutput } from '../util/schema.js';
 import { parseSchema } from '../util/schema.js';
 import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
@@ -611,10 +611,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 _meta: request.params?._meta,
                 signal: abortController.signal,
                 send: ((r: Request, optionsOrSchema?: TaskRequestOptions | AnySchema, maybeOptions?: TaskRequestOptions) => {
-                    if (optionsOrSchema && '~standard' in optionsOrSchema) {
-                        return sendRequest(r, optionsOrSchema, maybeOptions);
+                    if (isResultSchemaLike(optionsOrSchema)) {
+                        return sendRequest(r, optionsOrSchema as AnySchema, maybeOptions);
                     }
                     const resultSchema = getResultSchema(r.method as RequestMethod);
+                    if (!resultSchema) {
+                        return Promise.reject(
+                            new TypeError(`mcpReq.send(): '${r.method}' is not a spec method; pass a result schema as the second argument.`)
+                        );
+                    }
                     return sendRequest(r, resultSchema, optionsOrSchema);
                 }) as BaseContext['mcpReq']['send'],
                 notify: sendNotification
@@ -807,10 +812,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /** For spec methods the one-argument form is more concise; this overload is the supported call form for non-spec methods or custom result shapes. */
     request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
     request(request: Request, optionsOrSchema?: RequestOptions | AnySchema, maybeOptions?: RequestOptions): Promise<unknown> {
-        if (optionsOrSchema && '~standard' in optionsOrSchema) {
-            return this._requestWithSchema(request, optionsOrSchema, maybeOptions);
+        if (isResultSchemaLike(optionsOrSchema)) {
+            return this._requestWithSchema(request, optionsOrSchema as AnySchema, maybeOptions);
         }
         const schema = getResultSchema(request.method as RequestMethod);
+        if (!schema) {
+            return Promise.reject(
+                new TypeError(`request(): '${request.method}' is not a spec method; pass a result schema as the second argument.`)
+            );
+        }
         return this._requestWithSchema(request, schema, optionsOrSchema);
     }
 
@@ -1043,7 +1053,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
     ): void;
-    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
+    /** @deprecated Use the 3-arg `(method, paramsSchema, handler)` form for custom methods, or the method-string form for spec methods. */
     setRequestHandler<T extends ZodLikeRequestSchema>(
         requestSchema: T,
         handler: (request: ReturnType<T['parse']>, ctx: ContextT) => Result | Promise<Result>
@@ -1052,9 +1062,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (isZodLikeSchema(method)) {
             const requestSchema = method;
             const methodStr = extractMethodLiteral(requestSchema);
-            this.assertRequestHandlerCapability(methodStr);
-            this._requestHandlers.set(methodStr, (request, ctx) =>
-                Promise.resolve((handler as (req: unknown, ctx: ContextT) => Result | Promise<Result>)(requestSchema.parse(request), ctx))
+            // The user's schema is the source of truth; spec-schema validation is skipped to avoid double-parsing.
+            this._setRequestHandlerByMethod(
+                methodStr,
+                (request, ctx) =>
+                    Promise.resolve(
+                        (handler as (req: unknown, ctx: ContextT) => Result | Promise<Result>)(requestSchema.parse(request), ctx)
+                    ),
+                true
             );
             return;
         }
@@ -1064,9 +1079,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Registers a request handler by method string, bypassing the public overload set.
      * Used by `Client`/`Server` overrides to forward without `as RequestMethod` casts.
+     *
+     * @param skipSpecParse - When `true`, the handler is stored directly without
+     * wrapping it in spec-schema validation. Set this when the caller has already
+     * applied its own validation (Zod-schema form, or a method-specific wrapper)
+     * to avoid parsing the same request multiple times.
      */
-    protected _setRequestHandlerByMethod(method: string, handler: (request: Request, ctx: ContextT) => Result | Promise<Result>): void {
+    protected _setRequestHandlerByMethod(
+        method: string,
+        handler: (request: Request, ctx: ContextT) => Result | Promise<Result>,
+        skipSpecParse = false
+    ): void {
         this.assertRequestHandlerCapability(method);
+        if (skipSpecParse) {
+            this._requestHandlers.set(method, (request, ctx) => Promise.resolve(handler(request, ctx)));
+            return;
+        }
         const schema = getRequestSchema(method as RequestMethod);
         this._requestHandlers.set(method, (request, ctx) => {
             const parsed = schema ? (schema.parse(request) as Request) : request;
@@ -1101,7 +1129,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
     ): void;
-    /** For spec methods the method-string form is more concise; this overload is the supported call form for non-spec methods or when you want full-envelope validation. */
+    /** @deprecated Use the 3-arg `(method, paramsSchema, handler)` form for custom methods, or the method-string form for spec methods. */
     setNotificationHandler<T extends ZodLikeRequestSchema>(
         notificationSchema: T,
         handler: (notification: ReturnType<T['parse']>) => void | Promise<void>

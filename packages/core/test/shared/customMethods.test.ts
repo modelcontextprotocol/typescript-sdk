@@ -106,6 +106,13 @@ describe('request() — explicit result schema overload', () => {
         const r = await a.request({ method: 'ping' });
         expect(r).toEqual({});
     });
+
+    it('throws a clear error for a non-spec method without a result schema', async () => {
+        const { a, b } = await makePair();
+        b.setRequestHandler(EchoRequest, req => ({ reply: req.params.msg }));
+        // @ts-expect-error — bypassing the overload set to exercise the runtime guard
+        await expect(a.request({ method: 'acme/echo', params: { msg: 'x' } })).rejects.toThrow(/'acme\/echo' is not a spec method/);
+    });
 });
 
 describe('ctx.mcpReq.send() — explicit result schema overload', () => {
@@ -131,6 +138,16 @@ describe('ctx.mcpReq.send() — explicit result schema overload', () => {
         });
         await a.request({ method: 'acme/outer' }, z.object({}));
         expect(pingResult).toEqual({});
+    });
+
+    it('throws a clear error for a non-spec method without a result schema', async () => {
+        const { a, b } = await makePair();
+        b.setRequestHandler(z.object({ method: z.literal('acme/outer') }), async (_req, ctx) => {
+            // @ts-expect-error — bypassing the overload set to exercise the runtime guard
+            await ctx.mcpReq.send({ method: 'acme/nope' });
+            return {};
+        });
+        await expect(a.request({ method: 'acme/outer' }, z.object({}))).rejects.toThrow(/'acme\/nope' is not a spec method/);
     });
 });
 
