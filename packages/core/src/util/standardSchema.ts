@@ -6,6 +6,8 @@
 
 /* eslint-disable @typescript-eslint/no-namespace */
 
+import { dereferenceLocalRefs } from './schema.js';
+
 // Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
 export interface StandardTypedV1<Input = unknown, Output = Input> {
@@ -156,7 +158,7 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                 `Wrap your schema in z.object({...}) or equivalent.`
         );
     }
-    return { type: 'object', ...result };
+    return dereferenceLocalRefs({ type: 'object', ...result });
 }
 
 // Validation
