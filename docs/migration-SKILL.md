@@ -464,12 +464,12 @@ Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResu
 
 If a `*Schema` constant was used for **runtime validation** (not just as a `request()` argument), replace with `isSpecType` / `specTypeSchemas`:
 
-| v1 pattern                                         | v2 replacement                                               |
-| -------------------------------------------------- | ------------------------------------------------------------ |
-| `CallToolResultSchema.safeParse(value).success`    | `isSpecType.CallToolResult(value)`                           |
-| `<TypeName>Schema.safeParse(value).success`        | `isSpecType.<TypeName>(value)`                               |
-| `<TypeName>Schema.parse(value)`                    | `specTypeSchemas.<TypeName>['~standard'].validate(value)`    |
-| Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (returns `StandardSchemaV1<T>`) |
+| v1 pattern                                         | v2 replacement                                                                         |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `CallToolResultSchema.safeParse(value).success`    | `isSpecType.CallToolResult(value)`                                                     |
+| `<TypeName>Schema.safeParse(value).success`        | `isSpecType.<TypeName>(value)`                                                         |
+| `<TypeName>Schema.parse(value)`                    | `await specTypeSchemas.<TypeName>['~standard'].validate(value)` (returns a `Result`, not the value) |
+| Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (a `StandardSchemaV1<In, Out>`)                           |
 
 `isCallToolResult(value)` still works, but `isSpecType` covers every spec type by name.
 
