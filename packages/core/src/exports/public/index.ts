@@ -123,7 +123,7 @@ export {
     ProtocolError as McpError
 } from '../../types/errors.js';
 // Note: InvalidRequestError is intentionally omitted here — it collides with the
-// JSON-RPC `InvalidRequestError` interface re-exported from types.ts below. v1 users
+// JSON-RPC `InvalidRequestError` interface re-exported from types.ts. v1 users
 // imported it from `server/auth/errors.js`, which the sdk meta-package subpath provides.
 export {
     AccessDeniedError,
