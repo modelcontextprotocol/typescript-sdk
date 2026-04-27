@@ -1,8 +1,34 @@
 import type * as z from 'zod/v4';
 
-import * as authSchemas from '../shared/auth.js';
+import {
+    OAuthClientInformationFullSchema,
+    OAuthClientInformationSchema,
+    OAuthClientMetadataSchema,
+    OAuthClientRegistrationErrorSchema,
+    OAuthErrorResponseSchema,
+    OAuthMetadataSchema,
+    OAuthProtectedResourceMetadataSchema,
+    OAuthTokenRevocationRequestSchema,
+    OAuthTokensSchema,
+    OpenIdProviderDiscoveryMetadataSchema,
+    OpenIdProviderMetadataSchema
+} from '../shared/auth.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import * as schemas from './schemas.js';
+
+const authSchemas = {
+    OAuthClientInformationFullSchema,
+    OAuthClientInformationSchema,
+    OAuthClientMetadataSchema,
+    OAuthClientRegistrationErrorSchema,
+    OAuthErrorResponseSchema,
+    OAuthMetadataSchema,
+    OAuthProtectedResourceMetadataSchema,
+    OAuthTokenRevocationRequestSchema,
+    OAuthTokensSchema,
+    OpenIdProviderDiscoveryMetadataSchema,
+    OpenIdProviderMetadataSchema
+};
 
 type SchemaModule = typeof schemas & typeof authSchemas;
 
@@ -30,11 +56,20 @@ export type SpecTypeName = StripSchemaSuffix<SchemaKey>;
  * `SpecTypes['CallToolResult']` is equivalent to importing the `CallToolResult` type directly.
  */
 export type SpecTypes = {
-    [K in SchemaKey as StripSchemaSuffix<K>]: SchemaModule[K] extends z.ZodType<infer T> ? T : never;
+    [K in SchemaKey as StripSchemaSuffix<K>]: SchemaModule[K] extends z.ZodType ? z.output<SchemaModule[K]> : never;
 };
 
-type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1<SpecTypes[K]> };
-type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypes[K] };
+/**
+ * Input shape for each {@linkcode SpecTypeName}. For most types this equals {@linkcode SpecTypes},
+ * but a few schemas apply defaults/preprocessing, so the accepted input may be looser than the
+ * resulting output type.
+ */
+type SpecTypeInputs = {
+    [K in SchemaKey as StripSchemaSuffix<K>]: SchemaModule[K] extends z.ZodType ? z.input<SchemaModule[K]> : never;
+};
+
+type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1<SpecTypeInputs[K], SpecTypes[K]> };
+type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
 
 const _specTypeSchemas: Record<string, z.ZodTypeAny> = {};
 const _isSpecType: Record<string, (value: unknown) => boolean> = {};
@@ -56,12 +91,12 @@ for (const source of [schemas, authSchemas]) {
  * example an extension's custom-method payload that embeds a `CallToolResult`, or a value read from
  * storage that should be a `Tool`.
  *
- * Each entry implements the Standard Schema interface (`schema['~standard'].validate(value)`), so it
- * composes with any Standard-Schema-aware library.
+ * Each entry implements the Standard Schema interface, so it composes with any
+ * Standard-Schema-aware library. For a simple boolean check, use {@linkcode isSpecType} instead.
  *
  * @example
  * ```ts
- * const result = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+ * const result = await specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
  * if (result.issues === undefined) {
  *     // result.value is CallToolResult
  * }
