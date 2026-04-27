@@ -39,7 +39,11 @@ function looksLikeZodV3(v: unknown): boolean {
 export function isZodRawShape(obj: unknown): obj is Record<string, z.ZodType> {
     if (typeof obj !== 'object' || obj === null) return false;
     if (isStandardSchema(obj)) return false;
-    // [].every() is true, so an empty object is a valid raw shape (matches v1).
+    // Require a plain object literal: rejects arrays, Date, Map, RegExp, class instances, etc.
+    // Object.create(null) is also accepted.
+    const proto = Object.getPrototypeOf(obj);
+    if (proto !== Object.prototype && proto !== null) return false;
+    // [].every() is true, so an empty plain object is a valid raw shape (matches v1).
     return Object.values(obj).every(v => isZodV4Schema(v));
 }
 
@@ -58,7 +62,7 @@ export function normalizeRawShapeSchema(
     if (isZodRawShape(schema)) {
         return z.object(schema) as StandardSchemaWithJSON;
     }
-    if (typeof schema === 'object' && !isStandardSchema(schema) && Object.values(schema).some(v => looksLikeZodV3(v))) {
+    if (typeof schema === 'object' && schema !== null && !isStandardSchema(schema) && Object.values(schema).some(v => looksLikeZodV3(v))) {
         throw new TypeError(
             'Raw-shape inputSchema/outputSchema/argsSchema fields must be Zod v4 schemas. Got a Zod v3 field schema. Import from `zod/v4` (or upgrade your zod import), or wrap with `z.object({...})` yourself.'
         );

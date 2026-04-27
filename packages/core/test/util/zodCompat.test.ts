@@ -20,6 +20,18 @@ describe('isZodRawShape', () => {
     test('rejects a shape with Zod v3 fields (only v4 is wrappable)', () => {
         expect(isZodRawShape({ a: mockZodV3String() })).toBe(false);
     });
+    test('rejects non-plain objects with no own-enumerable properties', () => {
+        expect(isZodRawShape([])).toBe(false);
+        expect(isZodRawShape([z.string()])).toBe(false);
+        expect(isZodRawShape(new Date())).toBe(false);
+        expect(isZodRawShape(new Map())).toBe(false);
+        expect(isZodRawShape(/regex/)).toBe(false);
+    });
+    test('accepts a null-prototype plain object', () => {
+        const o = Object.create(null);
+        o.a = z.string();
+        expect(isZodRawShape(o)).toBe(true);
+    });
 });
 
 // Minimal structural mock of a Zod v3 schema: has `_def.typeName` and
@@ -54,5 +66,8 @@ describe('normalizeRawShapeSchema', () => {
     });
     test('throws actionable TypeError for a raw shape with Zod v3 fields', () => {
         expect(() => normalizeRawShapeSchema({ a: mockZodV3String() } as never)).toThrow(/Zod v4 schemas.*Got a Zod v3 field schema/);
+    });
+    test('throws the intended TypeError (not Object.values crash) for null input', () => {
+        expect(() => normalizeRawShapeSchema(null as never)).toThrow(/must be a Standard Schema/);
     });
 });
