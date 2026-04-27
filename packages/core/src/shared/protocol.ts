@@ -309,9 +309,9 @@ type TimeoutInfo = {
  * Declares the request and notification vocabulary a `Protocol` subclass speaks.
  *
  * Supplying a concrete `ProtocolSpec` as `Protocol`'s second type argument gives method-name
- * autocomplete and result-type correlation on the typed overloads of `setRequestHandler`
- * and `setNotificationHandler`. `Protocol` defaults to {@linkcode McpSpec}; using the bare
- * `ProtocolSpec` type leaves methods string-keyed and untyped.
+ * autocomplete on the typed overloads of `setRequestHandler` and `setNotificationHandler`, and
+ * result-type correlation on `setRequestHandler`. `Protocol` defaults to {@linkcode McpSpec};
+ * using the bare `ProtocolSpec` type leaves methods string-keyed and untyped.
  *
  * Only `requests[K].result` is enforced by the type system; `params` shapes are informational
  * (handler param types come from the `paramsSchema` you pass at the call site).
