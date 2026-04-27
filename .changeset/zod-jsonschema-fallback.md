@@ -1,4 +1,5 @@
 ---
+'@modelcontextprotocol/core': patch
 '@modelcontextprotocol/server': patch
 '@modelcontextprotocol/client': patch
 ---

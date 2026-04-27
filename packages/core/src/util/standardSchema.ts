@@ -171,7 +171,7 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
         if (!warnedZodFallback) {
             warnedZodFallback = true;
             console.warn(
-                '[@modelcontextprotocol/sdk] Your zod version does not implement `~standard.jsonSchema` (added in zod 4.2.0). ' +
+                '[mcp-sdk] Your zod version does not implement `~standard.jsonSchema` (added in zod 4.2.0). ' +
                     'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
             );
         }
