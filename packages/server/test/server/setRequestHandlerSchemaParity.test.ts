@@ -51,6 +51,25 @@ describe('Server.setRequestHandler — Zod-schema form parity', () => {
         expect(schemaRes.error).toEqual(stringRes.error);
     });
 
+    it('method-string form handler receives spec-parsed request (not raw JSONRPCRequest)', async () => {
+        let received: unknown;
+        const { ct } = await setup(s =>
+            s.setRequestHandler('tools/call', req => {
+                received = req;
+                return { content: [{ type: 'text' as const, text: 'ok' }] };
+            })
+        );
+        await new Promise<void>(resolve => {
+            ct.onmessage = m => {
+                if ('result' in (m as object) || 'error' in (m as object)) resolve();
+            };
+            ct.send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'x', arguments: {} } });
+        });
+        expect(received).not.toHaveProperty('jsonrpc');
+        expect(received).not.toHaveProperty('id');
+        expect(received).toMatchObject({ method: 'tools/call', params: { name: 'x', arguments: {} } });
+    });
+
     it('schema form handles non-spec methods through Server (no spec-schema crash)', async () => {
         const Echo = z.object({ method: z.literal('acme/echo'), params: z.object({ msg: z.string() }) });
         const { ct } = await setup(s => s.setRequestHandler(Echo, req => ({ reply: req.params.msg })));

@@ -384,7 +384,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
-                const result = await Promise.resolve(handler(request, ctx));
+                const result = await Promise.resolve(handler(validatedRequest.data, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -428,7 +428,8 @@ export class Client extends Protocol<ClientContext> {
                 return validatedResult;
             };
 
-            // wrappedHandler validates with the spec schema itself; skip the extra parse in the base helper.
+            // wrappedHandler validates the request itself and forwards the parsed form to the user handler;
+            // skip the extra parse in the base helper.
             return this._setRequestHandlerByMethod(method, wrappedHandler, true);
         }
 
@@ -443,7 +444,7 @@ export class Client extends Protocol<ClientContext> {
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, ctx));
+                const result = await Promise.resolve(handler(validatedRequest.data, ctx));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -471,7 +472,8 @@ export class Client extends Protocol<ClientContext> {
                 return validationResult.data;
             };
 
-            // wrappedHandler validates with the spec schema itself; skip the extra parse in the base helper.
+            // wrappedHandler validates the request itself and forwards the parsed form to the user handler;
+            // skip the extra parse in the base helper.
             return this._setRequestHandlerByMethod(method, wrappedHandler, true);
         }
 
