@@ -248,7 +248,7 @@ Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is 
 
 ### `Headers` object instead of plain objects
 
-Transport APIs and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain `Record<string, string | string[] | undefined>`. The `IsomorphicHeaders` type is still exported as a `@deprecated` alias for `Headers`.
+Transport APIs and `RequestInfo.headers` now use the Web Standard `Headers` object instead of plain `Record<string, string | string[] | undefined>`. The `IsomorphicHeaders` type alias has been removed; the codemod (`mcp-codemod v1-to-v2`) rewrites it to `Headers`.
 
 This affects both transport constructors and request handler code that reads headers:
 
