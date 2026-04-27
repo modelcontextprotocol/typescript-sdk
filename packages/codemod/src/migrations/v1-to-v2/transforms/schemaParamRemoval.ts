@@ -4,7 +4,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 import type { Transform, TransformContext, TransformResult } from '../../../types.js';
 import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
 
-const TARGET_METHODS = new Set(['request', 'callTool', 'send', 'sendRequest']);
+const TARGET_METHODS = new Set(['request', 'callTool']);
 
 export const schemaParamRemovalTransform: Transform = {
     name: 'Schema parameter removal',

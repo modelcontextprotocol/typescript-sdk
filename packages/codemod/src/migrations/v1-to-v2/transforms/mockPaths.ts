@@ -1,8 +1,8 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Transform, TransformContext, TransformResult } from '../../../types.js';
-import { warning } from '../../../utils/diagnostics.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
+import { v2Gap, warning } from '../../../utils/diagnostics.js';
 import { isSdkSpecifier } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
@@ -15,7 +15,7 @@ export const mockPathsTransform: Transform = {
     name: 'Mock and dynamic import path rewrites',
     id: 'mock-paths',
     apply(sourceFile: SourceFile, context: TransformContext): TransformResult {
-        const diagnostics: ReturnType<typeof warning>[] = [];
+        const diagnostics: Diagnostic[] = [];
         const usedPackages = new Set<string>();
         let changesCount = 0;
 
@@ -42,12 +42,16 @@ export const mockPathsTransform: Transform = {
 function resolveTarget(
     specifier: string,
     context: TransformContext,
-    sourceFile: SourceFile
-): { target: string; renamedSymbols?: Record<string, string>; symbolTargetOverrides?: Record<string, string> } | 'removed' | null {
+    sourceFile: SourceFile,
+    diagnosticSink?: { filePath: string; line: number; diagnostics: Diagnostic[] }
+):
+    | { target: string; renamedSymbols?: Record<string, string>; symbolTargetOverrides?: Record<string, string> }
+    | { removed: true; isV2Gap?: boolean; removalMessage?: string }
+    | null {
     const mapping = IMPORT_MAP[specifier];
-    if (!mapping && isAuthImport(specifier)) return 'removed';
+    if (!mapping && isAuthImport(specifier)) return { removed: true };
     if (!mapping) return null;
-    if (mapping.status === 'removed') return 'removed';
+    if (mapping.status === 'removed') return { removed: true, isV2Gap: mapping.isV2Gap, removalMessage: mapping.removalMessage };
 
     let target = mapping.target;
     if (target === 'RESOLVE_BY_CONTEXT') {
@@ -59,7 +63,7 @@ function resolveTarget(
             const s = i.getModuleSpecifierValue();
             return s.includes('/server/') || s === '@modelcontextprotocol/server';
         });
-        target = resolveTypesPackage(context, hasClient, hasServer);
+        target = resolveTypesPackage(context, hasClient, hasServer, diagnosticSink);
     }
 
     return { target, renamedSymbols: mapping.renamedSymbols, symbolTargetOverrides: mapping.symbolTargetOverrides };
@@ -69,7 +73,7 @@ function rewriteMockCall(
     call: import('ts-morph').CallExpression,
     sourceFile: SourceFile,
     context: TransformContext,
-    diagnostics: ReturnType<typeof warning>[],
+    diagnostics: Diagnostic[],
     usedPackages: Set<string>
 ): number {
     const args = call.getArguments();
@@ -81,19 +85,24 @@ function rewriteMockCall(
     const specifier = firstArg.getLiteralValue();
     if (!isSdkSpecifier(specifier)) return 0;
 
-    const resolved = resolveTarget(specifier, context, sourceFile);
+    const resolved = resolveTarget(specifier, context, sourceFile, {
+        filePath: sourceFile.getFilePath(),
+        line: call.getStartLineNumber(),
+        diagnostics
+    });
     if (resolved === null) {
         diagnostics.push(
             warning(sourceFile.getFilePath(), call.getStartLineNumber(), `Unknown SDK mock path: ${specifier}. Manual migration required.`)
         );
         return 0;
     }
-    if (resolved === 'removed') {
+    if ('removed' in resolved) {
+        const diagFn = resolved.isV2Gap ? v2Gap : warning;
         diagnostics.push(
-            warning(
+            diagFn(
                 sourceFile.getFilePath(),
                 call.getStartLineNumber(),
-                `Mock references removed SDK path: ${specifier}. Manual migration required.`
+                resolved.removalMessage ?? `Mock references removed SDK path: ${specifier}. Manual migration required.`
             )
         );
         return 0;
@@ -104,8 +113,19 @@ function rewriteMockCall(
     let effectiveTarget = resolved.target;
     if (resolved.symbolTargetOverrides && args.length >= 2) {
         const factorySymbols = collectFactorySymbols(args[1]!);
-        if (factorySymbols.length > 0 && factorySymbols.every(s => s in resolved.symbolTargetOverrides!)) {
+        const allOverridden = factorySymbols.length > 0 && factorySymbols.every(s => s in resolved.symbolTargetOverrides!);
+        const someOverridden = factorySymbols.some(s => s in resolved.symbolTargetOverrides!);
+        if (allOverridden) {
             effectiveTarget = resolved.symbolTargetOverrides[factorySymbols[0]!]!;
+        } else if (someOverridden) {
+            diagnostics.push(
+                warning(
+                    sourceFile.getFilePath(),
+                    call.getStartLineNumber(),
+                    `Mock factory from ${specifier} mixes symbols that belong to different v2 packages. ` +
+                        `Split the mock manually so each symbol targets the correct package.`
+                )
+            );
         }
     }
 
@@ -188,7 +208,7 @@ function renameSymbolsInFactory(factoryArg: import('ts-morph').Node, renamedSymb
 function rewriteDynamicImports(
     sourceFile: SourceFile,
     context: TransformContext,
-    diagnostics: ReturnType<typeof warning>[],
+    diagnostics: Diagnostic[],
     usedPackages: Set<string>
 ): number {
     let changes = 0;
@@ -208,7 +228,11 @@ function rewriteDynamicImports(
         const specifier = firstArg.getLiteralValue();
         if (!isSdkSpecifier(specifier)) return;
 
-        const resolved = resolveTarget(specifier, context, sourceFile);
+        const resolved = resolveTarget(specifier, context, sourceFile, {
+            filePath: sourceFile.getFilePath(),
+            line: node.getStartLineNumber(),
+            diagnostics
+        });
         if (resolved === null) {
             diagnostics.push(
                 warning(
@@ -219,12 +243,13 @@ function rewriteDynamicImports(
             );
             return;
         }
-        if (resolved === 'removed') {
+        if ('removed' in resolved) {
+            const diagFn = resolved.isV2Gap ? v2Gap : warning;
             diagnostics.push(
-                warning(
+                diagFn(
                     sourceFile.getFilePath(),
                     node.getStartLineNumber(),
-                    `Dynamic import references removed SDK path: ${specifier}. Manual migration required.`
+                    resolved.removalMessage ?? `Dynamic import references removed SDK path: ${specifier}. Manual migration required.`
                 )
             );
             return;
@@ -281,6 +306,15 @@ function rewriteDynamicImports(
                             changes++;
                         }
                     }
+                }
+                if (!Node.isObjectBindingPattern(nameNode) && Object.keys(allRenames).length > 0) {
+                    diagnostics.push(
+                        warning(
+                            sourceFile.getFilePath(),
+                            node.getStartLineNumber(),
+                            `Dynamic import assigned to variable (not destructured). Symbol renames (${Object.keys(allRenames).join(', ')}) were not applied. Manual update may be needed.`
+                        )
+                    );
                 }
             }
         }

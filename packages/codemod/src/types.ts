@@ -11,6 +11,7 @@ export interface Diagnostic {
     file: string;
     line: number;
     message: string;
+    category?: 'v2-gap';
 }
 
 export interface TransformResult {

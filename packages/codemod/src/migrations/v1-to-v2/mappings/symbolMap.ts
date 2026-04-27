@@ -5,8 +5,7 @@ export const SIMPLE_RENAMES: Record<string, string> = {
     isJSONRPCError: 'isJSONRPCErrorResponse',
     isJSONRPCResponse: 'isJSONRPCResultResponse',
     ResourceReference: 'ResourceTemplateReference',
-    ResourceReferenceSchema: 'ResourceTemplateReferenceSchema',
-    StreamableHTTPServerTransport: 'NodeStreamableHTTPServerTransport'
+    ResourceReferenceSchema: 'ResourceTemplateReferenceSchema'
 };
 
 export const ERROR_CODE_SDK_MEMBERS = new Set(['RequestTimeout', 'ConnectionClosed']);

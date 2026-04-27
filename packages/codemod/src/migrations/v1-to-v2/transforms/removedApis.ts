@@ -139,9 +139,11 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
     const line = foundImportDecl.getStartLineNumber();
     const moduleSpec = foundImportDecl.getModuleSpecifierValue();
 
+    let hasConstructorCalls = false;
     for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
         const expr = node.getExpression();
         if (!Node.isIdentifier(expr) || expr.getText() !== localName) continue;
+        hasConstructorCalls = true;
         diagnostics.push(
             warning(
                 sourceFile.getFilePath(),
@@ -162,7 +164,8 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
 
     const targetModule = resolveTargetModule(sourceFile, moduleSpec);
     const insertIndex = sourceFile.getImportDeclarations().length;
-    addOrMergeImport(sourceFile, targetModule, ['SdkError', 'SdkErrorCode'], false, insertIndex);
+    const importsToAdd = hasConstructorCalls ? ['SdkError', 'SdkErrorCode'] : ['SdkError'];
+    addOrMergeImport(sourceFile, targetModule, importsToAdd, false, insertIndex);
     changesCount++;
 
     diagnostics.push(

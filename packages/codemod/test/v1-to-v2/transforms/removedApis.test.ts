@@ -175,10 +175,21 @@ describe('removed-apis transform', () => {
             expect(text).not.toContain('StreamableHTTPError');
         });
 
-        it('adds SdkError and SdkErrorCode imports', () => {
+        it('adds SdkError import without SdkErrorCode when no constructor calls', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `if (error instanceof StreamableHTTPError) {}`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain('SdkError');
+            expect(text).not.toContain('SdkErrorCode');
+        });
+
+        it('adds SdkError and SdkErrorCode imports when constructor calls exist', () => {
+            const input = [
+                `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
+                `throw new StreamableHTTPError(404, 'Not Found');`,
                 ''
             ].join('\n');
             const { text } = applyTransform(input);

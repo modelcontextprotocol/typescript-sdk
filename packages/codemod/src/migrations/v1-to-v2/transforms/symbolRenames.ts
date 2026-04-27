@@ -4,7 +4,7 @@ import { Node } from 'ts-morph';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
 import { info, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils.js';
+import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { ERROR_CODE_SDK_MEMBERS, SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
@@ -44,7 +44,7 @@ export const symbolRenamesTransform: Transform = {
     }
 };
 
-function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: ReturnType<typeof warning>[]): number {
+function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: Diagnostic[]): number {
     let changesCount = 0;
 
     const imports = sourceFile.getImportDeclarations();
@@ -95,10 +95,15 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: ReturnType<ty
             errorCodeImportDecl.remove();
         }
 
-        const imp = sourceFile.getImportDeclarations().find(i => {
-            const spec = i.getModuleSpecifierValue();
-            return spec === '@modelcontextprotocol/client' || spec === '@modelcontextprotocol/server';
-        });
+        const imp =
+            sourceFile.getImportDeclarations().find(i => {
+                const spec = i.getModuleSpecifierValue();
+                return (spec === '@modelcontextprotocol/client' || spec === '@modelcontextprotocol/server') && !i.isTypeOnly();
+            }) ??
+            sourceFile.getImportDeclarations().find(i => {
+                const spec = i.getModuleSpecifierValue();
+                return spec === '@modelcontextprotocol/client' || spec === '@modelcontextprotocol/server';
+            });
         const targetModule = imp?.getModuleSpecifierValue() ?? '@modelcontextprotocol/server';
 
         const newImports: string[] = [];
@@ -135,7 +140,7 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: ReturnType<ty
     return changesCount;
 }
 
-function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformContext, diagnostics: ReturnType<typeof warning>[]): number {
+function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformContext, diagnostics: Diagnostic[]): number {
     let changesCount = 0;
 
     const imports = sourceFile.getImportDeclarations();
@@ -176,6 +181,7 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
 
     let needsServerContext = false;
     let needsClientContext = false;
+    const strippedArgNames = new Set<string>();
 
     sourceFile.forEachDescendant(node => {
         if (!Node.isTypeReference(node)) return;
@@ -197,6 +203,12 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
         if (target === 'ClientContext') needsClientContext = true;
 
         if (typeArgs.length > 0) {
+            for (const arg of typeArgs) {
+                const argText = arg.getText();
+                if (SERVER_GENERIC_ARGS.has(argText) || CLIENT_GENERIC_ARGS.has(argText)) {
+                    strippedArgNames.add(argText);
+                }
+            }
             node.replaceWithText(target);
         } else {
             typeName.replaceWithText(target);
@@ -241,6 +253,10 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
                     });
                 }
             }
+        }
+
+        for (const argName of strippedArgNames) {
+            removeUnusedImport(sourceFile, argName, true);
         }
 
         changesCount++;

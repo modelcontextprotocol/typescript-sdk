@@ -28,10 +28,6 @@ export function getSdkExports(sourceFile: SourceFile): ExportDeclaration[] {
     });
 }
 
-export function getNamedImportNames(imp: ImportDeclaration): string[] {
-    return imp.getNamedImports().map(n => n.getName());
-}
-
 export function isTypeOnlyImport(imp: ImportDeclaration): boolean {
     return imp.isTypeOnly();
 }
@@ -83,7 +79,7 @@ export function isImportedFromMcp(sourceFile: SourceFile, symbolName: string): b
     });
 }
 
-export function isExportedFromMcp(sourceFile: SourceFile, exportName: string): boolean {
+export function isOriginalNameImportedFromMcp(sourceFile: SourceFile, exportName: string): boolean {
     return sourceFile.getImportDeclarations().some(imp => {
         if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) return false;
         return imp.getNamedImports().some(n => n.getName() === exportName);

@@ -325,4 +325,26 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('IsomorphicHeaders');
         expect(result.diagnostics[0]!.message).toContain('removed');
     });
+
+    it('handles unknown auth subpath via catch-all', () => {
+        const input = `import { SomeType } from '@modelcontextprotocol/sdk/server/auth/handler.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.changesCount).toBe(1);
+        expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.some(d => d.message.includes('Server auth removed'))).toBe(true);
+    });
+
+    it('emits v2-gap diagnostic for InMemoryTransport', () => {
+        const input = `import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.changesCount).toBe(1);
+        expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk');
+        const v2GapDiags = result.diagnostics.filter(d => d.category === 'v2-gap');
+        expect(v2GapDiags.length).toBe(1);
+        expect(v2GapDiags[0]!.message).toContain('not yet exported from any public v2 package');
+    });
 });

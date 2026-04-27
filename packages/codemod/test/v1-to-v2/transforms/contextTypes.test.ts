@@ -231,6 +231,34 @@ describe('context-types transform', () => {
         expect(result).not.toContain('extra');
     });
 
+    it('renames extra to ctx in 2-arg tool(name, callback) calls', () => {
+        const input = [
+            `server.tool('greet', async (request, extra) => {`,
+            `    const s = extra.signal;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('async (request, ctx)');
+        expect(result).toContain('ctx.mcpReq.signal');
+        expect(result).not.toContain('extra');
+    });
+
+    it('renames extra to ctx in setNotificationHandler callbacks', () => {
+        const input = [
+            `server.setNotificationHandler('notifications/cancelled', (notification, extra) => {`,
+            `    const s = extra.sessionId;`,
+            `    console.log(notification);`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('(notification, ctx)');
+        expect(result).toContain('ctx.sessionId');
+        expect(result).not.toContain('extra');
+    });
+
     it('does not inflate change count for identity mappings like sessionId', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, extra) => {`,
@@ -244,5 +272,35 @@ describe('context-types transform', () => {
         const result = contextTypesTransform.apply(sourceFile, ctx);
         expect(result.changesCount).toBe(1);
         expect(sourceFile.getFullText()).toContain('ctx.sessionId');
+    });
+
+    it('renames extra to ctx even when nested arrow function has its own ctx param', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    const items = [1, 2, 3];`,
+            `    const mapped = items.map((item, ctx) => ctx + item);`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('(request, ctx)');
+        expect(result).toContain('items.map((item, ctx) => ctx + item)');
+    });
+
+    it('still warns when ctx is a free variable from outer scope', () => {
+        const input = [
+            `const ctx = { custom: true };`,
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    console.log(ctx.custom);`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = contextTypesTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.some(d => d.message.includes('already referenced'))).toBe(true);
+        expect(sourceFile.getFullText()).toContain('extra');
     });
 });

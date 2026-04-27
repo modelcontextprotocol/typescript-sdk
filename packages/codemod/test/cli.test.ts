@@ -128,3 +128,24 @@ describe('CLI command declaration', () => {
         }
     });
 });
+
+describe('v2-gap diagnostic category', () => {
+    it('InMemoryTransport import produces v2-gap diagnostic separate from regular warnings', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'test-utils.ts'),
+            [`import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';`, `const t = new InMemoryTransport();`, ``].join(
+                '\n'
+            )
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const v2Gaps = result.diagnostics.filter(d => d.category === 'v2-gap');
+        const normalWarnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning && d.category !== 'v2-gap');
+
+        expect(v2Gaps.length).toBe(1);
+        expect(v2Gaps[0]!.message).toContain('v2 gap');
+        expect(normalWarnings.every(d => d.category !== 'v2-gap')).toBe(true);
+    });
+});

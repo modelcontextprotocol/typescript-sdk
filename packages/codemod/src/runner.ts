@@ -1,9 +1,13 @@
 import { Project } from 'ts-morph';
 
 import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types.js';
-import { error, info } from './utils/diagnostics.js';
+import { error } from './utils/diagnostics.js';
 import { updatePackageJson } from './utils/packageJsonUpdater.js';
 import { analyzeProject } from './utils/projectAnalyzer.js';
+
+function escapeGlobPath(p: string): string {
+    return p.replaceAll(/[[\]{}()*?!@#]/g, String.raw`\$&`);
+}
 
 export function run(migration: Migration, options: RunnerOptions): RunnerResult {
     const context = analyzeProject(options.targetDir);
@@ -30,7 +34,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     });
 
-    const globPattern = `${options.targetDir}/**/*.{ts,tsx,mts}`;
+    const globPattern = `${escapeGlobPath(options.targetDir)}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`;
     const ignorePatterns = [
         '**/node_modules/**',
         '**/dist/**',
@@ -42,6 +46,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         '**/__generated__/**',
         '**/*.d.ts',
         '**/*.d.mts',
+        '**/*.d.cts',
         ...(options.ignore ?? [])
     ];
 
@@ -54,7 +59,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     const sourceFiles = project.getSourceFiles().filter(sf => {
         const fp = sf.getFilePath();
         if (fp.includes('/node_modules/') || fp.includes('/dist/')) return false;
-        if (fp.endsWith('.d.ts') || fp.endsWith('.d.mts')) return false;
+        if (fp.endsWith('.d.ts') || fp.endsWith('.d.mts') || fp.endsWith('.d.cts')) return false;
         return true;
     });
     const fileResults: FileResult[] = [];
@@ -66,6 +71,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     for (const sourceFile of sourceFiles) {
         let fileChanges = 0;
         const fileDiagnostics: Diagnostic[] = [];
+        const originalText = sourceFile.getFullText();
 
         try {
             for (const transform of enabledTransforms) {
@@ -81,6 +87,8 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         } catch (error_) {
             const filePath = sourceFile.getFilePath();
             fileDiagnostics.push(error(filePath, 1, `Transform failed: ${error_ instanceof Error ? error_.message : String(error_)}`));
+            sourceFile.replaceWithText(originalText);
+            fileChanges = 0;
         }
 
         if (fileChanges > 0 || fileDiagnostics.length > 0) {
@@ -97,22 +105,13 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     }
 
-    if (allUsedPackages.has('@modelcontextprotocol/core')) {
-        allDiagnostics.push(
-            info(
-                'package.json',
-                0,
-                '@modelcontextprotocol/core is a private package not published to npm. ' +
-                    'If you use InMemoryTransport, you may need to find an alternative or use a local reference.'
-            )
-        );
-    }
-
     const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports' || t.id === 'mock-paths');
     const packageJsonChanges = hasImportsTransform
         ? updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false)
         : undefined;
 
+    // Per-file mutations are atomic: if any transform fails, the file is rolled back to its
+    // original state and an error diagnostic is emitted.
     if (!options.dryRun) {
         project.saveSync();
     }

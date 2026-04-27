@@ -228,6 +228,48 @@ describe('symbol-renames transform', () => {
         expect(result).not.toContain('RequestHandlerExtra');
     });
 
+    it('removes dead ServerRequest/ServerNotification imports after RequestHandlerExtra rename', () => {
+        const input = [
+            `import type { RequestHandlerExtra, ServerRequest, ServerNotification } from '@modelcontextprotocol/sdk/shared/protocol.js';`,
+            `type MyHandler = (args: any, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => void;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('ServerContext');
+        expect(result).not.toContain('RequestHandlerExtra');
+        expect(result).not.toMatch(/import.*ServerRequest/);
+        expect(result).not.toMatch(/import.*ServerNotification/);
+    });
+
+    it('removes dead ClientRequest/ClientNotification imports after RequestHandlerExtra rename', () => {
+        const input = [
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `import type { RequestHandlerExtra, ClientRequest, ClientNotification } from '@modelcontextprotocol/sdk/shared/protocol.js';`,
+            `type MyHandler = (args: any, extra: RequestHandlerExtra<ClientRequest, ClientNotification>) => void;`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        symbolRenamesTransform.apply(sourceFile, { projectType: 'client' });
+        const result = sourceFile.getFullText();
+        expect(result).toContain('ClientContext');
+        expect(result).not.toMatch(/import.*ClientRequest/);
+        expect(result).not.toMatch(/import.*ClientNotification/);
+    });
+
+    it('preserves generic arg imports that are still referenced elsewhere', () => {
+        const input = [
+            `import type { RequestHandlerExtra, ServerRequest, ServerNotification } from '@modelcontextprotocol/sdk/shared/protocol.js';`,
+            `type MyHandler = (args: any, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => void;`,
+            `type Req = ServerRequest;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('ServerContext');
+        expect(result).not.toMatch(/import.*ServerNotification/);
+        expect(result).toMatch(/import.*ServerRequest/);
+    });
+
     it('does not rename symbols from non-MCP imports', () => {
         const input = [
             `import { ErrorCode } from '@grpc/grpc-js';`,
@@ -399,6 +441,21 @@ describe('symbol-renames transform', () => {
         const result = applyTransform(input);
         expect(result).toContain('export { ProtocolError as MyCustomError }');
         expect(result).not.toContain('export { ProtocolError as ProtocolError }');
+    });
+
+    it('prefers non-type-only import when choosing ErrorCode split target module', () => {
+        const input = [
+            `import type { ServerContext } from '@modelcontextprotocol/server';`,
+            `import { Client } from '@modelcontextprotocol/client';`,
+            `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `if (err.code === ErrorCode.InvalidParams) {}`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain(`from '@modelcontextprotocol/client'`);
+        expect(result).toContain('ProtocolErrorCode');
+        const clientImportLine = result.split('\n').find(l => l.includes('@modelcontextprotocol/client') && !l.includes('import type'));
+        expect(clientImportLine).toContain('ProtocolErrorCode');
     });
 
     it('does not overwrite local binding in aliased export specifier', () => {

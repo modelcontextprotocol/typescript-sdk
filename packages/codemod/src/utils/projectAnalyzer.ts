@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { TransformContext } from '../types.js';
+import type { Diagnostic, TransformContext } from '../types.js';
+import { warning } from './diagnostics.js';
 
 const PROJECT_ROOT_MARKERS = ['.git', 'node_modules'];
 
@@ -42,7 +43,12 @@ export function analyzeProject(targetDir: string): TransformContext {
     }
 }
 
-export function resolveTypesPackage(context: TransformContext, fileHasClientImports: boolean, fileHasServerImports: boolean): string {
+export function resolveTypesPackage(
+    context: TransformContext,
+    fileHasClientImports: boolean,
+    fileHasServerImports: boolean,
+    diagnosticSink?: { filePath: string; line: number; diagnostics: Diagnostic[] }
+): string {
     if (fileHasClientImports && !fileHasServerImports) {
         return '@modelcontextprotocol/client';
     }
@@ -54,6 +60,16 @@ export function resolveTypesPackage(context: TransformContext, fileHasClientImpo
     }
     if (context.projectType === 'server') {
         return '@modelcontextprotocol/server';
+    }
+    if (diagnosticSink) {
+        diagnosticSink.diagnostics.push(
+            warning(
+                diagnosticSink.filePath,
+                diagnosticSink.line,
+                'Could not determine project type (client vs server). Defaulting to @modelcontextprotocol/server. ' +
+                    'If this is a client-only project, adjust imports manually.'
+            )
+        );
     }
     return '@modelcontextprotocol/server';
 }

@@ -112,6 +112,57 @@ describe('mcp-server-api transform', () => {
         expect(result).not.toContain('z.object(z.object(');
     });
 
+    it('converts .resource(name, uri, metadata, callback) renaming method only', () => {
+        const input = [
+            `server.resource('config', 'config://app', { description: 'App config' }, async (uri) => {`,
+            `    return { contents: [{ uri: uri.href, text: '{}' }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('registerResource');
+        expect(result).toContain("{ description: 'App config' }");
+        expect(result).not.toContain('.resource(');
+    });
+
+    it('converts .prompt(name, callback) with empty config', () => {
+        const input = [`server.prompt('greet', async () => {`, `    return { messages: [] };`, `});`, ''].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('registerPrompt');
+        expect(result).toContain('{}');
+        expect(result).not.toContain('.prompt(');
+    });
+
+    it('converts .prompt(name, description, schema, callback)', () => {
+        const input = [
+            `server.prompt('summarize', 'Summarize text', { text: z.string() }, async ({ text }) => {`,
+            `    return { messages: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('registerPrompt');
+        expect(result).toContain("description: 'Summarize text'");
+        expect(result).toContain('argsSchema: z.object({ text: z.string() })');
+    });
+
+    it('is idempotent', () => {
+        const input =
+            MCP_IMPORT +
+            [`server.tool('ping', async () => {`, `    return { content: [{ type: 'text', text: 'pong' }] };`, `});`, ''].join('\n');
+        const project1 = new Project({ useInMemoryFileSystem: true });
+        const sf1 = project1.createSourceFile('test.ts', input);
+        mcpServerApiTransform.apply(sf1, ctx);
+        const first = sf1.getFullText();
+
+        const project2 = new Project({ useInMemoryFileSystem: true });
+        const sf2 = project2.createSourceFile('test.ts', first);
+        mcpServerApiTransform.apply(sf2, ctx);
+        const second = sf2.getFullText();
+
+        expect(second).toBe(first);
+    });
+
     it('emits warning for .resource() with 5+ arguments', () => {
         const input = [`server.resource('name', 'uri://x', metadata, callback, extraArg);`, ''].join('\n');
         const project = new Project({ useInMemoryFileSystem: true });

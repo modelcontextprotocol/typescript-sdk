@@ -5,6 +5,7 @@ export interface ImportMapping {
     /** Route specific symbols to a different target package than `target`. */
     symbolTargetOverrides?: Record<string, string>;
     removalMessage?: string;
+    isV2Gap?: boolean;
 }
 
 export const IMPORT_MAP: Record<string, ImportMapping> = {
@@ -137,8 +138,12 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
 
     '@modelcontextprotocol/sdk/inMemory.js': {
-        target: '@modelcontextprotocol/core',
-        status: 'moved'
+        target: '',
+        status: 'removed',
+        isV2Gap: true,
+        removalMessage:
+            'InMemoryTransport is not yet exported from any public v2 package (v2 gap). ' +
+            'For now, import from @modelcontextprotocol/core (internal) as a devDependency for tests.'
     }
 };
 

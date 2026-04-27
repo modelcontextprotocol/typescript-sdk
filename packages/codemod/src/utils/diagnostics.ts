@@ -13,6 +13,10 @@ export function info(file: string, line: number, message: string): Diagnostic {
     return { level: DiagnosticLevel.Info, file, line, message };
 }
 
+export function v2Gap(file: string, line: number, message: string): Diagnostic {
+    return { level: DiagnosticLevel.Warning, file, line, message, category: 'v2-gap' };
+}
+
 const LEVEL_PREFIX: Record<DiagnosticLevel, string> = {
     [DiagnosticLevel.Error]: 'ERROR',
     [DiagnosticLevel.Warning]: 'WARNING',
@@ -20,5 +24,6 @@ const LEVEL_PREFIX: Record<DiagnosticLevel, string> = {
 };
 
 export function formatDiagnostic(d: Diagnostic): string {
-    return `  ${d.file}:${d.line} - [${LEVEL_PREFIX[d.level]}] ${d.message}`;
+    const prefix = d.category === 'v2-gap' ? 'V2 GAP' : LEVEL_PREFIX[d.level];
+    return `  ${d.file}:${d.line} - [${prefix}] ${d.message}`;
 }

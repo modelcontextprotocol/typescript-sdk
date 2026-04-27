@@ -1,8 +1,8 @@
 import type { SourceFile } from 'ts-morph';
 
-import type { Transform, TransformContext, TransformResult } from '../../../types.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
-import { warning } from '../../../utils/diagnostics.js';
+import { v2Gap, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
@@ -21,7 +21,7 @@ export const importPathsTransform: Transform = {
     name: 'Import path rewrites',
     id: 'imports',
     apply(sourceFile: SourceFile, context: TransformContext): TransformResult {
-        const diagnostics: ReturnType<typeof warning>[] = [];
+        const diagnostics: Diagnostic[] = [];
         const usedPackages = new Set<string>();
         let changesCount = 0;
 
@@ -89,18 +89,27 @@ export const importPathsTransform: Transform = {
             if (mapping.status === 'removed') {
                 imp.remove();
                 changesCount++;
-                diagnostics.push(warning(filePath, line, mapping.removalMessage ?? `Import removed: ${specifier}`));
+                const diagFn = mapping.isV2Gap ? v2Gap : warning;
+                diagnostics.push(diagFn(filePath, line, mapping.removalMessage ?? `Import removed: ${specifier}`));
                 continue;
             }
 
             let targetPackage = mapping.target;
             if (targetPackage === 'RESOLVE_BY_CONTEXT') {
-                targetPackage = resolveTypesPackage(context, hasClientImport, hasServerImport);
+                targetPackage = resolveTypesPackage(context, hasClientImport, hasServerImport, {
+                    filePath,
+                    line,
+                    diagnostics
+                });
             }
 
+            const symbolsToRenameInFile: Array<[string, string]> = [];
             if (mapping.renamedSymbols) {
                 for (const [oldName, newName] of Object.entries(mapping.renamedSymbols)) {
-                    renameAllReferences(sourceFile, oldName, newName);
+                    const matchingImport = namedImports.find(n => n.getName() === oldName);
+                    if (matchingImport && !matchingImport.getAliasNode()) {
+                        symbolsToRenameInFile.push([oldName, newName]);
+                    }
                 }
             }
 
@@ -143,6 +152,9 @@ export const importPathsTransform: Transform = {
                     }
                 }
                 changesCount++;
+                for (const [oldName, newName] of symbolsToRenameInFile) {
+                    renameAllReferences(sourceFile, oldName, newName);
+                }
                 continue;
             }
 
@@ -156,6 +168,9 @@ export const importPathsTransform: Transform = {
             }
             imp.remove();
             changesCount++;
+            for (const [oldName, newName] of symbolsToRenameInFile) {
+                renameAllReferences(sourceFile, oldName, newName);
+            }
         }
 
         for (const [target, groups] of pendingImports) {
@@ -189,7 +204,7 @@ function rewriteExportDeclarations(
     sourceFile: import('ts-morph').SourceFile,
     filePath: string,
     context: TransformContext,
-    diagnostics: ReturnType<typeof warning>[],
+    diagnostics: Diagnostic[],
     usedPackages: Set<string>
 ): number {
     let changesCount = 0;
@@ -217,7 +232,8 @@ function rewriteExportDeclarations(
         if (mapping.status === 'removed') {
             exp.remove();
             changesCount++;
-            diagnostics.push(warning(filePath, line, mapping.removalMessage ?? `Export removed: ${specifier}`));
+            const diagFn = mapping.isV2Gap ? v2Gap : warning;
+            diagnostics.push(diagFn(filePath, line, mapping.removalMessage ?? `Export removed: ${specifier}`));
             continue;
         }
 

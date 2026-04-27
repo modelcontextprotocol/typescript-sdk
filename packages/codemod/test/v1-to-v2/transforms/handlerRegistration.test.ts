@@ -152,4 +152,11 @@ describe('handler-registration transform', () => {
         expect(result).toContain("'tools/call'");
         expect(result).not.toContain('CTRS');
     });
+
+    it('does not modify files with no imports at all', () => {
+        const input = [`server.setRequestHandler(SomeSchema, async (req) => ({ content: [] }));`, ''].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('SomeSchema');
+        expect(result).not.toContain("'tools/call'");
+    });
 });

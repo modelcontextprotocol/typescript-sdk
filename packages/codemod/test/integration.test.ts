@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { getMigration } from '../src/migrations/index.js';
 import { run } from '../src/runner.js';
 import { DiagnosticLevel } from '../src/types.js';
+import type { Migration, Transform } from '../src/types.js';
 
 const migration = getMigration('v1-to-v2')!;
 
@@ -155,20 +156,60 @@ describe('integration', () => {
 
     it('recovers from transform errors and reports diagnostics', () => {
         const dir = createTempDir();
+
+        // A valid file that should be transformed successfully
         const validFile = [
             `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
             `const server = new McpServer({ name: 'test', version: '1.0' });`,
             ``
         ].join('\n');
 
+        // A file that will trigger the failing transform
+        const brokenFile = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'broken', version: '1.0' });`,
+            ``
+        ].join('\n');
+
         writeFileSync(path.join(dir, 'valid.ts'), validFile);
+        writeFileSync(path.join(dir, 'broken.ts'), brokenFile);
 
-        const result = run(migration, { targetDir: dir });
+        // Build a custom migration: real transforms + one that throws on 'broken' files
+        const failingTransform: Transform = {
+            name: 'failing',
+            id: 'failing',
+            apply(sourceFile) {
+                if (sourceFile.getFilePath().includes('broken')) {
+                    throw new Error('Intentional failure for error-recovery test');
+                }
+                return { changesCount: 0, diagnostics: [] };
+            }
+        };
 
-        expect(result.filesChanged).toBeGreaterThanOrEqual(1);
+        const testMigration: Migration = {
+            name: 'test-with-failing-transform',
+            description: 'Real transforms plus a failing transform for testing error recovery',
+            transforms: [...migration.transforms, failingTransform]
+        };
 
+        const result = run(testMigration, { targetDir: dir });
+
+        // The valid file should still be transformed correctly
         const validOutput = readFileSync(path.join(dir, 'valid.ts'), 'utf8');
         expect(validOutput).toContain('@modelcontextprotocol/server');
+        expect(validOutput).not.toContain('@modelcontextprotocol/sdk');
+
+        // The broken file should be rolled back to its original content
+        const brokenOutput = readFileSync(path.join(dir, 'broken.ts'), 'utf8');
+        expect(brokenOutput).toBe(brokenFile);
+
+        // An error-level diagnostic should mention the failure
+        const errorDiags = result.diagnostics.filter(d => d.level === DiagnosticLevel.Error);
+        expect(errorDiags.length).toBeGreaterThanOrEqual(1);
+        expect(errorDiags.some(d => d.message.includes('Intentional failure'))).toBe(true);
+
+        // The valid file should count as changed; the broken file should not
+        expect(result.filesChanged).toBeGreaterThanOrEqual(1);
     });
 
     it('respects transform filter option', () => {
@@ -182,7 +223,7 @@ describe('integration', () => {
 
         writeFileSync(path.join(dir, 'server.ts'), input);
 
-        const result = run(migration, { targetDir: dir, transforms: ['imports'] });
+        run(migration, { targetDir: dir, transforms: ['imports'] });
 
         const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
         // Import paths should be rewritten
@@ -468,9 +509,9 @@ describe('integration', () => {
         writeFileSync(path.join(dir, 'already-migrated.ts'), [`import { McpServer } from '@modelcontextprotocol/server';`, ``].join('\n'));
 
         const result = run(migration, { targetDir: dir });
-        if (result.filesChanged === 0 && result.packageJsonChanges) {
-            expect(result.packageJsonChanges.removed).toContain('@modelcontextprotocol/sdk');
-        }
+        expect(result.filesChanged).toBe(0);
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
     });
 
     it('emits diagnostics for removed imports', () => {
@@ -487,5 +528,65 @@ describe('integration', () => {
 
         expect(result.diagnostics.length).toBeGreaterThan(0);
         expect(result.diagnostics.some(d => d.level === DiagnosticLevel.Warning)).toBe(true);
+    });
+
+    it('transform ordering: critical dependencies are maintained', () => {
+        const ids = migration.transforms.map(t => t.id);
+        expect(ids.indexOf('imports')).toBeLessThan(ids.indexOf('symbols'));
+        expect(ids.indexOf('symbols')).toBeLessThan(ids.indexOf('removed-apis'));
+        expect(ids.indexOf('mcpserver-api')).toBeLessThan(ids.indexOf('context'));
+        expect(ids.at(-1)).toBe('mock-paths');
+    });
+
+    it('processes .mts files', () => {
+        const dir = createTempDir();
+        const input = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            ``
+        ].join('\n');
+
+        writeFileSync(path.join(dir, 'server.mts'), input);
+
+        const result = run(migration, { targetDir: dir });
+        expect(result.filesChanged).toBe(1);
+        const output = readFileSync(path.join(dir, 'server.mts'), 'utf8');
+        expect(output).toContain('@modelcontextprotocol/server');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('processes .js files', () => {
+        const dir = createTempDir();
+        const input = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            ``
+        ].join('\n');
+
+        writeFileSync(path.join(dir, 'server.js'), input);
+
+        const result = run(migration, { targetDir: dir });
+        expect(result.filesChanged).toBe(1);
+        const output = readFileSync(path.join(dir, 'server.js'), 'utf8');
+        expect(output).toContain('@modelcontextprotocol/server');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('groups v2-gap diagnostics with correct category', () => {
+        const dir = createTempDir();
+        const input = [
+            `import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';`,
+            `const t = new InMemoryTransport();`,
+            ``
+        ].join('\n');
+
+        writeFileSync(path.join(dir, 'test-utils.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+        const v2Gaps = result.diagnostics.filter(d => d.category === 'v2-gap');
+        expect(v2Gaps.length).toBe(1);
+        expect(v2Gaps[0]!.message).toContain('not yet exported from any public v2 package');
+        const normalWarnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning && d.category !== 'v2-gap');
+        expect(normalWarnings.every(d => d.category !== 'v2-gap')).toBe(true);
     });
 });

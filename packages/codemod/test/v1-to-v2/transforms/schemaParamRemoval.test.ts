@@ -36,16 +36,15 @@ describe('schema-param-removal transform', () => {
         expect(result).not.toContain('CallToolResultSchema');
     });
 
-    it('removes schema from send() and shifts options arg', () => {
+    it('does not remove schema from generic send() calls', () => {
         const input = [
             `import { CreateMessageResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
             `const result = await ctx.mcpReq.send({ method: 'sampling/createMessage', params: {} }, CreateMessageResultSchema, { timeout: 5000 });`,
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain('send(');
+        expect(result).toContain('CreateMessageResultSchema');
         expect(result).toContain('{ timeout: 5000 }');
-        expect(result).not.toContain('CreateMessageResultSchema');
     });
 
     it('does not remove non-schema arguments', () => {
@@ -75,26 +74,47 @@ describe('schema-param-removal transform', () => {
         expect(second).toBe(first);
     });
 
-    it('removes schema from v1 sendRequest calls', () => {
+    it('does not remove schema from generic sendRequest calls', () => {
         const input = [
             `import { CreateMessageResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
             `const result = await extra.sendRequest({ method: 'sampling/createMessage', params }, CreateMessageResultSchema);`,
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).not.toContain('CreateMessageResultSchema');
+        expect(result).toContain('CreateMessageResultSchema');
         expect(result).toContain('extra.sendRequest(');
     });
 
-    it('removes aliased schema from sendRequest calls', () => {
+    it('does not remove aliased schema from generic sendRequest calls', () => {
         const input = [
             `import { CreateMessageResultSchema as CMRS } from '@modelcontextprotocol/sdk/types.js';`,
             `const result = await extra.sendRequest({ method: 'sampling/createMessage', params }, CMRS);`,
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).not.toContain('CMRS');
+        expect(result).toContain('CMRS');
         expect(result).toContain('extra.sendRequest(');
-        expect(result).not.toContain('CreateMessageResultSchema');
+    });
+
+    it('counts one change per removed schema argument', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'tools/call' }, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = schemaParamRemovalTransform.apply(sourceFile, { projectType: 'unknown' });
+        expect(result.changesCount).toBe(1);
+    });
+
+    it('removes the import declaration when all schemas are removed', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'tools/call' }, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toMatch(/import.*CallToolResultSchema/);
     });
 });

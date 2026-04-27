@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { warning } from '../../../utils/diagnostics.js';
+import { info, warning } from '../../../utils/diagnostics.js';
 import { hasMcpImports } from '../../../utils/importUtils.js';
 import { CONTEXT_PROPERTY_MAP, CTX_PARAM_NAME, EXTRA_PARAM_NAME } from '../mappings/contextPropertyMap.js';
 
@@ -37,7 +37,7 @@ export const contextTypesTransform: Transform = {
             let callbackArg: Node | undefined;
             if (isHandler && args.length >= 2) {
                 callbackArg = args[1];
-            } else if (isRegister && args.length >= 3) {
+            } else if (isRegister && args.length >= 2) {
                 callbackArg = args.at(-1);
             }
 
@@ -79,7 +79,14 @@ export const contextTypesTransform: Transform = {
 
             if (body) {
                 let ctxAlreadyInScope = false;
-                body.forEachDescendant(node => {
+                body.forEachDescendant((node, traversal) => {
+                    if (
+                        (Node.isArrowFunction(node) || Node.isFunctionExpression(node) || Node.isFunctionDeclaration(node)) &&
+                        node.getParameters().some(p => p.getName() === CTX_PARAM_NAME)
+                    ) {
+                        traversal.skip();
+                        return;
+                    }
                     if (Node.isIdentifier(node) && node.getText() === CTX_PARAM_NAME) {
                         ctxAlreadyInScope = true;
                     }
@@ -98,6 +105,16 @@ export const contextTypesTransform: Transform = {
 
             extraParam.rename(CTX_PARAM_NAME);
             changesCount++;
+
+            if (['tool', 'prompt', 'resource'].includes(methodName)) {
+                diagnostics.push(
+                    info(
+                        sourceFile.getFilePath(),
+                        call.getStartLineNumber(),
+                        `Renamed 'extra' to 'ctx' in .${methodName}() callback. If this is not an McpServer method, revert this change.`
+                    )
+                );
+            }
 
             if (!body) continue;
 

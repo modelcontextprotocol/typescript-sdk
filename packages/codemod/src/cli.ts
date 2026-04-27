@@ -97,7 +97,7 @@ for (const [name, migration] of listMigrations()) {
                     process.exitCode = 1;
                 }
 
-                const warnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning);
+                const warnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning && d.category !== 'v2-gap');
                 if (warnings.length > 0) {
                     console.log(`Warnings (${warnings.length}):`);
                     for (const d of warnings) {
@@ -110,6 +110,15 @@ for (const [name, migration] of listMigrations()) {
                 if (infos.length > 0) {
                     console.log(`Info (${infos.length}):`);
                     for (const d of infos) {
+                        console.log(formatDiagnostic(d));
+                    }
+                    console.log('');
+                }
+
+                const v2Gaps = result.diagnostics.filter(d => d.category === 'v2-gap');
+                if (v2Gaps.length > 0) {
+                    console.log(`SDK v2 known issues (${v2Gaps.length}):`);
+                    for (const d of v2Gaps) {
                         console.log(formatDiagnostic(d));
                     }
                     console.log('');

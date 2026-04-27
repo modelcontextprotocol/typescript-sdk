@@ -175,7 +175,7 @@ describe('mock-paths transform', () => {
             const sourceFile = project.createSourceFile('test.ts', input);
             const result = mockPathsTransform.apply(sourceFile, ctx);
             expect(result.diagnostics.length).toBeGreaterThan(0);
-            expect(result.diagnostics[0]!.message).toContain('Dynamic import references removed SDK path');
+            expect(result.diagnostics[0]!.message).toContain('SSE server transport removed in v2');
         });
 
         it('emits warning for unknown SDK mock path', () => {
@@ -243,6 +243,21 @@ describe('mock-paths transform', () => {
             expect(result).toContain('ProtocolError: McpError');
             expect(result).toContain('ResourceTemplateReference: ResourceReference');
             expect(result).toContain('new McpError(');
+        });
+
+        it('emits warning for mixed-package mock factory symbols', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({`,
+                `    StreamableHTTPServerTransport: vi.fn(),`,
+                `    EventStore: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.length).toBeGreaterThan(0);
+            expect(result.diagnostics[0]!.message).toContain('mixes symbols that belong to different v2 packages');
         });
 
         it('renames SIMPLE_RENAMES symbols in aliased dynamic import destructuring', () => {
