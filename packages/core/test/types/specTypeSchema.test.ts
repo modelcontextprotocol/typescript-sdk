@@ -58,6 +58,15 @@ describe('isSpecType', () => {
         expect(isSpecType['NotASpecType']).toBeUndefined();
     });
 
+    it('excludes internal helper schemas (no matching public type)', () => {
+        // @ts-expect-error - ListChangedOptionsBase is internal-only
+        expect(isSpecType['ListChangedOptionsBase']).toBeUndefined();
+        // @ts-expect-error - BaseRequestParams is internal-only
+        expect(specTypeSchemas['BaseRequestParams']).toBeUndefined();
+        // @ts-expect-error - NotificationsParams is internal-only
+        expect(isSpecType['NotificationsParams']).toBeUndefined();
+    });
+
     it('narrows the value type', () => {
         const v: unknown = { name: 'x', version: '1.0.0' };
         if (isSpecType.Implementation(v)) {
