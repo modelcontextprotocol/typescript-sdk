@@ -70,6 +70,7 @@ export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/s
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
 export { createFetchWithInit } from '../../shared/transport.js';
+export { InMemoryTransport } from '../../util/inMemory.js';
 
 // URI Template
 export type { Variables } from '../../shared/uriTemplate.js';
