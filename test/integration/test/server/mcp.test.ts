@@ -1039,6 +1039,58 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: Tool Registration with Icons
+         */
+        test('should register tool with icons', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    description: 'A tool with icons',
+                    icons: [
+                        {
+                            src: 'https://example.com/icon.png',
+                            mimeType: 'image/png'
+                        }
+                    ]
+                },
+                async () => ({
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Test response'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/list'
+            });
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.name).toBe('test');
+            expect(result.tools[0]!.icons).toEqual([
+                {
+                    src: 'https://example.com/icon.png',
+                    mimeType: 'image/png'
+                }
+            ]);
+        });
+
+        /***
          * Test: Tool Registration with Parameters and Annotations
          */
         test('should register tool with params and annotations', async () => {

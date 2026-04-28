@@ -8,6 +8,7 @@ import type {
     CreateTaskResult,
     CreateTaskServerContext,
     GetPromptResult,
+    Icon,
     Implementation,
     ListPromptsResult,
     ListResourcesResult,
@@ -145,6 +146,7 @@ export class McpServer {
                                 ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
+                            icons: tool.icons,
                             execution: tool.execution,
                             _meta: tool._meta
                         };
@@ -772,6 +774,7 @@ export class McpServer {
         outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
+        icons: Icon[] | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
@@ -788,6 +791,7 @@ export class McpServer {
             outputSchema,
             annotations,
             execution,
+            icons,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -822,6 +826,7 @@ export class McpServer {
                 }
 
                 if (updates.outputSchema !== undefined) registeredTool.outputSchema = updates.outputSchema;
+                if (updates.icons !== undefined) registeredTool.icons = updates.icons;
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
@@ -870,6 +875,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -878,7 +884,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
 
         return this._createRegisteredTool(
             name,
@@ -888,6 +894,7 @@ export class McpServer {
             outputSchema,
             annotations,
             { taskSupport: 'forbidden' },
+            icons,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1095,6 +1102,7 @@ export type RegisteredTool = {
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
+    icons?: Icon[];
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
@@ -1110,6 +1118,7 @@ export type RegisteredTool = {
         paramsSchema?: StandardSchemaWithJSON;
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
+        icons?: Icon[];
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
