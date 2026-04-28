@@ -46,5 +46,14 @@ export { ExperimentalServerTasks } from './experimental/tasks/server.js';
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';
 
+// Framework-agnostic OAuth Resource-Server helpers (RFC 6750 / RFC 9728).
+export type { OAuthTokenVerifier, ProtectedResourceMetadataOptions } from './auth/resourceServer.js';
+export {
+    buildProtectedResourceMetadata,
+    buildWwwAuthenticateHeader,
+    checkIssuerUrl,
+    getOAuthProtectedResourceMetadataUrl
+} from './auth/resourceServer.js';
+
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';

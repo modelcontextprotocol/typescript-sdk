@@ -1,7 +1,6 @@
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
+import type { OAuthTokenVerifier } from '@modelcontextprotocol/server';
+import { buildWwwAuthenticateHeader, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
-
-import type { OAuthTokenVerifier } from './types.js';
 
 /**
  * Options for {@link requireBearerAuth}.
@@ -26,22 +25,6 @@ export interface BearerAuthMiddlewareOptions {
      * Typically built with `getOAuthProtectedResourceMetadataUrl`.
      */
     resourceMetadataUrl?: string;
-}
-
-function buildWwwAuthenticateHeader(
-    errorCode: string,
-    description: string,
-    requiredScopes: string[],
-    resourceMetadataUrl: string | undefined
-): string {
-    let header = `Bearer error="${errorCode}", error_description="${description}"`;
-    if (requiredScopes.length > 0) {
-        header += `, scope="${requiredScopes.join(' ')}"`;
-    }
-    if (resourceMetadataUrl) {
-        header += `, resource_metadata="${resourceMetadataUrl}"`;
-    }
-    return header;
 }
 
 /**
