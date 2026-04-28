@@ -19,10 +19,8 @@ import type {
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
-    NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
-    RequestMethod,
     RequestOptions,
     ResourceUpdatedNotification,
     Result,
@@ -266,7 +264,7 @@ export class Server extends Protocol<ServerContext> {
         };
     }
 
-    protected assertCapabilityForMethod(method: RequestMethod): void {
+    protected assertCapabilityForMethod(method: string): void {
         switch (method) {
             case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
@@ -299,7 +297,7 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    protected assertNotificationCapability(method: NotificationMethod): void {
+    protected assertNotificationCapability(method: string): void {
         switch (method) {
             case 'notifications/message': {
                 if (!this._capabilities.logging) {

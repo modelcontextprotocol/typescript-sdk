@@ -351,6 +351,26 @@ server.setRequestHandler('initialize', async (request) => { ... });
 server.setNotificationHandler('notifications/message', (notification) => { ... });
 ```
 
+For custom (non-spec) methods, use the 3-arg form `(method, schemas, handler)`:
+
+```typescript
+// v1: Zod schema with method literal
+server.setRequestHandler(z.object({ method: z.literal('acme/search'), params: P }), async req => { ... });
+
+// v2: method string + schemas object; handler receives parsed params
+server.setRequestHandler('acme/search', { params: P, result: R }, async (params, ctx) => { ... });
+client.setNotificationHandler('acme/progress', { params: P }, params => { ... });
+```
+
+To send a custom-method request, pass a result schema as the second argument to `request()` (and `ctx.mcpReq.send()`):
+
+```typescript
+// v1
+await client.request({ method: 'acme/search', params }, ResultSchema);
+// v2 (unchanged; now any Standard Schema, not Zod-only)
+await client.request({ method: 'acme/search', params }, ResultSchema);
+```
+
 Schema to method string mapping:
 
 | v1 Schema                               | v2 Method String                         |
@@ -406,9 +426,9 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `ctx.mcpReq.elicitInput(params, options?)`     | Elicit user input (form or URL)                        | `server.elicitInput(...)` from within handler        |
 | `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client                       | `server.createMessage(...)` from within handler      |
 
-## 11. Schema parameter removed from `request()`, `send()`, and `callTool()`
+## 11. Schema parameter removed from `request()`, `send()`, and `callTool()` (spec methods)
 
-`Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` no longer take a Zod result schema argument. The SDK resolves the schema internally from the method name.
+For **spec** methods, `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` no longer require a Zod result schema argument. The SDK resolves the schema internally from the method name.
 
 ```typescript
 // v1: schema required
@@ -431,6 +451,8 @@ const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 | `ctx.mcpReq.send(req, ResultSchema, options)`                | `ctx.mcpReq.send(req, options)`    |
 | `client.callTool(params, CompatibilityCallToolResultSchema)` | `client.callTool(params)`          |
 | `client.callTool(params, schema, options)`                   | `client.callTool(params, options)` |
+
+For **custom (non-spec)** methods, keep the result-schema argument — see §9. Only apply the rewrites above when `req.method` is a spec method.
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
