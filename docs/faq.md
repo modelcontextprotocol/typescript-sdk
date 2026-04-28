@@ -73,10 +73,9 @@ The [server quickstart](./server-quickstart.md) walks you through building a wea
 
 Server authentication & authorization is outside of the scope of the SDK, and the recommendation is to use packages that focus on this area specifically (or a full-fledged Authorization Server for those who use such). Example packages provide an example with `better-auth`.
 
-### Why did we remove `server` SSE transport?
+### Where is the server SSE transport?
 
-The SSE transport has been deprecated for a long time, and `v2` will not support it on the server side any more. Client side will keep supporting it in order to be able to connect to legacy SSE servers via the `v2` SDK, but serving SSE from `v2` will not be possible. Servers
-wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
+`SSEServerTransport` is available as a deprecated compat shim under `@modelcontextprotocol/node/sse`. New servers should migrate to Streamable HTTP (`NodeStreamableHTTPServerTransport` from `@modelcontextprotocol/node`). Client side `SSEClientTransport` remains available for connecting to legacy SSE servers.
 
 ## v1 (legacy)
 
