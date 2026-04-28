@@ -9,6 +9,9 @@ interface QueuedMessage {
 
 /**
  * In-memory transport for creating clients and servers that talk to each other within the same process.
+ *
+ * Intended for testing and development. For production in-process connections, use
+ * `StreamableHTTPClientTransport` against a local server URL.
  */
 export class InMemoryTransport implements Transport {
     private _otherTransport?: InMemoryTransport;
