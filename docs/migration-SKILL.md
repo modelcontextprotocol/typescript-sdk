@@ -359,8 +359,10 @@ server.setRequestHandler(z.object({ method: z.literal('acme/search'), params: P 
 
 // v2: method string + schemas object; handler receives parsed params
 server.setRequestHandler('acme/search', { params: P, result: R }, async (params, ctx) => { ... });
-client.setNotificationHandler('acme/progress', { params: P }, params => { ... });
+client.setNotificationHandler('acme/progress', { params: P }, (params, notification) => { ... });
 ```
+
+The 3-arg notification handler receives the raw notification as its second argument, so `_meta` is recoverable via `notification.params?._meta`.
 
 To send a custom-method request, pass a result schema as the second argument to `request()` (and `ctx.mcpReq.send()`):
 

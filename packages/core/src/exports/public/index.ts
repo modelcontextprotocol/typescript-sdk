@@ -138,7 +138,7 @@ export { isTerminal } from '../../experimental/tasks/interfaces.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
-export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
+export type { StandardSchemaV1, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages

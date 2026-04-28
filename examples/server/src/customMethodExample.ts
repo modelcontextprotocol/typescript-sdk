@@ -2,7 +2,7 @@
  * Custom (non-spec) method example: a server that handles a vendor-prefixed
  * `acme/search` request and emits `acme/searchProgress` notifications.
  *
- * Run alongside `examples/client/src/customMethodExample.ts`.
+ * Spawned via stdio by `examples/client/src/customMethodExample.ts`; do not run standalone.
  */
 import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod/v4';

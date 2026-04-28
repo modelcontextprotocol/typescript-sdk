@@ -2,7 +2,7 @@
  * Custom (non-spec) method example: a client that sends `acme/search` and
  * listens for `acme/searchProgress` notifications.
  *
- * Run after starting `examples/server/src/customMethodExample.ts`.
+ * Build `examples/server` first; this client spawns the server via stdio.
  */
 import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
 import { z } from 'zod/v4';

@@ -1152,12 +1152,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     setNotificationHandler<P extends StandardSchemaV1>(
         method: string,
         schemas: { params: P },
-        handler: (params: StandardSchemaV1.InferOutput<P>) => void | Promise<void>
+        handler: (params: StandardSchemaV1.InferOutput<P>, notification: Notification) => void | Promise<void>
     ): void;
     setNotificationHandler(
         method: string,
         schemasOrHandler: { params: StandardSchemaV1 } | ((notification: unknown) => void | Promise<void>),
-        maybeHandler?: (params: unknown) => void | Promise<void>
+        maybeHandler?: (params: unknown, notification: Notification) => void | Promise<void>
     ): void {
         if (typeof schemasOrHandler === 'function') {
             const schema = getNotificationSchema(method);
@@ -1180,7 +1180,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for notification ${method}: ${parsed.error}`);
             }
-            await maybeHandler(parsed.data);
+            await maybeHandler(parsed.data, notification);
         });
     }
 

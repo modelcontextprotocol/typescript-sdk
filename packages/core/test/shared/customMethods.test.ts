@@ -112,6 +112,20 @@ describe('Protocol custom-method support', () => {
             await new Promise(r => setTimeout(r, 0));
             expect(seen).toEqual([{ stage: 'fetch', pct: 0.5 }]);
         });
+
+        it('passes the raw notification (with _meta) as the second handler argument', async () => {
+            const [a, b] = await pair();
+            const Strict = z.strictObject({ stage: z.string() });
+            let seenMeta: unknown;
+            b.setNotificationHandler('acme/searchProgress', { params: Strict }, (params, notification) => {
+                expect(params).toEqual({ stage: 'fetch' });
+                seenMeta = notification.params?._meta;
+            });
+
+            await a.notification({ method: 'acme/searchProgress', params: { stage: 'fetch', _meta: { traceId: 't1' } } });
+            await new Promise(r => setTimeout(r, 0));
+            expect(seenMeta).toEqual({ traceId: 't1' });
+        });
     });
 
     describe('request() schema overload', () => {

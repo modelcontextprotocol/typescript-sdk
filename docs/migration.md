@@ -393,6 +393,8 @@ server.setRequestHandler('acme/search', { params: SearchParams, result: SearchRe
 
 The handler receives the parsed `params` directly (not the full request envelope). `_meta` is stripped before validation and is available as `ctx.mcpReq._meta`. Supplying `result` types the handler's return value; omit it to return any `Result`.
 
+For `setNotificationHandler`, the 3-arg handler is `(params, notification) => void`. The raw notification is the second argument, so `_meta` is recoverable via `notification.params?._meta`.
+
 #### Sending custom-method requests
 
 `request()` and `ctx.mcpReq.send()` accept a result schema as the second argument; for custom methods this is required:
