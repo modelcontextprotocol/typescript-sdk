@@ -46,3 +46,13 @@ import { localhostHostValidation } from '@modelcontextprotocol/hono';
 const app = createMcpHonoApp();
 app.use('*', localhostHostValidation());
 ```
+
+## OAuth Resource-Server auth
+
+This package does not yet ship a `requireBearerAuth` equivalent. The
+framework-agnostic building blocks (`OAuthTokenVerifier`,
+`buildWwwAuthenticateHeader`, `checkIssuerUrl`,
+`buildProtectedResourceMetadata`, `getOAuthProtectedResourceMetadataUrl`) are
+available from `@modelcontextprotocol/server`, so a thin adapter can be built
+on top of them without duplicating the RFC 6750 / RFC 9728 logic. See
+`@modelcontextprotocol/express` for a reference implementation.
