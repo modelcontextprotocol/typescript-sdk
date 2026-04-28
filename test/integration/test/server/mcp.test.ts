@@ -6828,7 +6828,7 @@ describe('Zod v4', () => {
                     }
                 },
                 {
-                    createTask: async ctx => {
+                    createTask: async (_args, ctx) => {
                         const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
@@ -6932,7 +6932,7 @@ describe('Zod v4', () => {
                     }
                 },
                 {
-                    createTask: async ctx => {
+                    createTask: async (_args, ctx) => {
                         const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout

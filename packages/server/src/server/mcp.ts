@@ -1120,7 +1120,9 @@ export type RegisteredTool = {
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
  * When `inputSchema` is defined, the handler is called with `(args, ctx)`.
- * When `inputSchema` is undefined, the handler is called with just `(ctx)`.
+ * When `inputSchema` is undefined, regular tool callbacks are called with `(ctx)`.
+ * Task handlers are always called with `(args, ctx)`, passing `{}` when inputSchema is undefined,
+ * to match the two-argument handler signature.
  */
 function createToolExecutor(
     inputSchema: StandardSchemaWithJSON | undefined,
@@ -1138,8 +1140,8 @@ function createToolExecutor(
             if (inputSchema) {
                 return taskHandler.createTask(args, taskCtx);
             }
-            // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-            return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
+            // When no inputSchema, pass empty object as args so two-argument handlers receive correct positions
+            return taskHandler.createTask({}, taskCtx);
         };
     }
 
