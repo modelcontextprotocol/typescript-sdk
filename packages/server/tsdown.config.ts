@@ -26,7 +26,8 @@ export default defineConfig({
             baseUrl: '.',
             paths: {
                 '@modelcontextprotocol/core': ['../core/src/index.ts'],
-                '@modelcontextprotocol/core/public': ['../core/src/exports/public/index.ts']
+                '@modelcontextprotocol/core/public': ['../core/src/exports/public/index.ts'],
+                '@modelcontextprotocol/core/validators/cfWorker': ['../core/src/validators/cfWorkerProvider.ts']
             }
         }
     },
