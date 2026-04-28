@@ -69,9 +69,9 @@ For production use, you can either:
 
 The [server quickstart](./server-quickstart.md) walks you through building a weather server from scratch. Its complete source lives in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/). For more advanced examples (OAuth, streaming, sessions, etc.), see the server examples index in [`examples/server/README.md`](../examples/server/README.md).
 
-### Why did we remove `server` auth exports?
+### Where are the server auth helpers?
 
-Server authentication & authorization is outside of the scope of the SDK, and the recommendation is to use packages that focus on this area specifically (or a full-fledged Authorization Server for those who use such). Example packages provide an example with `better-auth`.
+All v1 `server/auth/*` exports are available in the deprecated `@modelcontextprotocol/server-auth-legacy` package (frozen v1 copy). New code should use a dedicated IdP/OAuth library; example packages provide a demo with `better-auth`.
 
 ### Why did we remove `server` SSE transport?
 

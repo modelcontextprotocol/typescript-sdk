@@ -17,6 +17,7 @@
     "@modelcontextprotocol/hono": "2.0.0-alpha.0",
     "@modelcontextprotocol/node": "2.0.0-alpha.0",
     "@modelcontextprotocol/server": "2.0.0-alpha.0",
+    "@modelcontextprotocol/server-auth-legacy": "2.0.0-alpha.2",
     "@modelcontextprotocol/test-conformance": "2.0.0-alpha.0",
     "@modelcontextprotocol/test-helpers": "2.0.0-alpha.0",
     "@modelcontextprotocol/test-integration": "2.0.0-alpha.0"

@@ -54,7 +54,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
 | `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
-| `@modelcontextprotocol/sdk/server/auth/*`            | REMOVED (use external auth library)                                                                                                                                                                                |
+| `@modelcontextprotocol/sdk/server/auth/*`            | `@modelcontextprotocol/server-auth-legacy` (deprecated; frozen v1 copy)                                                                                                                                            |
 | `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                 |
 
 ### Types / shared imports
@@ -191,6 +191,8 @@ Individual OAuth error classes replaced with single `OAuthError` class and `OAut
 
 Removed: `OAUTH_ERRORS` constant.
 
+For server-side Authorization-Server implementations, the v1 subclass hierarchy (and `OAUTH_ERRORS`) is still available from `@modelcontextprotocol/server-auth-legacy` (frozen v1 copy). For client-side error handling, use `OAuthError` + `OAuthErrorCode` as below.
+
 Update OAuth error handling:
 
 ```typescript
@@ -319,8 +321,7 @@ new URL(ctx.http?.req?.url).searchParams.get('debug')
 
 ### Server-side auth
 
-All server OAuth exports removed: `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and associated types. Use an external auth library (e.g., `better-auth`). See
-`examples/server/src/` for demos.
+All v1 `server/auth/*` exports (`mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `mcpAuthMetadataRouter`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, etc.) are available in the deprecated `@modelcontextprotocol/server-auth-legacy` package. New code should use an external IdP/OAuth library. See `examples/server/src/` for demos.
 
 ### Host header validation (Express)
 
@@ -502,6 +503,6 @@ Access validators explicitly:
 6. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
 7. If using `hostHeaderValidation` from server, update import and signature per section 8
 8. If using server SSE transport, migrate to Streamable HTTP
-9. If using server auth from the SDK, migrate to an external auth library
+9. If using server auth from the SDK, import from `@modelcontextprotocol/server-auth-legacy` (deprecated; frozen v1 copy)
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
 11. Verify: build with `tsc` / run tests

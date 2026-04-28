@@ -41,3 +41,4 @@ jobs:
               run:
                   pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/client'
                   './packages/middleware/express' './packages/middleware/fastify' './packages/middleware/hono' './packages/middleware/node'
+                  './packages/server-auth-legacy'
