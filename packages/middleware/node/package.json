@@ -26,6 +26,14 @@
             "import": "./dist/index.mjs"
         }
     },
+    "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "sse": [
+                "dist/sse.d.mts"
+            ]
+        }
+    },
     "files": [
         "dist"
     ],
