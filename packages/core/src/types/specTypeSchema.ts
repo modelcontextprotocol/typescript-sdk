@@ -271,8 +271,14 @@ export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas) as 
 /**
  * Type predicates for every MCP spec type, keyed by type name.
  *
- * Returns `true` if the value structurally matches the named spec type. Each guard is a standalone
- * function, so it can be passed directly as a callback.
+ * Returns `true` if the value satisfies the schema's input type (`z.input<>`, before defaults and
+ * transforms are applied), and narrows to that input type. For schemas with `.default()` or
+ * `.preprocess()`, this may accept values that do not structurally match the named output type;
+ * for example `isSpecType.CallToolResult({})` is `true` because `content` has a default. Use
+ * `specTypeSchemas.X['~standard'].validate(value)` (or `.parse(value)`) when you need the
+ * validated output value.
+ *
+ * Each guard is a standalone function, so it can be passed directly as a callback.
  *
  * @example
  * ```ts source="./specTypeSchema.examples.ts#isSpecType_basicUsage"
