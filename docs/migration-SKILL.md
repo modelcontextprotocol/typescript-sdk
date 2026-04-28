@@ -98,7 +98,7 @@ Notes:
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`) |
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`) |
 
-All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use type guard functions like `isCallToolResult` instead of `CallToolResultSchema.safeParse()`.
+All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are not exported from the package root; for runtime validation prefer type guard functions like `isCallToolResult`, or the `isSpecType` / `specTypeSchemas` Records. For v1 compatibility the schemas are available from the `@modelcontextprotocol/server/zod-schemas` subpath.
 
 ### Error class changes
 
