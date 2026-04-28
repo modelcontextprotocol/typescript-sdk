@@ -26,6 +26,14 @@
             "import": "./dist/index.mjs"
         }
     },
+    "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "sse": [
+                "dist/sse.d.mts"
+            ]
+        }
+    },
     "files": [
         "dist"
     ],
@@ -67,6 +75,5 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"
-    },
-    "types": "./dist/index.d.mts"
+    }
 }
