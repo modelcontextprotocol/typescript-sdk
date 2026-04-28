@@ -1178,6 +1178,153 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: Tool Registration with Icons
+         */
+        test('should register tool with icons', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    description: 'A tool with icons',
+                    icons: [
+                        { src: 'https://example.com/icon.png', mimeType: 'image/png' },
+                        { src: 'https://example.com/icon.svg', mimeType: 'image/svg+xml' }
+                    ]
+                },
+                async () => ({
+                    content: [{ type: 'text', text: 'Test response' }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.name).toBe('test');
+            expect(result.tools[0]!.icons).toEqual([
+                { src: 'https://example.com/icon.png', mimeType: 'image/png' },
+                { src: 'https://example.com/icon.svg', mimeType: 'image/svg+xml' }
+            ]);
+        });
+
+        /***
+         * Test: Tool Registration with Icons and Annotations
+         */
+        test('should register tool with icons and annotations', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    description: 'A tool with icons and annotations',
+                    inputSchema: z.object({ name: z.string() }),
+                    icons: [{ src: 'https://example.com/icon.png', mimeType: 'image/png' }],
+                    annotations: { title: 'Test Tool', readOnlyHint: true }
+                },
+                async ({ name }) => ({
+                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.name).toBe('test');
+            expect(result.tools[0]!.icons).toEqual([{ src: 'https://example.com/icon.png', mimeType: 'image/png' }]);
+            expect(result.tools[0]!.annotations).toEqual({
+                title: 'Test Tool',
+                readOnlyHint: true
+            });
+        });
+
+        /***
+         * Test: Updating Tool Icons
+         */
+        test('should update tool icons', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool(
+                'test',
+                {
+                    icons: [{ src: 'https://example.com/old-icon.png', mimeType: 'image/png' }]
+                },
+                async () => ({
+                    content: [{ type: 'text', text: 'Test response' }]
+                })
+            );
+
+            // Update icons
+            tool.update({
+                icons: [{ src: 'https://example.com/new-icon.svg', mimeType: 'image/svg+xml' }]
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.icons).toEqual([{ src: 'https://example.com/new-icon.svg', mimeType: 'image/svg+xml' }]);
+        });
+
+        /***
+         * Test: Tool without Icons should not include icons in listing
+         */
+        test('should not include icons in listing when not provided', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', { description: 'A tool without icons' }, async () => ({
+                content: [{ type: 'text', text: 'Test response' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0]!.icons).toBeUndefined();
+        });
+
+        /***
          * Test: Tool Argument Validation
          */
         test('should validate tool args', async () => {
