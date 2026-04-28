@@ -307,12 +307,13 @@ function rewriteDynamicImports(
                         }
                     }
                 }
-                if (!Node.isObjectBindingPattern(nameNode) && Object.keys(allRenames).length > 0) {
+                const moduleRenames = resolved.renamedSymbols ?? {};
+                if (!Node.isObjectBindingPattern(nameNode) && Object.keys(moduleRenames).length > 0) {
                     diagnostics.push(
                         warning(
                             sourceFile.getFilePath(),
                             node.getStartLineNumber(),
-                            `Dynamic import assigned to variable (not destructured). Symbol renames (${Object.keys(allRenames).join(', ')}) were not applied. Manual update may be needed.`
+                            `Dynamic import assigned to variable (not destructured). Symbol renames (${Object.keys(moduleRenames).join(', ')}) were not applied. Manual update may be needed.`
                         )
                     );
                 }

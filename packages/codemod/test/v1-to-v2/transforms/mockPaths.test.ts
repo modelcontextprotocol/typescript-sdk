@@ -260,6 +260,26 @@ describe('mock-paths transform', () => {
             expect(result.diagnostics[0]!.message).toContain('mixes symbols that belong to different v2 packages');
         });
 
+        it('does not emit warning for non-destructured dynamic import of module without renamedSymbols', () => {
+            const input = [`const mod = await import('@modelcontextprotocol/sdk/server/mcp.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            const renameWarnings = result.diagnostics.filter(d => d.message.includes('Symbol renames'));
+            expect(renameWarnings).toHaveLength(0);
+        });
+
+        it('emits warning for non-destructured dynamic import of module with renamedSymbols', () => {
+            const input = [`const mod = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            const renameWarnings = result.diagnostics.filter(d => d.message.includes('Symbol renames'));
+            expect(renameWarnings).toHaveLength(1);
+            expect(renameWarnings[0]!.message).toContain('StreamableHTTPServerTransport');
+            expect(renameWarnings[0]!.message).not.toContain('McpError');
+        });
+
         it('renames SIMPLE_RENAMES symbols in aliased dynamic import destructuring', () => {
             const input = [
                 `const { McpError: MyError } = await import('@modelcontextprotocol/sdk/types.js');`,
