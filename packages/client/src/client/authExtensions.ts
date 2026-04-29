@@ -79,14 +79,13 @@ export function createPrivateKeyJwtAuth(options: {
         }
 
         // Sign JWT
+        // All six reserved claims (iss, sub, aud, iat, exp, jti) are already
+        // present in `claims` via `baseClaims`, and custom overrides from
+        // `options.claims` are merged on top.  We intentionally do NOT call
+        // the jose setter helpers here so the documented "custom claims take
+        // precedence" contract is honored.
         const assertion = await new jose.SignJWT(claims)
             .setProtectedHeader({ alg, typ: 'JWT' })
-            .setIssuer(options.issuer)
-            .setSubject(options.subject)
-            .setAudience(audience)
-            .setIssuedAt(now)
-            .setExpirationTime(now + lifetimeSeconds)
-            .setJti(jti)
             .sign(key as unknown as Uint8Array | CryptoKey);
 
         params.set('client_assertion', assertion);
