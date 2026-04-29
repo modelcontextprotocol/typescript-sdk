@@ -24,6 +24,10 @@
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
         },
+        "./stdio": {
+            "types": "./dist/stdio.d.mts",
+            "import": "./dist/stdio.mjs"
+        },
         "./validators/cf-worker": {
             "types": "./dist/validators/cfWorker.d.mts",
             "import": "./dist/validators/cfWorker.mjs"
@@ -88,7 +92,6 @@
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
