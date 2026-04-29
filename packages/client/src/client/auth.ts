@@ -113,6 +113,12 @@ export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx
     }
 }
 
+const OAUTH_TOKEN_EXPIRY_BUFFER_SECONDS = 60;
+
+function hasUsableOAuthAccessToken(tokens: OAuthTokens | undefined): tokens is OAuthTokens {
+    return tokens !== undefined && (tokens.expires_in === undefined || tokens.expires_in > OAUTH_TOKEN_EXPIRY_BUFFER_SECONDS);
+}
+
 /**
  * Adapts an `OAuthClientProvider` to the minimal `AuthProvider` interface that
  * transports consume. Called once at transport construction — the transport stores
@@ -123,7 +129,7 @@ export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider 
     return {
         token: async () => {
             const tokens = await provider.tokens();
-            return tokens?.access_token;
+            return hasUsableOAuthAccessToken(tokens) ? tokens.access_token : undefined;
         },
         onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
     };
