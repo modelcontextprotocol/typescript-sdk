@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
+import type { BlankEnv } from 'hono/types';
 
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
 
@@ -37,14 +38,35 @@ export interface CreateMcpHonoAppOptions {
  *
  * @param options - Configuration options
  * @returns A configured Hono application
+ * 
+ * @example
+ * ```typescript
+ * // With custom Env type for Cloudflare Workers
+ * type Env = {
+ *   Bindings: {
+ *     DB: D1Database;
+ *   };
+ *   Variables: {
+ *     user: User;
+ *   };
+ * };
+ * 
+ * const app = createMcpHonoApp<Env>();
+ * 
+ * app.get('/data', async (c) => {
+ *   const db = c.env.DB; // typed as D1Database
+ *   const user = c.get('user'); // typed as User
+ *   // ...
+ * });
+ * ```
  */
-export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
+export function createMcpHonoApp<E extends BlankEnv = BlankEnv>(options: CreateMcpHonoAppOptions = {}): Hono<E> {
     const { host = '127.0.0.1', allowedHosts } = options;
 
-    const app = new Hono();
+    const app = new Hono<E>();
 
     // Similar to `express.json()`: parse JSON bodies and make them available to MCP adapters via `parsedBody`.
-    app.use('*', async (c: Context, next) => {
+    app.use('*', async (c: Context<E>, next) => {
         // If an upstream middleware already set parsedBody, keep it.
         if (c.get('parsedBody') !== undefined) {
             return await next();
