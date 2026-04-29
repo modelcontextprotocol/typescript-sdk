@@ -60,6 +60,11 @@ describe('isSpecType', () => {
         expect(isSpecType.Tool({ name: 'echo' })).toBe(false);
     });
 
+    it('ResourceTemplate — accepts valid, rejects missing uriTemplate', () => {
+        expect(isSpecType.ResourceTemplate({ name: 'r', uriTemplate: 'file:///{path}' })).toBe(true);
+        expect(isSpecType.ResourceTemplate({ name: 'r' })).toBe(false);
+    });
+
     it('rejects unknown names at compile time and is undefined at runtime', () => {
         // @ts-expect-error - 'NotASpecType' is not a SpecTypeName
         expect(isSpecType['NotASpecType']).toBeUndefined();
@@ -125,10 +130,5 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         // server package's ResourceTemplate class), so this is the one entry where the key and
         // the public type name differ.
         expectTypeOf<SpecTypes['ResourceTemplate']>().toEqualTypeOf<ResourceTemplateType>();
-    });
-
-    it('isSpecType.ResourceTemplate validates a resource template', () => {
-        expect(isSpecType.ResourceTemplate({ name: 'r', uriTemplate: 'file:///{path}' })).toBe(true);
-        expect(isSpecType.ResourceTemplate({ name: 'r' })).toBe(false);
     });
 });
