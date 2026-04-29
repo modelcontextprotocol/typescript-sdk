@@ -3,7 +3,7 @@
  *
  * This file is selected via package.json export conditions when running in workerd.
  */
-export { CfWorkerJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core';
+export { CfWorkerJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
 
 /**
  * Whether `fetch()` may throw `TypeError` due to CORS. CORS is a browser-only concept —

@@ -1007,15 +1007,30 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (request: RequestTypeMap[M], ctx: ContextT) => Result | Promise<Result>
+        handler: (request: RequestTypeMap[M], ctx: ContextT) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
     ): void {
         this.assertRequestHandlerCapability(method);
         const schema = getRequestSchema(method);
 
-        this._requestHandlers.set(method, (request, ctx) => {
+        const stored = (request: JSONRPCRequest, ctx: ContextT): Promise<Result> => {
             const parsed = schema.parse(request) as RequestTypeMap[M];
             return Promise.resolve(handler(parsed, ctx));
-        });
+        };
+        this._requestHandlers.set(method, this._wrapHandler(method, stored));
+    }
+
+    /**
+     * Hook for subclasses to wrap a registered request handler with role-specific
+     * validation or behavior (e.g. `Server` validates `tools/call` results, `Client`
+     * validates `elicitation/create` mode and result). The default implementation is identity.
+     *
+     * Subclasses overriding this hook avoid redeclaring `setRequestHandler` and its JSDoc.
+     */
+    protected _wrapHandler(
+        _method: string,
+        handler: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
+    ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
+        return handler;
     }
 
     /**
