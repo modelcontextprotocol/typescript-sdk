@@ -47,6 +47,12 @@ import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
+const DEFAULT_DEBOUNCED_NOTIFICATION_METHODS = [
+    'notifications/resources/list_changed',
+    'notifications/tools/list_changed',
+    'notifications/prompts/list_changed'
+];
+
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
@@ -75,7 +81,12 @@ export class McpServer {
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this.server = new Server(serverInfo, options);
+        this.server = new Server(serverInfo, {
+            ...options,
+            debouncedNotificationMethods: [
+                ...new Set([...DEFAULT_DEBOUNCED_NOTIFICATION_METHODS, ...(options?.debouncedNotificationMethods ?? [])])
+            ]
+        });
     }
 
     /**
