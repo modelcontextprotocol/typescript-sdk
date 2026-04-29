@@ -482,17 +482,17 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
-        await super.connect(transport);
-        // When transport sessionId is already set this means we are trying to reconnect.
-        // Restore the protocol version negotiated during the original initialize handshake
-        // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
-        if (transport.sessionId !== undefined) {
-            if (this._negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
-                transport.setProtocolVersion(this._negotiatedProtocolVersion);
-            }
-            return;
-        }
         try {
+            await super.connect(transport);
+            // When transport sessionId is already set this means we are trying to reconnect.
+            // Restore the protocol version negotiated during the original initialize handshake
+            // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
+            if (transport.sessionId !== undefined) {
+                if (this._negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
+                    transport.setProtocolVersion(this._negotiatedProtocolVersion);
+                }
+                return;
+            }
             const result = await this._requestWithSchema(
                 {
                     method: 'initialize',
