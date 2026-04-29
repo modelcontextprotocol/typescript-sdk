@@ -179,7 +179,11 @@ export interface LegacyContextFields {
     /** @deprecated Use `ctx.mcpReq.notify` */
     sendNotification: (notification: Notification) => Promise<void>;
     /** @deprecated Use `ctx.mcpReq.send` */
-    sendRequest: <T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions) => Promise<SchemaOutput<T>>;
+    sendRequest: <T extends StandardSchemaV1>(
+        request: Request,
+        resultSchema: T,
+        options?: RequestOptions
+    ) => Promise<StandardSchemaV1.InferOutput<T>>;
     /** @deprecated Use `ctx.task?.store` */
     taskStore?: TaskContext['store'];
     /** @deprecated Use `ctx.task?.id` */
@@ -334,10 +338,7 @@ export type RequestHandlerExtra<_Req = unknown, _Notif = unknown> = ServerContex
  *
  * @internal
  */
-function withLegacyContextFields<T extends BaseContext>(
-    ctx: T,
-    sendRequest: <S extends AnySchema>(r: Request, s: S, o?: RequestOptions) => Promise<SchemaOutput<S>>
-): T & LegacyContextFields {
+function withLegacyContextFields<T extends BaseContext>(ctx: T, sendRequest: LegacyContextFields['sendRequest']): T & LegacyContextFields {
     return {
         ...ctx,
         signal: ctx.mcpReq.signal,
