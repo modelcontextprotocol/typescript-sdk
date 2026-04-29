@@ -32,6 +32,10 @@
         "./public": {
             "types": "./src/exports/public/index.ts",
             "import": "./src/exports/public/index.ts"
+        },
+        "./validators/cfWorker": {
+            "types": "./src/validators/cfWorkerProvider.ts",
+            "import": "./src/validators/cfWorkerProvider.ts"
         }
     },
     "scripts": {

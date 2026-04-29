@@ -29,6 +29,7 @@ pnpm tsx src/simpleStreamableHttp.ts
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Streamable HTTP server (stateful)         | Feature-rich server with tools/resources/prompts, logging, tasks, sampling, and optional OAuth. | [`src/simpleStreamableHttp.ts`](src/simpleStreamableHttp.ts)                             |
 | Streamable HTTP server (stateless)        | No session tracking; good for simple API-style servers.                                         | [`src/simpleStatelessStreamableHttp.ts`](src/simpleStatelessStreamableHttp.ts)           |
+| Resource-Server-only auth                 | Minimal OAuth RS using SDK's `mcpAuthMetadataRouter` + `requireBearerAuth` (no better-auth).    | [`src/resourceServerOnly.ts`](src/resourceServerOnly.ts)                                 |
 | JSON response mode (no SSE)               | Streamable HTTP with JSON-only responses and limited notifications.                             | [`src/jsonResponseStreamableHttp.ts`](src/jsonResponseStreamableHttp.ts)                 |
 | Server notifications over Streamable HTTP | Demonstrates server-initiated notifications via GET+SSE.                                        | [`src/standaloneSseWithGetStreamableHttp.ts`](src/standaloneSseWithGetStreamableHttp.ts) |
 | Output schema server                      | Demonstrates tool output validation with structured output schemas.                             | [`src/mcpServerOutputSchema.ts`](src/mcpServerOutputSchema.ts)                           |
@@ -43,7 +44,6 @@ pnpm tsx src/simpleStreamableHttp.ts
 
 ```bash
 pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts --oauth
-pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts --oauth --oauth-strict
 ```
 
 ## URL elicitation example (server + client)
