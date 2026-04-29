@@ -884,7 +884,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 };
             }
 
+            let responseReceived = false;
+
             const cancel = (reason: unknown) => {
+                if (responseReceived) {
+                    return;
+                }
                 this._progressHandlers.delete(messageId);
 
                 this._transport
@@ -910,6 +915,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (options?.signal?.aborted) {
                     return;
                 }
+                responseReceived = true;
 
                 if (response instanceof Error) {
                     return reject(response);
@@ -1143,7 +1149,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * For spec methods, pass `(method, handler)`; the notification is parsed with the
      * spec schema. For custom (non-spec) methods, pass `(method, schemas, handler)`;
      * `params` are validated against `schemas.params` and the handler receives the
-     * parsed params object directly.
+     * parsed params object directly. The raw notification is passed as the second
+     * argument; `_meta` is recoverable via `notification.params?._meta`.
      */
     setNotificationHandler<M extends NotificationMethod>(
         method: M,

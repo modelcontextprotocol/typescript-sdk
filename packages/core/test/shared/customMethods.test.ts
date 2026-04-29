@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 
 import { Protocol } from '../../src/shared/protocol.js';
-import type { BaseContext, JSONRPCRequest, Result } from '../../src/exports/public/index.js';
+import type { BaseContext, JSONRPCRequest, Result, StandardSchemaV1 } from '../../src/exports/public/index.js';
 import { ProtocolError, ProtocolErrorCode } from '../../src/types/index.js';
 import { InMemoryTransport } from '../../src/util/inMemory.js';
 
@@ -149,6 +149,34 @@ describe('Protocol custom-method support', () => {
             await expect(a.request({ method: 'acme/bad', params: {} }, z.object({ echoed: z.string() }))).rejects.toMatchObject({
                 code: ProtocolErrorCode.InternalError
             });
+        });
+
+        it('returns the result (and sends no cancellation) if the signal aborts during async result-schema validation', async () => {
+            const [a, b] = await pair();
+            b.setRequestHandler('acme/echo', { params: z.object({}) }, async () => ({ echoed: 'ok' }));
+
+            const cancelled: unknown[] = [];
+            b.setNotificationHandler('notifications/cancelled', n => {
+                cancelled.push(n);
+            });
+
+            const ac = new AbortController();
+            const AsyncEcho: StandardSchemaV1<unknown, { echoed: string }> = {
+                '~standard': {
+                    version: 1,
+                    vendor: 'test',
+                    validate: value =>
+                        new Promise(r => {
+                            ac.abort();
+                            setTimeout(() => r({ value: value as { echoed: string } }), 0);
+                        })
+                }
+            };
+
+            const result = await a.request({ method: 'acme/echo', params: {} }, AsyncEcho, { signal: ac.signal });
+            expect(result).toEqual({ echoed: 'ok' });
+            await new Promise(r => setTimeout(r, 0));
+            expect(cancelled).toHaveLength(0);
         });
     });
 

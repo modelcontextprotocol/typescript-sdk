@@ -1,4 +1,5 @@
 ---
+'@modelcontextprotocol/core': minor
 '@modelcontextprotocol/client': minor
 '@modelcontextprotocol/server': minor
 ---
