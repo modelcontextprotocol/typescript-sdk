@@ -75,9 +75,23 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * Function that generates a session ID for the transport.
      * The session ID SHOULD be globally unique and cryptographically secure (e.g., a securely generated UUID, a JWT, or a cryptographic hash)
      *
-     * If not provided, session management is disabled (stateless mode).
+     * If neither this nor {@link sessionId} is provided, session management is disabled (stateless mode).
      */
     sessionIdGenerator?: () => string;
+
+    /**
+     * Pre-sets the session ID at construction time. Use this when reconstructing a
+     * transport for an existing session, e.g. in multi-node deployments where a request
+     * arrives at a node that did not handle the original initialize handshake.
+     *
+     * The transport will validate incoming `mcp-session-id` headers against this value
+     * and reject re-initialization attempts.
+     *
+     * **Note:** This restores transport-layer session validation only. To restore
+     * protocol-layer state (negotiated client capabilities), call
+     * `Server.restoreInitializeState()` with persisted `InitializeRequest` params.
+     */
+    sessionId?: string;
 
     /**
      * A callback for session initialization events
@@ -229,7 +243,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
-    private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
     private _standaloneSseStreamId: string = '_GET_stream';
     private _eventStore?: EventStore;
@@ -248,6 +261,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
+        this.sessionId = options.sessionId;
         this._enableJsonResponse = options.enableJsonResponse ?? false;
         this._eventStore = options.eventStore;
         this._onsessioninitialized = options.onsessioninitialized;
@@ -665,9 +679,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
             const isInitializationRequest = messages.some(element => isInitializeRequest(element));
             if (isInitializationRequest) {
-                // If it's a server with session management and the session ID is already set we should reject the request
-                // to avoid re-initialization.
-                if (this._initialized && this.sessionId !== undefined) {
+                // If the session ID is already set (via prior initialize or constructor)
+                // reject the request to avoid re-initialization.
+                if (this.sessionId !== undefined) {
                     this.onerror?.(new Error('Invalid Request: Server already initialized'));
                     return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: Server already initialized');
                 }
@@ -676,7 +690,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: Only one initialization request is allowed');
                 }
                 this.sessionId = this.sessionIdGenerator?.();
-                this._initialized = true;
 
                 // If we have a session ID and an onsessioninitialized handler, call it immediately
                 // This is needed in cases where the server needs to keep track of multiple sessions
@@ -845,13 +858,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns `Response` error if invalid, `undefined` otherwise
      */
     private validateSession(req: Request): Response | undefined {
-        if (this.sessionIdGenerator === undefined) {
-            // If the sessionIdGenerator ID is not set, the session management is disabled
-            // and we don't need to validate the session ID
+        if (this.sessionIdGenerator === undefined && this.sessionId === undefined) {
+            // No generator and no pre-set session ID means session management is
+            // disabled (stateless mode); skip validation.
             return undefined;
         }
-        if (!this._initialized) {
-            // If the server has not been initialized yet, reject all requests
+        if (this.sessionId === undefined) {
+            // Stateful mode but no session ID yet: initialize has not run on this
+            // transport instance.
             this.onerror?.(new Error('Bad Request: Server not initialized'));
             return this.createJsonErrorResponse(400, -32_000, 'Bad Request: Server not initialized');
         }
