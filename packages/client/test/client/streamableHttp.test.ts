@@ -925,12 +925,9 @@ describe('StreamableHTTPClientTransport', () => {
             await vi.advanceTimersByTimeAsync(20); // Trigger reconnection timeout
 
             // ASSERT
-            expect(errorSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    message: expect.stringContaining('SSE stream disconnected: Error: Network failure')
-                })
-            );
-            // THE KEY ASSERTION: A second fetch call proves reconnection was attempted.
+            // onerror is NOT called: reconnection will handle the disconnect transparently
+            expect(errorSpy).not.toHaveBeenCalled();
+            // A second fetch call proves reconnection was attempted.
             expect(fetchMock).toHaveBeenCalledTimes(2);
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
             expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
@@ -1783,6 +1780,32 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             // Verify no reconnection was scheduled
+            expect(transport['_cancelReconnection']).toBeUndefined();
+        });
+
+        it('should surface the triggering error when maxRetries is 0', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const triggeringError = new Error('socket hang up');
+            transport['_scheduleReconnection']({}, 0, triggeringError);
+
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (0) exceeded: socket hang up',
+                    cause: triggeringError
+                })
+            );
             expect(transport['_cancelReconnection']).toBeUndefined();
         });
 
