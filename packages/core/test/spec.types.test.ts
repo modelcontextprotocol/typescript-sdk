@@ -244,6 +244,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    FileInputDescriptor: (sdk: SDKTypes.FileInputDescriptor, spec: SpecTypes.FileInputDescriptor) => {
+        sdk = spec;
+        spec = sdk;
+    },
     Tool: (sdk: SDKTypes.Tool, spec: SpecTypes.Tool) => {
         sdk = spec;
         spec = sdk;
@@ -804,7 +808,7 @@ type Assert<T extends true> = T;
  *   Cursor, TaskStatus
  */
 
-// -- Simple types (96) --
+// -- Simple types (97) --
 
 type _K_RequestParams = Assert<AssertExactKeys<SDKTypes.RequestParams, SpecTypes.RequestParams>>;
 type _K_NotificationParams = Assert<AssertExactKeys<SDKTypes.NotificationParams, SpecTypes.NotificationParams>>;
@@ -846,6 +850,7 @@ type _K_ResourceTemplateReference = Assert<AssertExactKeys<SDKTypes.ResourceTemp
 // @ts-expect-error Genuine mismatch: SDK PromptReference is missing 'title' from spec
 type _K_PromptReference = Assert<AssertExactKeys<SDKTypes.PromptReference, SpecTypes.PromptReference>>;
 type _K_ToolAnnotations = Assert<AssertExactKeys<SDKTypes.ToolAnnotations, SpecTypes.ToolAnnotations>>;
+type _K_FileInputDescriptor = Assert<AssertExactKeys<SDKTypes.FileInputDescriptor, SpecTypes.FileInputDescriptor>>;
 type _K_Tool = Assert<AssertExactKeys<SDKTypes.Tool, SpecTypes.Tool>>;
 type _K_ListToolsResult = Assert<AssertExactKeys<SDKTypes.ListToolsResult, SpecTypes.ListToolsResult>>;
 type _K_CallToolResult = Assert<AssertExactKeys<SDKTypes.CallToolResult, SpecTypes.CallToolResult>>;
@@ -1086,7 +1091,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(176);
+        expect(specTypes).toHaveLength(177);
     });
 
     it('should have up to date list of missing sdk types', () => {

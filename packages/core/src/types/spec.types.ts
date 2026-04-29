@@ -1771,6 +1771,40 @@ export interface Tool extends BaseMetadata, Icons {
     _meta?: MetaObject;
 }
 
+/**
+ * Value of the `mcpFile` JSON Schema extension keyword. When present on a
+ * `{"type": "string", "format": "uri"}` property, it marks the property as a
+ * file input that clients SHOULD render as a native file picker. Selected
+ * files are encoded as RFC 2397 data URIs.
+ *
+ * Both fields are advisory; servers MUST still validate inputs independently.
+ *
+ * For {@link Tool.inputSchema} properties, `mcpFile` is added directly inside
+ * the JSON Schema property definition. For elicitation forms, it appears on
+ * {@link StringSchema}.
+ *
+ * @category `tools/list`
+ */
+export interface FileInputDescriptor {
+    /**
+     * Media type patterns and/or file extensions the client SHOULD filter the
+     * picker to. Supports exact MIME types (`"image/png"`), wildcard subtypes
+     * (`"image/*"`), and dot-prefixed extensions (`".pdf"`) following the same
+     * grammar as the HTML `accept` attribute. Extension entries are picker hints
+     * only; server-side validation compares MIME types. If omitted, any file
+     * type is accepted.
+     */
+    accept?: string[];
+
+    /**
+     * Maximum decoded file size in bytes that the server will accept inline as a
+     * data URI. Servers MUST reject larger payloads with the `"file_too_large"`
+     * structured error reason. For files larger than this, servers obtain the
+     * file via URL-mode elicitation instead of this property.
+     */
+    maxSize?: number;
+}
+
 /* Tasks */
 
 /**
@@ -2882,6 +2916,12 @@ export interface StringSchema {
     maxLength?: number;
     format?: 'email' | 'uri' | 'date' | 'date-time';
     default?: string;
+    /**
+     * Marks this string as a file input when `format` is `"uri"`. Clients SHOULD
+     * render a native file picker and populate the field with an RFC 2397 data
+     * URI for the selected file. See {@link FileInputDescriptor}.
+     */
+    mcpFile?: FileInputDescriptor;
 }
 
 /**
