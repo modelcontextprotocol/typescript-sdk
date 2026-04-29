@@ -162,7 +162,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     age: { type: 'integer', minimum: 0, maximum: 150 },
                     street: { type: 'string' },
                     city: { type: 'string' },
-                    // @ts-expect-error - pattern is not a valid property by MCP spec, however it is making use of the Ajv validator
                     zipCode: { type: 'string', pattern: '^[0-9]{5}$' },
                     newsletter: { type: 'boolean' },
                     notifications: { type: 'boolean' }
@@ -281,7 +280,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             requestedSchema: {
                 type: 'object',
                 properties: {
-                    // @ts-expect-error - pattern is not a valid property by MCP spec, however it is making use of the Ajv validator
                     zipCode: { type: 'string', pattern: '^[0-9]{5}$' }
                 },
                 required: ['zipCode']
@@ -289,6 +287,69 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         };
 
         await expect(server.elicitInput(formRequestParams)).rejects.toThrow(/does not match requested schema/);
+    });
+
+    test(`${validatorName}: should accept extra JSON Schema keys on string primitive (pattern)`, async () => {
+        client.setRequestHandler('elicitation/create', _request => ({
+            action: 'accept',
+            content: { code: 'abc' }
+        }));
+
+        const result = await server.elicitInput({
+            mode: 'form',
+            message: 'Enter a code',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    code: { type: 'string', pattern: '^[a-z]+$' }
+                },
+                required: ['code']
+            }
+        });
+
+        expect(result).toEqual({ action: 'accept', content: { code: 'abc' } });
+    });
+
+    test(`${validatorName}: should accept extra JSON Schema keys on number primitive (exclusiveMinimum)`, async () => {
+        client.setRequestHandler('elicitation/create', _request => ({
+            action: 'accept',
+            content: { score: 0.5 }
+        }));
+
+        const result = await server.elicitInput({
+            mode: 'form',
+            message: 'Enter a score',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    score: { type: 'number', exclusiveMinimum: 0, exclusiveMaximum: 1 }
+                },
+                required: ['score']
+            }
+        });
+
+        expect(result).toEqual({ action: 'accept', content: { score: 0.5 } });
+    });
+
+    test(`${validatorName}: should accept extra JSON Schema keys on boolean primitive (const)`, async () => {
+        client.setRequestHandler('elicitation/create', _request => ({
+            action: 'accept',
+            content: { agreed: true }
+        }));
+
+        const result = await server.elicitInput({
+            mode: 'form',
+            message: 'Do you agree?',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    agreed: { type: 'boolean', const: true }
+                },
+                required: ['agreed']
+            }
+        });
+
+        expect(result).toEqual({ action: 'accept', content: { agreed: true } });
     });
 
     test(`${validatorName}: should allow decline action without validation`, async () => {
