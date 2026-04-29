@@ -9,13 +9,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import {
-    createProtectedResourceMetadataRouter,
-    getOAuthProtectedResourceMetadataUrl,
-    requireBearerAuth,
-    setupAuthServer
-} from '@modelcontextprotocol/examples-shared';
-import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';
 import { isInitializeRequest, McpServer, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
@@ -235,7 +230,7 @@ let authMiddleware = null;
 const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
 const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: true });
+setupAuthServer({ authServerUrl, mcpServerUrl, demoMode: true });
 
 // Add protected resource metadata route to the MCP server
 // This allows clients to discover the auth server
@@ -243,10 +238,9 @@ setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: t
 app.use(createProtectedResourceMetadataRouter('/mcp'));
 
 authMiddleware = requireBearerAuth({
+    verifier: demoTokenVerifier,
     requiredScopes: [],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
-    strictResource: true,
-    expectedResource: mcpServerUrl
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
 });
 
 /**
