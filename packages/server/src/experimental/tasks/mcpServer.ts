@@ -5,7 +5,7 @@
  * @experimental
  */
 
-import type { StandardSchemaWithJSON, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
+import type { Icon, StandardSchemaWithJSON, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
 
 import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
 import type { ToolTaskHandler } from './interfaces.js';
@@ -21,6 +21,7 @@ interface McpServerInternal {
         description: string | undefined,
         inputSchema: StandardSchemaWithJSON | undefined,
         outputSchema: StandardSchemaWithJSON | undefined,
+        icons: Icon[] | undefined,
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
@@ -82,6 +83,7 @@ export class ExperimentalMcpServerTasks {
             title?: string;
             description?: string;
             outputSchema?: OutputArgs;
+            icons?: Icon[];
             annotations?: ToolAnnotations;
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
@@ -96,6 +98,7 @@ export class ExperimentalMcpServerTasks {
             description?: string;
             inputSchema: InputArgs;
             outputSchema?: OutputArgs;
+            icons?: Icon[];
             annotations?: ToolAnnotations;
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
@@ -110,6 +113,7 @@ export class ExperimentalMcpServerTasks {
             description?: string;
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
+            icons?: Icon[];
             annotations?: ToolAnnotations;
             execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
@@ -130,6 +134,7 @@ export class ExperimentalMcpServerTasks {
             config.description,
             config.inputSchema,
             config.outputSchema,
+            config.icons,
             config.annotations,
             execution,
             config._meta,
