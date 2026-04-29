@@ -947,7 +947,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
         if (!this._transport) {
-            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+            this._onerror(new SdkError(SdkErrorCode.NotConnected, 'Not connected'));
+            return;
         }
 
         this.assertNotificationCapability(notification.method as NotificationMethod);
