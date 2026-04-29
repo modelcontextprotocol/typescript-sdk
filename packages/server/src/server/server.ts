@@ -132,11 +132,16 @@ export class Server extends Protocol<ServerContext> {
         }
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
-        this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
+        this.setNotificationHandler('notifications/initialized', () => this._handleInitialized());
 
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    private _handleInitialized(): void {
+        this.startPeriodicPing();
+        this.oninitialized?.();
     }
 
     private _registerLoggingHandler(): void {

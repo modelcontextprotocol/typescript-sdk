@@ -33,6 +33,7 @@ import type {
     TaskCreationParams
 } from '../types/index.js';
 import {
+    EmptyResultSchema,
     getNotificationSchema,
     getRequestSchema,
     getResultSchema,
@@ -92,6 +93,22 @@ export type ProtocolOptions = {
      * so they should NOT be included here.
      */
     tasks?: TaskManagerOptions;
+
+    /**
+     * Interval (in milliseconds) between periodic ping requests sent to the remote side
+     * to verify connection health. When set, pings begin after initialization completes
+     * (`Client` starts them after the MCP handshake; `Server` starts
+     * them on `notifications/initialized`) and stop automatically when the connection closes.
+     *
+     * Per the MCP specification, implementations SHOULD periodically issue pings to
+     * detect connection health, with configurable frequency.
+     *
+     * Disabled by default (no periodic pings). Typical values: 15000-60000 (15s-60s).
+     *
+     * Ping failures are reported via the {@linkcode Protocol.onerror | onerror} callback
+     * and do not stop the periodic loop.
+     */
+    pingIntervalMs?: number;
 };
 
 /**
@@ -308,6 +325,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     private _taskManager: TaskManager;
 
+    private _pingTimer?: ReturnType<typeof setTimeout>;
+    private _pingIntervalMs?: number;
+    private _closing = false;
+
     protected _supportedProtocolVersions: string[];
 
     /**
@@ -336,6 +357,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     constructor(private _options?: ProtocolOptions) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._pingIntervalMs = _options?.pingIntervalMs;
 
         // Create TaskManager from protocol options
         this._taskManager = _options?.tasks ? new TaskManager(_options.tasks) : new NullTaskManager();
@@ -454,6 +476,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
+        this._closing = false;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
             try {
@@ -490,6 +513,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onclose(): void {
+        this.stopPeriodicPing();
+
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
@@ -729,9 +754,69 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Starts sending periodic ping requests at the configured interval.
+     * Pings are used to verify that the remote side is still responsive.
+     * Failures are reported via the {@linkcode onerror} callback but do not
+     * stop the loop; pings continue until the connection is closed.
+     *
+     * This is not called automatically by the base {@linkcode Protocol.connect | connect()}
+     * method. `Client` calls it after the MCP initialization handshake
+     * (and on reconnection), and `Server` calls it when the
+     * `notifications/initialized` notification is received. Custom `Protocol`
+     * subclasses must call this explicitly after their own initialization.
+     *
+     * Has no effect if periodic ping is already running or if no interval
+     * is configured.
+     */
+    protected startPeriodicPing(): void {
+        if (this._pingTimer || !this._pingIntervalMs) {
+            return;
+        }
+
+        const schedulePing = (): void => {
+            this._pingTimer = setTimeout(async () => {
+                try {
+                    await this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, {
+                        timeout: this._pingIntervalMs
+                    });
+                } catch (error) {
+                    // Suppress errors caused by intentional shutdown
+                    if (!this._closing) {
+                        this._onerror(error instanceof Error ? error : new Error(`Periodic ping failed: ${String(error)}`));
+                    }
+                } finally {
+                    // Schedule the next ping only if we have not been stopped
+                    if (this._pingTimer) {
+                        schedulePing();
+                    }
+                }
+            }, this._pingIntervalMs);
+
+            // Allow the process to exit even if the timer is still running
+            if (typeof this._pingTimer === 'object' && 'unref' in this._pingTimer) {
+                this._pingTimer.unref();
+            }
+        };
+
+        schedulePing();
+    }
+
+    /**
+     * Stops periodic ping requests. Called automatically when the connection closes.
+     */
+    protected stopPeriodicPing(): void {
+        if (this._pingTimer) {
+            clearTimeout(this._pingTimer);
+            this._pingTimer = undefined;
+        }
+    }
+
+    /**
      * Closes the connection.
      */
     async close(): Promise<void> {
+        this._closing = true;
+        this.stopPeriodicPing();
         await this._transport?.close();
     }
 
