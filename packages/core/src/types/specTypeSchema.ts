@@ -235,62 +235,59 @@ type SpecTypeInputs = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.input<SchemaFor<K>> : never;
 };
 
-type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1<SpecTypeInputs[K], SpecTypes[K]> };
-type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
-
-const _specTypeSchemas: Record<string, z.ZodTypeAny> = {};
-const _isSpecType: Record<string, (value: unknown) => boolean> = {};
-function register(key: string, schema: z.ZodTypeAny): void {
-    const name = key.slice(0, -'Schema'.length);
-    _specTypeSchemas[name] = schema;
-    _isSpecType[name] = (v: unknown) => schema.safeParse(v).success;
-}
+// Populated for every SpecTypeName by the loops below; the cast lets `allSchemas[name]` be
+// non-undefined under `noUncheckedIndexedAccess` when `name` is a SpecTypeName.
+const allSchemas = {} as Record<SpecTypeName, z.ZodType>;
 for (const key of SPEC_SCHEMA_KEYS) {
     // eslint-disable-next-line import/namespace -- key is constrained to keyof typeof schemas via the satisfies clause above
-    register(key, schemas[key]);
+    allSchemas[key.slice(0, -'Schema'.length) as SpecTypeName] = schemas[key];
 }
 for (const [key, schema] of Object.entries(authSchemas)) {
-    register(key, schema);
+    allSchemas[key.slice(0, -'Schema'.length) as SpecTypeName] = schema;
 }
 
 /**
- * Runtime validators for every MCP spec type, keyed by type name.
+ * Returns the runtime validator for the named MCP spec type.
  *
  * Use this when you need to validate a spec-defined shape at a boundary the SDK does not own, for
  * example an extension's custom-method payload that embeds a `CallToolResult`, or a value read from
  * storage that should be a `Tool`.
  *
- * Each entry implements the Standard Schema interface, so it composes with any
+ * The returned validator implements the Standard Schema interface, so it composes with any
  * Standard-Schema-aware library. For a simple boolean check, use {@linkcode isSpecType} instead.
  *
  * @example
- * ```ts source="./specTypeSchema.examples.ts#specTypeSchemas_basicUsage"
- * const result = await specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+ * ```ts source="./specTypeSchema.examples.ts#specTypeSchema_basicUsage"
+ * const result = await specTypeSchema('CallToolResult')['~standard'].validate(untrusted);
  * if (result.issues === undefined) {
  *     // result.value is CallToolResult
  * }
  * ```
  */
-export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas) as unknown as SchemaRecord;
+export function specTypeSchema<K extends SpecTypeName>(name: K): StandardSchemaV1<SpecTypeInputs[K], SpecTypes[K]>;
+export function specTypeSchema(name: SpecTypeName): StandardSchemaV1 {
+    return allSchemas[name];
+}
 
 /**
- * Type predicates for every MCP spec type, keyed by type name.
+ * Type predicate for the named MCP spec type.
  *
  * Returns `true` if the value satisfies the schema's input type (`z.input<>`, before defaults and
  * transforms are applied), and narrows to that input type. For schemas with `.default()` or
  * `.preprocess()`, this may accept values that do not structurally match the named output type;
- * for example `isSpecType.CallToolResult({})` is `true` because `content` has a default. Use
- * `specTypeSchemas.X['~standard'].validate(value)` when you need the validated output value.
- *
- * Each guard is a standalone function, so it can be passed directly as a callback.
+ * for example `isSpecType('CallToolResult', {})` is `true` because `content` has a default. Use
+ * `specTypeSchema(name)['~standard'].validate(value)` when you need the validated output value.
  *
  * @example
  * ```ts source="./specTypeSchema.examples.ts#isSpecType_basicUsage"
- * if (isSpecType.ContentBlock(value)) {
+ * if (isSpecType('ContentBlock', value)) {
  *     // value is ContentBlock
  * }
  *
- * const blocks = mixed.filter(isSpecType.ContentBlock);
+ * const blocks = mixed.filter(v => isSpecType('ContentBlock', v));
  * ```
  */
-export const isSpecType: GuardRecord = Object.freeze(_isSpecType) as unknown as GuardRecord;
+export function isSpecType<K extends SpecTypeName>(name: K, value: unknown): value is SpecTypeInputs[K];
+export function isSpecType(name: SpecTypeName, value: unknown): boolean {
+    return allSchemas[name].safeParse(value).success;
+}

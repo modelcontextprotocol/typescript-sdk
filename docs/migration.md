@@ -137,7 +137,8 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 
 Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are now first-class in `@modelcontextprotocol/express`.
 
-Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
+Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for
+a working demo with `better-auth`.
 
 Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
@@ -379,7 +380,11 @@ const AcmeSearch = z.object({
     params: z.object({ query: z.string(), limit: z.number().int() })
 });
 server.setRequestHandler(AcmeSearch, async request => {
-    return { items: [/* ... */] };
+    return {
+        items: [
+            /* ... */
+        ]
+    };
 });
 ```
 
@@ -390,7 +395,11 @@ const SearchParams = z.object({ query: z.string(), limit: z.number().int() });
 const SearchResult = z.object({ items: z.array(z.string()) });
 
 server.setRequestHandler('acme/search', { params: SearchParams, result: SearchResult }, async (params, ctx) => {
-    return { items: [/* ... */] };
+    return {
+        items: [
+            /* ... */
+        ]
+    };
 });
 ```
 
@@ -429,8 +438,8 @@ Common method string replacements:
 
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer require a schema parameter for spec methods
 
-For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
-like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
+For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to
+import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
 
 **`client.request()` — Before (v1):**
 
@@ -489,7 +498,7 @@ The return type is now inferred from the method name via `ResultTypeMap`. For ex
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
-If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `isSpecType` or `specTypeSchemas`:
+If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `isSpecType` or `specTypeSchema`:
 
 ```typescript
 // v1: runtime validation with Zod schema
@@ -498,19 +507,20 @@ if (CallToolResultSchema.safeParse(value).success) {
     /* ... */
 }
 
-// v2: keyed type predicate
+// v2: type predicate by name
 import { isSpecType } from '@modelcontextprotocol/client';
-if (isSpecType.CallToolResult(value)) {
+if (isSpecType('CallToolResult', value)) {
     /* ... */
 }
-const blocks = mixed.filter(isSpecType.ContentBlock);
+const blocks = mixed.filter(v => isSpecType('ContentBlock', v));
 
 // v2: or get the StandardSchemaV1 validator object directly
-import { specTypeSchemas } from '@modelcontextprotocol/client';
-const result = await specTypeSchemas.CallToolResult['~standard'].validate(value);
+import { specTypeSchema } from '@modelcontextprotocol/client';
+const result = await specTypeSchema('CallToolResult')['~standard'].validate(value);
 ```
 
-`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1<In, Out>`, which composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+The first argument to `isSpecType` and `specTypeSchema` is a `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchema(name)` returns a `StandardSchemaV1<In, Out>`, which composes with any
+Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 
@@ -706,22 +716,22 @@ try {
 
 The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 
-| Code                                              | Description                                 |
-| ------------------------------------------------- | ------------------------------------------- |
-| `SdkErrorCode.NotConnected`                       | Transport is not connected                  |
-| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected              |
-| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                 |
-| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported        |
-| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response      |
-| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                       |
-| `SdkErrorCode.SendFailed`                         | Failed to send message                      |
+| Code                                              | Description                                    |
+| ------------------------------------------------- | ---------------------------------------------- |
+| `SdkErrorCode.NotConnected`                       | Transport is not connected                     |
+| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected                 |
+| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                    |
+| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported           |
+| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response         |
+| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                          |
+| `SdkErrorCode.SendFailed`                         | Failed to send message                         |
 | `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
-| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                    |
-| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication |
-| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping  |
-| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response    |
-| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                   |
-| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                 |
+| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                       |
+| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication    |
+| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping     |
+| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response       |
+| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                      |
+| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                    |
 
 #### `StreamableHTTPError` removed
 

@@ -139,7 +139,7 @@ export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/
 
 // Validator types and classes
 export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';
-export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema.js';
+export { isSpecType, specTypeSchema } from '../../types/specTypeSchema.js';
 export type { StandardSchemaV1, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';

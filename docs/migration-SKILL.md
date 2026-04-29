@@ -51,7 +51,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `@modelcontextprotocol/sdk/server/mcp.js`            | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
-| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                               |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
 | `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
 | `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers removed (use external IdP/OAuth library)                                             |
@@ -59,13 +59,13 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Types / shared imports
 
-| v1 import path                                    | v2 package                                                       |
-| ------------------------------------------------- | ---------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
-| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` |
+| v1 import path                                    | v2 package                                                                                                                                                                                           |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
+| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
+| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
+| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
+| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
 | `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (`ReadBuffer`, `serializeMessage`, `deserializeMessage` are in the root barrel; the `./stdio` subpath only has the transport class) |
 
 Notes:
@@ -99,7 +99,7 @@ Notes:
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
 
 All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use
-`isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` for the `StandardSchemaV1` validator object. The keys are typed as `SpecTypeName`, a literal union of all spec type names.
+`isSpecType('TypeName', value)` (e.g., `isSpecType('CallToolResult', v)`) or `specTypeSchema('TypeName')` for the `StandardSchemaV1` validator object. The first argument is typed as `SpecTypeName`, a literal union of all spec type names.
 
 ### Error class changes
 
@@ -323,7 +323,8 @@ new URL(ctx.http?.req?.url).searchParams.get('debug')
 
 ### Server-side auth
 
-Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) are removed from the core SDK; use an external IdP/OAuth library. See `examples/server/src/` for demos.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`,
+`ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) are removed from the core SDK; use an external IdP/OAuth library. See `examples/server/src/` for demos.
 
 ### Host header validation (Express)
 
@@ -462,14 +463,14 @@ For **custom (non-spec)** methods, keep the result-schema argument — see §9. 
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
-If a `*Schema` constant was used for **runtime validation** (not just as a `request()` argument), replace with `isSpecType` / `specTypeSchemas`:
+If a `*Schema` constant was used for **runtime validation** (not just as a `request()` argument), replace with `isSpecType` / `specTypeSchema`:
 
-| v1 pattern                                         | v2 replacement                                                                         |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `CallToolResultSchema.safeParse(value).success`    | `isSpecType.CallToolResult(value)`                                                     |
-| `<TypeName>Schema.safeParse(value).success`        | `isSpecType.<TypeName>(value)`                                                         |
-| `<TypeName>Schema.parse(value)`                    | `await specTypeSchemas.<TypeName>['~standard'].validate(value)` (returns a `Result`, not the value) |
-| Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (a `StandardSchemaV1<In, Out>`)                           |
+| v1 pattern                                         | v2 replacement                                                                                        |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `CallToolResultSchema.safeParse(value).success`    | `isSpecType('CallToolResult', value)`                                                                 |
+| `<TypeName>Schema.safeParse(value).success`        | `isSpecType('<TypeName>', value)`                                                                     |
+| `<TypeName>Schema.parse(value)`                    | `await specTypeSchema('<TypeName>')['~standard'].validate(value)` (returns a `Result`, not the value) |
+| Passing `<TypeName>Schema` as a validator argument | `specTypeSchema('<TypeName>')` (a `StandardSchemaV1<In, Out>`)                                        |
 
 `isCallToolResult(value)` still works, but `isSpecType` covers every spec type by name.
 

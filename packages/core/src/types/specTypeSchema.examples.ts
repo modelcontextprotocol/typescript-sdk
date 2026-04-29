@@ -7,34 +7,32 @@
  * @module
  */
 
-import { isSpecType, specTypeSchemas } from './specTypeSchema.js';
+import { isSpecType, specTypeSchema } from './specTypeSchema.js';
 
 declare const untrusted: unknown;
 declare const value: unknown;
 declare const mixed: unknown[];
 
-async function specTypeSchemas_basicUsage() {
-    //#region specTypeSchemas_basicUsage
-    const result = await specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+async function specTypeSchema_basicUsage() {
+    //#region specTypeSchema_basicUsage
+    const result = await specTypeSchema('CallToolResult')['~standard'].validate(untrusted);
     if (result.issues === undefined) {
         // result.value is CallToolResult
     }
-    //#endregion specTypeSchemas_basicUsage
+    //#endregion specTypeSchema_basicUsage
     void result;
 }
 
 function isSpecType_basicUsage() {
-    /* eslint-disable unicorn/no-array-callback-reference -- showcasing the guard-as-callback pattern */
     //#region isSpecType_basicUsage
-    if (isSpecType.ContentBlock(value)) {
+    if (isSpecType('ContentBlock', value)) {
         // value is ContentBlock
     }
 
-    const blocks = mixed.filter(isSpecType.ContentBlock);
+    const blocks = mixed.filter(v => isSpecType('ContentBlock', v));
     //#endregion isSpecType_basicUsage
-    /* eslint-enable unicorn/no-array-callback-reference */
     void blocks;
 }
 
-void specTypeSchemas_basicUsage;
+void specTypeSchema_basicUsage;
 void isSpecType_basicUsage;
