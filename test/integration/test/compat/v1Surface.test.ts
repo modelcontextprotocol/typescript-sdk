@@ -45,11 +45,11 @@ const _t: Transport | undefined = undefined;
 void _t;
 
 describe('v1 API surface (bump-only compat)', () => {
-    it('McpServer.tool() variadic + raw-shape + InMemory roundtrip + callTool(_, ResultSchema)', async () => {
+    it('McpServer.registerTool with raw-shape inputSchema + InMemory roundtrip + callTool(_, ResultSchema)', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const server = new McpServer({ name: 't', version: '1.0.0' });
-        // C2 variadic + C4 raw-shape (object of ZodTypes, not z.object)
-        server.tool('echo', { msg: z.string() }, async ({ msg }) => ({
+        // C4: raw-shape inputSchema (object of ZodTypes, not z.object)
+        server.registerTool('echo', { inputSchema: { msg: z.string() } }, async ({ msg }) => ({
             content: [{ type: 'text', text: msg }]
         }));
 
