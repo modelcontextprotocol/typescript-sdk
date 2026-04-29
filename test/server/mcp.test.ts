@@ -1048,6 +1048,49 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Tool Registration with Params and EMPTY Annotations Object
+         *
+         * Regression: tool(name, desc, schema, {}, cb) was misclassifying the empty
+         * annotations object as a second schema (because isZodRawShapeCompat({}) returns
+         * true to support the no-arg-tool case in the schema position). The handler slot
+         * then received the empty object instead of the callback, producing
+         * "typedHandler is not a function" at dispatch time.
+         */
+        test('should register tool with description, params, and empty annotations object', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.tool('test', 'A tool with empty annotations', { name: z.string() }, {}, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const list = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(list.tools).toHaveLength(1);
+            expect(list.tools[0].name).toBe('test');
+            expect(list.tools[0].description).toBe('A tool with empty annotations');
+            expect(list.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: { name: { type: 'string' } }
+            });
+
+            const callResult = await client.request(
+                { method: 'tools/call', params: { name: 'test', arguments: { name: 'world' } } },
+                CallToolResultSchema
+            );
+            expect(callResult.content).toEqual([{ type: 'text', text: 'Hello, world!' }]);
+        });
+
+        /***
          * Test: Tool Argument Validation
          */
         test('should validate tool args', async () => {
