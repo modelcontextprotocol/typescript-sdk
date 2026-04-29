@@ -16,11 +16,10 @@ export class InMemoryEventStore implements EventStore {
     }
 
     /**
-     * Extracts the stream ID from an event ID
+     * Looks up the stream ID for an event ID
      */
     private getStreamIdFromEventId(eventId: string): string {
-        const parts = eventId.split('_');
-        return parts.length > 0 ? parts[0]! : '';
+        return this.events.get(eventId)?.streamId ?? '';
     }
 
     /**
@@ -53,10 +52,7 @@ export class InMemoryEventStore implements EventStore {
 
         let foundLastEvent = false;
 
-        // Sort events by eventId for chronological ordering
-        const sortedEvents = [...this.events.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
-
-        for (const [eventId, { streamId: eventStreamId, message }] of sortedEvents) {
+        for (const [eventId, { streamId: eventStreamId, message }] of this.events) {
             // Only include events from the same stream
             if (eventStreamId !== streamId) {
                 continue;
