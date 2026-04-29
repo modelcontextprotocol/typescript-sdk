@@ -736,3 +736,20 @@ process.on('SIGINT', async () => {
     console.log('Server shutdown complete');
     process.exit(0);
 });
+process.on('SIGTERM', async () => {
+    console.log('Shutting down server...');
+
+    // Close all active transports to properly clean up resources
+    for (const sessionId in transports) {
+        try {
+            console.log(`Closing transport for session ${sessionId}`);
+            await transports[sessionId]!.close();
+            delete transports[sessionId];
+            delete sessionsNeedingElicitation[sessionId];
+        } catch (error) {
+            console.error(`Error closing transport for session ${sessionId}:`, error);
+        }
+    }
+    console.log('Server shutdown complete');
+    process.exit(0);
+});

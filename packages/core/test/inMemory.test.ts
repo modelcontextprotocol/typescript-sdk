@@ -103,8 +103,12 @@ describe('InMemoryTransport', () => {
         let clientCloseCount = 0;
         let serverCloseCount = 0;
 
-        clientTransport.onclose = () => clientCloseCount++;
-        serverTransport.onclose = () => serverCloseCount++;
+        clientTransport.onclose = () => {
+            clientCloseCount++;
+        };
+        serverTransport.onclose = () => {
+            serverCloseCount++;
+        };
 
         await clientTransport.close();
 
@@ -114,7 +118,9 @@ describe('InMemoryTransport', () => {
 
     test('should handle double close idempotently', async () => {
         let clientCloseCount = 0;
-        clientTransport.onclose = () => clientCloseCount++;
+        clientTransport.onclose = () => {
+            clientCloseCount++;
+        };
 
         await clientTransport.close();
         await clientTransport.close();
@@ -126,8 +132,12 @@ describe('InMemoryTransport', () => {
         let clientCloseCount = 0;
         let serverCloseCount = 0;
 
-        clientTransport.onclose = () => clientCloseCount++;
-        serverTransport.onclose = () => serverCloseCount++;
+        clientTransport.onclose = () => {
+            clientCloseCount++;
+        };
+        serverTransport.onclose = () => {
+            serverCloseCount++;
+        };
 
         await Promise.all([clientTransport.close(), serverTransport.close()]);
 
@@ -137,7 +147,9 @@ describe('InMemoryTransport', () => {
 
     test('should fire onclose even if peer onclose throws', async () => {
         let clientCloseCount = 0;
-        clientTransport.onclose = () => clientCloseCount++;
+        clientTransport.onclose = () => {
+            clientCloseCount++;
+        };
         serverTransport.onclose = () => {
             throw new Error('boom');
         };

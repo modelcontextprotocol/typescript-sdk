@@ -756,3 +756,18 @@ process.on('SIGINT', async () => {
     console.log('Server shutdown complete');
     process.exit(0);
 });
+process.on('SIGTERM', async () => {
+    console.log('\nShutting down server...');
+    for (const sessionId of Object.keys(transports)) {
+        try {
+            await transports[sessionId]!.close();
+            delete transports[sessionId];
+        } catch (error) {
+            console.error(`Error closing session ${sessionId}:`, error);
+        }
+    }
+    taskStore.cleanup();
+    messageQueue.cleanup();
+    console.log('Server shutdown complete');
+    process.exit(0);
+});

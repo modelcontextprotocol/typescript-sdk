@@ -41,6 +41,43 @@ test('should start then close cleanly', async () => {
     expect(didClose).toBeTruthy();
 });
 
+test('should close when stdin ends', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let didClose = false;
+    server.onclose = () => {
+        didClose = true;
+    };
+
+    await server.start();
+    expect(didClose).toBeFalsy();
+
+    input.push(null); // signal EOF
+    // Give the event loop a tick to process the end event
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(didClose).toBeTruthy();
+});
+
+test('should await async onclose callback', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let cleanupDone = false;
+    server.onclose = async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        cleanupDone = true;
+    };
+
+    await server.start();
+    await server.close();
+    expect(cleanupDone).toBeTruthy();
+});
+
 test('should not read until started', async () => {
     const server = new StdioServerTransport(input, output);
     server.onerror = error => {
@@ -171,8 +208,12 @@ test('should fire onerror before onclose on stdout error', async () => {
     const server = new StdioServerTransport(input, output);
 
     const events: string[] = [];
-    server.onerror = () => events.push('error');
-    server.onclose = () => events.push('close');
+    server.onerror = () => {
+        events.push('error');
+    };
+    server.onclose = () => {
+        events.push('close');
+    };
 
     await server.start();
     output.emit('error', new Error('EPIPE'));

@@ -78,7 +78,7 @@ export class SSEClientTransport implements Transport {
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
 
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
@@ -242,7 +242,7 @@ export class SSEClientTransport implements Transport {
     async close(): Promise<void> {
         this._abortController?.abort();
         this._eventSource?.close();
-        this.onclose?.();
+        await this.onclose?.();
     }
 
     async send(message: JSONRPCMessage): Promise<void> {

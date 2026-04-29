@@ -98,7 +98,7 @@ export interface Transport {
      *
      * This should be invoked when {@linkcode Transport.close | close()} is called as well.
      */
-    onclose?: (() => void) | undefined;
+    onclose?: (() => void | Promise<void>) | undefined;
 
     /**
      * Callback for when an error occurs.
