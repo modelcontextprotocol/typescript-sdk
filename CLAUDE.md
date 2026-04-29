@@ -74,6 +74,7 @@ When modifying exports:
 - Use explicit named exports, not `export *`, in package `index.ts` files and `core/public`.
 - Adding a symbol to a package `index.ts` makes it public API — do so intentionally.
 - Internal helpers should stay in the core internal barrel and not be added to `core/public` or package index files.
+- The package root entry must stay runtime-neutral so browser and Cloudflare Workers bundlers can consume it. Exports whose module graph transitively touches unpolyfillable Node builtins (`node:child_process`, `node:net`, `cross-spawn`, etc.) must live at a named subpath export (e.g. `./stdio`) and be covered by a `barrelClean` test in that package.
 
 ### Transport System
 

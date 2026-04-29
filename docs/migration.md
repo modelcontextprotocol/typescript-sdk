@@ -50,8 +50,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 **After (v2):**
 
 ```typescript
-import { Client, StreamableHTTPClientTransport, StdioClientTransport } from '@modelcontextprotocol/client';
-import { McpServer, StdioServerTransport, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 // Node.js HTTP server transport is in the @modelcontextprotocol/node package
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
