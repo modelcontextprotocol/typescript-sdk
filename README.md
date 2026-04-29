@@ -95,7 +95,8 @@ npm install @modelcontextprotocol/hono hono
 Here is what an MCP server looks like. This minimal example exposes a single `greet` tool over stdio:
 
 ```typescript
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
 const server = new McpServer({ name: 'greeting-server', version: '1.0.0' });
