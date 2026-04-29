@@ -44,8 +44,8 @@ import {
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types/index.js';
-import type { AnySchema, SchemaOutput } from '../util/schema.js';
-import { parseSchema } from '../util/schema.js';
+import type { StandardSchemaV1 } from '../util/standardSchema.js';
+import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
 import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
 import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport, TransportSendOptions } from './transport.js';
@@ -199,11 +199,21 @@ export type BaseContext = {
          * Sends a request that relates to the current request being handled.
          *
          * This is used by certain transports to correctly associate related messages.
+         *
+         * For spec methods the result type is inferred from the method name.
+         * For custom (non-spec) methods, pass a result schema as the second argument.
          */
-        send: <M extends RequestMethod>(
-            request: { method: M; params?: Record<string, unknown> },
-            options?: TaskRequestOptions
-        ) => Promise<ResultTypeMap[M]>;
+        send: {
+            <M extends RequestMethod>(
+                request: { method: M; params?: Record<string, unknown> },
+                options?: TaskRequestOptions
+            ): Promise<ResultTypeMap[M]>;
+            <T extends StandardSchemaV1>(
+                request: Request,
+                resultSchema: T,
+                options?: TaskRequestOptions
+            ): Promise<StandardSchemaV1.InferOutput<T>>;
+        };
 
         /**
          * Sends a notification that relates to the current request being handled.
@@ -294,6 +304,9 @@ type TimeoutInfo = {
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
+ *
+ * `Protocol` is abstract; `Client` and `Server` are the concrete role-specific
+ * implementations most code should use.
  */
 export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
@@ -550,7 +563,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             sessionId: capturedTransport?.sessionId,
             sendNotification: (notification: Notification, options?: NotificationOptions) =>
                 this.notification(notification, { ...options, relatedRequestId: request.id }),
-            sendRequest: <U extends AnySchema>(r: Request, resultSchema: U, options?: RequestOptions) =>
+            sendRequest: <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
                 this._requestWithSchema(r, resultSchema, { ...options, relatedRequestId: request.id })
         };
 
@@ -596,10 +609,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 method: request.method,
                 _meta: request.params?._meta,
                 signal: abortController.signal,
-                send: <M extends RequestMethod>(r: { method: M; params?: Record<string, unknown> }, options?: TaskRequestOptions) => {
+                // BaseContext.mcpReq.send is declared with two overloads (spec-method-keyed and explicit-schema). Arrow
+                // literals can't carry overload signatures, so the inferred single-signature type isn't assignable to
+                // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
+                // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
+                send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | TaskRequestOptions, maybeOptions?: TaskRequestOptions) => {
+                    if (isStandardSchema(schemaOrOptions)) {
+                        return sendRequest(r, schemaOrOptions, maybeOptions);
+                    }
                     const resultSchema = getResultSchema(r.method);
-                    return sendRequest(r as Request, resultSchema, options) as Promise<ResultTypeMap[M]>;
-                },
+                    if (!resultSchema) {
+                        throw new TypeError(
+                            `'${r.method}' is not a spec method; pass a result schema as the second argument to ctx.mcpReq.send().`
+                        );
+                    }
+                    return sendRequest(r, resultSchema, schemaOrOptions);
+                }) as BaseContext['mcpReq']['send'],
                 notify: sendNotification
             },
             http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
@@ -740,14 +765,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertCapabilityForMethod(method: RequestMethod): void;
+    protected abstract assertCapabilityForMethod(method: RequestMethod | string): void;
 
     /**
      * A method to check if a notification is supported by the local side, for the given method to be sent.
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertNotificationCapability(method: NotificationMethod): void;
+    protected abstract assertNotificationCapability(method: NotificationMethod | string): void;
 
     /**
      * A method to check if a request handler is supported by the local side, for the given method to be handled.
@@ -773,17 +798,33 @@ export abstract class Protocol<ContextT extends BaseContext> {
     protected abstract assertTaskHandlerCapability(method: string): void;
 
     /**
-     * Sends a request and waits for a response, resolving the result schema
-     * automatically from the method name.
+     * Sends a request and waits for a response.
+     *
+     * For spec methods the result schema is resolved automatically from the method name
+     * and the return type is method-keyed. For custom (non-spec) methods, pass a
+     * `resultSchema` as the second argument; the response is validated against it and
+     * the return type is inferred from the schema.
      *
      * Do not use this method to emit notifications! Use {@linkcode Protocol.notification | notification()} instead.
      */
     request<M extends RequestMethod>(
         request: { method: M; params?: Record<string, unknown> },
         options?: RequestOptions
-    ): Promise<ResultTypeMap[M]> {
+    ): Promise<ResultTypeMap[M]>;
+    request<T extends StandardSchemaV1>(
+        request: Request,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>>;
+    request(request: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions): Promise<unknown> {
+        if (isStandardSchema(schemaOrOptions)) {
+            return this._requestWithSchema(request, schemaOrOptions, maybeOptions);
+        }
         const resultSchema = getResultSchema(request.method);
-        return this._requestWithSchema(request as Request, resultSchema, options) as Promise<ResultTypeMap[M]>;
+        if (!resultSchema) {
+            throw new TypeError(`'${request.method}' is not a spec method; pass a result schema as the second argument to request().`);
+        }
+        return this._requestWithSchema(request, resultSchema, schemaOrOptions);
     }
 
     /**
@@ -792,18 +833,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * This is the internal implementation used by SDK methods that need to specify
      * a particular result schema (e.g., for compatibility or task-specific schemas).
      */
-    protected _requestWithSchema<T extends AnySchema>(
+    protected _requestWithSchema<T extends StandardSchemaV1>(
         request: Request,
         resultSchema: T,
         options?: RequestOptions
-    ): Promise<SchemaOutput<T>> {
+    ): Promise<StandardSchemaV1.InferOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
         let onAbort: (() => void) | undefined;
         let cleanupMessageId: number | undefined;
 
         // Send the request
-        return new Promise<SchemaOutput<T>>((resolve, reject) => {
+        return new Promise<StandardSchemaV1.InferOutput<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
                 reject(error);
             };
@@ -815,7 +856,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             if (this._options?.enforceStrictCapabilities === true) {
                 try {
-                    this.assertCapabilityForMethod(request.method as RequestMethod);
+                    this.assertCapabilityForMethod(request.method);
                 } catch (error) {
                     earlyReject(error);
                     return;
@@ -843,7 +884,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 };
             }
 
+            let responseReceived = false;
+
             const cancel = (reason: unknown) => {
+                if (responseReceived) {
+                    return;
+                }
                 this._progressHandlers.delete(messageId);
 
                 this._transport
@@ -869,21 +915,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (options?.signal?.aborted) {
                     return;
                 }
+                responseReceived = true;
 
                 if (response instanceof Error) {
                     return reject(response);
                 }
 
-                try {
-                    const parseResult = parseSchema(resultSchema, response.result);
+                validateStandardSchema(resultSchema, response.result).then(parseResult => {
                     if (parseResult.success) {
-                        resolve(parseResult.data as SchemaOutput<T>);
+                        resolve(parseResult.data);
                     } else {
-                        reject(parseResult.error);
+                        reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
                     }
-                } catch (error) {
-                    reject(error);
-                }
+                }, reject);
             });
 
             onAbort = () => cancel(options?.signal?.reason);
@@ -950,7 +994,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
-        this.assertNotificationCapability(notification.method as NotificationMethod);
+        this.assertNotificationCapability(notification.method);
 
         // Delegate task-related notification routing and JSONRPC building to TaskManager
         const taskResult = await this._taskManager.processOutboundNotification(notification, options);
@@ -1004,27 +1048,73 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Registers a handler to invoke when this protocol object receives a request with the given method.
      *
      * Note that this will replace any previous request handler for the same method.
+     *
+     * For spec methods, pass `(method, handler)`; the request is parsed with the spec
+     * schema and the handler receives the typed `Request`. For custom (non-spec)
+     * methods, pass `(method, schemas, handler)`; `params` are validated against
+     * `schemas.params` and the handler receives the parsed params object directly.
+     * Supplying `schemas.result` types the handler's return value.
+     *
+     * @example Custom request method
+     * ```ts source="./protocol.examples.ts#Protocol_setRequestHandler_customMethod"
+     * const SearchParams = z.object({ query: z.string(), limit: z.number().optional() });
+     * const SearchResult = z.object({ hits: z.array(z.string()) });
+     *
+     * protocol.setRequestHandler('acme/search', { params: SearchParams, result: SearchResult }, async (params, _ctx) => {
+     *     return { hits: [`result for ${params.query}`] };
+     * });
+     * ```
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ContextT) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
+    ): void;
+    setRequestHandler<P extends StandardSchemaV1, R extends StandardSchemaV1 | undefined = undefined>(
+        method: string,
+        schemas: { params: P; result?: R },
+        handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ContextT) => InferHandlerResult<R> | Promise<InferHandlerResult<R>>
+    ): void;
+    setRequestHandler(
+        method: string,
+        schemasOrHandler: RequestHandlerSchemas | ((request: unknown, ctx: ContextT) => Result | Promise<Result>),
+        maybeHandler?: (params: unknown, ctx: ContextT) => Result | Promise<Result>
     ): void {
         this.assertRequestHandlerCapability(method);
-        const schema = getRequestSchema(method);
 
-        const stored = (request: JSONRPCRequest, ctx: ContextT): Promise<Result> => {
-            const parsed = schema.parse(request) as RequestTypeMap[M];
-            return Promise.resolve(handler(parsed, ctx));
-        };
+        let stored: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
+
+        if (typeof schemasOrHandler === 'function') {
+            const schema = getRequestSchema(method);
+            if (!schema) {
+                throw new TypeError(
+                    `'${method}' is not a spec request method; pass schemas as the second argument to setRequestHandler().`
+                );
+            }
+            stored = (request, ctx) => Promise.resolve(schemasOrHandler(schema.parse(request), ctx));
+        } else if (maybeHandler) {
+            stored = async (request, ctx) => {
+                const userParams = { ...request.params };
+                delete userParams._meta;
+                const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
+                if (!parsed.success) {
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error}`);
+                }
+                return maybeHandler(parsed.data, ctx);
+            };
+        } else {
+            throw new TypeError('setRequestHandler: handler is required');
+        }
+
         this._requestHandlers.set(method, this._wrapHandler(method, stored));
     }
 
     /**
      * Hook for subclasses to wrap a registered request handler with role-specific
      * validation or behavior (e.g. `Server` validates `tools/call` results, `Client`
-     * validates `elicitation/create` mode and result). The default implementation is identity.
+     * validates `elicitation/create` mode and result). Runs for both the 2-arg and
+     * 3-arg registration paths. The default implementation is identity.
      *
-     * Subclasses overriding this hook avoid redeclaring `setRequestHandler` and its JSDoc.
+     * Subclasses overriding this hook avoid redeclaring `setRequestHandler`'s overload set.
      */
     protected _wrapHandler(
         _method: string,
@@ -1036,14 +1126,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Removes the request handler for the given method.
      */
-    removeRequestHandler(method: RequestMethod): void {
+    removeRequestHandler(method: RequestMethod | string): void {
         this._requestHandlers.delete(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
-    assertCanSetRequestHandler(method: RequestMethod): void {
+    assertCanSetRequestHandler(method: RequestMethod | string): void {
         if (this._requestHandlers.has(method)) {
             throw new Error(`A request handler for ${method} already exists, which would be overridden`);
         }
@@ -1053,26 +1143,76 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Registers a handler to invoke when this protocol object receives a notification with the given method.
      *
      * Note that this will replace any previous notification handler for the same method.
+     *
+     * For spec methods, pass `(method, handler)`; the notification is parsed with the
+     * spec schema. For custom (non-spec) methods, pass `(method, schemas, handler)`;
+     * `params` are validated against `schemas.params` and the handler receives the
+     * parsed params object directly. The raw notification is passed as the second
+     * argument; `_meta` is recoverable via `notification.params?._meta`.
      */
     setNotificationHandler<M extends NotificationMethod>(
         method: M,
         handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
+    ): void;
+    setNotificationHandler<P extends StandardSchemaV1>(
+        method: string,
+        schemas: { params: P },
+        handler: (params: StandardSchemaV1.InferOutput<P>, notification: Notification) => void | Promise<void>
+    ): void;
+    setNotificationHandler(
+        method: string,
+        schemasOrHandler: { params: StandardSchemaV1 } | ((notification: unknown) => void | Promise<void>),
+        maybeHandler?: (params: unknown, notification: Notification) => void | Promise<void>
     ): void {
-        const schema = getNotificationSchema(method);
+        if (typeof schemasOrHandler === 'function') {
+            const schema = getNotificationSchema(method);
+            if (!schema) {
+                throw new TypeError(
+                    `'${method}' is not a spec notification method; pass schemas as the second argument to setNotificationHandler().`
+                );
+            }
+            this._notificationHandlers.set(method, notification => Promise.resolve(schemasOrHandler(schema.parse(notification))));
+            return;
+        }
 
-        this._notificationHandlers.set(method, notification => {
-            const parsed = schema.parse(notification);
-            return Promise.resolve(handler(parsed));
+        if (!maybeHandler) {
+            throw new TypeError('setNotificationHandler: handler is required');
+        }
+        this._notificationHandlers.set(method, async notification => {
+            const userParams = { ...notification.params };
+            delete userParams._meta;
+            const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
+            if (!parsed.success) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for notification ${method}: ${parsed.error}`);
+            }
+            await maybeHandler(parsed.data, notification);
         });
     }
 
     /**
      * Removes the notification handler for the given method.
      */
-    removeNotificationHandler(method: NotificationMethod): void {
+    removeNotificationHandler(method: NotificationMethod | string): void {
         this._notificationHandlers.delete(method);
     }
 }
+
+/**
+ * Schema bundle accepted by {@linkcode Protocol.setRequestHandler | setRequestHandler}'s 3-arg form.
+ *
+ * `params` is required and validates the inbound `request.params`. `result` is optional;
+ * when supplied it types the handler's return value (no runtime validation is performed
+ * on the result).
+ */
+export interface RequestHandlerSchemas<
+    P extends StandardSchemaV1 = StandardSchemaV1,
+    R extends StandardSchemaV1 | undefined = StandardSchemaV1 | undefined
+> {
+    params: P;
+    result?: R;
+}
+
+type InferHandlerResult<R extends StandardSchemaV1 | undefined> = R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);

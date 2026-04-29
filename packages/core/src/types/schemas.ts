@@ -2181,10 +2181,13 @@ const resultSchemas: Record<string, z.core.$ZodType> = {
 
 /**
  * Gets the Zod schema for validating results of a given request method.
+ * Returns `undefined` for non-spec methods.
  * @see getRequestSchema for explanation of the internal type assertion.
  */
-export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> {
-    return resultSchemas[method] as unknown as z.ZodType<ResultTypeMap[M]>;
+export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]>;
+export function getResultSchema(method: string): z.ZodType | undefined;
+export function getResultSchema(method: string): z.ZodType | undefined {
+    return resultSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
 }
 
 /* Runtime schema lookup — request schemas by method */
@@ -2211,6 +2214,7 @@ const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options,
 
 /**
  * Gets the Zod schema for a given request method.
+ * Returns `undefined` for non-spec methods.
  * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
  * to use schema.parse() without needing additional type assertions.
  *
@@ -2219,14 +2223,19 @@ const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options,
  * when M is a generic type parameter. Both compute to the same type at
  * instantiation, but TypeScript can't prove this statically.
  */
-export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> {
-    return requestSchemas[method] as unknown as z.ZodType<RequestTypeMap[M]>;
+export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]>;
+export function getRequestSchema(method: string): z.ZodType | undefined;
+export function getRequestSchema(method: string): z.ZodType | undefined {
+    return requestSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
 }
 
 /**
  * Gets the Zod schema for a given notification method.
+ * Returns `undefined` for non-spec methods.
  * @see getRequestSchema for explanation of the internal type assertion.
  */
-export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]> {
-    return notificationSchemas[method] as unknown as z.ZodType<NotificationTypeMap[M]>;
+export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]>;
+export function getNotificationSchema(method: string): z.ZodType | undefined;
+export function getNotificationSchema(method: string): z.ZodType | undefined {
+    return notificationSchemas[method as NotificationMethod] as unknown as z.ZodType | undefined;
 }

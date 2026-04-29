@@ -364,6 +364,48 @@ server.setNotificationHandler('notifications/message', notification => {
 
 The request and notification parameters remain fully typed via `RequestTypeMap` and `NotificationTypeMap`. You no longer need to import the individual `*RequestSchema` or `*NotificationSchema` constants for handler registration.
 
+#### Custom (non-spec) methods
+
+For vendor-prefixed methods (anything not in the MCP spec), use the 3-arg form: pass the method string, a `{ params, result? }` schemas object, and the handler. Any [Standard Schema](https://standardschema.dev) library works (Zod, Valibot, ArkType).
+
+**Before (v1):**
+
+```typescript
+const AcmeSearch = z.object({
+    method: z.literal('acme/search'),
+    params: z.object({ query: z.string(), limit: z.number().int() })
+});
+server.setRequestHandler(AcmeSearch, async request => {
+    return { items: [/* ... */] };
+});
+```
+
+**After (v2):**
+
+```typescript
+const SearchParams = z.object({ query: z.string(), limit: z.number().int() });
+const SearchResult = z.object({ items: z.array(z.string()) });
+
+server.setRequestHandler('acme/search', { params: SearchParams, result: SearchResult }, async (params, ctx) => {
+    return { items: [/* ... */] };
+});
+```
+
+The handler receives the parsed `params` directly (not the full request envelope). `_meta` is stripped before validation and is available as `ctx.mcpReq._meta`. Supplying `result` types the handler's return value; omit it to return any `Result`.
+
+For `setNotificationHandler`, the 3-arg handler is `(params, notification) => void`. The raw notification is the second argument, so `_meta` is recoverable via `notification.params?._meta`.
+
+#### Sending custom-method requests
+
+`request()` and `ctx.mcpReq.send()` accept a result schema as the second argument; for custom methods this is required:
+
+```typescript
+const result = await client.request({ method: 'acme/search', params: { query: 'mcp', limit: 3 } }, SearchResult);
+result.items; // string[]
+```
+
+For spec methods the 1-arg form still works and the result type is inferred from the method name.
+
 Common method string replacements:
 
 | Schema (v1)                             | Method string (v2)                       |
@@ -382,10 +424,10 @@ Common method string replacements:
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
 
-### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
+### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer require a schema parameter for spec methods
 
-The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
-like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
+like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
 
 **`client.request()` — Before (v1):**
 
@@ -441,6 +483,8 @@ const result = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
 The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
+
+For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
 If you were using `CallToolResultSchema` for **runtime validation** (not just in `request()`/`callTool()` calls), use the new `isCallToolResult` type guard instead:
 
@@ -656,6 +700,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response      |
 | `SdkErrorCode.ConnectionClosed`                   | Connection was closed                       |
 | `SdkErrorCode.SendFailed`                         | Failed to send message                      |
+| `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
 | `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                    |
 | `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication |
 | `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping  |

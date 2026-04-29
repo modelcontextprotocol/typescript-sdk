@@ -266,7 +266,7 @@ export class Server extends Protocol<ServerContext> {
         };
     }
 
-    protected assertCapabilityForMethod(method: RequestMethod): void {
+    protected assertCapabilityForMethod(method: RequestMethod | string): void {
         switch (method) {
             case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
@@ -299,7 +299,7 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    protected assertNotificationCapability(method: NotificationMethod): void {
+    protected assertNotificationCapability(method: NotificationMethod | string): void {
         switch (method) {
             case 'notifications/message': {
                 if (!this._capabilities.logging) {
