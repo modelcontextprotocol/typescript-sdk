@@ -3,7 +3,14 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
 import { isSpecType, specTypeSchemas } from '../../src/types/specTypeSchema.js';
-import type { CallToolResult, ContentBlock, Implementation, JSONRPCRequest, Tool } from '../../src/types/types.js';
+import type {
+    CallToolResult,
+    ContentBlock,
+    Implementation,
+    JSONRPCRequest,
+    ResourceTemplateType,
+    Tool,
+} from '../../src/types/types.js';
 
 describe('specTypeSchemas', () => {
     it('returns a StandardSchemaV1 validator that accepts valid values', () => {
@@ -103,6 +110,7 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         expectTypeOf<'JSONRPCRequest'>().toMatchTypeOf<SpecTypeName>();
         expectTypeOf<'OAuthTokens'>().toMatchTypeOf<SpecTypeName>();
         expectTypeOf<'OAuthMetadata'>().toMatchTypeOf<SpecTypeName>();
+        expectTypeOf<'ResourceTemplate'>().toMatchTypeOf<SpecTypeName>();
     });
 
     it('SpecTypes[K] matches the named export type', () => {
@@ -113,5 +121,14 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         expectTypeOf<SpecTypes['JSONRPCRequest']>().toEqualTypeOf<JSONRPCRequest>();
         expectTypeOf<SpecTypes['OAuthTokens']>().toEqualTypeOf<OAuthTokens>();
         expectTypeOf<SpecTypes['OAuthMetadata']>().toEqualTypeOf<OAuthMetadata>();
+        // The public type is exported as ResourceTemplateType (the bare name collides with the
+        // server package's ResourceTemplate class), so this is the one entry where the key and
+        // the public type name differ.
+        expectTypeOf<SpecTypes['ResourceTemplate']>().toEqualTypeOf<ResourceTemplateType>();
+    });
+
+    it('isSpecType.ResourceTemplate validates a resource template', () => {
+        expect(isSpecType.ResourceTemplate({ name: 'r', uriTemplate: 'file:///{path}' })).toBe(true);
+        expect(isSpecType.ResourceTemplate({ name: 'r' })).toBe(false);
     });
 });
