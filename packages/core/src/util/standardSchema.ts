@@ -201,15 +201,15 @@ function formatIssue(issue: StandardSchemaV1.Issue): string {
     return `${path}: ${issue.message}`;
 }
 
-export async function validateStandardSchema<T extends StandardSchemaWithJSON>(
+export async function validateStandardSchema<T extends StandardSchemaV1>(
     schema: T,
     data: unknown
-): Promise<StandardSchemaValidationResult<StandardSchemaWithJSON.InferOutput<T>>> {
+): Promise<StandardSchemaValidationResult<StandardSchemaV1.InferOutput<T>>> {
     const result = await schema['~standard'].validate(data);
     if (result.issues && result.issues.length > 0) {
         return { success: false, error: result.issues.map(i => formatIssue(i)).join(', ') };
     }
-    return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaWithJSON.InferOutput<T> };
+    return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaV1.InferOutput<T> };
 }
 
 // Prompt argument extraction

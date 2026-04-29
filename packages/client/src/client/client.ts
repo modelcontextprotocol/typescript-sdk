@@ -570,7 +570,7 @@ export class Client extends Protocol<ClientContext> {
         return this._instructions;
     }
 
-    protected assertCapabilityForMethod(method: RequestMethod): void {
+    protected assertCapabilityForMethod(method: RequestMethod | string): void {
         switch (method as ClientRequest['method']) {
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
@@ -633,7 +633,7 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    protected assertNotificationCapability(method: NotificationMethod): void {
+    protected assertNotificationCapability(method: NotificationMethod | string): void {
         switch (method as ClientNotification['method']) {
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {
