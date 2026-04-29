@@ -154,6 +154,16 @@ export type TaskContext = {
     requestedTtl?: number;
 };
 
+/**
+ * Overrides for `tasks/get` and `tasks/result` lookups. Consulted before
+ * the configured {@linkcode TaskStore}; return `undefined` to fall through.
+ * @internal
+ */
+export type TaskLookupOverrides = {
+    getTask?: (taskId: string, ctx: BaseContext) => Promise<Task | undefined>;
+    getTaskResult?: (taskId: string, ctx: BaseContext) => Promise<Result | undefined>;
+};
+
 export type TaskManagerOptions = {
     /**
      * Task storage implementation. Required for handling incoming task requests (server-side).
@@ -199,11 +209,21 @@ export class TaskManager {
     private _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _options: TaskManagerOptions;
     private _host?: TaskManagerHost;
+    private _overrides?: TaskLookupOverrides;
 
     constructor(options: TaskManagerOptions) {
         this._options = options;
         this._taskStore = options.taskStore;
         this._taskMessageQueue = options.taskMessageQueue;
+    }
+
+    /**
+     * Installs per-task lookup overrides consulted before the {@linkcode TaskStore}.
+     * Used by McpServer to dispatch to per-tool `getTask`/`getTaskResult` handlers.
+     * @internal
+     */
+    setTaskOverrides(overrides: TaskLookupOverrides): void {
+        this._overrides = overrides;
     }
 
     bind(host: TaskManagerHost): void {
@@ -212,7 +232,7 @@ export class TaskManager {
         if (this._taskStore) {
             host.registerHandler('tasks/get', async (request, ctx) => {
                 const params = request.params as { taskId: string };
-                const task = await this.handleGetTask(params.taskId, ctx.sessionId);
+                const task = await this.handleGetTask(params.taskId, ctx);
                 // Per spec: tasks/get responses SHALL NOT include related-task metadata
                 // as the taskId parameter is the source of truth
                 return {
@@ -222,7 +242,7 @@ export class TaskManager {
 
             host.registerHandler('tasks/result', async (request, ctx) => {
                 const params = request.params as { taskId: string };
-                return await this.handleGetTaskPayload(params.taskId, ctx.sessionId, ctx.mcpReq.signal, async message => {
+                return await this.handleGetTaskPayload(params.taskId, ctx, async message => {
                     // Send the message on the response stream by passing the relatedRequestId
                     // This tells the transport to write the message to the tasks/result response stream
                     await host.sendOnResponseStream(message, ctx.mcpReq.id);
@@ -359,8 +379,11 @@ export class TaskManager {
 
     // -- Handler bodies (delegated from Protocol's registered handlers) --
 
-    private async handleGetTask(taskId: string, sessionId?: string): Promise<Task> {
-        const task = await this._requireTaskStore.getTask(taskId, sessionId);
+    private async handleGetTask(taskId: string, ctx: BaseContext): Promise<Task> {
+        const override = await this._overrides?.getTask?.(taskId, ctx);
+        if (override !== undefined) return override;
+
+        const task = await this._requireTaskStore.getTask(taskId, ctx.sessionId);
         if (!task) {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
         }
@@ -369,10 +392,12 @@ export class TaskManager {
 
     private async handleGetTaskPayload(
         taskId: string,
-        sessionId: string | undefined,
-        signal: AbortSignal,
+        ctx: BaseContext,
         sendOnResponseStream: (message: JSONRPCNotification | JSONRPCRequest) => Promise<void>
     ): Promise<Result> {
+        const sessionId = ctx.sessionId;
+        const signal = ctx.mcpReq.signal;
+
         const handleTaskResult = async (): Promise<Result> => {
             if (this._taskMessageQueue) {
                 let queuedMessage: QueuedMessage | undefined;
@@ -401,17 +426,15 @@ export class TaskManager {
                 }
             }
 
-            const task = await this._requireTaskStore.getTask(taskId, sessionId);
-            if (!task) {
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Task not found: ${taskId}`);
-            }
+            const task = await this.handleGetTask(taskId, ctx);
 
             if (!isTerminal(task.status)) {
                 await this._waitForTaskUpdate(task.pollInterval, signal);
                 return await handleTaskResult();
             }
 
-            const result = await this._requireTaskStore.getTaskResult(taskId, sessionId);
+            const override = await this._overrides?.getTaskResult?.(taskId, ctx);
+            const result = override ?? (await this._requireTaskStore.getTaskResult(taskId, sessionId));
             await this._clearTaskQueue(taskId);
 
             return {

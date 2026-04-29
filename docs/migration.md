@@ -516,6 +516,37 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/server';
 ```
 
+### `ToolTaskHandler.getTask` and `getTaskResult` are now optional (experimental)
+
+`getTask` and `getTaskResult` are now optional on `ToolTaskHandler`. When omitted, `tasks/get` and `tasks/result` are served directly from the configured `TaskStore`. Their signature has also changed — they no longer receive the tool's input arguments (which aren't available at `tasks/get`/`tasks/result` time).
+
+If your handlers just delegated to the store, delete them:
+
+**Before:**
+
+```typescript
+server.experimental.tasks.registerToolTask('long-task', config, {
+    createTask: async (args, ctx) => { /* ... */ },
+    getTask: async (args, ctx) => ctx.task.store.getTask(ctx.task.id),
+    getTaskResult: async (args, ctx) => ctx.task.store.getTaskResult(ctx.task.id)
+});
+```
+
+**After:**
+
+```typescript
+server.experimental.tasks.registerToolTask('long-task', config, {
+    createTask: async (args, ctx) => { /* ... */ }
+});
+```
+
+Keep them if you're proxying an external job system (AWS Step Functions, CI/CD pipelines, etc.) — the new signature takes only `ctx`:
+
+```typescript
+getTask: async (ctx) => describeStepFunctionExecution(ctx.task.id),
+getTaskResult: async (ctx) => getStepFunctionOutput(ctx.task.id)
+```
+
 ### Request handler context types
 
 The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy using nested groups:

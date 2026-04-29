@@ -5,13 +5,25 @@
  * @experimental
  */
 
-import type { StandardSchemaWithJSON, TaskToolExecution, ToolAnnotations, ToolExecution } from '@modelcontextprotocol/core';
+import type {
+    BaseContext,
+    CallToolResult,
+    GetTaskResult,
+    ServerContext,
+    StandardSchemaWithJSON,
+    TaskManager,
+    TaskServerContext,
+    TaskToolExecution,
+    ToolAnnotations,
+    ToolExecution
+} from '@modelcontextprotocol/core';
 
 import type { AnyToolHandler, McpServer, RegisteredTool } from '../../server/mcp.js';
 import type { ToolTaskHandler } from './interfaces.js';
+import { isToolTaskHandler } from './interfaces.js';
 
 /**
- * Internal interface for accessing {@linkcode McpServer}'s private _createRegisteredTool method.
+ * Internal interface for accessing {@linkcode McpServer}'s private members.
  * @internal
  */
 interface McpServerInternal {
@@ -26,6 +38,7 @@ interface McpServerInternal {
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool;
+    _registeredTools: { [name: string]: RegisteredTool };
 }
 
 /**
@@ -39,14 +52,74 @@ interface McpServerInternal {
  * @experimental
  */
 export class ExperimentalMcpServerTasks {
+    /**
+     * Maps taskId → toolName for tasks whose handlers define custom
+     * `getTask` or `getTaskResult`. In-memory only; after a server restart
+     * or on a different instance, lookups fall through to the TaskStore.
+     */
+    private _taskToTool = new Map<string, string>();
+
     constructor(private readonly _mcpServer: McpServer) {}
+
+    /** @internal */
+    _installOverrides(taskManager: TaskManager): void {
+        taskManager.setTaskOverrides({
+            getTask: (taskId, ctx) => this._dispatch(taskId, ctx, 'getTask'),
+            getTaskResult: (taskId, ctx) => this._dispatch(taskId, ctx, 'getTaskResult')
+        });
+    }
+
+    /** @internal */
+    _recordTask(taskId: string, toolName: string): void {
+        const tool = (this._mcpServer as unknown as McpServerInternal)._registeredTools[toolName];
+        if (tool && isToolTaskHandler(tool.handler) && (tool.handler.getTask || tool.handler.getTaskResult)) {
+            this._taskToTool.set(taskId, toolName);
+        }
+    }
+
+    /** @internal */
+    onClose(): void {
+        this._taskToTool.clear();
+    }
+
+    private async _dispatch<M extends 'getTask' | 'getTaskResult'>(
+        taskId: string,
+        ctx: BaseContext,
+        method: M
+    ): Promise<(M extends 'getTask' ? GetTaskResult : CallToolResult) | undefined> {
+        const toolName = this._taskToTool.get(taskId);
+        if (!toolName) return undefined;
+
+        const tool = (this._mcpServer as unknown as McpServerInternal)._registeredTools[toolName];
+        if (!tool || !isToolTaskHandler(tool.handler)) return undefined;
+
+        const handler = tool.handler[method];
+        if (!handler) return undefined;
+
+        const serverCtx = ctx as ServerContext;
+        if (!serverCtx.task?.store) return undefined;
+
+        const taskCtx: TaskServerContext = {
+            ...serverCtx,
+            task: { ...serverCtx.task, id: taskId, store: serverCtx.task.store }
+        };
+
+        const result = (await handler(taskCtx)) as M extends 'getTask' ? GetTaskResult : CallToolResult;
+        // getTaskResult is terminal — drop the mapping only after the handler resolves
+        // so a transient throw doesn't orphan the task on retry.
+        if (method === 'getTaskResult') {
+            this._taskToTool.delete(taskId);
+        }
+        return result;
+    }
 
     /**
      * Registers a task-based tool with a config object and handler.
      *
      * Task-based tools support long-running operations that can be polled for status
-     * and results. The handler must implement {@linkcode ToolTaskHandler.createTask | createTask}, {@linkcode ToolTaskHandler.getTask | getTask}, and {@linkcode ToolTaskHandler.getTaskResult | getTaskResult}
-     * methods.
+     * and results. The handler implements {@linkcode ToolTaskHandler.createTask | createTask}
+     * to start the task; subsequent `tasks/get` and `tasks/result` requests are served
+     * from the configured `TaskStore`.
      *
      * @example
      * ```typescript
@@ -59,19 +132,13 @@ export class ExperimentalMcpServerTasks {
      *     const task = await ctx.task.store.createTask({ ttl: 300000 });
      *     startBackgroundWork(task.taskId, args);
      *     return { task };
-     *   },
-     *   getTask: async (args, ctx) => {
-     *     return ctx.task.store.getTask(ctx.task.id);
-     *   },
-     *   getTaskResult: async (args, ctx) => {
-     *     return ctx.task.store.getTaskResult(ctx.task.id);
      *   }
      * });
      * ```
      *
      * @param name - The tool name
      * @param config - Tool configuration (description, schemas, etc.)
-     * @param handler - Task handler with {@linkcode ToolTaskHandler.createTask | createTask}, {@linkcode ToolTaskHandler.getTask | getTask}, {@linkcode ToolTaskHandler.getTaskResult | getTaskResult} methods
+     * @param handler - Task handler with {@linkcode ToolTaskHandler.createTask | createTask}
      * @returns {@linkcode server/mcp.RegisteredTool | RegisteredTool} for managing the tool's lifecycle
      *
      * @experimental
