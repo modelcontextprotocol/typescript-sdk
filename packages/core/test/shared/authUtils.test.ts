@@ -1,4 +1,4 @@
-import { checkResourceAllowed, resourceUrlFromServerUrl } from '../../src/shared/authUtils.js';
+import { checkResourceAllowed, mergeScopes, resourceUrlFromServerUrl } from '../../src/shared/authUtils.js';
 
 describe('auth-utils', () => {
     describe('resourceUrlFromServerUrl', () => {
@@ -85,6 +85,33 @@ describe('auth-utils', () => {
             expect(
                 checkResourceAllowed({ requestedResource: 'https://example.com/folder', configuredResource: 'https://example.com/folder/' })
             ).toBe(false);
+        });
+    });
+
+    describe('mergeScopes', () => {
+        it('should return undefined when both inputs are undefined', () => {
+            expect(mergeScopes(undefined, undefined)).toBeUndefined();
+        });
+
+        it('should return existing when incoming is undefined', () => {
+            expect(mergeScopes('read write', undefined)).toBe('read write');
+        });
+
+        it('should return incoming when existing is undefined', () => {
+            expect(mergeScopes(undefined, 'read write')).toBe('read write');
+        });
+
+        it('should merge and deduplicate scopes', () => {
+            expect(mergeScopes('read write', 'write execute')).toBe('read write execute');
+        });
+
+        it('should return undefined for empty strings', () => {
+            expect(mergeScopes('', '')).toBeUndefined();
+            expect(mergeScopes('', undefined)).toBeUndefined();
+        });
+
+        it('should handle multiple whitespace separators', () => {
+            expect(mergeScopes('read  write', 'write\texecute')).toBe('read write execute');
         });
     });
 });
