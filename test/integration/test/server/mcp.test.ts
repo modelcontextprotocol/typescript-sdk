@@ -1418,25 +1418,18 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            // Call the tool and expect it to throw an error
-            const result = await client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
-                }
-            });
-
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining(
-                            'Output validation error: Tool test has an output schema but no structured content was provided'
-                        )
+            // Output validation failure is a server-side bug → JSON-RPC InternalError
+            await expect(
+                client.callTool({
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                ])
-            );
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InternalError,
+                message: expect.stringContaining('has an output schema but no structured content')
+            });
         });
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
@@ -1550,23 +1543,18 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            // Call the tool and expect it to throw a server-side validation error
-            const result = await client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
-                }
-            });
-
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining('Output validation error: Invalid structured content for tool test')
+            // Output validation failure is a server-side bug → JSON-RPC InternalError
+            await expect(
+                client.callTool({
+                    name: 'test',
+                    arguments: {
+                        input: 'hello'
                     }
-                ])
-            );
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InternalError,
+                message: expect.stringMatching(/Invalid structured content for tool test/)
+            });
         });
 
         /***
@@ -6534,16 +6522,16 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            // Call the tool WITHOUT task augmentation - should return error
-            const result = await client.callTool({
-                name: 'long-running-task',
-                arguments: { input: 'test data' }
+            // Call the tool WITHOUT task augmentation - should throw JSON-RPC error
+            await expect(
+                client.callTool({
+                    name: 'long-running-task',
+                    arguments: { input: 'test data' }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringMatching(/requires task augmentation/)
             });
-
-            // Should receive error result
-            expect(result.isError).toBe(true);
-            const content = result.content as TextContent[];
-            expect(content[0]!.text).toContain('requires task augmentation');
 
             taskStore.cleanup();
         });
@@ -6650,6 +6638,108 @@ describe('Zod v4', () => {
             expect(result).not.toHaveProperty('task');
 
             // Wait for async operations to complete
+            await waitForLatch();
+            taskStore.cleanup();
+        });
+
+        test('should validate output schema for taskSupport "optional" tool result returned via automatic polling', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            },
+
+                            taskStore
+                        }
+                    }
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            mcpServer.experimental.tasks.registerToolTask(
+                'optional-task-with-output-schema',
+                {
+                    description: 'An optional task with an output schema',
+                    inputSchema: z.object({
+                        value: z.number()
+                    }),
+                    outputSchema: z.object({
+                        count: z.number()
+                    }),
+                    execution: {
+                        taskSupport: 'optional'
+                    }
+                },
+                {
+                    createTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
+                        const store = ctx.task.store;
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: 'done' }],
+                                structuredContent: { count: 'not-a-number' }
+                            });
+                            releaseLatch();
+                        }, 150);
+                        return { task };
+                    },
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async (_args, ctx) => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            await expect(
+                client.callTool({
+                    name: 'optional-task-with-output-schema',
+                    arguments: { value: 1 }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InternalError,
+                message: expect.stringMatching(/Invalid structured content/)
+            });
+
             await waitForLatch();
             taskStore.cleanup();
         });
