@@ -7,7 +7,7 @@
 import * as z from 'zod/v4';
 
 import type { StandardSchemaWithJSON } from './standardSchema.js';
-import { isStandardSchema, isStandardSchemaWithJSON } from './standardSchema.js';
+import { isStandardSchema } from './standardSchema.js';
 
 function isZodV4Schema(v: unknown): v is z.ZodType {
     // `_zod` is the v4 internal namespace property. Zod v3 schemas have `_def`
@@ -67,10 +67,14 @@ export function normalizeRawShapeSchema(
             'Raw-shape inputSchema/outputSchema/argsSchema fields must be Zod v4 schemas. Got a Zod v3 field schema. Import from `zod/v4` (or upgrade your zod import), or wrap with `z.object({...})` yourself.'
         );
     }
-    if (!isStandardSchemaWithJSON(schema)) {
+    if (!isStandardSchema(schema)) {
         throw new TypeError(
-            'inputSchema/outputSchema/argsSchema must be a Standard Schema with JSON Schema export (`~standard.jsonSchema`, e.g. z.object({...}) from zod >=4.2.0) or a raw Zod shape ({ field: z.string() }).'
+            'inputSchema/outputSchema/argsSchema must be a Standard Schema (e.g. z.object({...})) or a raw Zod shape ({ field: z.string() }).'
         );
     }
+    // Any StandardSchema passes through; standardSchemaToJsonSchema owns the per-vendor
+    // handling for schemas without `~standard.jsonSchema` (zod 4.0-4.1 fallback, zod 3
+    // and non-zod errors). Gating on `~standard.jsonSchema` here would unreachably
+    // front-run that fallback.
     return schema;
 }

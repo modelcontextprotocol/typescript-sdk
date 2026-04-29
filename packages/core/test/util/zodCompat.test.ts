@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import { standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
@@ -60,9 +61,24 @@ describe('normalizeRawShapeSchema', () => {
     test('throws TypeError for an invalid object that is neither raw shape nor Standard Schema', () => {
         expect(() => normalizeRawShapeSchema({ a: 'not a zod schema' } as never)).toThrow(TypeError);
     });
-    test('throws TypeError for a Standard Schema without JSON Schema export', () => {
+    test('passes through a Standard Schema without `~standard.jsonSchema` (per-vendor handling deferred to standardSchemaToJsonSchema)', () => {
         const noJson = { '~standard': { version: 1, vendor: 'x', validate: () => ({ value: {} }) } };
-        expect(() => normalizeRawShapeSchema(noJson as never)).toThrow(/~standard\.jsonSchema/);
+        expect(normalizeRawShapeSchema(noJson as never)).toBe(noJson);
+    });
+    test('passes through a zod 4.0-4.1 schema so standardSchemaToJsonSchema can apply its z.toJSONSchema fallback', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const real = z.object({ a: z.string() });
+        // Simulate zod 4.0-4.1: shadow `~standard` with `jsonSchema` removed, keep `_zod` intact.
+        const { jsonSchema: _drop, ...stdNoJson } = real['~standard'] as unknown as Record<string, unknown>;
+        void _drop;
+        Object.defineProperty(real, '~standard', { value: { ...stdNoJson, vendor: 'zod' }, configurable: true });
+
+        const normalized = normalizeRawShapeSchema(real);
+        expect(normalized).toBe(real);
+        const json = standardSchemaToJsonSchema(normalized!, 'input');
+        expect(json.type).toBe('object');
+        expect((json.properties as Record<string, unknown>)?.a).toBeDefined();
+        warn.mockRestore();
     });
     test('throws actionable TypeError for a raw shape with Zod v3 fields', () => {
         expect(() => normalizeRawShapeSchema({ a: mockZodV3String() } as never)).toThrow(/Zod v4 schemas.*Got a Zod v3 field schema/);
