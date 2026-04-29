@@ -33,7 +33,9 @@ export enum SdkErrorCode {
     ClientHttpForbidden = 'CLIENT_HTTP_FORBIDDEN',
     ClientHttpUnexpectedContent = 'CLIENT_HTTP_UNEXPECTED_CONTENT',
     ClientHttpFailedToOpenStream = 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
-    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'
+    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION',
+    /** Server returned 429 Too Many Requests and the client exhausted its retries. */
+    ClientHttpRateLimited = 'CLIENT_HTTP_RATE_LIMITED'
 }
 
 /**
