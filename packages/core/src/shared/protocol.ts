@@ -765,14 +765,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertCapabilityForMethod(method: string): void;
+    protected abstract assertCapabilityForMethod(method: RequestMethod | string): void;
 
     /**
      * A method to check if a notification is supported by the local side, for the given method to be sent.
      *
      * This should be implemented by subclasses.
      */
-    protected abstract assertNotificationCapability(method: string): void;
+    protected abstract assertNotificationCapability(method: NotificationMethod | string): void;
 
     /**
      * A method to check if a request handler is supported by the local side, for the given method to be handled.
