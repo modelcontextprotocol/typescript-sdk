@@ -4,7 +4,8 @@
  *
  * Build `examples/server` first; this client spawns the server via stdio.
  */
-import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { z } from 'zod/v4';
 
 const SearchResult = z.object({ items: z.array(z.string()) });

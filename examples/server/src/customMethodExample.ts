@@ -4,7 +4,8 @@
  *
  * Spawned via stdio by `examples/client/src/customMethodExample.ts`; do not run standalone.
  */
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod/v4';
 
 const SearchParams = z.object({ query: z.string(), limit: z.number().int().default(10) });
