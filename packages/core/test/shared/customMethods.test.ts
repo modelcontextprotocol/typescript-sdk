@@ -3,7 +3,8 @@ import { z } from 'zod/v4';
 
 import { Protocol } from '../../src/shared/protocol.js';
 import type { BaseContext, JSONRPCRequest, Result, StandardSchemaV1 } from '../../src/exports/public/index.js';
-import { ProtocolError, ProtocolErrorCode } from '../../src/types/index.js';
+import { ProtocolError } from '../../src/types/index.js';
+import { SdkErrorCode } from '../../src/errors/sdkErrors.js';
 import { InMemoryTransport } from '../../src/util/inMemory.js';
 
 class TestProtocol extends Protocol<BaseContext> {
@@ -142,12 +143,12 @@ describe('Protocol custom-method support', () => {
             expect(() => a.request({ method: 'acme/unknown' } as never)).toThrow(TypeError);
         });
 
-        it('rejects with ProtocolError(InternalError) when the response fails the result schema', async () => {
+        it('rejects with SdkError(InvalidResult) when the response fails the result schema', async () => {
             const [a, b] = await pair();
             b.setRequestHandler('acme/bad', { params: z.object({}) }, async () => ({ wrong: 123 }));
 
             await expect(a.request({ method: 'acme/bad', params: {} }, z.object({ echoed: z.string() }))).rejects.toMatchObject({
-                code: ProtocolErrorCode.InternalError
+                code: SdkErrorCode.InvalidResult
             });
         });
 

@@ -925,9 +925,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     if (parseResult.success) {
                         resolve(parseResult.data);
                     } else {
-                        reject(
-                            new ProtocolError(ProtocolErrorCode.InternalError, `Invalid result for ${request.method}: ${parseResult.error}`)
-                        );
+                        reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
                     }
                 }, reject);
             });
