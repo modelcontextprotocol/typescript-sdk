@@ -21,10 +21,14 @@ import * as schemas from './schemas.js';
  *
  * This intentionally excludes internal helper schemas exported from `schemas.ts` that have no
  * matching public type (e.g. `ListChangedOptionsBaseSchema`, `BaseRequestParamsSchema`,
- * `NotificationsParamsSchema`, `ClientTasksCapabilitySchema`, `ServerTasksCapabilitySchema`,
- * `ResourceTemplateSchema` whose public type was renamed to `ResourceTemplateType`). Keeping the
- * list explicit means new public spec types must be added here deliberately, and internals never
- * leak into `SpecTypeName`.
+ * `NotificationsParamsSchema`, `ClientTasksCapabilitySchema`, `ServerTasksCapabilitySchema`).
+ * Keeping the list explicit means new public spec types must be added here deliberately, and
+ * internals never leak into `SpecTypeName`.
+ *
+ * `ResourceTemplateSchema` is included; its public type is exported as `ResourceTemplateType`
+ * (the bare name collides with the server package's `ResourceTemplate` class), so
+ * `SpecTypes['ResourceTemplate']` is structurally equal to `ResourceTemplateType` rather than to
+ * a type literally named `ResourceTemplate`.
  */
 const SPEC_SCHEMA_KEYS = [
     'AnnotationsSchema',
@@ -135,6 +139,7 @@ const SPEC_SCHEMA_KEYS = [
     'ResourceLinkSchema',
     'ResourceListChangedNotificationSchema',
     'ResourceRequestParamsSchema',
+    'ResourceTemplateSchema',
     'ResourceTemplateReferenceSchema',
     'ResourceUpdatedNotificationSchema',
     'ResourceUpdatedNotificationParamsSchema',
