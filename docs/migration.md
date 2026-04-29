@@ -2,6 +2,78 @@
 
 This guide covers the breaking changes introduced in v2 of the MCP TypeScript SDK and how to update your code.
 
+> **Note:** This guide describes the v2.0.0 release as a whole. The compatibility shims it references land across the [v2-bc PR series](https://github.com/modelcontextprotocol/typescript-sdk/pulls?q=is%3Apr+label%3Av2-bc); on any individual PR's branch some referenced symbols may not yet exist.
+
+## TL;DR — most servers just bump the version
+
+For **most MCP servers**, upgrading to v2 is a one-line change:
+
+```diff
+- "@modelcontextprotocol/sdk": "^1.0.0"
++ "@modelcontextprotocol/sdk": "^2.0.0"
+```
+
+In v2, `@modelcontextprotocol/sdk` is a meta-package that re-exports the new split packages at the v1 import paths. v1 APIs (deep-import paths like `@modelcontextprotocol/sdk/server/mcp.js`, variadic `server.tool()`, `McpError`, `RequestHandlerExtra`, etc.) continue to work as
+**`@deprecated` aliases** — your IDE will show strikethrough and a hover note pointing at the new API, but there are no runtime warnings. You can ship on v2 immediately and migrate the deprecated usages at your own pace.
+
+Read on if you want to:
+
+- Migrate to the new split packages (`@modelcontextprotocol/server`, `@modelcontextprotocol/client`) for smaller bundles
+- Adopt the new API surface (no `@deprecated` strikethrough)
+- Understand a specific breaking change
+
+> **Clients and frameworks** (host applications, custom transports, proxies) typically need a few more changes than servers — see the [Custom methods](#setrequesthandler-and-setnotificationhandler-use-method-strings), [Error hierarchy](#error-hierarchy-refactoring), and [Server auth](#server-auth-split) sections.
+
+## Prerequisites
+
+Before upgrading, check these three environment requirements. They are the most common source of confusing errors during migration.
+
+### Zod must be `^4.2.0`
+
+If you use Zod for tool/prompt schemas, you must be on **`zod@^4.2.0` or later**, and import from the `zod` (or `zod/v4`) entry point.
+
+Older Zod versions (3.x, or 4.0.0–4.1.x) do **not** implement the `~standard.jsonSchema` property the SDK uses to render `inputSchema` for `tools/list`. This passes type-checking but **crashes at runtime** when a client calls `tools/list`.
+
+```jsonc
+// package.json
+"dependencies": {
+  "zod": "^4.2.0"
+}
+```
+
+```typescript
+// Either of these works on zod@^4.2.0:
+import * as z from 'zod';
+import * as z from 'zod/v4';
+
+// This does NOT work (zod 3.x has no Standard Schema support):
+import * as z from 'zod/v3';
+```
+
+### TypeScript `moduleResolution` must be `bundler`, `nodenext`, or `node16`
+
+v2 packages ship ESM-only with an `exports` map and no top-level `main`/`types` fields. TypeScript's legacy `"moduleResolution": "node"` (or `"node10"`) cannot resolve them and fails with `TS2307: Cannot find module '@modelcontextprotocol/server'`.
+
+Update your `tsconfig.json`:
+
+```jsonc
+{
+    "compilerOptions": {
+        "moduleResolution": "bundler" // or "nodenext" / "node16"
+    }
+}
+```
+
+> We deliberately do **not** ship `main`/`types` fallback fields — testing showed it suppresses TypeScript's helpful "consider updating moduleResolution" diagnostic and replaces it with dozens of misleading transitive errors.
+
+### Testing locally with bun: clear the cache
+
+If you are testing a local v2 build via `file:` tarballs, note that **bun caches `file:` dependencies by filename** and ignores content changes. Re-packing the SDK without bumping the version installs a stale tarball.
+
+```bash
+bun pm cache rm && bun install --force
+```
+
 ## Overview
 
 Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
@@ -396,6 +468,9 @@ server.setRequestHandler('acme/search', { params: SearchParams, result: SearchRe
 
 The handler receives the parsed `params` directly (not the full request envelope). `_meta` is stripped before validation and is available as `ctx.mcpReq._meta`. Supplying `result` types the handler's return value; omit it to return any `Result`.
 
+> **Warning:** Do **not** add custom fields to a _spec_ method's params (e.g., adding `{ tabId, image }` to `'notifications/message'`). v2 validates incoming spec messages against the spec schema, so unknown fields are stripped before your handler sees them. Use a vendor-prefixed
+> method name instead.
+
 For `setNotificationHandler`, the 3-arg handler is `(params, notification) => void`. The raw notification is the second argument, so `_meta` is recoverable via `notification.params?._meta`.
 
 #### Sending custom-method requests
@@ -511,6 +586,16 @@ const result = await specTypeSchemas.CallToolResult['~standard'].validate(value)
 ```
 
 `isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1<In, Out>`, which composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+
+### Transitive dependencies still on v1
+
+If a package you depend on (e.g., a shared MCP utilities library or framework adapter) still vends types from `@modelcontextprotocol/sdk@^1`, you will see structural type errors where v1 and v2 types meet (`Server` is not assignable to `Server`, `Transport` not assignable to
+`Transport`).
+
+There is no SDK-side fix for this. Either:
+
+- Upgrade the transitive dependency to v2 first, or
+- Add a type assertion (`as unknown as Transport`) at the boundary until it is upgraded.
 
 ### Client list methods return empty results for missing capabilities
 

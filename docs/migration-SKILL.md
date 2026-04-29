@@ -1,16 +1,21 @@
 ---
 name: migrate-v1-to-v2
-description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/core, /client, /server). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
+description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/sdk@^2, or the split /client and /server packages). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
 ---
 
 # MCP TypeScript SDK: v1 → v2 Migration
 
-Apply these changes in order: dependencies → imports → API calls → type aliases.
+**Shortest path for most servers:** bump `@modelcontextprotocol/sdk` to `^2.0.0` and stop. v1 import paths and APIs continue to work as `@deprecated` aliases (IDE strikethrough, no runtime warnings) that forward to the new implementation. If the user only wants to "get on v2", do that, run the build, and
+report any IDE-flagged `@deprecated` usages as optional follow-ups.
+
+Apply the rest of this guide when the user wants a **full migration** to the new split packages with no `@deprecated` usages. Order: environment → dependencies → imports → API calls → type aliases.
 
 ## 1. Environment
 
 - Node.js 20+ required (v18 dropped)
 - ESM only (CJS dropped). If the project uses `require()`, convert to `import`/`export` or use dynamic `import()`.
+- TypeScript `moduleResolution` must be `bundler`, `nodenext`, or `node16` (legacy `node`/`node10` cannot resolve the v2 `exports` map; fails with TS2307).
+- If using Zod, must be `zod@^4.2.0` (older versions lack `~standard.jsonSchema`; passes typecheck but **crashes at runtime** on `tools/list`).
 
 ## 2. Dependencies
 
