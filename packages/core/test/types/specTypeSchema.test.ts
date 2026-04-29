@@ -67,10 +67,22 @@ describe('isSpecType', () => {
         expect(isSpecType['NotificationsParams']).toBeUndefined();
     });
 
-    it('narrows the value type', () => {
+    it('narrows the value type to the schema input type', () => {
         const v: unknown = { name: 'x', version: '1.0.0' };
         if (isSpecType.Implementation(v)) {
-            expectTypeOf(v).toEqualTypeOf<SpecTypes['Implementation']>();
+            // ImplementationSchema has no defaults/transforms, so its input type equals Implementation.
+            expectTypeOf(v).toEqualTypeOf<Implementation>();
+        }
+    });
+
+    it('narrows to the input type, not the output type, for schemas with defaults', () => {
+        const v: unknown = {};
+        expect(isSpecType.CallToolResult(v)).toBe(true);
+        if (isSpecType.CallToolResult(v)) {
+            // CallToolResultSchema has `content: z.array(...).default([])`, so the input type
+            // permits `content` to be absent. The guard narrows to that input shape.
+            expectTypeOf(v.content).toEqualTypeOf<ContentBlock[] | undefined>();
+            expectTypeOf(v).not.toEqualTypeOf<CallToolResult>();
         }
     });
 
