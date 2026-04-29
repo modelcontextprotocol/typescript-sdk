@@ -163,6 +163,32 @@ export type NotificationOptions = {
 };
 
 /**
+ * v1-compat flat aliases — added by `withLegacyContextFields`.
+ * The v2 nested forms (`ctx.mcpReq.*`, `ctx.http?.*`, `ctx.task?.*`) are preferred.
+ * Do not add new fields here.
+ */
+export interface LegacyContextFields {
+    /** @deprecated Use `ctx.mcpReq.signal` */
+    signal: AbortSignal;
+    /** @deprecated Use `ctx.mcpReq.id` */
+    requestId: RequestId;
+    /** @deprecated Use `ctx.mcpReq._meta` */
+    _meta?: RequestMeta;
+    /** @deprecated Use `ctx.http?.authInfo` */
+    authInfo?: AuthInfo;
+    /** @deprecated Use `ctx.mcpReq.notify` */
+    sendNotification: (notification: Notification) => Promise<void>;
+    /** @deprecated Use `ctx.mcpReq.send` */
+    sendRequest: <T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions) => Promise<SchemaOutput<T>>;
+    /** @deprecated Use `ctx.task?.store` */
+    taskStore?: TaskContext['store'];
+    /** @deprecated Use `ctx.task?.id` */
+    taskId?: TaskContext['id'];
+    /** @deprecated Use `ctx.task?.requestedTtl` */
+    taskRequestedTtl?: TaskContext['requestedTtl'];
+}
+
+/**
  * Base context provided to all request handlers.
  */
 export type BaseContext = {
@@ -272,12 +298,49 @@ export type ServerContext = BaseContext & {
          */
         closeStandaloneSSE?: () => void;
     };
-};
+} & LegacyContextFields;
 
 /**
  * Context provided to client-side request handlers.
  */
-export type ClientContext = BaseContext;
+export type ClientContext = BaseContext & LegacyContextFields;
+
+/**
+ * @deprecated Use {@linkcode ServerContext} (server side) or {@linkcode ClientContext} (client side).
+ *
+ * v1 name for the handler context. v2 also exposes the same data under
+ * `ctx.mcpReq` / `ctx.http`; the flat fields remain available so existing
+ * handlers using them compile and run unchanged. HTTP-transport-specific fields
+ * (`requestInfo`, `closeSSEStream`, `closeStandaloneSSEStream`) are not shimmed
+ * and require migration to `ctx.http?.req` / `ctx.http?.closeSSE` / `ctx.http?.closeStandaloneSSE`. See {@linkcode BaseContext}.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- phantom params kept for v1 source compatibility
+export type RequestHandlerExtra<_Req = unknown, _Notif = unknown> = ServerContext;
+
+/**
+ * Returns a copy of `ctx` with v1's flat `extra.*` aliases populated as plain properties
+ * mirroring the nested v2 fields. Intersected onto `ClientContext`/`ServerContext` so
+ * existing handlers that read `extra.signal` etc. compile and run unchanged.
+ *
+ * @internal
+ */
+function withLegacyContextFields<T extends BaseContext>(
+    ctx: T,
+    sendRequest: <S extends AnySchema>(r: Request, s: S, o?: RequestOptions) => Promise<SchemaOutput<S>>
+): T & LegacyContextFields {
+    return {
+        ...ctx,
+        signal: ctx.mcpReq.signal,
+        requestId: ctx.mcpReq.id,
+        _meta: ctx.mcpReq._meta,
+        authInfo: ctx.http?.authInfo,
+        sendNotification: ctx.mcpReq.notify,
+        sendRequest,
+        taskStore: ctx.task?.store,
+        taskId: ctx.task?.id,
+        taskRequestedTtl: ctx.task?.requestedTtl
+    };
+}
 
 /**
  * Information about a request's timeout state
@@ -393,7 +456,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Builds the context object for request handlers. Subclasses must override
      * to return the appropriate context type (e.g., ServerContext adds HTTP request info).
      */
-    protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
+    protected abstract buildContext(ctx: BaseContext & LegacyContextFields, transportInfo?: MessageExtraInfo): ContextT;
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {
@@ -605,7 +668,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
             task: taskContext
         };
-        const ctx = this.buildContext(baseCtx, extra);
+        const ctx = this.buildContext(withLegacyContextFields(baseCtx, sendRequest), extra);
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()

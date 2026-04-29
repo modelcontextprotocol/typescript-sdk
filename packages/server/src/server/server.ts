@@ -15,6 +15,7 @@ import type {
     JSONRPCRequest,
     JsonSchemaType,
     jsonSchemaValidator,
+    LegacyContextFields,
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
@@ -152,7 +153,7 @@ export class Server extends Protocol<ServerContext> {
         });
     }
 
-    protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
+    protected override buildContext(ctx: BaseContext & LegacyContextFields, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
         return {
