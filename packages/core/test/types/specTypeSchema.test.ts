@@ -3,14 +3,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
 import { isSpecType, specTypeSchemas } from '../../src/types/specTypeSchema.js';
-import type {
-    CallToolResult,
-    ContentBlock,
-    Implementation,
-    JSONRPCRequest,
-    ResourceTemplateType,
-    Tool,
-} from '../../src/types/types.js';
+import type { CallToolResult, ContentBlock, Implementation, JSONRPCRequest, ResourceTemplateType, Tool } from '../../src/types/types.js';
 
 describe('specTypeSchemas', () => {
     it('returns a StandardSchemaV1 validator that accepts valid values', () => {
