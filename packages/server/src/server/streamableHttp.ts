@@ -402,6 +402,17 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Handles `GET` requests for SSE stream
      */
     private async handleGetRequest(req: Request): Promise<Response> {
+        // Stateless transports cannot safely own a standalone GET SSE stream.
+        // In stateless mode, each HTTP request must use a fresh transport
+        // instance, so allowing GET here would create transport-local stream
+        // state with no durable owner across requests.
+        if (this.sessionIdGenerator === undefined) {
+            return this.createJsonErrorResponse(405, -32_000, 'Method not allowed.', {
+                headers: {
+                    Allow: 'POST'
+                }
+            });
+        }
         // The client MUST include an Accept header, listing text/event-stream as a supported content type.
         const acceptHeader = req.headers.get('accept');
         if (!acceptHeader?.includes('text/event-stream')) {
