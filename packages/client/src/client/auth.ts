@@ -46,6 +46,12 @@ export interface UnauthorizedContext {
     serverUrl: URL;
     /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
     fetchFn: FetchLike;
+    /**
+     * Resource metadata URL previously established from an earlier Bearer challenge, if any.
+     * Used as a fallback when the current `WWW-Authenticate` header does not carry a
+     * `resource_metadata` parameter (e.g. a non-Bearer scheme such as `Negotiate`).
+     */
+    resourceMetadataUrl?: URL;
 }
 
 /**
@@ -101,7 +107,11 @@ export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvid
  * Used by {@linkcode adaptOAuthProvider} to bridge `OAuthClientProvider` to `AuthProvider`.
  */
 export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx: UnauthorizedContext): Promise<void> {
-    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+    const { resourceMetadataUrl: extractedUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+    // When the current challenge carries no resource_metadata (e.g. a non-Bearer scheme
+    // like Negotiate), fall back to the URL the transport stored from an earlier Bearer
+    // challenge so that PRM discovery can still run with the right starting point.
+    const resourceMetadataUrl = extractedUrl ?? ctx.resourceMetadataUrl;
     const result = await auth(provider, {
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl,

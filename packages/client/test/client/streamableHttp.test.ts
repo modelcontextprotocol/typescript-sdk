@@ -2,7 +2,7 @@ import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core'
 import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
@@ -781,6 +781,91 @@ describe('StreamableHTTPClientTransport', () => {
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+    });
+
+    it('falls back to well-known discovery on 401 with non-Bearer WWW-Authenticate (e.g. Negotiate)', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        (globalThis.fetch as Mock)
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({ 'WWW-Authenticate': 'Negotiate' }),
+                text: async () => 'Authentication required.'
+            })
+            .mockResolvedValue({
+                ok: false,
+                status: 404,
+                text: async () => {
+                    throw 'dont read my body';
+                }
+            });
+
+        await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+    });
+
+    it('passes stored resource metadata URL to onUnauthorized context after non-Bearer 401', async () => {
+        // Regression test: a non-Bearer WWW-Authenticate (e.g. Negotiate) must not wipe
+        // out a Bearer resource_metadata URL stored from an earlier Bearer challenge.
+        // The stored URL must reach onUnauthorized via ctx.resourceMetadataUrl so PRM
+        // discovery can use the right starting point instead of falling back to the root
+        // well-known URI.
+        //
+        // Uses a plain AuthProvider (not OAuthClientProvider) so onUnauthorized is called
+        // directly by the transport — no adaptOAuthProvider wrapper whose internal closure
+        // would hide the context from a spy.
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+        const resourceMetadataUrl = 'http://example.com/.well-known/oauth-protected-resource';
+
+        const onUnauthorized = vi.fn<AuthProvider['onUnauthorized'] & object>().mockResolvedValue(undefined);
+        const plainTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider: { token: async () => 'test-token', onUnauthorized }
+        });
+
+        try {
+            // First request: Bearer 401 → stores _resourceMetadataUrl; onUnauthorized resolves, retry succeeds
+            (globalThis.fetch as Mock)
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 401,
+                    headers: new Headers({ 'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl}"` }),
+                    text: async () => ''
+                })
+                .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+
+            await plainTransport.send(message);
+            onUnauthorized.mockClear();
+
+            // Second request: Negotiate 401 → must NOT clear _resourceMetadataUrl; retry succeeds
+            (globalThis.fetch as Mock)
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 401,
+                    headers: new Headers({ 'WWW-Authenticate': 'Negotiate' }),
+                    text: async () => ''
+                })
+                .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+
+            await plainTransport.send(message);
+
+            // onUnauthorized must receive the stored Bearer URL in ctx.resourceMetadataUrl,
+            // not undefined, so PRM discovery uses the correct endpoint.
+            expect(onUnauthorized).toHaveBeenCalledWith(expect.objectContaining({ resourceMetadataUrl: new URL(resourceMetadataUrl) }));
+        } finally {
+            await plainTransport.close().catch(() => {});
+        }
     });
 
     it('attempts upscoping on 403 with WWW-Authenticate header', async () => {
