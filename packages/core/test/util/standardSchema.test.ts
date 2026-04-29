@@ -39,4 +39,28 @@ describe('standardSchemaToJsonSchema', () => {
         expect(keys.filter(k => k === 'type')).toHaveLength(1);
         expect(result.type).toBe('object');
     });
+
+    test('marks default z.object schemas as not accepting additional properties', () => {
+        const schema = z.object({ message: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'input');
+
+        expect(result.additionalProperties).toBe(false);
+    });
+
+    test('preserves schemas that explicitly allow additional properties', () => {
+        const schema = z.object({ message: z.string() }).passthrough();
+        const result = standardSchemaToJsonSchema(schema, 'input');
+
+        expect(result.additionalProperties).toEqual({});
+    });
+
+    test('does not add root additionalProperties to union schemas', () => {
+        const schema = z.discriminatedUnion('action', [
+            z.object({ action: z.literal('create'), name: z.string() }),
+            z.object({ action: z.literal('delete'), id: z.string() })
+        ]);
+        const result = standardSchemaToJsonSchema(schema, 'input');
+
+        expect(result.additionalProperties).toBeUndefined();
+    });
 });

@@ -188,7 +188,11 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                 `Wrap your schema in z.object({...}) or equivalent.`
         );
     }
-    return { type: 'object', ...result };
+    const jsonSchema: Record<string, unknown> = { type: 'object', ...result };
+    if (jsonSchema.properties !== undefined && !('additionalProperties' in jsonSchema) && !('unevaluatedProperties' in jsonSchema)) {
+        jsonSchema.additionalProperties = false;
+    }
+    return jsonSchema;
 }
 
 // Validation
