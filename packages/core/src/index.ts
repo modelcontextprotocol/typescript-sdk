@@ -15,6 +15,7 @@ export * from './types/index.js';
 export * from './util/inMemory.js';
 export * from './util/schema.js';
 export * from './util/standardSchema.js';
+export * from './util/zodCompat.js';
 
 // experimental exports
 export * from './experimental/index.js';
