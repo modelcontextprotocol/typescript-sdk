@@ -1126,14 +1126,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Removes the request handler for the given method.
      */
-    removeRequestHandler(method: string): void {
+    removeRequestHandler(method: RequestMethod | string): void {
         this._requestHandlers.delete(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
-    assertCanSetRequestHandler(method: string): void {
+    assertCanSetRequestHandler(method: RequestMethod | string): void {
         if (this._requestHandlers.has(method)) {
             throw new Error(`A request handler for ${method} already exists, which would be overridden`);
         }
@@ -1192,7 +1192,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * Removes the notification handler for the given method.
      */
-    removeNotificationHandler(method: string): void {
+    removeNotificationHandler(method: NotificationMethod | string): void {
         this._notificationHandlers.delete(method);
     }
 }
