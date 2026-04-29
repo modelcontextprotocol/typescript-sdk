@@ -6,10 +6,9 @@ export {
     type CompleteCallback,
     type CompleteResourceTemplateCallback,
     isCompletable,
-    type LegacyPromptCallback,
-    type LegacyToolCallback,
     type ListResourcesCallback,
-    McpServer,
+    type PromptCallback as LegacyPromptCallback,
+    type ToolCallback as LegacyToolCallback,
     type PromptCallback,
     type ReadResourceCallback,
     type ReadResourceTemplateCallback,
@@ -21,3 +20,4 @@ export {
     ResourceTemplate,
     type ToolCallback
 } from '@modelcontextprotocol/server';
+export { McpServer } from '../compatWrappers.js';

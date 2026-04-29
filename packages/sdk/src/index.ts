@@ -10,6 +10,8 @@
 // Server gives us all server-specific exports + the entire core/public surface
 // (spec types, error classes, transport interface, constants, guards).
 export * from '@modelcontextprotocol/server';
+// Shadow with v1-compat subclasses
+export { McpServer, Server } from './compatWrappers.js';
 
 // Node middleware — explicit named exports only. Not `export *`, because the
 // node package re-exports core types from server and `export *` from both
@@ -52,7 +54,6 @@ export {
     applyMiddlewares,
     auth,
     buildDiscoveryUrls,
-    Client,
     ClientCredentialsProvider,
     createMiddleware,
     createPrivateKeyJwtAuth,
@@ -88,3 +89,4 @@ export {
     withLogging,
     withOAuth
 } from '@modelcontextprotocol/client';
+export { Client } from './compatWrappers.js';
