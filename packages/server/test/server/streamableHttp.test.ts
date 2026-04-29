@@ -559,6 +559,23 @@ describe('Zod v4', () => {
                 id: 'call-1'
             });
         });
+
+        it('should accept JSON-only Accept header when enableJsonResponse is true', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.initialize, { accept: 'application/json' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('application/json');
+        });
+
+        it('should reject missing application/json in Accept header even when enableJsonResponse is true', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.initialize, { accept: 'text/event-stream' });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(406);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+        });
     });
 
     describe('HTTPServerTransport - Session Callbacks', () => {
