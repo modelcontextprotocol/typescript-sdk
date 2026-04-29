@@ -2308,30 +2308,33 @@ describe('createMcpExpressApp', () => {
         expect(response.status).toBe(403);
     });
 
-    test('should warn when binding to 0.0.0.0', () => {
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        createMcpExpressApp({ host: '0.0.0.0' });
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('0.0.0.0'));
-        warnSpy.mockRestore();
-    });
-
-    test('should warn when binding to :: (IPv6 all interfaces)', () => {
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        createMcpExpressApp({ host: '::' });
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('::'));
-        warnSpy.mockRestore();
-    });
-
-    test('should use custom allowedHosts when provided', async () => {
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local', 'localhost'] });
+    test('should not apply host validation for :: (IPv6 all interfaces) without allowedHosts', async () => {
+        const app = createMcpExpressApp({ host: '::' });
         app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
-        // Should not warn when allowedHosts is provided
-        expect(warnSpy).not.toHaveBeenCalled();
-        warnSpy.mockRestore();
+        // No host validation applied, so any host should be accepted
+        const response = await supertest(app).post('/test').set('Host', 'anything.com:3000').send({});
+        expect(response.status).toBe(200);
+    });
+
+    test('should skip host validation when skipHostHeaderValidation is true', async () => {
+        const app = createMcpExpressApp({ host: '127.0.0.1', skipHostHeaderValidation: true });
+        app.post('/test', (_req: Request, res: Response) => {
+            res.json({ success: true });
+        });
+
+        // Localhost validation would normally block this, but skipHostHeaderValidation disables it
+        const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+        expect(response.status).toBe(200);
+    });
+
+    test('should use custom allowedHosts when provided', async () => {
+        const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local', 'localhost'] });
+        app.post('/test', (_req: Request, res: Response) => {
+            res.json({ success: true });
+        });
 
         // Should allow myapp.local
         const allowedResponse = await supertest(app).post('/test').set('Host', 'myapp.local:3000').send({});

@@ -128,55 +128,27 @@ describe('@modelcontextprotocol/express', () => {
         });
 
         test('should use allowedHosts when provided', () => {
-            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
             const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local'] });
-            warn.mockRestore();
 
             expect(app).toBeDefined();
-        });
-
-        test('should warn when binding to 0.0.0.0 without allowedHosts', () => {
-            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-            createMcpExpressApp({ host: '0.0.0.0' });
-
-            expect(warn).toHaveBeenCalledWith(
-                expect.stringContaining('Warning: Server is binding to 0.0.0.0 without DNS rebinding protection')
-            );
-
-            warn.mockRestore();
-        });
-
-        test('should warn when binding to :: without allowedHosts', () => {
-            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-            createMcpExpressApp({ host: '::' });
-
-            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Warning: Server is binding to :: without DNS rebinding protection'));
-
-            warn.mockRestore();
-        });
-
-        test('should not warn for 0.0.0.0 when allowedHosts is provided', () => {
-            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-            createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local'] });
-
-            expect(warn).not.toHaveBeenCalled();
-
-            warn.mockRestore();
         });
 
         test('should not apply host validation for non-localhost hosts without allowedHosts', () => {
-            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-            // For arbitrary hosts (not 0.0.0.0 or ::), no validation is applied and no warning
+            // For arbitrary hosts (not 0.0.0.0 or ::), no validation is applied
             const app = createMcpExpressApp({ host: '192.168.1.1' });
 
-            expect(warn).not.toHaveBeenCalled();
             expect(app).toBeDefined();
+        });
 
-            warn.mockRestore();
+        test('should skip host header validation when skipHostHeaderValidation is true', () => {
+            // HTTP-level verification is in integration tests (test/integration/test/server.test.ts)
+            const app = createMcpExpressApp({ host: '127.0.0.1', skipHostHeaderValidation: true });
+            expect(app).toBeDefined();
+        });
+
+        test('should skip host header validation for 0.0.0.0 when skipHostHeaderValidation is true', () => {
+            const app = createMcpExpressApp({ host: '0.0.0.0', skipHostHeaderValidation: true });
+            expect(app).toBeDefined();
         });
 
         test('should accept jsonLimit option', () => {
