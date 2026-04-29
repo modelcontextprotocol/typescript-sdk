@@ -120,6 +120,7 @@ Two error classes now exist:
 | 403 after upscoping               | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
 | Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
 | Session termination failed        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
+| Response result fails schema      | `ZodError` (raw)                             | `SdkError` with `SdkErrorCode.InvalidResult`                      |
 
 New `SdkErrorCode` enum values:
 
@@ -130,6 +131,7 @@ New `SdkErrorCode` enum values:
 - `SdkErrorCode.RequestTimeout` = `'REQUEST_TIMEOUT'`
 - `SdkErrorCode.ConnectionClosed` = `'CONNECTION_CLOSED'`
 - `SdkErrorCode.SendFailed` = `'SEND_FAILED'`
+- `SdkErrorCode.InvalidResult` = `'INVALID_RESULT'`
 - `SdkErrorCode.ClientHttpNotImplemented` = `'CLIENT_HTTP_NOT_IMPLEMENTED'`
 - `SdkErrorCode.ClientHttpAuthentication` = `'CLIENT_HTTP_AUTHENTICATION'`
 - `SdkErrorCode.ClientHttpForbidden` = `'CLIENT_HTTP_FORBIDDEN'`

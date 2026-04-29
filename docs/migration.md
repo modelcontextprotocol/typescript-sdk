@@ -700,6 +700,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response      |
 | `SdkErrorCode.ConnectionClosed`                   | Connection was closed                       |
 | `SdkErrorCode.SendFailed`                         | Failed to send message                      |
+| `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
 | `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                    |
 | `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication |
 | `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping  |
