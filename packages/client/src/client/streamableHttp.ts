@@ -233,72 +233,66 @@ export class StreamableHTTPClientTransport implements Transport {
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
         const { resumptionToken } = options;
 
-        try {
-            // Try to open an initial SSE stream with GET to listen for server messages
-            // This is optional according to the spec - server may not support it
-            const headers = await this._commonHeaders();
-            const userAccept = headers.get('accept');
-            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
-            headers.set('accept', [...new Set(types)].join(', '));
+        // Try to open an initial SSE stream with GET to listen for server messages
+        // This is optional according to the spec - server may not support it
+        const headers = await this._commonHeaders();
+        const userAccept = headers.get('accept');
+        const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
+        headers.set('accept', [...new Set(types)].join(', '));
 
-            // Include Last-Event-ID header for resumable streams if provided
-            if (resumptionToken) {
-                headers.set('last-event-id', resumptionToken);
-            }
-
-            const response = await (this._fetch ?? fetch)(this._url, {
-                ...this._requestInit,
-                method: 'GET',
-                headers,
-                signal: this._abortController?.signal
-            });
-
-            if (!response.ok) {
-                if (response.status === 401 && this._authProvider) {
-                    if (response.headers.has('www-authenticate')) {
-                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
-                    }
-
-                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
-                        await response.text?.().catch(() => {});
-                        // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._startOrAuthSse(options, true);
-                    }
-                    await response.text?.().catch(() => {});
-                    if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
-                        });
-                    }
-                    throw new UnauthorizedError();
-                }
-
-                await response.text?.().catch(() => {});
-
-                // 405 indicates that the server does not offer an SSE stream at GET endpoint
-                // This is an expected case that should not trigger an error
-                if (response.status === 405) {
-                    return;
-                }
-
-                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
-                    status: response.status,
-                    statusText: response.statusText
-                });
-            }
-
-            this._handleSseStream(response.body, options, true);
-        } catch (error) {
-            this.onerror?.(error as Error);
-            throw error;
+        // Include Last-Event-ID header for resumable streams if provided
+        if (resumptionToken) {
+            headers.set('last-event-id', resumptionToken);
         }
+
+        const response = await (this._fetch ?? fetch)(this._url, {
+            ...this._requestInit,
+            method: 'GET',
+            headers,
+            signal: this._abortController?.signal
+        });
+
+        if (!response.ok) {
+            if (response.status === 401 && this._authProvider) {
+                if (response.headers.has('www-authenticate')) {
+                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                    this._resourceMetadataUrl = resourceMetadataUrl;
+                    this._scope = scope;
+                }
+
+                if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                    await this._authProvider.onUnauthorized({
+                        response,
+                        serverUrl: this._url,
+                        fetchFn: this._fetchWithInit
+                    });
+                    await response.text?.().catch(() => {});
+                    return this._startOrAuthSse(options, true);
+                }
+                await response.text?.().catch(() => {});
+                if (isAuthRetry) {
+                    throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                        status: 401
+                    });
+                }
+                throw new UnauthorizedError();
+            }
+
+            await response.text?.().catch(() => {});
+
+            // 405 indicates that the server does not offer an SSE stream at GET endpoint
+            // This is an expected case that should not trigger an error
+            if (response.status === 405) {
+                return;
+            }
+
+            throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                status: response.status,
+                statusText: response.statusText
+            });
+        }
+
+        this._handleSseStream(response.body, options, true);
     }
 
     /**
@@ -753,9 +747,14 @@ export class StreamableHTTPClientTransport implements Transport {
      * @param options Optional callback to receive new resumption tokens
      */
     async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
-        await this._startOrAuthSse({
-            resumptionToken: lastEventId,
-            onresumptiontoken: options?.onresumptiontoken
-        });
+        try {
+            await this._startOrAuthSse({
+                resumptionToken: lastEventId,
+                onresumptiontoken: options?.onresumptiontoken
+            });
+        } catch (error) {
+            this.onerror?.(error as Error);
+            throw error;
+        }
     }
 }
