@@ -3,7 +3,16 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
 import { isSpecType, specTypeSchemas } from '../../src/types/specTypeSchema.js';
-import type { CallToolResult, ContentBlock, Implementation, JSONRPCRequest, ResourceTemplateType, Tool } from '../../src/types/types.js';
+import type {
+    CallToolResult,
+    ContentBlock,
+    Implementation,
+    JSONObject,
+    JSONRPCRequest,
+    JSONValue,
+    ResourceTemplateType,
+    Tool
+} from '../../src/types/types.js';
 
 describe('specTypeSchemas', () => {
     it('returns a StandardSchemaV1 validator that accepts valid values', () => {
@@ -88,6 +97,18 @@ describe('isSpecType', () => {
             // permits `content` to be absent. The guard narrows to that input shape.
             expectTypeOf(v.content).toEqualTypeOf<ContentBlock[] | undefined>();
             expectTypeOf(v).not.toEqualTypeOf<CallToolResult>();
+        }
+    });
+
+    it('JSONValue / JSONObject — narrows to the JSON type, not unknown', () => {
+        // These schemas use an explicit z.ZodType<T, T> annotation for recursion; without the
+        // second param Zod's Input defaults to `unknown` and the predicate would not narrow.
+        const v: unknown = { a: 1 };
+        if (isSpecType.JSONValue(v)) {
+            expectTypeOf(v).toEqualTypeOf<JSONValue>();
+        }
+        if (isSpecType.JSONObject(v)) {
+            expectTypeOf(v).toEqualTypeOf<JSONObject>();
         }
     });
 
