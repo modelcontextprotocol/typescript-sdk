@@ -19,6 +19,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
+import type { BackchannelCompat } from './backchannelCompat.js';
 import type { SessionCompat } from './sessionCompat.js';
 import type { EventId, EventStore } from './streamableHttp.js';
 
@@ -53,6 +54,15 @@ export interface ShttpHandlerOptions {
      * the handler is stateless: GET/DELETE return 405.
      */
     session?: SessionCompat;
+
+    /**
+     * Pre-2026-06 server-to-client request backchannel. When provided alongside `session`,
+     * a handler's `ctx.mcpReq.send` (e.g. `elicitInput`, `requestSampling`) writes the
+     * outbound request onto the open POST's SSE stream and the client's POSTed-back
+     * response resolves the awaited promise. When omitted, `ctx.mcpReq.send` rejects
+     * with `NotConnected` on this path.
+     */
+    backchannel?: BackchannelCompat;
 
     /**
      * Event store for SSE resumability via `Last-Event-ID`. When configured, every
@@ -157,6 +167,7 @@ export function shttpHandler(
 ): (req: Request, extra?: ShttpRequestExtra) => Promise<Response> {
     const enableJsonResponse = options.enableJsonResponse ?? false;
     const session = options.session;
+    const backchannel = options.backchannel;
     const eventStore = options.eventStore;
     const retryInterval = options.retryInterval;
     const supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
@@ -279,7 +290,8 @@ export function shttpHandler(
         }
 
         for (const r of responses) {
-            cb.onresponse?.(r);
+            const claimed = backchannel && sessionId !== undefined && backchannel.handleResponse(sessionId, r);
+            if (!claimed) cb.onresponse?.(r);
         }
 
         if (requests.length === 0) {
@@ -349,9 +361,19 @@ export function shttpHandler(
                     authInfo: extra?.authInfo,
                     closeSSEStream: supportsPolling ? closeStream : undefined,
                     closeStandaloneSSEStream:
-                        supportsPolling && sessionId !== undefined ? () => session?.closeStandaloneStream(sessionId) : undefined
+                        supportsPolling && sessionId !== undefined
+                            ? () => {
+                                  session?.closeStandaloneStream(sessionId);
+                                  backchannel?.setStandaloneWriter(sessionId, undefined);
+                              }
+                            : undefined
                 };
-                const env: ShttpRequestEnv = { ...baseEnv, _transportExtra: transportExtra };
+                const writeSSE = (msg: JSONRPCMessage) => void emit(controller, encoder, streamId, msg);
+                const env: ShttpRequestEnv = {
+                    ...baseEnv,
+                    _transportExtra: transportExtra,
+                    ...(backchannel && sessionId !== undefined ? { send: backchannel.makeEnvSend(sessionId, writeSSE) } : {})
+                };
                 void (async () => {
                     try {
                         await writePrimingEvent(controller, encoder, streamId, clientProtocolVersion);
@@ -435,14 +457,18 @@ export function shttpHandler(
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         let registeredController: ReadableStreamDefaultController<Uint8Array> | undefined;
+        let registeredWriter: ((msg: JSONRPCMessage) => void) | undefined;
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
                 registeredController = controller;
                 session.setStandaloneStream(sessionId, controller);
+                registeredWriter = (msg: JSONRPCMessage) => void emit(controller, encoder, streamId, msg);
+                backchannel?.setStandaloneWriter(sessionId, registeredWriter);
                 void writePrimingEvent(controller, encoder, streamId, clientProtocolVersion).catch(error => onerror?.(error as Error));
             },
             cancel: () => {
                 if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
+                if (registeredWriter) backchannel?.clearStandaloneWriter(sessionId, registeredWriter);
             }
         });
         return new Response(readable, { headers });
@@ -470,6 +496,7 @@ export function shttpHandler(
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         let registeredController: ReadableStreamDefaultController<Uint8Array> | undefined;
+        let registeredWriter: ((msg: JSONRPCMessage) => void) | undefined;
         let cancelled = false;
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
@@ -506,6 +533,7 @@ export function shttpHandler(
             cancel: () => {
                 cancelled = true;
                 if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
+                if (registeredWriter) backchannel?.clearStandaloneWriter(sessionId, registeredWriter);
             }
         });
         return new Response(readable, { headers });
@@ -522,6 +550,7 @@ export function shttpHandler(
         const protoErr = validateProtocolVersion(req);
         if (protoErr) return protoErr;
         try {
+            backchannel?.closeSession(v.sessionId!);
             await session.delete(v.sessionId!);
         } catch (error) {
             onerror?.(error as Error);

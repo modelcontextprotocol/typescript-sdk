@@ -14,7 +14,7 @@
 
 import { localhostHostValidation } from '@modelcontextprotocol/express';
 import { toNodeHttpHandler } from '@modelcontextprotocol/node';
-import { handleHttp, SessionCompat } from '@modelcontextprotocol/server';
+import { BackchannelCompat, handleHttp, SessionCompat } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import express from 'express';
 
@@ -24,12 +24,17 @@ const mcp = createMcpServer({
     closeSSEForReconnectTest: ctx => ctx.http?.closeSSE?.()
 });
 
+const backchannel = new BackchannelCompat();
 const handler = toNodeHttpHandler(
     handleHttp(mcp, {
         session: new SessionCompat({
             onsessioninitialized: sid => console.log(`Session initialized with ID: ${sid}`),
-            onsessionclosed: sid => console.log(`Session ${sid} closed`)
+            onsessionclosed: sid => {
+                console.log(`Session ${sid} closed`);
+                backchannel.closeSession(sid);
+            }
         }),
+        backchannel,
         eventStore: createEventStore(),
         retryInterval: 5000,
         onerror: err => console.error('handleHttp error:', err)
