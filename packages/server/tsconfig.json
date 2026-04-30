@@ -7,11 +7,13 @@
             "*": ["./*"],
             "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
             "@modelcontextprotocol/core/public": ["./node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"],
+            "@modelcontextprotocol/core/schemas": ["./node_modules/@modelcontextprotocol/core/src/types/schemas.ts"],
             "@modelcontextprotocol/core/validators/cfWorker": [
                 "./node_modules/@modelcontextprotocol/core/src/validators/cfWorkerProvider.ts"
             ],
             "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"],
-            "@modelcontextprotocol/server/_shims": ["./src/shimsNode.ts"]
+            "@modelcontextprotocol/server/_shims": ["./src/shimsNode.ts"],
+            "@modelcontextprotocol/server/zod-schemas": ["./src/zodSchemas.ts"]
         }
     }
 }

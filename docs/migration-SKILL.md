@@ -98,8 +98,8 @@ Notes:
 | `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`)                                                        |
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
 
-All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use
-`isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` for the `StandardSchemaV1` validator object. The keys are typed as `SpecTypeName`, a literal union of all spec type names.
+All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are not exported from the package root. For runtime validation, use
+`isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` for the `StandardSchemaV1` validator object. The keys are typed as `SpecTypeName`, a literal union of all spec type names. For v1 compatibility the raw Zod schemas are available from the `@modelcontextprotocol/server/zod-schemas` subpath.
 
 ### Error class changes
 

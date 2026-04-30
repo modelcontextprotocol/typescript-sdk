@@ -2,7 +2,7 @@
     "$schema": "https://typedoc.org/schema.json",
     "entryPoints": ["src"],
     "entryPointStrategy": "expand",
-    "exclude": ["**/*.test.ts", "**/__*__/**"],
+    "exclude": ["**/*.test.ts", "**/__*__/**", "**/zodSchemas.ts"],
     "navigation": {
         "includeGroups": true,
         "includeCategories": true
