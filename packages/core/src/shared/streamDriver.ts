@@ -23,10 +23,9 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { validateStandardSchema } from '../util/standardSchema.js';
-import type { Outbound, RequestEnv } from './context.js';
+import type { NotificationOptions, Outbound, ProgressCallback, RequestEnv, RequestOptions } from './context.js';
+import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './context.js';
 import type { Dispatcher } from './dispatcher.js';
-import type { NotificationOptions, ProgressCallback, RequestOptions } from './protocol.js';
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from './protocol.js';
 import type { Transport } from './transport.js';
 
 /**
@@ -62,18 +61,14 @@ export type StreamDriverOptions = {
 
 /**
  * Options for {@linkcode attachChannelTransport}. Mirrors {@linkcode StreamDriverOptions}
- * plus the `onclose`/`onerror`/`onresponse` callbacks the caller would otherwise set
- * on the driver instance.
+ * plus the `onclose`/`onerror` callbacks the caller would otherwise set on the driver
+ * instance.
  *
  * @internal
  */
 export type AttachOptions = StreamDriverOptions & {
     onclose?: () => void;
     onerror?: (error: Error) => void;
-    onresponse?: (
-        response: JSONRPCResultResponse | JSONRPCErrorResponse,
-        messageId: number
-    ) => { consumed: boolean; preserveProgress?: boolean };
 };
 
 /**
@@ -97,12 +92,6 @@ export class StreamDriver implements Outbound {
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
-    /**
-     * Tap for every inbound response. Return `consumed: true` to claim it (suppresses the
-     * matched-handler dispatch / unknown-id error). Return `preserveProgress: true` to keep
-     * the progress handler registered after the matched handler runs. Set by the owner.
-     */
-    onresponse?: (response: JSONRPCResponse | JSONRPCErrorResponse, messageId: number) => { consumed: boolean; preserveProgress?: boolean };
 
     constructor(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- driver is context-agnostic; owner supplies ContextT via dispatcher
@@ -111,11 +100,6 @@ export class StreamDriver implements Outbound {
         private _options: StreamDriverOptions = {}
     ) {
         this._supportedProtocolVersions = _options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
-    }
-
-    /** Exposed so an owner can clear progress callbacks. See {@linkcode Outbound.removeProgressHandler}. */
-    removeProgressHandler(token: number): void {
-        this._progressHandlers.delete(token);
     }
 
     /**
@@ -163,11 +147,6 @@ export class StreamDriver implements Outbound {
     /** {@linkcode Outbound.setProtocolVersion} — delegates to the pipe. */
     setProtocolVersion(version: string): void {
         this.pipe.setProtocolVersion?.(version);
-    }
-
-    /** {@linkcode Outbound.sendRaw} — write a raw JSON-RPC message to the pipe. */
-    async sendRaw(message: Parameters<Transport['send']>[0], options?: { relatedRequestId?: RequestId }): Promise<void> {
-        await this.pipe.send(message, options);
     }
 
     /**
@@ -284,6 +263,7 @@ export class StreamDriver implements Outbound {
             authInfo: extra?.authInfo,
             httpReq: extra?.request,
             sessionId: this.pipe.sessionId,
+            relatedRequestId: request.id,
             send: (r, opts) => this.request(r, RAW_RESULT_SCHEMA, { ...opts, relatedRequestId: request.id }) as Promise<Result>
         };
         const env = this._options.buildEnv ? this._options.buildEnv(extra, baseEnv) : baseEnv;
@@ -293,7 +273,7 @@ export class StreamDriver implements Outbound {
                 if (out.kind === 'notification') {
                     await this.pipe.send(out.message, { relatedRequestId: request.id });
                 } else if (!abort.signal.aborted) {
-                    await this.pipe.send(out.message, { relatedRequestId: request.id });
+                    await this.pipe.send(out.message);
                 }
             }
         };
@@ -307,14 +287,18 @@ export class StreamDriver implements Outbound {
     }
 
     private _onnotification(notification: JSONRPCNotification): void {
+        // Dispatch on a microtask so callers see the same timing as the
+        // notification-handler path (which dispatches via Promise.resolve()).
         if (notification.method === 'notifications/cancelled') {
-            const requestId = (notification.params as { requestId?: RequestId } | undefined)?.requestId;
-            if (requestId !== undefined)
-                this._requestHandlerAbortControllers.get(requestId)?.abort((notification.params as { reason?: unknown })?.reason);
+            Promise.resolve().then(() => {
+                const requestId = (notification.params as { requestId?: RequestId } | undefined)?.requestId;
+                if (requestId !== undefined)
+                    this._requestHandlerAbortControllers.get(requestId)?.abort((notification.params as { reason?: unknown })?.reason);
+            });
             return;
         }
         if (notification.method === 'notifications/progress') {
-            this._onprogress(notification.params as ProgressNotification['params']);
+            Promise.resolve().then(() => this._onprogress(notification.params as ProgressNotification['params']));
             return;
         }
         this.dispatcher
@@ -348,8 +332,6 @@ export class StreamDriver implements Outbound {
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
-        const tap = this.onresponse?.(response, messageId);
-        if (tap?.consumed) return;
         const handler = this._responseHandlers.get(messageId);
         if (handler === undefined) {
             this._onerror(new Error(`Received a response for an unknown message ID: ${JSON.stringify(response)}`));
@@ -357,7 +339,7 @@ export class StreamDriver implements Outbound {
         }
         this._responseHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
-        if (!tap?.preserveProgress) this._progressHandlers.delete(messageId);
+        this._progressHandlers.delete(messageId);
         if (isJSONRPCResultResponse(response)) {
             handler(response);
         } else {
@@ -436,11 +418,8 @@ export async function attachChannelTransport(
     options?: AttachOptions
 ): Promise<Outbound> {
     const driver = new StreamDriver(dispatcher, pipe, options);
-    if (options?.onclose || options?.onerror || options?.onresponse) {
-        driver.onclose = options.onclose;
-        driver.onerror = options.onerror;
-        driver.onresponse = options.onresponse;
-    }
+    driver.onclose = options?.onclose;
+    driver.onerror = options?.onerror;
     await driver.start();
     return driver;
 }

@@ -17,8 +17,7 @@ import type {
 import { getNotificationSchema, getRequestSchema, getResultSchema, ProtocolError, ProtocolErrorCode } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { validateStandardSchema } from '../util/standardSchema.js';
-import type { RequestEnv } from './context.js';
-import type { BaseContext, RequestOptions } from './protocol.js';
+import type { BaseContext, RequestEnv, RequestOptions } from './context.js';
 
 /**
  * One yielded item from {@linkcode Dispatcher.dispatch}. A dispatch yields zero or more
@@ -184,11 +183,13 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                     }
                     return parsed.data;
                 }) as BaseContext['mcpReq']['send'],
-                notify: async (n: Notification) => {
-                    if (done) return;
-                    queue.push({ jsonrpc: '2.0', method: n.method, params: n.params } as JSONRPCNotification);
-                    wake?.();
-                }
+                notify:
+                    env.notify ??
+                    (async (n: Notification) => {
+                        if (done) return;
+                        queue.push({ jsonrpc: '2.0', method: n.method, params: n.params } as JSONRPCNotification);
+                        wake?.();
+                    })
             },
             http: env.authInfo || env.httpReq ? { authInfo: env.authInfo } : undefined,
             ext: env.ext
