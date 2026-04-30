@@ -2280,7 +2280,8 @@ describe('outputSchema validation', () => {
     });
 });
 
-describe('Task-based execution', () => {
+// TODO(F3): re-enable via tasksPlugin (SEP-2663)
+describe.skip('Task-based execution', () => {
     describe('Client calling server', () => {
         let serverTaskStore: InMemoryTaskStore;
 
@@ -3313,7 +3314,7 @@ describe('Task-based execution', () => {
     });
 });
 
-test('should respect server task capabilities', async () => {
+test.skip('should respect server task capabilities', async () => {
     const serverTaskStore = new InMemoryTaskStore();
     const server = new McpServer(
         {
@@ -3429,7 +3430,7 @@ test('should respect server task capabilities', async () => {
 /**
  * Test: requestStream() method
  */
-test('should expose requestStream() method for streaming responses', async () => {
+test.skip('should expose requestStream() method for streaming responses', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -3491,7 +3492,7 @@ test('should expose requestStream() method for streaming responses', async () =>
 /**
  * Test: callToolStream() method
  */
-test('should expose callToolStream() method for streaming tool calls', async () => {
+test.skip('should expose callToolStream() method for streaming tool calls', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -3546,7 +3547,7 @@ test('should expose callToolStream() method for streaming tool calls', async () 
 /**
  * Test: callToolStream() with output schema validation
  */
-test('should validate structured output in callToolStream()', async () => {
+test.skip('should validate structured output in callToolStream()', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -3624,7 +3625,7 @@ test('should validate structured output in callToolStream()', async () => {
     await server.close();
 });
 
-test('callToolStream() should yield error when structuredContent does not match schema', async () => {
+test.skip('callToolStream() should yield error when structuredContent does not match schema', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -3700,7 +3701,7 @@ test('callToolStream() should yield error when structuredContent does not match 
     await server.close();
 });
 
-test('callToolStream() should yield error when tool with outputSchema returns no structuredContent', async () => {
+test.skip('callToolStream() should yield error when tool with outputSchema returns no structuredContent', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -3772,7 +3773,7 @@ test('callToolStream() should yield error when tool with outputSchema returns no
     await server.close();
 });
 
-test('callToolStream() should handle tools without outputSchema normally', async () => {
+test.skip('callToolStream() should handle tools without outputSchema normally', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -3837,7 +3838,7 @@ test('callToolStream() should handle tools without outputSchema normally', async
     await server.close();
 });
 
-test('callToolStream() should handle complex JSON schema validation', async () => {
+test.skip('callToolStream() should handle complex JSON schema validation', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -3935,7 +3936,7 @@ test('callToolStream() should handle complex JSON schema validation', async () =
     await server.close();
 });
 
-test('callToolStream() should yield error with additional properties when not allowed', async () => {
+test.skip('callToolStream() should yield error with additional properties when not allowed', async () => {
     const server = new Server(
         {
             name: 'test-server',
@@ -4011,7 +4012,7 @@ test('callToolStream() should yield error with additional properties when not al
     await server.close();
 });
 
-test('callToolStream() should not validate structuredContent when isError is true', async () => {
+test.skip('callToolStream() should not validate structuredContent when isError is true', async () => {
     const server = new Server(
         {
             name: 'test-server',

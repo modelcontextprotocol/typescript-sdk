@@ -6,7 +6,6 @@ import type {
     CompleteRequestResourceTemplate,
     CompleteResult,
     CreateTaskResult,
-    CreateTaskServerContext,
     GetPromptResult,
     Implementation,
     ListPromptsResult,
@@ -34,6 +33,8 @@ import {
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
+    SdkError,
+    SdkErrorCode,
     standardSchemaToJsonSchema,
     UriTemplate,
     validateAndWarnToolName,
@@ -308,34 +309,17 @@ export class McpServer {
      * Handles automatic task polling for tools with `taskSupport` `'optional'`.
      */
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        tool: RegisteredTool,
-        request: RequestT,
-        ctx: ServerContext
+        _tool: RegisteredTool,
+        _request: RequestT,
+        _ctx: ServerContext
     ): Promise<CallToolResult> {
-        if (!ctx.task?.store) {
-            throw new Error('No task store provided for task-capable tool.');
-        }
-
-        // Validate input and create task using the executor
-        const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-        const createTaskResult = (await tool.executor(args, ctx)) as CreateTaskResult;
-
-        // Poll until completion
-        const taskId = createTaskResult.task.taskId;
-        let task = createTaskResult.task;
-        const pollInterval = task.pollInterval ?? 5000;
-
-        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
-            await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await ctx.task.store.getTask(taskId);
-            if (!updatedTask) {
-                throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} not found during polling`);
-            }
-            task = updatedTask;
-        }
-
-        // Return the final result
-        return (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
+        // SEP-2663: 2025-11 task interception removed from Protocol core. Task-mode tools
+        // are no longer auto-polled by the SDK; servers should return results directly or
+        // adopt the task extension when it lands.
+        throw new SdkError(
+            SdkErrorCode.CapabilityNotSupported,
+            'Task-mode tool execution was removed from core (SEP-2663). Configure a task extension or return a direct result.'
+        );
     }
 
     private _completionHandlerInitialized = false;
@@ -1197,17 +1181,11 @@ function createToolExecutor(
     const isTaskHandler = 'createTask' in handler;
 
     if (isTaskHandler) {
-        const taskHandler = handler as TaskHandlerInternal;
-        return async (args, ctx) => {
-            if (!ctx.task?.store) {
-                throw new Error('No task store provided.');
-            }
-            const taskCtx: CreateTaskServerContext = { ...ctx, task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } };
-            if (inputSchema) {
-                return taskHandler.createTask(args, taskCtx);
-            }
-            // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-            return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
+        return async () => {
+            throw new SdkError(
+                SdkErrorCode.CapabilityNotSupported,
+                'Task-handler tool registration was removed from core (SEP-2663). Configure a task extension or use a direct handler.'
+            );
         };
     }
 
@@ -1299,10 +1277,6 @@ export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = und
 type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult>;
 
 type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
-
-type TaskHandlerInternal = {
-    createTask: (args: unknown, ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>;
-};
 
 export type RegisteredPrompt = {
     title?: string;

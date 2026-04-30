@@ -1825,7 +1825,8 @@ describe('createMessage validation', () => {
     });
 });
 
-describe('createMessageStream', () => {
+// TODO(F3): re-enable via tasksPlugin (SEP-2663)
+describe.skip('createMessageStream', () => {
     test('should throw when tools are provided without sampling.tools capability', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
         const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
@@ -2359,7 +2360,8 @@ describe('createMcpExpressApp', () => {
     });
 });
 
-describe('Task-based execution', () => {
+// TODO(F3): re-enable via tasksPlugin (SEP-2663)
+describe.skip('Task-based execution', () => {
     test('server with TaskStore should handle task-based tool execution', async () => {
         const taskStore = new InMemoryTaskStore();
 
@@ -3342,7 +3344,7 @@ describe('Task-based execution', () => {
     });
 });
 
-test('should respect client task capabilities', async () => {
+test.skip('should respect client task capabilities', async () => {
     const clientTaskStore = new InMemoryTaskStore();
 
     const client = new Client(
@@ -3465,7 +3467,8 @@ test('should respect client task capabilities', async () => {
     clientTaskStore.cleanup();
 });
 
-describe('elicitInputStream', () => {
+// TODO(F3): re-enable via tasksPlugin (SEP-2663)
+describe.skip('elicitInputStream', () => {
     let server: Server;
     let client: Client;
     let clientTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[0];

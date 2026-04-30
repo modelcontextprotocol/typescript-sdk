@@ -362,18 +362,10 @@ class InteractiveOAuthClient {
             // Using the experimental tasks API - WARNING: may change without notice
             console.log(`\n🔧 Streaming tool '${toolName}'...`);
 
-            const stream = this.client.experimental.tasks.callToolStream(
-                {
-                    name: toolName,
-                    arguments: toolArgs
-                },
-                {
-                    task: {
-                        taskId: `task-${Date.now()}`,
-                        ttl: 60_000
-                    }
-                }
-            );
+            const stream = this.client.experimental.tasks.callToolStream({
+                name: toolName,
+                arguments: toolArgs
+            });
 
             // Iterate through all messages yielded by the generator
             for await (const message of stream) {

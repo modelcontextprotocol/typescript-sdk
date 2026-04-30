@@ -33,8 +33,6 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    assertClientRequestTaskCapability,
-    assertToolsCallTaskCapability,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageResultSchema,
@@ -42,7 +40,6 @@ import {
     CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    extractTaskManagerOptions,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -115,10 +112,7 @@ export class Server extends Protocol<ServerContext> {
         private _serverInfo: Implementation,
         options?: ServerOptions
     ) {
-        super({
-            ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
-        });
+        super(options);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
@@ -408,14 +402,6 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
         }
-    }
-
-    protected assertTaskCapability(method: string): void {
-        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {

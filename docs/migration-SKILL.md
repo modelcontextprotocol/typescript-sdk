@@ -420,9 +420,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.requestInfo`              | `ctx.http?.req` (standard Web `Request`, only `ServerContext`)             |
 | `extra.closeSSEStream`           | `ctx.http?.closeSSE` (only `ServerContext`)                                |
 | `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
-| `extra.taskStore`                | `ctx.task?.store`                                                          |
-| `extra.taskId`                   | `ctx.task?.id`                                                             |
-| `extra.taskRequestedTtl`         | `ctx.task?.requestedTtl`                                                   |
+| `extra.taskStore` / `taskId` / `taskRequestedTtl` | _removed; see §12_                                        |
 
 `ServerContext` convenience methods (new in v2, no v1 equivalent):
 
@@ -473,24 +471,22 @@ If a `*Schema` constant was used for **runtime validation** (not just as a `requ
 
 `isCallToolResult(value)` still works, but `isSpecType` covers every spec type by name.
 
-## 12. Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+## 12. Experimental tasks interception removed
 
-`TaskCreationParams.ttl` changed from `z.union([z.number(), z.null()]).optional()` to `z.number().optional()`. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Omit `ttl` to let the server decide.
+The 2025-11 task side-channel through `Protocol` is removed (was always `@experimental`; SEP-2663 reattaches via `tasksPlugin()` in a follow-up). No mechanical migration; remove usages.
 
-| v1                     | v2                                 |
-| ---------------------- | ---------------------------------- |
-| `task: { ttl: null }`  | `task: {}` (omit ttl)              |
-| `task: { ttl: 60000 }` | `task: { ttl: 60000 }` (unchanged) |
+| Removed | Notes |
+| --- | --- |
+| `ProtocolOptions.tasks` | drop the option |
+| `protocol.taskManager` | gone |
+| `RequestOptions.task` / `.relatedTask`, `NotificationOptions.relatedTask` | drop the option |
+| `BaseContext.task` (`ctx.task?.*`) | gone; future: `ctx.ext.task` via `tasksPlugin()` |
+| `assertTaskCapability` / `assertTaskHandlerCapability` overrides | delete the override |
+| `Protocol.requestStream`, `Client.callToolStream`, `Server.createMessageStream`, `Server.elicitInputStream` | gone |
 
-Type changes in handler context:
+`TaskStore` / `InMemoryTaskStore` / `TaskMetadata` / `TaskMessageQueue` (storage interfaces) are unchanged.
 
-| Type                                        | v1                            | v2                    |
-| ------------------------------------------- | ----------------------------- | --------------------- |
-| `TaskContext.requestedTtl`                  | `number \| null \| undefined` | `number \| undefined` |
-| `CreateTaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
-| `TaskServerContext.task.requestedTtl`       | `number \| null \| undefined` | `number \| undefined` |
-
-> These task APIs are `@experimental` and may change without notice.
+`TaskCreationParams.ttl` also no longer accepts `null` (`number | undefined` only); omit `ttl` to let the server decide.
 
 ## 13. Client Behavioral Changes
 

@@ -20,7 +20,8 @@ import type {
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    ResultTypeMap
+    ResultTypeMap,
+    TaskManager
 } from '@modelcontextprotocol/core';
 import { getResultSchema, GetTaskPayloadResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 
@@ -41,8 +42,11 @@ import type { Server } from '../../server/server.js';
 export class ExperimentalServerTasks {
     constructor(private readonly _server: Server) {}
 
-    private get _module() {
-        return this._server.taskManager;
+    private get _module(): TaskManager {
+        throw new SdkError(
+            SdkErrorCode.CapabilityNotSupported,
+            'TaskManager was removed from Protocol core (SEP-2663). Experimental task helpers are no longer wired.'
+        );
     }
 
     /**

@@ -2019,7 +2019,7 @@ describe('Zod v4', () => {
             expect(result.tools[0]!._meta).toBeUndefined();
         });
 
-        test('should include execution field in listTools response when tool has execution settings', async () => {
+        test.skip('should include execution field in listTools response when tool has execution settings', async () => {
             const taskStore = new InMemoryTaskStore();
 
             const mcpServer = new McpServer(
@@ -2089,7 +2089,7 @@ describe('Zod v4', () => {
             taskStore.cleanup();
         });
 
-        test('should include execution field with taskSupport optional in listTools response', async () => {
+        test.skip('should include execution field with taskSupport optional in listTools response', async () => {
             const taskStore = new InMemoryTaskStore();
 
             const mcpServer = new McpServer(
@@ -6445,7 +6445,8 @@ describe('Zod v4', () => {
         });
     });
 
-    describe('Tool-level task hints with automatic polling wrapper', () => {
+    // TODO(F3): re-enable via tasksPlugin (SEP-2663)
+    describe.skip('Tool-level task hints with automatic polling wrapper', () => {
         test('should return error for tool with taskSupport "required" called without task augmentation', async () => {
             const taskStore = new InMemoryTaskStore();
 

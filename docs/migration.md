@@ -591,9 +591,7 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
 | `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
 | `extra.sessionId`                        | `ctx.sessionId`                                                        |
-| `extra.taskStore`                        | `ctx.task?.store`                                                      |
-| `extra.taskId`                           | `ctx.task?.id`                                                         |
-| `extra.taskRequestedTtl`                 | `ctx.task?.requestedTtl`                                               |
+| `extra.taskStore` / `taskId` / `taskRequestedTtl` | _removed — see "Experimental tasks interception removed" below_ |
 
 **Before (v1):**
 
@@ -853,7 +851,22 @@ try {
 }
 ```
 
-### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+### Experimental tasks interception removed
+
+The 2025-11 experimental tasks side-channel woven through `Protocol` has been removed in preparation for the SEP-2663 Tasks Extension. The following are gone with no in-place replacement:
+
+- `ProtocolOptions.tasks` (the `{ taskStore, taskMessageQueue }` constructor option)
+- `protocol.taskManager` getter, `Protocol#_bindTaskManager`
+- `RequestOptions.task` / `RequestOptions.relatedTask`, `NotificationOptions.relatedTask`
+- `BaseContext.task` (`ctx.task?.store` / `ctx.task?.id` / `ctx.task?.requestedTtl`)
+- abstract `assertTaskCapability` / `assertTaskHandlerCapability`
+- `Protocol.requestStream()`, `Client.callToolStream()`, `Server.createMessageStream()`, `Server.elicitInputStream()`
+
+**Unchanged:** the storage interfaces in `experimental/tasks/` (`TaskStore`, `InMemoryTaskStore`, `TaskMetadata`, `TaskMessageQueue`). These will be consumed by `tasksPlugin()` in a follow-up.
+
+There is no migration path for the removed surface; it was always `@experimental`. Under SEP-2663, tasks reattach via a `DispatchMiddleware` (`mcp.use(tasksPlugin({ store }))`) and handlers read task context from `ctx.ext.task` instead of `ctx.task`.
+
+#### `TaskCreationParams.ttl` no longer accepts `null`
 
 The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let
 the server decide the lifetime.

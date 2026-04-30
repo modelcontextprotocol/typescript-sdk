@@ -35,8 +35,6 @@ import type {
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
-    assertClientRequestTaskCapability,
-    assertToolsCallTaskCapability,
     CallToolResultSchema,
     CompleteResultSchema,
     CreateMessageRequestSchema,
@@ -46,7 +44,6 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -244,10 +241,7 @@ export class Client extends Protocol<ClientContext> {
         private _clientInfo: Implementation,
         options?: ClientOptions
     ) {
-        super({
-            ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
-        });
+        super(options);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
@@ -699,14 +693,6 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
         }
-    }
-
-    protected assertTaskCapability(method: string): void {
-        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        assertClientRequestTaskCapability(this._capabilities?.tasks?.requests, method, 'Client');
     }
 
     async ping(options?: RequestOptions) {

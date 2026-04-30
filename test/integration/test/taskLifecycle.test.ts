@@ -16,7 +16,8 @@ import {
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 
-describe('Task Lifecycle Integration Tests', () => {
+// TODO(F3): re-enable via tasksPlugin (SEP-2663)
+describe.skip('Task Lifecycle Integration Tests', () => {
     let server: Server;
     let mcpServer: McpServer;
     let serverTransport: NodeStreamableHTTPServerTransport;
