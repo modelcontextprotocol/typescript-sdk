@@ -384,7 +384,7 @@ function isClientAuthMethod(method: string): method is ClientAuthMethod {
 
 const AUTHORIZATION_CODE_RESPONSE_TYPE = 'code';
 const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
-type OAuthResourceIndicator = string | URL;
+export type OAuthResourceIndicator = string | URL;
 
 function serializeResourceIndicator(resource: OAuthResourceIndicator): string {
     return typeof resource === 'string' ? resource : resource.href;
