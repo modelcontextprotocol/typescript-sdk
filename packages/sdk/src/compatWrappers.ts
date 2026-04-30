@@ -5,22 +5,10 @@
 // Only the meta-package provides this overload, by design — the underlying
 // `@modelcontextprotocol/{server,client}` packages stay on the v2 API.
 
-import {
-    Client as BaseClient,
-    type ClientContext,
-    type NotificationMethod,
-    type RequestMethod,
-    type Result,
-    type StandardSchemaV1
-} from '@modelcontextprotocol/client';
-import {
-    McpServer as BaseMcpServer,
-    type RequestHandlerSchemas,
-    type ResultTypeMap,
-    Server as BaseServer,
-    type ServerContext,
-    type ServerOptions
-} from '@modelcontextprotocol/server';
+import type { ClientContext, NotificationMethod, RequestMethod, Result, StandardSchemaV1 } from '@modelcontextprotocol/client';
+import { Client as BaseClient } from '@modelcontextprotocol/client';
+import type { RequestHandlerSchemas, ResultTypeMap, ServerContext, ServerOptions } from '@modelcontextprotocol/server';
+import { McpServer as BaseMcpServer, Server as BaseServer } from '@modelcontextprotocol/server';
 import type * as z from 'zod';
 
 type ZodRequestSchema<M extends string = string> = z.ZodObject<{ method: z.ZodLiteral<M> } & z.ZodRawShape>;
@@ -70,7 +58,9 @@ function withV1SchemaOverloads<
             handler: (
                 params: StandardSchemaV1.InferOutput<P>,
                 ctx: Ctx
-            ) => R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> | Promise<StandardSchemaV1.InferOutput<R>> : Result | Promise<Result>
+            ) => R extends StandardSchemaV1
+                ? StandardSchemaV1.InferOutput<R> | Promise<StandardSchemaV1.InferOutput<R>>
+                : Result | Promise<Result>
         ): void;
         override setRequestHandler(arg1: string | ZodRequestSchema, arg2: unknown, arg3?: unknown): void {
             if (typeof arg1 === 'string') {
@@ -82,7 +72,10 @@ function withV1SchemaOverloads<
 
         /** v1 compat: accepts a Zod notification schema with a `method` literal as the first arg. */
         override setNotificationHandler<S extends ZodNotificationSchema>(schema: S, handler: LegacyNotificationHandler<S>): void;
-        override setNotificationHandler<M extends NotificationMethod>(method: M, handler: (notification: unknown) => void | Promise<void>): void;
+        override setNotificationHandler<M extends NotificationMethod>(
+            method: M,
+            handler: (notification: unknown) => void | Promise<void>
+        ): void;
         override setNotificationHandler<P extends StandardSchemaV1>(
             method: string,
             schemas: { params: P },

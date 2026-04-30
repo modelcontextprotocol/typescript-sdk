@@ -23,6 +23,7 @@ export { NodeStreamableHTTPServerTransport as StreamableHTTPServerTransport } fr
 // Client-specific exports only — NOT `export *`, because client also re-exports
 // core/public and the duplicate runtime-value identities (each package bundles
 // core separately) trigger TS2308. core/public is already covered by server above.
+export { Client } from './compatWrappers.js';
 export type {
     AddClientAuthentication,
     AssertionCallback,
@@ -89,4 +90,3 @@ export {
     withLogging,
     withOAuth
 } from '@modelcontextprotocol/client';
-export { Client } from './compatWrappers.js';
