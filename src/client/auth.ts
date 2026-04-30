@@ -503,7 +503,7 @@ async function authInternal(
         });
     }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: URL | string | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
     // Apply scope selection strategy (SEP-835):
     // 1. WWW-Authenticate scope (passed via `scope` param)
@@ -633,7 +633,7 @@ export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
     resourceMetadata?: OAuthProtectedResourceMetadata
-): Promise<URL | undefined> {
+): Promise<URL | string | undefined> {
     const defaultResource = resourceUrlFromServerUrl(serverUrl);
 
     // If provider has custom validation, delegate to it
@@ -650,8 +650,12 @@ export async function selectResourceURL(
     if (!checkResourceAllowed({ requestedResource: defaultResource, configuredResource: resourceMetadata.resource })) {
         throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
     }
-    // Prefer the resource from metadata since it's what the server is telling us to request
-    return new URL(resourceMetadata.resource);
+    // Prefer the resource from metadata since it's what the server is telling us to request.
+    // Return the original string verbatim so we don't re-serialize through `URL.href`, which
+    // appends a trailing slash to bare-origin URIs (e.g. `https://example.com` becomes
+    // `https://example.com/`) and breaks providers that require an exact match against the
+    // configured resource indicator (RFC 8707), such as Microsoft Entra ID.
+    return resourceMetadata.resource;
 }
 
 /**
@@ -1126,7 +1130,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL;
+        resource?: URL | string;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -1174,7 +1178,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', resource.href);
+        authorizationUrl.searchParams.set('resource', String(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -1222,7 +1226,7 @@ async function executeTokenRequest(
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
+        resource?: URL | string;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -1234,7 +1238,7 @@ async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', resource.href);
+        tokenRequestParams.set('resource', String(resource));
     }
 
     if (addClientAuthentication) {
@@ -1287,7 +1291,7 @@ export async function exchangeAuthorization(
         authorizationCode: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
+        resource?: URL | string;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -1329,7 +1333,7 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL;
+        resource?: URL | string;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -1388,7 +1392,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        resource?: URL | string;
         /** Authorization code for the default authorization_code grant flow */
         authorizationCode?: string;
         fetchFn?: FetchLike;
