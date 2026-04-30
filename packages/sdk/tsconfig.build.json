@@ -1,0 +1,14 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "compilerOptions": {
+        "noEmit": false,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "outDir": "dist",
+        "rootDir": "src",
+        "incremental": false,
+        "paths": {}
+    },
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist"]
+}

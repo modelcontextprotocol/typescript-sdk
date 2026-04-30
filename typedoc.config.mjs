@@ -14,7 +14,12 @@ const packages = packageJsonPaths.map(p => {
     return { rootDir, manifest };
 });
 
-const publicPackages = packages.filter(p => p.manifest.private !== true);
+// `sdk` is a pure re-export meta-package; its docs are the underlying packages'.
+// Re-exported symbols' inherited `{@link}` JSDoc resolves in the source package's
+// module structure, not the re-exporting package's, so including it here yields
+// spurious link warnings without adding any documentation value.
+const TYPEDOC_EXCLUDED = new Set(['@modelcontextprotocol/sdk']);
+const publicPackages = packages.filter(p => p.manifest.private !== true && !TYPEDOC_EXCLUDED.has(p.manifest.name));
 const entryPoints = publicPackages.map(p => p.rootDir);
 
 console.log(

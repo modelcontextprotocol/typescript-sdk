@@ -1,0 +1,24 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "paths": {
+            "*": ["./*"],
+            "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
+            "@modelcontextprotocol/core/public": ["./node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"],
+            "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
+            "@modelcontextprotocol/client/stdio": ["./node_modules/@modelcontextprotocol/client/src/client/stdio.ts"],
+            "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
+            "@modelcontextprotocol/server/stdio": ["./node_modules/@modelcontextprotocol/server/src/server/stdio.ts"],
+            "@modelcontextprotocol/server/zod-schemas": ["./node_modules/@modelcontextprotocol/server/src/zodSchemas.ts"],
+            "@modelcontextprotocol/server/validators/cf-worker": ["./node_modules/@modelcontextprotocol/server/src/validators/cfWorker.ts"],
+            "@modelcontextprotocol/node": ["./node_modules/@modelcontextprotocol/node/src/index.ts"],
+            "@modelcontextprotocol/node/sse": ["./node_modules/@modelcontextprotocol/node/src/sse.ts"],
+            "@modelcontextprotocol/server-auth-legacy": ["./node_modules/@modelcontextprotocol/server-auth-legacy/src/index.ts"],
+            "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
+            "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
+            "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"]
+        }
+    }
+}
