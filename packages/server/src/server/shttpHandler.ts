@@ -361,12 +361,11 @@ export function shttpHandler(
                     authInfo: extra?.authInfo,
                     closeSSEStream: supportsPolling ? closeStream : undefined,
                     closeStandaloneSSEStream:
-                        supportsPolling && sessionId !== undefined
-                            ? () => {
-                                  session?.closeStandaloneStream(sessionId);
-                                  backchannel?.setStandaloneWriter(sessionId, undefined);
-                              }
-                            : undefined
+                        // No explicit backchannel writer clear: closeStandaloneStream closes the
+                        // controller, making the registered writer inert; a reconnecting GET overwrites
+                        // it via setStandaloneWriter. An unconditional clear here could race a
+                        // freshly-registered GET writer (r0-004).
+                        supportsPolling && sessionId !== undefined ? () => session?.closeStandaloneStream(sessionId) : undefined
                 };
                 const writeSSE = (msg: JSONRPCMessage) => void emit(controller, encoder, streamId, msg);
                 const env: ShttpRequestEnv = {
