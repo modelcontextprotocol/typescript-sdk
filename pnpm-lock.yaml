@@ -904,9 +904,6 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config
-      '@types/cross-spawn':
-        specifier: catalog:devTools
-        version: 6.0.6
       '@types/eventsource':
         specifier: catalog:devTools
         version: 1.1.15
