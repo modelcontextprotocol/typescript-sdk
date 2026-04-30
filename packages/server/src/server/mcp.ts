@@ -1339,7 +1339,7 @@ function createPromptHandler(
         const typedCallback = callback as (args: unknown, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
         return async (args, ctx) => {
-            const parseResult = await validateStandardSchema(argsSchema, args);
+            const parseResult = await validateStandardSchema(argsSchema, args ?? {});
             if (!parseResult.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${parseResult.error}`);
             }
