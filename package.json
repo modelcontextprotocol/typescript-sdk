@@ -42,6 +42,8 @@
         "test:conformance:server": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server",
         "test:conformance:server:all": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:all",
         "test:conformance:server:run": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:run",
+        "test:conformance:server:handlehttp": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:handlehttp",
+        "test:conformance:server:dual": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:dual",
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {

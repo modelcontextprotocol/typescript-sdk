@@ -8,6 +8,7 @@
 
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type {
+    JSONRPCNotification,
     JSONRPCRequest,
     MessageExtraInfo,
     Notification,
@@ -162,6 +163,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     dispatch(request: JSONRPCRequest, env?: RequestEnv): AsyncGenerator<DispatchOutput, void, void> {
         return this._dispatcher.dispatch(request, env);
+    }
+
+    /**
+     * Dispatch one inbound notification to its registered handler. Transport-free
+     * counterpart to {@linkcode Protocol.dispatch}; consumed by `handleHttp`.
+     */
+    dispatchNotification(notification: JSONRPCNotification): Promise<void> {
+        return this._dispatcher.dispatchNotification(notification);
     }
 
     /**

@@ -1,0 +1,7 @@
+# Baseline for the `handleHttp` conformance target.
+# Currently empty: all server scenarios pass on the dispatch() path. The
+# sampling/elicitation tools catch the NotConnected error and surface it in the
+# tool result, which satisfies the conformance check. R4 (BackchannelCompat) makes
+# them succeed for real.
+
+server: []

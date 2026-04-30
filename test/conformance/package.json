@@ -34,6 +34,8 @@
         "test:conformance:server": "scripts/run-server-conformance.sh --expected-failures ./expected-failures.yaml",
         "test:conformance:server:all": "scripts/run-server-conformance.sh --suite all --expected-failures ./expected-failures.yaml",
         "test:conformance:server:run": "npx tsx ./src/everythingServer.ts",
+        "test:conformance:server:handlehttp": "SERVER_SCRIPT=./src/everythingServerHandleHttp.ts scripts/run-server-conformance.sh --expected-failures ./expected-failures-handlehttp.yaml",
+        "test:conformance:server:dual": "scripts/run-server-conformance.sh --expected-failures ./expected-failures.yaml && SERVER_SCRIPT=./src/everythingServerHandleHttp.ts scripts/run-server-conformance.sh --expected-failures ./expected-failures-handlehttp.yaml",
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
