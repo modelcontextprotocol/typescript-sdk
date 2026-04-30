@@ -328,40 +328,44 @@ export class StreamableHTTPClientTransport implements Transport {
                     )
                     .getReader();
 
-                while (true) {
-                    const { value: event, done } = await reader.read();
-                    if (done) {
-                        break;
-                    }
+                try {
+                    while (true) {
+                        const { value: event, done } = await reader.read();
+                        if (done) {
+                            break;
+                        }
 
-                    // Update last event ID if provided
-                    if (event.id) {
-                        lastEventId = event.id;
-                        // Mark that we've received a priming event - stream is now resumable
-                        hasPrimingEvent = true;
-                        onresumptiontoken?.(event.id);
-                    }
+                        // Update last event ID if provided
+                        if (event.id) {
+                            lastEventId = event.id;
+                            // Mark that we've received a priming event - stream is now resumable
+                            hasPrimingEvent = true;
+                            onresumptiontoken?.(event.id);
+                        }
 
-                    // Skip events with no data (priming events, keep-alives)
-                    if (!event.data) {
-                        continue;
-                    }
+                        // Skip events with no data (priming events, keep-alives)
+                        if (!event.data) {
+                            continue;
+                        }
 
-                    if (!event.event || event.event === 'message') {
-                        try {
-                            const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            if (isJSONRPCResultResponse(message)) {
-                                // Mark that we received a response - no need to reconnect for this request
-                                receivedResponse = true;
-                                if (replayMessageId !== undefined) {
-                                    message.id = replayMessageId;
+                        if (!event.event || event.event === 'message') {
+                            try {
+                                const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
+                                if (isJSONRPCResultResponse(message)) {
+                                    // Mark that we received a response - no need to reconnect for this request
+                                    receivedResponse = true;
+                                    if (replayMessageId !== undefined) {
+                                        message.id = replayMessageId;
+                                    }
                                 }
+                                this.onmessage?.(message);
+                            } catch (error) {
+                                this.onerror?.(error as Error);
                             }
-                            this.onmessage?.(message);
-                        } catch (error) {
-                            this.onerror?.(error as Error);
                         }
                     }
+                } finally {
+                    reader.releaseLock();
                 }
 
                 // Handle graceful server-side disconnect
