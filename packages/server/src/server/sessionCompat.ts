@@ -63,6 +63,11 @@ interface SessionEntry {
     protocolVersion?: string;
     /** Capabilities the client declared in `initialize.params.capabilities`. */
     clientCapabilities?: ClientCapabilities;
+    /**
+     * EventStore stream IDs minted for this session (per-POST SSE streams plus the standalone
+     * GET stream). Used to reject `Last-Event-ID` replay for streams the session does not own.
+     */
+    streamIds: Set<string>;
 }
 
 /** Result of {@linkcode SessionCompat.validate}. */
@@ -149,7 +154,8 @@ export class SessionCompat {
                 createdAt: now,
                 lastSeen: now,
                 protocolVersion: initParams?.protocolVersion,
-                clientCapabilities: initParams?.capabilities
+                clientCapabilities: initParams?.capabilities,
+                streamIds: new Set()
             });
             try {
                 await Promise.resolve(this._onsessioninitialized?.(id));
@@ -212,6 +218,19 @@ export class SessionCompat {
     /** Capabilities the client declared in `initialize` for this session, if known. */
     clientCapabilities(sessionId: string): ClientCapabilities | undefined {
         return this._sessions.get(sessionId)?.clientCapabilities;
+    }
+
+    /**
+     * Records an EventStore stream ID as belonging to this session so {@linkcode ownsStreamId}
+     * can authorise `Last-Event-ID` replay.
+     */
+    addStreamId(sessionId: string, streamId: string): void {
+        this._sessions.get(sessionId)?.streamIds.add(streamId);
+    }
+
+    /** True if `streamId` was minted for `sessionId`. Used to authorise SSE replay. */
+    ownsStreamId(sessionId: string, streamId: string): boolean {
+        return this._sessions.get(sessionId)?.streamIds.has(streamId) ?? false;
     }
 
     /** Returns true if a standalone GET stream is already open for this session. */

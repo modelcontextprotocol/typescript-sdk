@@ -125,8 +125,15 @@ function abortKey(sessionId: string | undefined, id: JSONRPCRequest['id']): stri
     return `${sessionId ?? ''}\u0000${String(id)}`;
 }
 
-/** EventStore stream-ID prefix for the standalone GET stream (matches v1 `_standaloneSseStreamId`). */
-const STANDALONE_STREAM_ID = '_GET_stream';
+/**
+ * EventStore stream-ID prefix for the standalone GET stream (matches v1 `_standaloneSseStreamId`).
+ * Suffixed with the session ID so each session's standalone-stream events are isolated in the
+ * event store and the replay ownership check is meaningful.
+ */
+const STANDALONE_STREAM_ID_PREFIX = '_GET_stream';
+function standaloneStreamId(sessionId: string): string {
+    return `${STANDALONE_STREAM_ID_PREFIX}:${sessionId}`;
+}
 
 const SSE_HEADERS: Record<string, string> = {
     'Content-Type': 'text/event-stream',
@@ -305,6 +312,7 @@ export function shttpHandler(
         }
 
         const streamId = crypto.randomUUID();
+        if (session && sessionId !== undefined) session.addStreamId(sessionId, streamId);
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS };
         if (sessionId !== undefined) headers['mcp-session-id'] = sessionId;
@@ -389,6 +397,8 @@ export function shttpHandler(
             return jsonError(409, -32_000, 'Conflict: Only one SSE stream is allowed per session');
         }
 
+        const streamId = standaloneStreamId(sessionId);
+        session.addStreamId(sessionId, streamId);
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         let registeredController: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -396,7 +406,7 @@ export function shttpHandler(
             start: controller => {
                 registeredController = controller;
                 session.setStandaloneStream(sessionId, controller);
-                void emit(controller, encoder, STANDALONE_STREAM_ID, {} as JSONRPCMessage).catch(() => {});
+                void emit(controller, encoder, streamId, {} as JSONRPCMessage).catch(() => {});
             },
             cancel: () => {
                 if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
@@ -408,6 +418,22 @@ export function shttpHandler(
     async function replayEvents(lastEventId: string, sessionId: string): Promise<Response> {
         if (!eventStore) {
             return jsonError(400, -32_000, 'Event store not configured');
+        }
+        if (session) {
+            if (!eventStore.getStreamIdForEventId) {
+                return jsonError(
+                    403,
+                    -32_000,
+                    'Forbidden: event store does not support session-scoped replay (getStreamIdForEventId required)'
+                );
+            }
+            const eventStreamId = await eventStore.getStreamIdForEventId(lastEventId);
+            if (eventStreamId === undefined) {
+                return jsonError(404, -32_001, 'Event not found');
+            }
+            if (!session.ownsStreamId(sessionId, eventStreamId)) {
+                return jsonError(403, -32_000, 'Forbidden: event ID does not belong to this session');
+            }
         }
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
