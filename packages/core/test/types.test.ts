@@ -11,6 +11,7 @@ import {
     PromptMessageSchema,
     ResourceLinkSchema,
     SamplingMessageSchema,
+    StringSchemaSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     ToolChoiceSchema,
     ToolResultContentSchema,
@@ -986,6 +987,18 @@ describe('Types', () => {
     });
 
     describe('ElicitRequestFormParamsSchema', () => {
+        test('preserves string pattern constraints in property schemas', () => {
+            const stringResult = StringSchemaSchema.safeParse({
+                type: 'string',
+                pattern: '^[A-Za-z]+$'
+            });
+
+            expect(stringResult.success).toBe(true);
+            if (stringResult.success) {
+                expect(stringResult.data.pattern).toBe('^[A-Za-z]+$');
+            }
+        });
+
         test('accepts requestedSchema with extra JSON Schema metadata keys', () => {
             // Mirrors what z.toJSONSchema() emits — includes $schema, additionalProperties, etc.
             // See https://github.com/modelcontextprotocol/typescript-sdk/issues/1362
@@ -995,7 +1008,7 @@ describe('Types', () => {
                     $schema: 'https://json-schema.org/draft/2020-12/schema',
                     type: 'object',
                     properties: {
-                        name: { type: 'string' }
+                        name: { type: 'string', pattern: '^[A-Za-z]+$' }
                     },
                     required: ['name'],
                     additionalProperties: false
@@ -1008,6 +1021,9 @@ describe('Types', () => {
                 expect(result.data.requestedSchema.type).toBe('object');
                 expect(result.data.requestedSchema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
                 expect(result.data.requestedSchema.additionalProperties).toBe(false);
+                expect(result.data.requestedSchema.properties.name).toEqual(
+                    expect.objectContaining({ type: 'string', pattern: '^[A-Za-z]+$' })
+                );
             }
         });
     });
