@@ -2,6 +2,13 @@ import type { ClientCapabilities, JSONRPCMessage } from '@modelcontextprotocol/c
 import { isInitializeRequest } from '@modelcontextprotocol/core';
 
 /**
+ * Upper bound on resumable stream IDs tracked per session for `Last-Event-ID` replay
+ * authorisation. Oldest entries are evicted on overflow; resumption of streams older than
+ * the most-recent N falls back to 403. Tradeoff vs. tracking every POST forever.
+ */
+const MAX_STREAM_IDS_PER_SESSION = 256;
+
+/**
  * Options for {@linkcode SessionCompat}.
  */
 export interface SessionCompatOptions {
@@ -66,6 +73,7 @@ interface SessionEntry {
     /**
      * EventStore stream IDs minted for this session (per-POST SSE streams plus the standalone
      * GET stream). Used to reject `Last-Event-ID` replay for streams the session does not own.
+     * Bounded to {@linkcode MAX_STREAM_IDS_PER_SESSION}; oldest entries evicted on overflow.
      */
     streamIds: Set<string>;
 }
@@ -222,10 +230,19 @@ export class SessionCompat {
 
     /**
      * Records an EventStore stream ID as belonging to this session so {@linkcode ownsStreamId}
-     * can authorise `Last-Event-ID` replay.
+     * can authorise `Last-Event-ID` replay. The set is bounded; once it reaches
+     * {@linkcode MAX_STREAM_IDS_PER_SESSION} the oldest entry is evicted, so very old POST
+     * streams become non-resumable in favour of bounding memory.
      */
     addStreamId(sessionId: string, streamId: string): void {
-        this._sessions.get(sessionId)?.streamIds.add(streamId);
+        const ids = this._sessions.get(sessionId)?.streamIds;
+        if (!ids) return;
+        ids.add(streamId);
+        while (ids.size > MAX_STREAM_IDS_PER_SESSION) {
+            const oldest = ids.values().next().value;
+            if (oldest === undefined) break;
+            ids.delete(oldest);
+        }
     }
 
     /** True if `streamId` was minted for `sessionId`. Used to authorise SSE replay. */

@@ -292,19 +292,23 @@ export function shttpHandler(
         };
 
         if (enableJsonResponse) {
-            const out: JSONRPCMessage[] = [];
-            for (const r of requests) {
-                const ctrl = new AbortController();
-                const key = abortKey(sessionId, r.id);
-                inflightAborts.set(key, ctrl);
-                try {
-                    for await (const msg of onrequest(r, { ...baseEnv, signal: ctrl.signal })) {
-                        if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) out.push(msg);
+            const perReq = await Promise.all(
+                requests.map(async r => {
+                    const ctrl = new AbortController();
+                    const key = abortKey(sessionId, r.id);
+                    inflightAborts.set(key, ctrl);
+                    const collected: JSONRPCMessage[] = [];
+                    try {
+                        for await (const msg of onrequest(r, { ...baseEnv, signal: ctrl.signal })) {
+                            if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) collected.push(msg);
+                        }
+                    } finally {
+                        if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
                     }
-                } finally {
-                    if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
-                }
-            }
+                    return collected;
+                })
+            );
+            const out = perReq.flat();
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (sessionId !== undefined) headers['mcp-session-id'] = sessionId;
             const body = out.length === 1 ? out[0] : out;
@@ -338,18 +342,22 @@ export function shttpHandler(
                 void (async () => {
                     try {
                         await writePrimingEvent(controller, encoder, streamId, clientProtocolVersion);
-                        for (const r of requests) {
-                            const ctrl = new AbortController();
-                            const key = abortKey(sessionId, r.id);
-                            inflightAborts.set(key, ctrl);
-                            try {
-                                for await (const msg of onrequest(r, { ...env, signal: ctrl.signal })) {
-                                    await emit(controller, encoder, streamId, msg);
+                        await Promise.all(
+                            requests.map(async r => {
+                                const ctrl = new AbortController();
+                                const key = abortKey(sessionId, r.id);
+                                inflightAborts.set(key, ctrl);
+                                try {
+                                    for await (const msg of onrequest(r, { ...env, signal: ctrl.signal })) {
+                                        await emit(controller, encoder, streamId, msg);
+                                    }
+                                } catch (error) {
+                                    onerror?.(error as Error);
+                                } finally {
+                                    if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
                                 }
-                            } finally {
-                                if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
-                            }
-                        }
+                            })
+                        );
                     } catch (error) {
                         onerror?.(error as Error);
                     } finally {
@@ -415,12 +423,7 @@ export function shttpHandler(
         return new Response(readable, { headers });
     }
 
-    async function replayEvents(
-        lastEventId: string,
-        sessionId: string,
-        session: SessionCompat,
-        eventStore: EventStore
-    ): Promise<Response> {
+    async function replayEvents(lastEventId: string, sessionId: string, session: SessionCompat, eventStore: EventStore): Promise<Response> {
         if (!eventStore.getStreamIdForEventId) {
             return jsonError(
                 403,
