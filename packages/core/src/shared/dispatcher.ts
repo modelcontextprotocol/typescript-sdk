@@ -28,7 +28,6 @@ import type { BaseContext, RequestOptions } from './protocol.js';
  */
 export type DispatchOutput =
     | { kind: 'notification'; message: JSONRPCNotification }
-    | { kind: 'request'; message: JSONRPCRequest }
     | { kind: 'response'; message: JSONRPCResponse | JSONRPCErrorResponse };
 
 /** @internal */
@@ -148,9 +147,10 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
         let final: JSONRPCResponse | JSONRPCErrorResponse | undefined;
 
         const localAbort = new AbortController();
+        const onEnvAbort = () => localAbort.abort(env.signal!.reason);
         if (env.signal) {
             if (env.signal.aborted) localAbort.abort(env.signal.reason);
-            else env.signal.addEventListener('abort', () => localAbort.abort(env.signal!.reason), { once: true });
+            else env.signal.addEventListener('abort', onEnvAbort, { once: true });
         }
 
         const send =
@@ -178,7 +178,7 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                     const result = await send(r, options);
                     const parsed = await validateStandardSchema(resultSchema, result);
                     if (!parsed.success) {
-                        throw new ProtocolError(ProtocolErrorCode.InternalError, `Invalid result for ${r.method}: ${parsed.error}`);
+                        throw new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${r.method}: ${parsed.error}`);
                     }
                     return parsed.data;
                 }) as BaseContext['mcpReq']['send'],
@@ -210,21 +210,28 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                 wake?.();
             });
 
-        while (true) {
+        try {
+            while (true) {
+                while (queue.length > 0) {
+                    yield { kind: 'notification', message: queue.shift()! };
+                }
+                if (done) break;
+                await new Promise<void>(resolve => {
+                    wake = resolve;
+                });
+                wake = undefined;
+            }
+            // Drain anything pushed between done=true and the wake.
             while (queue.length > 0) {
                 yield { kind: 'notification', message: queue.shift()! };
             }
-            if (done) break;
-            await new Promise<void>(resolve => {
-                wake = resolve;
-            });
-            wake = undefined;
+            yield { kind: 'response', message: final! };
+        } finally {
+            // Consumer broke early (generator.return()): tell the still-running handler to stop
+            // and detach the env.signal listener so a long-lived caller signal doesn't leak.
+            if (!done) localAbort.abort(new SdkError(SdkErrorCode.ConnectionClosed, 'dispatch consumer closed'));
+            env.signal?.removeEventListener('abort', onEnvAbort);
         }
-        // Drain anything pushed between done=true and the wake.
-        while (queue.length > 0) {
-            yield { kind: 'notification', message: queue.shift()! };
-        }
-        yield { kind: 'response', message: final! };
     }
 
     /**

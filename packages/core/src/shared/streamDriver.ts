@@ -19,7 +19,6 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     ProtocolError,
-    ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
@@ -179,10 +178,11 @@ export class StreamDriver implements Outbound {
         let onAbort: (() => void) | undefined;
         let cleanupId: number | undefined;
 
+        let responseReceived = false;
+
         return new Promise<StandardSchemaV1.InferOutput<T>>((resolve, reject) => {
             if (options?.signal?.aborted) {
-                const reason = options.signal.reason;
-                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+                throw options.signal.reason;
             }
 
             const messageId = this._requestMessageId++;
@@ -198,6 +198,7 @@ export class StreamDriver implements Outbound {
             }
 
             const cancel = (reason: unknown) => {
+                if (responseReceived) return;
                 this._progressHandlers.delete(messageId);
                 this.pipe
                     .send(
@@ -214,11 +215,14 @@ export class StreamDriver implements Outbound {
             };
 
             this._responseHandlers.set(messageId, response => {
+                responseReceived = true;
                 if (options?.signal?.aborted) return;
                 if (response instanceof Error) return reject(response);
                 validateStandardSchema(resultSchema, response.result).then(
                     parsed =>
-                        parsed.success ? resolve(parsed.data) : reject(new ProtocolError(ProtocolErrorCode.InternalError, parsed.error)),
+                        parsed.success
+                            ? resolve(parsed.data)
+                            : reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${req.method}: ${parsed.error}`)),
                     reject
                 );
             });
@@ -256,7 +260,8 @@ export class StreamDriver implements Outbound {
         const jsonrpc: JSONRPCNotification = { jsonrpc: '2.0', method: notification.method, params: notification.params };
 
         const debounced = this._options.debouncedNotificationMethods ?? [];
-        const canDebounce = debounced.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        const canDebounce =
+            debounced.includes(notification.method) && !notification.params && !options?.relatedRequestId && !options?.relatedTask;
         if (canDebounce) {
             if (this._pendingDebouncedNotifications.has(notification.method)) return;
             this._pendingDebouncedNotifications.add(notification.method);
@@ -287,8 +292,7 @@ export class StreamDriver implements Outbound {
             for await (const out of this.dispatcher.dispatch(request, env)) {
                 if (out.kind === 'notification') {
                     await this.pipe.send(out.message, { relatedRequestId: request.id });
-                } else {
-                    if (abort.signal.aborted) return;
+                } else if (!abort.signal.aborted) {
                     await this.pipe.send(out.message, { relatedRequestId: request.id });
                 }
             }
