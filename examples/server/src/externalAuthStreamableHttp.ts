@@ -106,11 +106,7 @@ function wwwAuthHeader(error: string, description: string, requiredScopes?: stri
  * `WWW-Authenticate` header that points to the resource metadata.
  */
 function requireBearerAuth(requiredScopes: string[] = []) {
-    return async (
-        req: Request & { auth?: AuthInfo },
-        res: Response,
-        next: NextFunction
-    ): Promise<void> => {
+    return async (req: Request & { auth?: AuthInfo }, res: Response, next: NextFunction): Promise<void> => {
         const header = req.headers.authorization;
         if (!header || !header.startsWith('Bearer ')) {
             res.set('WWW-Authenticate', wwwAuthHeader('invalid_token', 'Missing Bearer token', requiredScopes));
@@ -128,10 +124,7 @@ function requireBearerAuth(requiredScopes: string[] = []) {
             // RFC 6750 §3.1: missing scopes -> 403 insufficient_scope.
             const missing = requiredScopes.filter(s => !scopes.includes(s));
             if (missing.length > 0) {
-                res.set(
-                    'WWW-Authenticate',
-                    wwwAuthHeader('insufficient_scope', `Missing scopes: ${missing.join(' ')}`, requiredScopes)
-                );
+                res.set('WWW-Authenticate', wwwAuthHeader('insufficient_scope', `Missing scopes: ${missing.join(' ')}`, requiredScopes));
                 res.status(403).json({
                     error: 'insufficient_scope',
                     error_description: `Missing scopes: ${missing.join(' ')}`
@@ -141,7 +134,7 @@ function requireBearerAuth(requiredScopes: string[] = []) {
 
             const authInfo: AuthInfo = {
                 token,
-                clientId: typeof payload.client_id === 'string' ? payload.client_id : (payload.azp as string | undefined) ?? '',
+                clientId: typeof payload.client_id === 'string' ? payload.client_id : ((payload.azp as string | undefined) ?? ''),
                 scopes,
                 expiresAt: typeof payload.exp === 'number' ? payload.exp : undefined,
                 resource: AUDIENCE_URL,
@@ -160,10 +153,7 @@ function requireBearerAuth(requiredScopes: string[] = []) {
 // --- MCP server -------------------------------------------------------------
 
 const getServer = () => {
-    const server = new McpServer(
-        { name: 'external-auth-streamable-http-server', version: '1.0.0' },
-        { capabilities: { logging: {} } }
-    );
+    const server = new McpServer({ name: 'external-auth-streamable-http-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
     // `whoami` — gated on `mcp:read`. Reads the validated AuthInfo that the
     // SDK propagates from `req.auth` into the tool context.

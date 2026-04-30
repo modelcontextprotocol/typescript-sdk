@@ -49,17 +49,10 @@ pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamabl
 
 ## External Authorization Server (resource-server pattern)
 
-`simpleStreamableHttp.ts --oauth` co-locates an Authorization Server with the
-MCP server for demos. In production, the Authorization Server is usually a
-separate system (Auth0, Okta, Keycloak, Entra ID, AWS Cognito, an in-house
-IdP, ...) and the MCP server is a pure OAuth 2.0 *resource server* that
-validates incoming bearer tokens. `externalAuthStreamableHttp.ts` shows that
-pattern.
+`simpleStreamableHttp.ts --oauth` co-locates an Authorization Server with the MCP server for demos. In production, the Authorization Server is usually a separate system (Auth0, Okta, Keycloak, Entra ID, AWS Cognito, an in-house IdP, ...) and the MCP server is a pure OAuth 2.0
+_resource server_ that validates incoming bearer tokens. `externalAuthStreamableHttp.ts` shows that pattern.
 
-The example reads its trust anchors from environment variables, validates
-JWTs against the AS's published JWKS, enforces the RFC 8707 audience claim,
-and serves RFC 9728 Protected Resource Metadata so clients can discover the
-AS automatically:
+The example reads its trust anchors from environment variables, validates JWTs against the AS's published JWKS, enforces the RFC 8707 audience claim, and serves RFC 9728 Protected Resource Metadata so clients can discover the AS automatically:
 
 ```bash
 export MCP_JWKS_URL=https://<tenant>.auth0.com/.well-known/jwks.json
@@ -69,6 +62,7 @@ pnpm --filter @modelcontextprotocol/examples-server exec tsx src/externalAuthStr
 ```
 
 Tools registered:
+
 - `whoami` — requires `mcp:read`. Echoes the validated subject and scopes.
 - `echo` — requires `mcp:write`. Demonstrates per-tool scope enforcement.
 
