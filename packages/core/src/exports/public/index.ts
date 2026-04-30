@@ -42,9 +42,11 @@ export { getDisplayName } from '../../shared/metadataUtils.js';
 export type {
     BaseContext,
     ClientContext,
+    LegacyContextFields,
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
+    RequestHandlerExtra,
     RequestHandlerSchemas,
     RequestOptions,
     ServerContext
