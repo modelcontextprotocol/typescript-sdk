@@ -4,7 +4,7 @@ export default defineConfig({
     failOnWarn: 'ci-only',
     // 1. Entry Points
     //    Directly matches package.json include/exclude globs
-    entry: ['src/index.ts'],
+    entry: ['src/index.ts', 'src/sse.ts'],
 
     // 2. Output Configuration
     format: ['esm'],

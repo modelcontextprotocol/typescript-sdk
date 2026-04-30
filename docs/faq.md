@@ -73,10 +73,9 @@ The [server quickstart](./server-quickstart.md) walks you through building a wea
 
 Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, etc.) remain available as a frozen v1 copy in the deprecated `@modelcontextprotocol/server-auth-legacy` package; new code should use a dedicated IdP/OAuth library. Example packages provide a demo with `better-auth`.
 
-### Why did we remove `server` SSE transport?
+### Where is the server SSE transport?
 
-The SSE transport has been deprecated for a long time, and `v2` will not support it on the server side any more. Client side will keep supporting it in order to be able to connect to legacy SSE servers via the `v2` SDK, but serving SSE from `v2` will not be possible. Servers
-wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
+`SSEServerTransport` is available as a deprecated compat shim under `@modelcontextprotocol/node/sse`. New servers should migrate to Streamable HTTP (`NodeStreamableHTTPServerTransport` from `@modelcontextprotocol/node`). Client side `SSEClientTransport` remains available for connecting to legacy SSE servers.
 
 ## v1 (legacy)
 

@@ -109,9 +109,13 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
 ```
 
-### Server-side SSE transport removed
+### Server-side SSE transport deprecated
 
-The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
+`SSEServerTransport` is available as a deprecated compat shim under `@modelcontextprotocol/node/sse`. New servers should use `NodeStreamableHTTPServerTransport` from `@modelcontextprotocol/node`. The client-side SSE transport remains available for connecting to legacy SSE servers.
+
+```ts
+import { SSEServerTransport } from '@modelcontextprotocol/node/sse';
+```
 
 ### `WebSocketClientTransport` removed
 
