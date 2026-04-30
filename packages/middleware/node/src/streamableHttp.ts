@@ -34,10 +34,11 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * ```
  */
 export function toNodeHttpHandler(
-    handler: (req: Request) => Response | Promise<Response>
-): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
-    const listener = getRequestListener(handler, { overrideGlobalObjects: false });
-    return async (req, res) => {
+    handler: (req: Request, extra?: { authInfo?: AuthInfo; parsedBody?: unknown }) => Response | Promise<Response>
+): (req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown) => Promise<void> {
+    return async (req, res, parsedBody) => {
+        const extra = req.auth !== undefined || parsedBody !== undefined ? { authInfo: req.auth, parsedBody } : undefined;
+        const listener = getRequestListener(webReq => handler(webReq, extra), { overrideGlobalObjects: false });
         await listener(req, res);
     };
 }

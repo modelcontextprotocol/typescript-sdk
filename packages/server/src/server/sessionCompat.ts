@@ -245,6 +245,14 @@ export class SessionCompat {
         }
     }
 
+    /**
+     * Forgets a stream ID once its POST stream closes. The bounded set in
+     * {@linkcode addStreamId} is the safety net for streams that never reach this.
+     */
+    removeStreamId(sessionId: string, streamId: string): void {
+        this._sessions.get(sessionId)?.streamIds.delete(streamId);
+    }
+
     /** True if `streamId` was minted for `sessionId`. Used to authorise SSE replay. */
     ownsStreamId(sessionId: string, streamId: string): boolean {
         return this._sessions.get(sessionId)?.streamIds.has(streamId) ?? false;

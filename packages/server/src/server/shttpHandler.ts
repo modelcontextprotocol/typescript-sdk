@@ -257,6 +257,16 @@ export function shttpHandler(
             (m): m is JSONRPCResultResponse | JSONRPCErrorResponse => isJSONRPCResultResponse(m) || isJSONRPCErrorResponse(m)
         );
 
+        // Register abort controllers up-front so a `notifications/cancelled` in the same batch
+        // (or arriving on a concurrent POST before dispatch starts) can find them.
+        const ctrls = new Map<string, AbortController>();
+        for (const r of requests) {
+            const key = abortKey(sessionId, r.id);
+            const ctrl = new AbortController();
+            ctrls.set(key, ctrl);
+            inflightAborts.set(key, ctrl);
+        }
+
         for (const n of notifications) {
             if (n.method === 'notifications/cancelled') {
                 const requestId = (n.params as { requestId?: JSONRPCRequest['id'] } | undefined)?.requestId;
@@ -294,13 +304,14 @@ export function shttpHandler(
         if (enableJsonResponse) {
             const perReq = await Promise.all(
                 requests.map(async r => {
-                    const ctrl = new AbortController();
                     const key = abortKey(sessionId, r.id);
-                    inflightAborts.set(key, ctrl);
+                    const ctrl = ctrls.get(key)!;
                     const collected: JSONRPCMessage[] = [];
                     try {
                         for await (const msg of onrequest(r, { ...baseEnv, signal: ctrl.signal })) {
-                            if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) collected.push(msg);
+                            if ((isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) && !ctrl.signal.aborted) {
+                                collected.push(msg);
+                            }
                         }
                     } finally {
                         if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
@@ -344,11 +355,13 @@ export function shttpHandler(
                         await writePrimingEvent(controller, encoder, streamId, clientProtocolVersion);
                         await Promise.all(
                             requests.map(async r => {
-                                const ctrl = new AbortController();
                                 const key = abortKey(sessionId, r.id);
-                                inflightAborts.set(key, ctrl);
+                                const ctrl = ctrls.get(key)!;
                                 try {
                                     for await (const msg of onrequest(r, { ...env, signal: ctrl.signal })) {
+                                        if ((isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) && ctrl.signal.aborted) {
+                                            continue;
+                                        }
                                         await emit(controller, encoder, streamId, msg);
                                     }
                                 } catch (error) {
@@ -368,6 +381,14 @@ export function shttpHandler(
                         }
                     }
                 })();
+            },
+            cancel: () => {
+                for (const [key, ctrl] of ctrls) {
+                    ctrl.abort(new Error('Client closed SSE stream'));
+                    if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
+                }
+                // streamId stays in session.streamIds so the client can resume via Last-Event-ID;
+                // the bounded set in addStreamId caps growth.
             }
         });
 
@@ -407,6 +428,7 @@ export function shttpHandler(
 
         const streamId = standaloneStreamId(sessionId);
         session.addStreamId(sessionId, streamId);
+        const clientProtocolVersion = req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION;
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         let registeredController: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -414,7 +436,7 @@ export function shttpHandler(
             start: controller => {
                 registeredController = controller;
                 session.setStandaloneStream(sessionId, controller);
-                void emit(controller, encoder, streamId, {} as JSONRPCMessage).catch(() => {});
+                void writePrimingEvent(controller, encoder, streamId, clientProtocolVersion).catch(error => onerror?.(error as Error));
             },
             cancel: () => {
                 if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
@@ -438,11 +460,22 @@ export function shttpHandler(
         if (!session.ownsStreamId(sessionId, eventStreamId)) {
             return jsonError(403, -32_000, 'Forbidden: event ID does not belong to this session');
         }
+        // Only resuming the standalone GET stream takes over the session's standalone slot;
+        // resuming a per-POST stream is replay-only (the POST that owned it has finished).
+        const isStandaloneReplay = eventStreamId === standaloneStreamId(sessionId);
+
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         let registeredController: ReadableStreamDefaultController<Uint8Array> | undefined;
+        let cancelled = false;
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
+                if (isStandaloneReplay) {
+                    // Claim synchronously so a concurrent GET hits the 409 path during replay.
+                    registeredController = controller;
+                    session.setStandaloneStream(sessionId, controller);
+                    session.addStreamId(sessionId, eventStreamId);
+                }
                 void (async () => {
                     try {
                         await eventStore.replayEventsAfter(lastEventId, {
@@ -450,10 +483,13 @@ export function shttpHandler(
                                 writeSSEEvent(controller, encoder, message, eventId);
                             }
                         });
-                        registeredController = controller;
-                        session.setStandaloneStream(sessionId, controller);
-                        const sid = standaloneStreamId(sessionId);
-                        session.addStreamId(sessionId, sid);
+                        if (!isStandaloneReplay || cancelled) {
+                            try {
+                                controller.close();
+                            } catch {
+                                // Already closed.
+                            }
+                        }
                     } catch (error) {
                         onerror?.(error as Error);
                         try {
@@ -465,6 +501,7 @@ export function shttpHandler(
                 })();
             },
             cancel: () => {
+                cancelled = true;
                 if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
             }
         });
