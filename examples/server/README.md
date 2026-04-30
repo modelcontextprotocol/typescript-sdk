@@ -39,6 +39,9 @@ pnpm tsx src/simpleStreamableHttp.ts
 | Task interactive server                   | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                           |
 | Hono Streamable HTTP server               | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)           |
 | SSE polling demo server                   | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                   |
+| ArkType schema validation                 | Minimal stdio server using ArkType (Standard Schema spec) for tool input schemas.               | [`src/arktypeExample.ts`](src/arktypeExample.ts)                                         |
+| Valibot schema validation                 | Minimal stdio server using Valibot + `@valibot/to-json-schema` for tool input schemas.          | [`src/valibotExample.ts`](src/valibotExample.ts)                                         |
+| Custom protocol version support           | Supports protocol versions not yet shipped in the SDK; first in list is the fallback.           | [`src/customProtocolVersion.ts`](src/customProtocolVersion.ts)                           |
 
 ## OAuth demo flags (Streamable HTTP server)
 

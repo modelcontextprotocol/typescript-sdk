@@ -36,6 +36,9 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 | Client credentials (M2M)                            | Machine-to-machine OAuth client credentials example.                                      | [`src/simpleClientCredentials.ts`](src/simpleClientCredentials.ts)                         |
 | URL elicitation client                              | Drives URL-mode elicitation flows (sensitive input in a browser).                         | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                             |
 | Task interactive client                             | Demonstrates task-based execution + interactive server→client requests.                   | [`src/simpleTaskInteractiveClient.ts`](src/simpleTaskInteractiveClient.ts)                 |
+| Bearer token provider                               | Minimal `AuthProvider` for pre-configured bearer tokens (gateway/proxy patterns).         | [`src/simpleTokenProvider.ts`](src/simpleTokenProvider.ts)                                 |
+| Dual-mode auth                                      | Same `authProvider` option used for host-managed tokens and full OAuth providers.         | [`src/dualModeAuth.ts`](src/dualModeAuth.ts)                                               |
+| Custom (non-spec) method                            | Sends a vendor-prefixed `acme/search` request and receives custom progress notifications. | [`src/customMethodExample.ts`](src/customMethodExample.ts)                                 |
 
 ## URL elicitation example (server + client)
 
