@@ -1300,7 +1300,8 @@ describe('OAuth Authorization', () => {
             const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
             expect(tokenCall).toBeDefined();
             const body = tokenCall![1].body as URLSearchParams;
-            expect(body.get('resource')).toBe('https://resource.example.com/');
+            // Should preserve the exact resource value from metadata without adding a trailing slash
+            expect(body.get('resource')).toBe('https://resource.example.com');
         });
 
         it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
@@ -2710,6 +2711,61 @@ describe('OAuth Authorization', () => {
             const authUrl: URL = redirectCall[0];
             // Should use the PRM's resource value, not the full requested URL
             expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com/');
+        });
+
+        it('preserves pathless resource URI from PRM without adding trailing slash', async () => {
+            // Regression test for https://github.com/modelcontextprotocol/typescript-sdk/issues/1968
+            // A pathless resource URI like "https://example.com" must not be normalized to
+            // "https://example.com/" (with trailing slash) since providers like Microsoft Entra ID
+            // require an exact match between the resource parameter and the scopes' audience.
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            // Pathless resource URI — must not get a trailing slash added
+                            resource: 'https://example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://example.com'
+            });
+
+            expect(result).toBe('REDIRECT');
+
+            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0]!;
+            const authUrl: URL = redirectCall[0];
+            // Must be the exact metadata value, without a trailing slash
+            expect(authUrl.searchParams.get('resource')).toBe('https://example.com');
         });
 
         it('excludes resource parameter when Protected Resource Metadata is not present', async () => {
