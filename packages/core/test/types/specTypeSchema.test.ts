@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
+import * as schemas from '../../src/types/schemas.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
 import { isSpecType, specTypeSchemas } from '../../src/types/specTypeSchema.js';
 import type {
@@ -144,5 +145,32 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         // server package's ResourceTemplate class), so this is the one entry where the key and
         // the public type name differ.
         expectTypeOf<SpecTypes['ResourceTemplate']>().toEqualTypeOf<ResourceTemplateType>();
+    });
+});
+
+describe('SPEC_SCHEMA_KEYS allowlist', () => {
+    // Mirrors the exclusion comment in specTypeSchema.ts. If this list grows, confirm the new
+    // entry has no public type in types.ts before adding it here; otherwise add it to the allowlist.
+    const INTERNAL_HELPER_SCHEMAS: readonly string[] = [
+        'ListChangedOptionsBaseSchema',
+        'BaseRequestParamsSchema',
+        'NotificationsParamsSchema',
+        'ClientTasksCapabilitySchema',
+        'ServerTasksCapabilitySchema'
+    ];
+
+    it('covers every public protocol schema in schemas.ts (drift guard)', () => {
+        // PascalCase filters out helper functions like getRequestSchema/getResultSchema.
+        const allProtocolSchemas = Object.keys(schemas).filter(k => k.endsWith('Schema') && /^[A-Z]/.test(k));
+        const expected = allProtocolSchemas
+            .filter(k => !INTERNAL_HELPER_SCHEMAS.includes(k))
+            .map(k => k.slice(0, -'Schema'.length))
+            .sort();
+        // Auth schemas are sourced from shared/auth.ts, not schemas.ts, so filter them out of the
+        // observed side before comparing.
+        const actual = Object.keys(isSpecType)
+            .filter(k => !k.startsWith('OAuth') && !k.startsWith('OpenId'))
+            .sort();
+        expect(actual).toEqual(expected);
     });
 });

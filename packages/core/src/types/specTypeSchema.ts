@@ -238,9 +238,9 @@ type SpecTypeInputs = {
 type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1<SpecTypeInputs[K], SpecTypes[K]> };
 type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
 
-const _specTypeSchemas: Record<string, z.ZodTypeAny> = {};
+const _specTypeSchemas: Record<string, StandardSchemaV1> = {};
 const _isSpecType: Record<string, (value: unknown) => boolean> = {};
-function register(key: string, schema: z.ZodTypeAny): void {
+function register(key: string, schema: z.ZodType): void {
     const name = key.slice(0, -'Schema'.length);
     _specTypeSchemas[name] = schema;
     _isSpecType[name] = (v: unknown) => schema.safeParse(v).success;
@@ -271,7 +271,7 @@ for (const [key, schema] of Object.entries(authSchemas)) {
  * }
  * ```
  */
-export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas) as unknown as SchemaRecord;
+export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas as SchemaRecord);
 
 /**
  * Type predicates for every MCP spec type, keyed by type name.
@@ -293,4 +293,4 @@ export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas) as 
  * const blocks = mixed.filter(isSpecType.ContentBlock);
  * ```
  */
-export const isSpecType: GuardRecord = Object.freeze(_isSpecType) as unknown as GuardRecord;
+export const isSpecType: GuardRecord = Object.freeze(_isSpecType as GuardRecord);
