@@ -388,7 +388,7 @@ export function shttpHandler(
         if (eventStore) {
             const lastEventId = req.headers.get('last-event-id');
             if (lastEventId) {
-                return replayEvents(lastEventId, sessionId);
+                return replayEvents(lastEventId, sessionId, session, eventStore);
             }
         }
 
@@ -415,25 +415,25 @@ export function shttpHandler(
         return new Response(readable, { headers });
     }
 
-    async function replayEvents(lastEventId: string, sessionId: string): Promise<Response> {
-        if (!eventStore) {
-            return jsonError(400, -32_000, 'Event store not configured');
+    async function replayEvents(
+        lastEventId: string,
+        sessionId: string,
+        session: SessionCompat,
+        eventStore: EventStore
+    ): Promise<Response> {
+        if (!eventStore.getStreamIdForEventId) {
+            return jsonError(
+                403,
+                -32_000,
+                'Forbidden: event store does not support session-scoped replay (getStreamIdForEventId required)'
+            );
         }
-        if (session) {
-            if (!eventStore.getStreamIdForEventId) {
-                return jsonError(
-                    403,
-                    -32_000,
-                    'Forbidden: event store does not support session-scoped replay (getStreamIdForEventId required)'
-                );
-            }
-            const eventStreamId = await eventStore.getStreamIdForEventId(lastEventId);
-            if (eventStreamId === undefined) {
-                return jsonError(404, -32_001, 'Event not found');
-            }
-            if (!session.ownsStreamId(sessionId, eventStreamId)) {
-                return jsonError(403, -32_000, 'Forbidden: event ID does not belong to this session');
-            }
+        const eventStreamId = await eventStore.getStreamIdForEventId(lastEventId);
+        if (eventStreamId === undefined) {
+            return jsonError(404, -32_001, 'Event not found');
+        }
+        if (!session.ownsStreamId(sessionId, eventStreamId)) {
+            return jsonError(403, -32_000, 'Forbidden: event ID does not belong to this session');
         }
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
@@ -448,7 +448,9 @@ export function shttpHandler(
                             }
                         });
                         registeredController = controller;
-                        if (session) session.setStandaloneStream(sessionId, controller);
+                        session.setStandaloneStream(sessionId, controller);
+                        const sid = standaloneStreamId(sessionId);
+                        session.addStreamId(sessionId, sid);
                     } catch (error) {
                         onerror?.(error as Error);
                         try {
@@ -460,7 +462,7 @@ export function shttpHandler(
                 })();
             },
             cancel: () => {
-                if (registeredController) session?.clearStandaloneStream(sessionId, registeredController);
+                if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
             }
         });
         return new Response(readable, { headers });
