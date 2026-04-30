@@ -5,10 +5,21 @@ description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk)
 
 # MCP TypeScript SDK: v1 → v2 Migration
 
-**Shortest path for most servers:** bump `@modelcontextprotocol/sdk` to `^2.0.0` and stop. v1 import paths and APIs continue to work as `@deprecated` aliases (IDE strikethrough, no runtime warnings) that forward to the new implementation. If the user only wants to "get on v2", do that, run the build, and
-report any IDE-flagged `@deprecated` usages as optional follow-ups.
+## Path A (default) — Stay on the `/sdk` package
 
-Apply the rest of this guide when the user wants a **full migration** to the new split packages with no `@deprecated` usages. Order: environment → dependencies → imports → API calls → type aliases.
+`@modelcontextprotocol/sdk@^2` is a meta-package: v1 import paths and APIs continue to work as `@deprecated` aliases (IDE strikethrough, no runtime warnings). **Do not rewrite imports.**
+
+1. Bump `"@modelcontextprotocol/sdk"` to `"^2.0.0"` in package.json.
+2. Ensure §1 environment prerequisites (zod `^4.2.0`, tsconfig `moduleResolution: bundler|nodenext|node16`).
+3. Run the build / typecheck.
+4. **If it passes — STOP. Migration complete.** Report `@deprecated`-flagged usages as optional follow-ups, do not rewrite them.
+5. If it fails, fix only the specific errors using the rename table in §5 and the not-shimmed list below. Do not apply §2 (uninstall sdk) or §3 (import rewriting).
+
+**Not shimmed (need a one-line edit even on Path A):** `IsomorphicHeaders` → `Headers`; `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`); the 5-arg `server.tool(name, desc, schema, annotations, cb)` form → `registerTool`.
+
+## Path B — Move to the split packages
+
+Apply §2 onwards **only** if the user explicitly wants to drop `@modelcontextprotocol/sdk` and import from `@modelcontextprotocol/server` / `@modelcontextprotocol/client` directly (smaller bundle, no `@deprecated` strikethrough, or building a host/framework/transport). Order: environment → dependencies → imports → API calls → type aliases.
 
 ## 1. Environment
 
@@ -94,6 +105,7 @@ Notes:
 | `isJSONRPCResponse` (deprecated in v1)   | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error) |
 | `ResourceReference`                      | `ResourceTemplateReference`                                                                                     |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                               |
+| `ResourceTemplate` (type)                | `ResourceTemplateType`                                                                                          |
 | `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                                                                            |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`)               |
 | `McpError`                               | `ProtocolError`                                                                                                 |

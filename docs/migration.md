@@ -4,25 +4,51 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 
 > **Note:** This guide describes the v2.0.0 release as a whole. The compatibility shims it references land across the [v2-bc PR series](https://github.com/modelcontextprotocol/typescript-sdk/pulls?q=is%3Apr+label%3Av2-bc); on any individual PR's branch some referenced symbols may not yet exist.
 
-## TL;DR — most servers just bump the version
+## Upgrade paths
 
-For **most MCP servers**, upgrading to v2 is a one-line change:
+There are two ways to move to v2. **Pick one before reading further.**
+
+### Path A — Stay on the `/sdk` package (recommended for most servers)
+
+`@modelcontextprotocol/sdk@^2` is a meta-package that re-exports the new split packages at the v1 import paths. **Your existing imports work unchanged.**
 
 ```diff
+  // package.json
 - "@modelcontextprotocol/sdk": "^1.0.0"
 + "@modelcontextprotocol/sdk": "^2.0.0"
 ```
 
-In v2, `@modelcontextprotocol/sdk` is a meta-package that re-exports the new split packages at the v1 import paths. v1 APIs (deep-import paths like `@modelcontextprotocol/sdk/server/mcp.js`, variadic `server.tool()`, `McpError`, `RequestHandlerExtra`, etc.) continue to work as
-**`@deprecated` aliases** — your IDE will show strikethrough and a hover note pointing at the new API, but there are no runtime warnings. You can ship on v2 immediately and migrate the deprecated usages at your own pace.
+After bumping, run your typecheck. **If it passes, you're done — stop reading.** The v1 APIs (`@modelcontextprotocol/sdk/server/mcp.js`, `server.tool()` variadic, `McpError`, `RequestHandlerExtra`, `SSEServerTransport`, etc.) are `@deprecated` aliases that compile and run identically. Your IDE will show strikethrough and a hover note pointing at the new API, but there are no runtime warnings.
 
-Read on if you want to:
+If typecheck fails, fix only the errors you see — the table in [What the meta-package doesn't shim](#what-the-meta-package-doesnt-shim) lists the handful of changes that still need a one-line edit.
 
-- Migrate to the new split packages (`@modelcontextprotocol/server`, `@modelcontextprotocol/client`) for smaller bundles
-- Adopt the new API surface (no `@deprecated` strikethrough)
-- Understand a specific breaking change
+**Do not rewrite imports to the split packages unless you're choosing Path B.**
 
-> **Clients and frameworks** (host applications, custom transports, proxies) typically need a few more changes than servers — see the [Custom methods](#setrequesthandler-and-setnotificationhandler-use-method-strings), [Error hierarchy](#error-hierarchy-refactoring), and [Server auth](#server-auth-split) sections.
+### Path B — Move to the split packages
+
+Choose this if you want to drop the `/sdk` dependency and import directly from `@modelcontextprotocol/server` / `@modelcontextprotocol/client`. Reasons:
+
+- Smaller bundle (you only ship what you use)
+- No `@deprecated` strikethrough in your editor
+- You're a host application, framework adapter, or custom transport author (these touch surface the meta-package doesn't fully cover)
+
+The rest of this guide is **Path B**. If you chose Path A, skip to [What the meta-package doesn't shim](#what-the-meta-package-doesnt-shim).
+
+> **Clients and frameworks** typically need a few more changes than servers — see the [Custom methods](#setrequesthandler-and-setnotificationhandler-use-method-strings), [Error hierarchy](#error-hierarchy-refactoring), and [Server auth](#server-auth-split) sections.
+
+## What the meta-package doesn't shim
+
+These are the changes you need regardless of which path you chose. Everything else in this guide is Path B only.
+
+| What | Change |
+|---|---|
+| `zod` version | Must be `^4.2.0` — see [Prerequisites](#zod-must-be-420) |
+| tsconfig `moduleResolution` | Must be `bundler`, `nodenext`, or `node16` — see [Prerequisites](#typescript-moduleresolution-must-be-bundler-nodenext-or-node16) |
+| `IsomorphicHeaders` type | → standard `Headers` — see [§](#headers-object-instead-of-plain-objects) |
+| `StreamableHTTPServerTransport` (Node) | → `NodeStreamableHTTPServerTransport` from `@modelcontextprotocol/node` — see [§](#streamablehttpservertransport-renamed) |
+| `server.tool(name, desc, schema, annotations, cb)` 5-arg form | → `registerTool(name, {description, inputSchema, annotations}, cb)` — see [§](#mcpservertool-prompt-resource-removed) |
+
+These five were intentionally not shimmed because the codemod handles them mechanically (`npx @modelcontextprotocol/codemod-v2`).
 
 ## Prerequisites
 
@@ -182,6 +208,10 @@ const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: ()
 ```
 
 ### Server-side SSE transport removed
+
+> **Path A users:** the meta-package re-exports `SSEServerTransport` and `SSEClientTransport` at their v1 paths. You don't need to change anything.
+>
+> **Path B users:** the v2 server package does not include SSE. Install `@modelcontextprotocol/server-auth-legacy` (which also bundles `LegacySSEServerTransport`) or migrate to Streamable HTTP per the example below.
 
 The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
 
@@ -638,6 +668,7 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `isJSONRPCResponse`                      | `isJSONRPCResultResponse` (see note below)                                                        |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                 |
 | `ResourceReference`                      | `ResourceTemplateReference`                                                                       |
+| `ResourceTemplate` (type)                | `ResourceTemplateType`                                                                            |
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                                                                        |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
