@@ -35,6 +35,14 @@ export interface OAuthServerProvider {
     challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string>;
 
     /**
+     * Returns the `redirect_uri` that was used when the indicated authorization began, if available.
+     *
+     * When implemented, the token handler validates that the token request uses the same
+     * redirect URI, as required by RFC 6749 section 4.1.3.
+     */
+    redirectUriForAuthorizationCode?(client: OAuthClientInformationFull, authorizationCode: string): Promise<string | undefined>;
+
+    /**
      * Exchanges an authorization code for an access token.
      */
     exchangeAuthorizationCode(
@@ -61,6 +69,15 @@ export interface OAuthServerProvider {
      * If the given token is invalid or already revoked, this method should do nothing.
      */
     revokeToken?(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void>;
+
+    /**
+     * Revokes all tokens previously issued for the indicated authorization code.
+     *
+     * OAuth 2.1 section 4.1.3 recommends revoking previously issued tokens when
+     * authorization code reuse is detected. Providers that track code-to-token
+     * relationships can implement this hook to let the token handler trigger that cleanup.
+     */
+    revokeTokensForAuthorizationCode?(client: OAuthClientInformationFull, authorizationCode: string): Promise<void>;
 
     /**
      * Whether to skip local PKCE validation.
