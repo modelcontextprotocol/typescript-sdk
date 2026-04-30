@@ -788,10 +788,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(400);
             const errorData = await response.json();
-            expect(errorData).toMatchObject({
-                jsonrpc: '2.0',
-                error: expect.anything()
-            });
+            expectErrorResponse(errorData, -32_600, /Invalid Request/);
         });
 
         it('should reject requests to uninitialized server', async () => {
