@@ -119,7 +119,7 @@ export class SSEClientTransport implements Transport {
     }
 
     private _startOrAuth(): Promise<void> {
-        const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
+        const fetchImpl = (this._fetch ?? fetch) as typeof fetch;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
                 ...this._eventSourceInit,
