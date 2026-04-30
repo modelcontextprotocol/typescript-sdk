@@ -7,8 +7,9 @@ import { BackchannelCompat } from '../../src/server/backchannelCompat.js';
 describe('BackchannelCompat', () => {
     let bc: BackchannelCompat;
     let written: JSONRPCMessage[];
-    const writeSSE = (msg: JSONRPCMessage) => {
+    const writeSSE = (msg: JSONRPCMessage): boolean => {
         written.push(msg);
+        return true;
     };
 
     beforeEach(() => {
@@ -74,17 +75,19 @@ describe('BackchannelCompat', () => {
         expect(bc.handleResponse('s1', { jsonrpc: '2.0', id: (written[0] as JSONRPCRequest).id, result: {} })).toBe(false);
     });
 
-    test('abort rejects and cleans up', async () => {
+    test('abort writes notifications/cancelled then rejects and cleans up', async () => {
         const ctrl = new AbortController();
         const send = bc.makeEnvSend('s1', writeSSE);
         const p = send({ method: 'x' }, { signal: ctrl.signal });
         const caught = p.catch(e => e);
+        const wireId = (written[0] as JSONRPCRequest).id;
 
         ctrl.abort(new Error('cancelled'));
         const e = await caught;
         expect(e).toBeInstanceOf(Error);
         expect((e as Error).message).toBe('cancelled');
-        expect(bc.handleResponse('s1', { jsonrpc: '2.0', id: (written[0] as JSONRPCRequest).id, result: {} })).toBe(false);
+        expect(written[1]).toMatchObject({ method: 'notifications/cancelled', params: { requestId: wireId } });
+        expect(bc.handleResponse('s1', { jsonrpc: '2.0', id: wireId, result: {} })).toBe(false);
     });
 
     test('pre-aborted signal rejects immediately without writing', async () => {
@@ -95,40 +98,20 @@ describe('BackchannelCompat', () => {
         expect(written).toHaveLength(0);
     });
 
-    test('writeSSE throw rejects the pending request', async () => {
-        const send = bc.makeEnvSend('s1', () => {
-            throw new Error('stream closed');
-        });
-        await expect(send({ method: 'x' })).rejects.toThrow('stream closed');
+    test('writeSSE returning false rejects with SendFailed', async () => {
+        const send = bc.makeEnvSend('s1', () => false);
+        const e = await send({ method: 'x' }).catch(err => err);
+        expect(e).toBeInstanceOf(SdkError);
+        expect((e as SdkError).code).toBe(SdkErrorCode.SendFailed);
     });
 
-    test('closeSession rejects all pending and clears standalone writer', async () => {
+    test('closeSession rejects all pending', async () => {
         const send = bc.makeEnvSend('s1', writeSSE);
         const p1 = send({ method: 'a' }).catch(e => e);
         const p2 = send({ method: 'b' }).catch(e => e);
-        bc.setStandaloneWriter('s1', () => {});
 
         bc.closeSession('s1');
         expect((await p1).code).toBe(SdkErrorCode.ConnectionClosed);
         expect((await p2).code).toBe(SdkErrorCode.ConnectionClosed);
-        expect(bc.hasStandaloneWriter('s1')).toBe(false);
-    });
-
-    test('standalone writer set/clear/write', () => {
-        const out: JSONRPCMessage[] = [];
-        const w = (m: JSONRPCMessage) => {
-            out.push(m);
-        };
-        bc.setStandaloneWriter('s1', w);
-        expect(bc.hasStandaloneWriter('s1')).toBe(true);
-        expect(bc.writeStandalone('s1', { jsonrpc: '2.0', method: 'n' } as JSONRPCMessage)).toBe(true);
-        expect(out).toHaveLength(1);
-
-        const stale = () => {};
-        bc.clearStandaloneWriter('s1', stale);
-        expect(bc.hasStandaloneWriter('s1')).toBe(true);
-        bc.clearStandaloneWriter('s1', w);
-        expect(bc.hasStandaloneWriter('s1')).toBe(false);
-        expect(bc.writeStandalone('s1', { jsonrpc: '2.0', method: 'n' } as JSONRPCMessage)).toBe(false);
     });
 });

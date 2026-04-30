@@ -16,8 +16,7 @@ import { DEFAULT_REQUEST_TIMEOUT_MSEC, isJSONRPCErrorResponse, ProtocolError, Sd
  * `sampling/createMessage` requests to the client mid-tool-call by writing them as
  * SSE events on the open POST response stream and waiting for the client to POST
  * the response back. This class owns the per-session `{requestId -> resolver}`
- * map that correlation requires, plus the standalone-GET writer registry used for
- * unsolicited server notifications.
+ * map that correlation requires.
  *
  * It exists so this stateful behaviour is in one removable file once MRTR
  * (SEP-2322) is the protocol floor and `env.send` becomes a hard error in
@@ -25,15 +24,17 @@ import { DEFAULT_REQUEST_TIMEOUT_MSEC, isJSONRPCErrorResponse, ProtocolError, Sd
  */
 export class BackchannelCompat {
     private _pending = new Map<string, Map<number, { resolve: (r: Result) => void; reject: (e: Error) => void }>>();
-    private _standaloneWriters = new Map<string, (msg: JSONRPCMessage) => void>();
     private _nextId = 0;
 
     /**
      * Returns an `env.send` implementation bound to the given session and POST-stream writer.
      * The returned function writes the outbound JSON-RPC request to `writeSSE` and resolves when
      * {@linkcode handleResponse} is called for the same id on the same session.
+     *
+     * `writeSSE` returns `false` when the underlying stream is closed; the returned promise then
+     * rejects immediately with `SendFailed` instead of waiting for the timeout.
      */
-    makeEnvSend(sessionId: string, writeSSE: (msg: JSONRPCMessage) => void): (req: Request, opts?: RequestOptions) => Promise<Result> {
+    makeEnvSend(sessionId: string, writeSSE: (msg: JSONRPCMessage) => boolean): (req: Request, opts?: RequestOptions) => Promise<Result> {
         return (req: Request, opts?: RequestOptions): Promise<Result> => {
             return new Promise<Result>((resolve, reject) => {
                 if (opts?.signal?.aborted) {
@@ -45,18 +46,17 @@ export class BackchannelCompat {
                 const sessionMap = this._pending.get(sessionId) ?? new Map();
                 this._pending.set(sessionId, sessionMap);
 
-                const timeoutMs = opts?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-                const timer = setTimeout(() => {
-                    sessionMap.delete(id);
-                    reject(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout: timeoutMs }));
-                }, timeoutMs);
-
+                // eslint-disable-next-line prefer-const -- forward-referenced by cleanup() before assignment site
+                let timer: ReturnType<typeof setTimeout> | undefined;
                 const onAbort = () => {
+                    // Tell the client to stop processing, then reject locally.
+                    writeSSE({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } });
                     settle.reject(opts!.signal!.reason instanceof Error ? opts!.signal!.reason : new Error(String(opts!.signal!.reason)));
                 };
                 const cleanup = () => {
-                    clearTimeout(timer);
+                    if (timer !== undefined) clearTimeout(timer);
                     sessionMap.delete(id);
+                    if (sessionMap.size === 0) this._pending.delete(sessionId);
                     opts?.signal?.removeEventListener('abort', onAbort);
                 };
                 const settle = {
@@ -71,13 +71,17 @@ export class BackchannelCompat {
                 };
                 sessionMap.set(id, settle);
 
+                const timeoutMs = opts?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
+                timer = setTimeout(
+                    () => settle.reject(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout: timeoutMs })),
+                    timeoutMs
+                );
+
                 opts?.signal?.addEventListener('abort', onAbort, { once: true });
 
                 const wire: JSONRPCRequest = { jsonrpc: '2.0', id, method: req.method, params: req.params };
-                try {
-                    writeSSE(wire);
-                } catch (error) {
-                    settle.reject(error instanceof Error ? error : new Error(String(error)));
+                if (!writeSSE(wire)) {
+                    settle.reject(new SdkError(SdkErrorCode.SendFailed, 'Backchannel stream closed'));
                 }
             });
         };
@@ -100,49 +104,12 @@ export class BackchannelCompat {
         return true;
     }
 
-    /**
-     * Registers (or clears) the standalone GET subscription writer for a session, used to
-     * deliver server-initiated notifications outside any POST request.
-     */
-    setStandaloneWriter(sessionId: string, write: ((msg: JSONRPCMessage) => void) | undefined): void {
-        if (write) this._standaloneWriters.set(sessionId, write);
-        else this._standaloneWriters.delete(sessionId);
-    }
-
-    /**
-     * Clears the standalone writer only if `owner` is still the registered writer. Guards against a
-     * stale `cancel` callback (from a superseded reconnect) clearing the new stream.
-     */
-    clearStandaloneWriter(sessionId: string, owner: (msg: JSONRPCMessage) => void): void {
-        if (this._standaloneWriters.get(sessionId) === owner) this._standaloneWriters.delete(sessionId);
-    }
-
-    /** True if a standalone writer is registered for the session. */
-    hasStandaloneWriter(sessionId: string): boolean {
-        return this._standaloneWriters.has(sessionId);
-    }
-
-    /** Writes a message on the session's standalone GET stream, if one is open. */
-    writeStandalone(sessionId: string, msg: JSONRPCMessage): boolean {
-        const w = this._standaloneWriters.get(sessionId);
-        if (!w) return false;
-        try {
-            w(msg);
-            return true;
-        } catch {
-            this._standaloneWriters.delete(sessionId);
-            return false;
-        }
-    }
-
     /** Rejects all pending requests for a session and forgets it. */
     closeSession(sessionId: string): void {
         const sessionMap = this._pending.get(sessionId);
-        if (sessionMap) {
-            const err = new SdkError(SdkErrorCode.ConnectionClosed, 'Session closed');
-            for (const s of sessionMap.values()) s.reject(err);
-            this._pending.delete(sessionId);
-        }
-        this._standaloneWriters.delete(sessionId);
+        if (!sessionMap) return;
+        const err = new SdkError(SdkErrorCode.ConnectionClosed, 'Session closed');
+        for (const s of sessionMap.values()) s.reject(err);
+        this._pending.delete(sessionId);
     }
 }

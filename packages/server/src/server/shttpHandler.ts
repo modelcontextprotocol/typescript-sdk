@@ -361,13 +361,11 @@ export function shttpHandler(
                     authInfo: extra?.authInfo,
                     closeSSEStream: supportsPolling ? closeStream : undefined,
                     closeStandaloneSSEStream:
-                        // No explicit backchannel writer clear: closeStandaloneStream closes the
-                        // controller, making the registered writer inert; a reconnecting GET overwrites
-                        // it via setStandaloneWriter. An unconditional clear here could race a
-                        // freshly-registered GET writer (r0-004).
                         supportsPolling && sessionId !== undefined ? () => session?.closeStandaloneStream(sessionId) : undefined
                 };
-                const writeSSE = (msg: JSONRPCMessage) => void emit(controller, encoder, streamId, msg);
+                // Backchannel writes go straight to writeSSEEvent (synchronous boolean) so a closed
+                // stream surfaces as `false` immediately instead of hanging until the timeout.
+                const writeSSE = (msg: JSONRPCMessage): boolean => writeSSEEvent(controller, encoder, msg);
                 const env: ShttpRequestEnv = {
                     ...baseEnv,
                     _transportExtra: transportExtra,
@@ -456,18 +454,14 @@ export function shttpHandler(
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         let registeredController: ReadableStreamDefaultController<Uint8Array> | undefined;
-        let registeredWriter: ((msg: JSONRPCMessage) => void) | undefined;
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
                 registeredController = controller;
                 session.setStandaloneStream(sessionId, controller);
-                registeredWriter = (msg: JSONRPCMessage) => void emit(controller, encoder, streamId, msg);
-                backchannel?.setStandaloneWriter(sessionId, registeredWriter);
                 void writePrimingEvent(controller, encoder, streamId, clientProtocolVersion).catch(error => onerror?.(error as Error));
             },
             cancel: () => {
                 if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
-                if (registeredWriter) backchannel?.clearStandaloneWriter(sessionId, registeredWriter);
             }
         });
         return new Response(readable, { headers });
@@ -495,7 +489,6 @@ export function shttpHandler(
         const encoder = new TextEncoder();
         const headers: Record<string, string> = { ...SSE_HEADERS, 'mcp-session-id': sessionId };
         let registeredController: ReadableStreamDefaultController<Uint8Array> | undefined;
-        let registeredWriter: ((msg: JSONRPCMessage) => void) | undefined;
         let cancelled = false;
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
@@ -532,7 +525,6 @@ export function shttpHandler(
             cancel: () => {
                 cancelled = true;
                 if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
-                if (registeredWriter) backchannel?.clearStandaloneWriter(sessionId, registeredWriter);
             }
         });
         return new Response(readable, { headers });
