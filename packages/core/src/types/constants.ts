@@ -21,9 +21,15 @@ export const EVENT_NOT_FOUND = -32_011;
 export const EVENT_UNAUTHORIZED = -32_012;
 /** MCP-specific error code: Subscription limit reached. */
 export const TOO_MANY_SUBSCRIPTIONS = -32_013;
-/** MCP-specific error code: Provided cursor is no longer valid; client must resubscribe. */
+/**
+ * Reserved/unused. Gaps are signalled via `truncated: true` in poll/stream/subscribe
+ * responses (and a `gap` control envelope on webhook), not as an error.
+ * @deprecated Use `truncated` instead. Retained for SDK-internal back-compat reads.
+ */
 export const CURSOR_EXPIRED = -32_014;
 /** MCP-specific error code: Webhook callback URL was rejected by server policy. */
 export const INVALID_CALLBACK_URL = -32_015;
-/** MCP-specific error code: Subscription ID does not exist. */
+/** MCP-specific error code: No subscription matches the supplied key. */
 export const SUBSCRIPTION_NOT_FOUND = -32_016;
+/** MCP-specific error code: Event type does not support the requested delivery mode. */
+export const DELIVERY_MODE_UNSUPPORTED = -32_017;

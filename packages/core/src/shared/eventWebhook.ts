@@ -1,23 +1,43 @@
 /**
- * Utilities for MCP Events webhook delivery — HMAC signature generation/verification
- * and SSRF-resistant callback URL validation.
+ * Utilities for MCP Events webhook delivery — Standard Webhooks signature
+ * generation/verification and SSRF-resistant callback URL validation.
+ *
+ * MCP webhook delivery is a profile of
+ * [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md):
+ * `webhook-id` / `webhook-timestamp` / `webhook-signature` headers, `v1,<base64>`
+ * HMAC-SHA256 over `id.timestamp.body`, `whsec_<base64>` secrets, multi-signature
+ * rotation. Off-the-shelf Standard Webhooks verifiers (e.g. Svix) work without
+ * modification. The only MCP-specific addition is the `X-MCP-Subscription-Id`
+ * header so the receiver can select the correct secret before parsing the body.
  *
  * @module eventWebhook
  */
 
-/**
- * Header carrying the HMAC-SHA256 signature of a webhook delivery.
- */
-export const WEBHOOK_SIGNATURE_HEADER = 'X-MCP-Signature';
+import { WebhookSecretSchema } from '../types/schemas.js';
 
 /**
- * Header carrying the Unix timestamp (seconds) at which the delivery was generated.
+ * Standard Webhooks `webhook-id` header — a unique identifier for the
+ * delivery, used by receivers for deduplication. For event deliveries this is
+ * the `eventId`; for control envelopes it is `msg_<type>_<random>`.
  */
-export const WEBHOOK_TIMESTAMP_HEADER = 'X-MCP-Timestamp';
+export const WEBHOOK_ID_HEADER = 'webhook-id';
 
 /**
- * Header carrying the subscription `id` so the receiver can select the correct
- * signing secret before parsing the body.
+ * Standard Webhooks `webhook-timestamp` header — Unix timestamp (seconds) at
+ * which the delivery was generated. Each retry regenerates this.
+ */
+export const WEBHOOK_TIMESTAMP_HEADER = 'webhook-timestamp';
+
+/**
+ * Standard Webhooks `webhook-signature` header — one or more space-delimited
+ * `v1,<base64>` HMAC values during secret rotation.
+ */
+export const WEBHOOK_SIGNATURE_HEADER = 'webhook-signature';
+
+/**
+ * MCP-specific header carrying the subscription `id` so the receiver can
+ * select the correct signing secret before parsing the body. Not part of
+ * Standard Webhooks.
  */
 export const WEBHOOK_SUBSCRIPTION_ID_HEADER = 'X-MCP-Subscription-Id';
 
@@ -27,46 +47,74 @@ export const WEBHOOK_SUBSCRIPTION_ID_HEADER = 'X-MCP-Subscription-Id';
 export const DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
 
 /**
- * Generates a server-minted webhook signing secret with at least 256 bits of
- * entropy. The `whsec_` prefix matches the convention used by Stripe and the
- * Standard Webhooks spec, making the value easy to recognise in logs/config.
+ * Recommended cap on webhook body size. Servers SHOULD log and drop deliveries
+ * whose serialised body exceeds this; receivers MAY return `413` for oversized
+ * bodies, which servers treat as non-retryable.
+ */
+export const WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * Decodes the base64 (standard alphabet) bytes following the `whsec_` prefix.
+ * Throws on values that don't satisfy the Standard Webhooks symmetric secret
+ * format (`whsec_` + base64 of 24–64 bytes).
+ */
+export function decodeWebhookSecret(secret: string): Uint8Array {
+    const parsed = WebhookSecretSchema.safeParse(secret);
+    if (!parsed.success) {
+        throw new TypeError('Webhook secret must be `whsec_` followed by base64 of 24-64 bytes');
+    }
+    const encoded = secret.slice('whsec_'.length);
+    const raw = atob(encoded);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+        // eslint-disable-next-line unicorn/prefer-code-point -- atob returns Latin-1, charCodeAt is correct here
+        bytes[i] = raw.charCodeAt(i);
+    }
+    if (bytes.length < 24 || bytes.length > 64) {
+        throw new TypeError('Webhook secret must decode to 24-64 bytes');
+    }
+    return bytes;
+}
+
+/**
+ * Generates a fresh Standard Webhooks symmetric secret (`whsec_` + base64 of
+ * 32 random bytes). Client SDKs SHOULD use this to supply `delivery.secret`
+ * rather than encouraging hand-picked values.
  */
 export function generateWebhookSecret(): string {
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
-    const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
-    return `whsec_${hex}`;
+    let s = '';
+    for (const b of bytes) s += String.fromCodePoint(b);
+    return `whsec_${btoa(s)}`;
 }
 
 /**
- * Computes the HMAC-SHA256 signature for a webhook delivery body.
+ * Computes the Standard Webhooks `v1,<base64>` HMAC-SHA256 signature for a
+ * delivery.
  *
- * The signature covers `timestamp + "." + body` to prevent replay attacks —
- * a captured payload cannot be replayed after the timestamp tolerance window.
+ * The HMAC covers `webhook-id + "." + webhook-timestamp + "." + body` where
+ * `body` is the raw HTTP request body bytes exactly as sent/received. The HMAC
+ * key is the base64-decoded bytes after the `whsec_` prefix.
  *
- * @param secret - Shared secret established at subscribe time.
- * @param timestamp - Unix timestamp (seconds) at which the delivery is being generated.
+ * @param secret - The `whsec_...` secret. Validated and decoded internally.
+ * @param msgId - Value to be sent as `webhook-id` (the `eventId`, or `msg_...` for control envelopes).
+ * @param timestamp - Unix timestamp (seconds) to be sent as `webhook-timestamp`.
  * @param body - The raw JSON body string being POSTed.
- * @returns The hex-encoded HMAC-SHA256 digest, prefixed with `sha256=`.
+ * @returns A single `v1,<base64>` token suitable for the `webhook-signature` header.
  */
-export async function computeWebhookSignature(secret: string, timestamp: number, body: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    const message = encoder.encode(`${timestamp}.${body}`);
-
-    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const signature = await crypto.subtle.sign('HMAC', key, message);
-    const hex = [...new Uint8Array(signature)].map(b => b.toString(16).padStart(2, '0')).join('');
-    return `sha256=${hex}`;
+export async function computeWebhookSignature(secret: string, msgId: string, timestamp: number, body: string): Promise<string> {
+    const keyBytes = decodeWebhookSecret(secret);
+    const message = new TextEncoder().encode(`${msgId}.${timestamp}.${body}`);
+    const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, message));
+    let s = '';
+    for (const b of mac) s += String.fromCodePoint(b);
+    return `v1,${btoa(s)}`;
 }
 
-/**
- * Constant-time string comparison to prevent timing attacks on signature verification.
- */
 function timingSafeEqual(a: string, b: string): boolean {
-    if (a.length !== b.length) {
-        return false;
-    }
+    if (a.length !== b.length) return false;
     let result = 0;
     for (let i = 0; i < a.length; i++) {
         result |= (a.codePointAt(i) ?? 0) ^ (b.codePointAt(i) ?? 0);
@@ -75,45 +123,47 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Verifies a webhook delivery's HMAC signature and timestamp freshness.
+ * Verifies a Standard Webhooks delivery's HMAC signature(s) and timestamp
+ * freshness.
  *
- * @param secret - Shared secret established at subscribe time.
- * @param body - The raw request body as received (do NOT re-serialize).
- * @param signatureHeader - Value of the `X-MCP-Signature` header.
- * @param timestampHeader - Value of the `X-MCP-Timestamp` header (Unix seconds as string).
+ * The signature header MAY contain multiple space-delimited `v1,<base64>`
+ * tokens during secret rotation; the delivery is accepted if any verifies.
+ *
+ * @param secret - The `whsec_...` secret.
+ * @param body - The raw request body as received (do NOT re-serialise).
+ * @param idHeader - Value of the `webhook-id` header.
+ * @param timestampHeader - Value of the `webhook-timestamp` header.
+ * @param signatureHeader - Value of the `webhook-signature` header.
  * @param toleranceSeconds - Maximum allowed age of the delivery. Defaults to 5 minutes.
- * @returns An object describing whether the signature is valid and why.
  */
 export async function verifyWebhookSignature(
     secret: string,
     body: string,
-    signatureHeader: string | null,
+    idHeader: string | null,
     timestampHeader: string | null,
+    signatureHeader: string | null,
     toleranceSeconds: number = DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS
 ): Promise<{ valid: boolean; reason?: string }> {
-    if (!signatureHeader) {
-        return { valid: false, reason: 'Missing signature header' };
-    }
-    if (!timestampHeader) {
-        return { valid: false, reason: 'Missing timestamp header' };
-    }
+    if (!idHeader) return { valid: false, reason: 'Missing webhook-id header' };
+    if (!timestampHeader) return { valid: false, reason: 'Missing webhook-timestamp header' };
+    if (!signatureHeader) return { valid: false, reason: 'Missing webhook-signature header' };
 
     const timestamp = Number.parseInt(timestampHeader, 10);
     if (!Number.isFinite(timestamp)) {
-        return { valid: false, reason: 'Invalid timestamp header' };
+        return { valid: false, reason: 'Invalid webhook-timestamp header' };
     }
-
     const now = Math.floor(Date.now() / 1000);
     if (Math.abs(now - timestamp) > toleranceSeconds) {
         return { valid: false, reason: 'Timestamp outside tolerance window (possible replay)' };
     }
 
-    const expected = await computeWebhookSignature(secret, timestamp, body);
-    if (!timingSafeEqual(expected, signatureHeader)) {
-        return { valid: false, reason: 'Signature mismatch' };
+    const expected = await computeWebhookSignature(secret, idHeader, timestamp, body);
+    for (const candidate of signatureHeader.split(' ')) {
+        if (candidate.startsWith('v1,') && timingSafeEqual(candidate, expected)) {
+            return { valid: true };
+        }
     }
-
-    return { valid: true };
+    return { valid: false, reason: 'Signature mismatch' };
 }
 
 /**

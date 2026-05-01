@@ -39,12 +39,15 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 export type { WebhookUrlValidationOptions } from '../../shared/eventWebhook.js';
 export {
     computeWebhookSignature,
+    decodeWebhookSecret,
     DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS,
     generateWebhookSecret,
     isPrivateAddress,
     isSafeWebhookUrl,
     normaliseHostname,
     verifyWebhookSignature,
+    WEBHOOK_ID_HEADER,
+    WEBHOOK_MAX_BODY_BYTES,
     WEBHOOK_SIGNATURE_HEADER,
     WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
@@ -99,6 +102,7 @@ export * from '../../types/types.js';
 export {
     CURSOR_EXPIRED,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    DELIVERY_MODE_UNSUPPORTED,
     EVENT_NOT_FOUND,
     EVENT_UNAUTHORIZED,
     INTERNAL_ERROR,
@@ -125,11 +129,13 @@ export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.j
 export {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
+    isJSONRPCResponse,
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
     parseJSONRPCMessage

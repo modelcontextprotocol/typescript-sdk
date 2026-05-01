@@ -54,9 +54,9 @@ import type {
     EventListChangedNotificationSchema,
     EventNotificationParamsSchema,
     EventNotificationSchema,
+    EventHeartbeatNotificationParamsSchema,
     EventOccurrenceSchema,
     EventSubscriptionErrorSchema,
-    EventSubscriptionSpecSchema,
     EventTerminatedNotificationParamsSchema,
     EventTerminatedNotificationSchema,
     GetPromptRequestParamsSchema,
@@ -110,7 +110,6 @@ import type {
     PingRequestSchema,
     PollEventsRequestParamsSchema,
     PollEventsRequestSchema,
-    PollEventsResultEntrySchema,
     PollEventsResultSchema,
     PrimitiveSchemaDefinitionSchema,
     ProgressNotificationParamsSchema,
@@ -180,12 +179,15 @@ import type {
     ToolUseContentSchema,
     UnsubscribeEventRequestParamsSchema,
     UnsubscribeEventRequestSchema,
+    WebhookControlEnvelopeSchema,
     UnsubscribeRequestParamsSchema,
     UnsubscribeRequestSchema,
     UntitledMultiSelectEnumSchemaSchema,
     UntitledSingleSelectEnumSchemaSchema,
     WebhookDeliverySpecSchema,
-    WebhookDeliveryStatusSchema
+    WebhookDeliveryStatusSchema,
+    WebhookLastErrorSchema,
+    WebhookSecretSchema
 } from './schemas.js';
 
 /* JSON types */
@@ -396,19 +398,19 @@ export type RootsListChangedNotification = Infer<typeof RootsListChangedNotifica
 export type EventDeliveryMode = Infer<typeof EventDeliveryModeSchema>;
 export type EventDescriptor = Infer<typeof EventDescriptorSchema>;
 export type EventOccurrence = Infer<typeof EventOccurrenceSchema>;
-export type EventSubscriptionSpec = Infer<typeof EventSubscriptionSpecSchema>;
 export type EventSubscriptionError = Infer<typeof EventSubscriptionErrorSchema>;
 export type ListEventsRequest = Infer<typeof ListEventsRequestSchema>;
 export type ListEventsResult = Infer<typeof ListEventsResultSchema>;
 export type PollEventsRequestParams = Infer<typeof PollEventsRequestParamsSchema>;
 export type PollEventsRequest = Infer<typeof PollEventsRequestSchema>;
-export type PollEventsResultEntry = Infer<typeof PollEventsResultEntrySchema>;
 export type PollEventsResult = Infer<typeof PollEventsResultSchema>;
 export type StreamEventsRequestParams = Infer<typeof StreamEventsRequestParamsSchema>;
 export type StreamEventsRequest = Infer<typeof StreamEventsRequestSchema>;
+export type WebhookSecret = Infer<typeof WebhookSecretSchema>;
 export type WebhookDeliverySpec = Infer<typeof WebhookDeliverySpecSchema>;
 export type SubscribeEventRequestParams = Infer<typeof SubscribeEventRequestParamsSchema>;
 export type SubscribeEventRequest = Infer<typeof SubscribeEventRequestSchema>;
+export type WebhookLastError = Infer<typeof WebhookLastErrorSchema>;
 export type WebhookDeliveryStatus = Infer<typeof WebhookDeliveryStatusSchema>;
 export type SubscribeEventResult = Infer<typeof SubscribeEventResultSchema>;
 export type UnsubscribeEventRequestParams = Infer<typeof UnsubscribeEventRequestParamsSchema>;
@@ -422,7 +424,9 @@ export type EventErrorNotificationParams = Infer<typeof EventErrorNotificationPa
 export type EventErrorNotification = Infer<typeof EventErrorNotificationSchema>;
 export type EventTerminatedNotificationParams = Infer<typeof EventTerminatedNotificationParamsSchema>;
 export type EventTerminatedNotification = Infer<typeof EventTerminatedNotificationSchema>;
+export type EventHeartbeatNotificationParams = Infer<typeof EventHeartbeatNotificationParamsSchema>;
 export type EventHeartbeatNotification = Infer<typeof EventHeartbeatNotificationSchema>;
+export type WebhookControlEnvelope = Infer<typeof WebhookControlEnvelopeSchema>;
 
 /* Client messages */
 export type ClientRequest = Infer<typeof ClientRequestSchema>;

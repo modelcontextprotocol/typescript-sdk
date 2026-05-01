@@ -18,7 +18,9 @@ export enum ProtocolErrorCode {
     EventNotFound = -32_011,
     EventUnauthorized = -32_012,
     TooManySubscriptions = -32_013,
+    /** Reserved/unused — gaps are signalled via `truncated: true`, not an error. */
     CursorExpired = -32_014,
     InvalidCallbackUrl = -32_015,
-    SubscriptionNotFound = -32_016
+    SubscriptionNotFound = -32_016,
+    DeliveryModeUnsupported = -32_017
 }
