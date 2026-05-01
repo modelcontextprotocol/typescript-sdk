@@ -148,8 +148,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Registers a {@linkcode DispatchMiddleware} around the inbound request path.
-     * Registration order is outer-to-inner. The tasks middleware is registered first
-     * at construction, so it is the outermost wrapper around any user middleware.
+     * Registration order is outer-to-inner: the first `use()` call wraps all later ones.
      */
     use(mw: DispatchMiddleware): this {
         this._dispatcher.use(mw);
