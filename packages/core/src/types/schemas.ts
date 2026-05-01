@@ -2386,14 +2386,7 @@ export const SubscribeEventRequestSchema = RequestSchema.extend({
  * Category of the most recent webhook delivery failure. The server MUST NOT
  * include raw response bodies, headers, or status lines from the endpoint.
  */
-export const WebhookLastErrorSchema = z.enum([
-    'connection_refused',
-    'timeout',
-    'tls_error',
-    'http_4xx',
-    'http_5xx',
-    'challenge_failed'
-]);
+export const WebhookLastErrorSchema = z.enum(['connection_refused', 'timeout', 'tls_error', 'http_4xx', 'http_5xx', 'challenge_failed']);
 
 /**
  * Delivery health information for a webhook subscription.
