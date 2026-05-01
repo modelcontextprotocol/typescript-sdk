@@ -393,7 +393,7 @@ export class ClientEventManager {
             if (result.truncated) sub.truncated = true;
             state.attempts = 0;
             const nextSeconds = result.nextPollSeconds ?? this._options.defaultPollIntervalSeconds ?? DEFAULT_POLL_SECONDS;
-            this._schedulePoll(state, result.hasMore ? 0 : Math.max(1, nextSeconds) * 1000);
+            this._schedulePoll(state, result.hasMore ? 0 : nextSeconds * 1000);
         } catch (error) {
             state.attempts++;
             if (state.attempts >= this._retry.maxAttempts) {

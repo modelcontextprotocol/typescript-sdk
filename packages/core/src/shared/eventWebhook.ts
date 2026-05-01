@@ -13,8 +13,6 @@
  * @module eventWebhook
  */
 
-import { WebhookSecretSchema } from '../types/schemas.js';
-
 /**
  * Standard Webhooks `webhook-id` header — a unique identifier for the
  * delivery, used by receivers for deduplication. For event deliveries this is
@@ -59,8 +57,7 @@ export const WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
  * format (`whsec_` + base64 of 24–64 bytes).
  */
 export function decodeWebhookSecret(secret: string): Uint8Array {
-    const parsed = WebhookSecretSchema.safeParse(secret);
-    if (!parsed.success) {
+    if (!/^whsec_[A-Za-z0-9+/]{32,86}={0,2}$/.test(secret)) {
         throw new TypeError('Webhook secret must be `whsec_` followed by base64 of 24-64 bytes');
     }
     const encoded = secret.slice('whsec_'.length);

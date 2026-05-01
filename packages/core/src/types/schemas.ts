@@ -2317,10 +2317,11 @@ export const StreamEventsRequestSchema = RequestSchema.extend({
 
 /**
  * Standard Webhooks symmetric secret format: `whsec_` followed by base64
- * (standard alphabet, optional padding) of 24–64 random bytes — i.e. 32–88
- * encoded characters.
+ * (standard alphabet, optional padding) of 24–64 random bytes. Validated
+ * server-side via {@linkcode decodeWebhookSecret} so the rejection surfaces
+ * as `InvalidParams` rather than a generic schema error.
  */
-export const WebhookSecretSchema = z.string().regex(/^whsec_[A-Za-z0-9+/]{32,86}={0,2}$/);
+export const WebhookSecretSchema = z.string();
 
 /**
  * Webhook delivery configuration for an `events/subscribe` request.

@@ -1058,9 +1058,10 @@ export class ServerEventManager {
             return;
         }
 
-        // Replay first; each delivery advances cursor naturally.
+        // Replay first; each delivery advances cursor naturally. When truncated,
+        // the supplied cursor is invalid and we reset to head.
         for (const occ of replay.events) this._deliverToPush(stream, occ);
-        stream.sub.cursor = stream.sub.cursor ?? replay.headCursor;
+        if (replay.truncated || stream.sub.cursor === null) stream.sub.cursor = replay.headCursor;
         this._sendActiveNotification(stream, stream.sub.cursor, replay.truncated);
 
         // Initial check tick + ongoing poll loop.
@@ -1156,8 +1157,11 @@ export class ServerEventManager {
             throw new ProtocolError(INVALID_CALLBACK_URL, urlCheck.reason ?? 'Callback URL rejected');
         }
 
-        // Validates format and decodability — throws on bad secrets.
-        decodeWebhookSecret(params.delivery.secret);
+        try {
+            decodeWebhookSecret(params.delivery.secret);
+        } catch (error) {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, (error as Error).message);
+        }
 
         const { key, id } = await this._subscriptionKey(ctx, params.delivery.url, params.name, paramsResult.params);
         const existing = this._webhookSubs.get(key);
