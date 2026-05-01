@@ -230,9 +230,10 @@ export function shttpHandler(
             raw = extra.parsedBody;
         }
 
+        const isBatch = Array.isArray(raw);
         let messages: JSONRPCMessage[];
         try {
-            messages = Array.isArray(raw) ? raw.map(m => JSONRPCMessageSchema.parse(m)) : [JSONRPCMessageSchema.parse(raw)];
+            messages = isBatch ? (raw as unknown[]).map(m => JSONRPCMessageSchema.parse(m)) : [JSONRPCMessageSchema.parse(raw)];
         } catch (error) {
             onerror?.(error as Error);
             return jsonError(400, -32_700, 'Parse error: Invalid JSON-RPC message');
@@ -322,7 +323,8 @@ export function shttpHandler(
             const out = perReq.flat();
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (sessionId !== undefined) headers['mcp-session-id'] = sessionId;
-            const body = out.length === 1 ? out[0] : out;
+            // JSON-RPC 2.0: batch input MUST yield an array response, even if it has one entry.
+            const body = !isBatch && out.length === 1 ? out[0] : out;
             return Response.json(body, { status: 200, headers });
         }
 
@@ -366,14 +368,15 @@ export function shttpHandler(
                                     }
                                 } catch (error) {
                                     onerror?.(error as Error);
-                                } finally {
-                                    if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
                                 }
                             })
                         );
                     } catch (error) {
                         onerror?.(error as Error);
                     } finally {
+                        for (const [key, ctrl] of ctrls) {
+                            if (inflightAborts.get(key) === ctrl) inflightAborts.delete(key);
+                        }
                         try {
                             controller.close();
                         } catch {
@@ -477,21 +480,21 @@ export function shttpHandler(
                     session.addStreamId(sessionId, eventStreamId);
                 }
                 void (async () => {
+                    let failed = false;
                     try {
                         await eventStore.replayEventsAfter(lastEventId, {
                             send: async (eventId: EventId, message: JSONRPCMessage) => {
-                                writeSSEEvent(controller, encoder, message, eventId);
+                                if (!writeSSEEvent(controller, encoder, message, eventId)) {
+                                    throw new Error('Replay write failed: client disconnected');
+                                }
                             }
                         });
-                        if (!isStandaloneReplay || cancelled) {
-                            try {
-                                controller.close();
-                            } catch {
-                                // Already closed.
-                            }
-                        }
                     } catch (error) {
+                        failed = true;
                         onerror?.(error as Error);
+                    }
+                    if (failed || !isStandaloneReplay || cancelled) {
+                        if (registeredController) session.clearStandaloneStream(sessionId, registeredController);
                         try {
                             controller.close();
                         } catch {

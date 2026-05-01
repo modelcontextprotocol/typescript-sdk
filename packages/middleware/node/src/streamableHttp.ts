@@ -26,6 +26,10 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * `(IncomingMessage, ServerResponse) => void` handler suitable for express,
  * `http.createServer`, etc.
  *
+ * The third parameter is express's `next` (called on error) when used as middleware.
+ * Auth info is read from `req.auth`; a pre-parsed body is read from `req.body`
+ * (e.g. when `express.json()` ran before this handler).
+ *
  * ```ts
  * import { handleHttp } from '@modelcontextprotocol/server';
  * import { toNodeHttpHandler } from '@modelcontextprotocol/node';
@@ -35,8 +39,10 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  */
 export function toNodeHttpHandler(
     handler: (req: Request, extra?: { authInfo?: AuthInfo; parsedBody?: unknown }) => Response | Promise<Response>
-): (req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown) => Promise<void> {
-    return async (req, res, parsedBody) => {
+): (req: IncomingMessage & { auth?: AuthInfo; body?: unknown }, res: ServerResponse, next?: (err?: unknown) => void) => Promise<void> {
+    return async (req, res, _next) => {
+        void _next;
+        const parsedBody = req.body;
         const extra = req.auth !== undefined || parsedBody !== undefined ? { authInfo: req.auth, parsedBody } : undefined;
         const listener = getRequestListener(webReq => handler(webReq, extra), { overrideGlobalObjects: false });
         await listener(req, res);

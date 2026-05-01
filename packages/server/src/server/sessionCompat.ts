@@ -103,7 +103,7 @@ export class SessionCompat {
     private readonly _idleTtlMs: number;
     private readonly _retryAfterSeconds: number;
     private readonly _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
-    private readonly _onsessionclosed?: (sessionId: string) => void | Promise<void>;
+    private readonly _closeListeners: Array<(sessionId: string) => void | Promise<void>> = [];
     private readonly _singleSession: boolean;
     private readonly _onerror?: (error: Error) => void;
 
@@ -113,9 +113,18 @@ export class SessionCompat {
         this._idleTtlMs = options.idleTtlMs ?? 30 * 60_000;
         this._retryAfterSeconds = options.retryAfterSeconds ?? 30;
         this._onsessioninitialized = options.onsessioninitialized;
-        this._onsessionclosed = options.onsessionclosed;
+        if (options.onsessionclosed) this._closeListeners.push(options.onsessionclosed);
         this._singleSession = options.singleSession ?? false;
         this._onerror = options.onerror;
+    }
+
+    /**
+     * Registers an additional listener fired when a session is deleted or evicted. Used by
+     * `shttpHandler` to wire `BackchannelCompat.closeSession` so pending server-to-client
+     * sends are rejected on idle/capacity eviction (not only on explicit DELETE).
+     */
+    addCloseListener(listener: (sessionId: string) => void | Promise<void>): void {
+        this._closeListeners.push(listener);
     }
 
     /**
@@ -135,6 +144,7 @@ export class SessionCompat {
                     response: jsonError(400, -32_600, 'Invalid Request: Only one initialization request is allowed')
                 };
             }
+            this._evictIdle();
             if (this._singleSession && this._sessions.size > 0) {
                 this._onerror?.(new Error('Invalid Request: Server already initialized'));
                 return {
@@ -142,7 +152,6 @@ export class SessionCompat {
                     response: jsonError(400, -32_600, 'Invalid Request: Server already initialized')
                 };
             }
-            this._evictIdle();
             if (this._sessions.size >= this._maxSessions) {
                 this._evictOldest();
             }
@@ -215,7 +224,7 @@ export class SessionCompat {
             // Already closed.
         }
         this._sessions.delete(sessionId);
-        await Promise.resolve(this._onsessionclosed?.(sessionId));
+        for (const cb of this._closeListeners) await Promise.resolve(cb(sessionId));
     }
 
     /** Protocol version the client requested in `initialize` for this session, if known. */
@@ -314,7 +323,7 @@ export class SessionCompat {
             // Already closed.
         }
         this._sessions.delete(id);
-        void Promise.resolve(this._onsessionclosed?.(id));
+        for (const cb of this._closeListeners) void Promise.resolve(cb(id));
     }
 
     private _evictIdle(): void {
