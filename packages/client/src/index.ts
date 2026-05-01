@@ -34,7 +34,8 @@ export {
     selectClientAuthMethod,
     selectResourceURL,
     startAuthorization,
-    UnauthorizedError
+    UnauthorizedError,
+    validateClientMetadataUrl
 } from './client/auth.js';
 export type {
     AssertionCallback,

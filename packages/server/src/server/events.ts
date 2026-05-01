@@ -4,24 +4,30 @@ import type {
     EventDescriptor,
     EventOccurrence,
     EventSubscriptionError,
-    EventSubscriptionSpec,
     FetchLike,
     ListEventsResult,
+    PollEventsRequestParams,
     PollEventsResult,
-    PollEventsResultEntry,
+    RequestId,
     SchemaOutput,
     ServerContext,
     StandardJSONSchemaV1,
+    StreamEventsRequestParams,
+    SubscribeEventRequestParams,
     SubscribeEventResult,
+    UnsubscribeEventRequestParams,
+    WebhookControlEnvelope,
     WebhookDeliveryStatus,
+    WebhookLastError,
     WebhookUrlValidationOptions
 } from '@modelcontextprotocol/core';
 import {
     computeWebhookSignature,
     CURSOR_EXPIRED,
+    decodeWebhookSecret,
+    DELIVERY_MODE_UNSUPPORTED,
     EVENT_NOT_FOUND,
     EVENT_UNAUTHORIZED,
-    generateWebhookSecret,
     INVALID_CALLBACK_URL,
     isPrivateAddress,
     isSafeWebhookUrl,
@@ -32,6 +38,8 @@ import {
     standardSchemaToJsonSchema,
     SUBSCRIPTION_NOT_FOUND,
     TOO_MANY_SUBSCRIPTIONS,
+    WEBHOOK_ID_HEADER,
+    WEBHOOK_MAX_BODY_BYTES,
     WEBHOOK_SIGNATURE_HEADER,
     WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
@@ -63,40 +71,43 @@ export interface EventCheckResult {
      *
      * Per-event `cursor` is optional: when present, the SDK uses the application's
      * cursor verbatim; when absent, the SDK auto-assigns a per-event-name sequence
-     * cursor. Either way, every event ends up with a unique opaque cursor on the
-     * wire.
+     * cursor.
      */
     events: (Omit<EventOccurrence, 'eventId' | 'timestamp' | 'cursor'> & { cursor?: string; eventId?: string })[];
     /**
      * The new cursor representing the position after these events. The SDK
      * stores this internally per subscription and passes it back on the next
-     * check call. Never exposed to clients.
+     * check call. Never exposed to clients. `null` for non-replayable types.
      */
-    cursor: string;
+    cursor: string | null;
+    /**
+     * `true` if the supplied `cursor` fell outside upstream's retention window
+     * and check() reset to a position it can serve from. The SDK signals this
+     * via `truncated: true` on the wire. Prefer this over throwing
+     * `CURSOR_EXPIRED`; throwing is still supported for back-compat and is
+     * mapped to the same `truncated` outcome.
+     */
+    truncated?: boolean;
     /**
      * If `true`, more events are available and the SDK SHOULD invoke check()
      * again immediately without waiting for `nextPollSeconds`.
      */
     hasMore?: boolean;
     /**
-     * Recommended seconds until the next check call. Allows the application to
-     * dynamically adjust polling frequency.
+     * Recommended seconds until the next check call.
      */
     nextPollSeconds?: number;
 }
 
 /**
- * The single "check for changes since cursor" function that backs all three
- * delivery modes (poll, push, webhook).
+ * The "check for changes since cursor" function that backs poll, push, and
+ * webhook delivery.
  *
  * @param params - Subscription parameters, validated against the event's `inputSchema`.
  * @param cursor - Resume position. `null` means bootstrap: return an empty `events`
  *   array and a fresh cursor representing "now".
  * @param ctx - Server context (session, auth, etc.).
  * @returns Events that occurred since `cursor`, plus the new cursor.
- * @throws `ProtocolError` with code {@linkcode CURSOR_EXPIRED} if the
- *   cursor is no longer valid. The SDK translates this into a per-subscription
- *   error and the client re-subscribes with `cursor: null`.
  */
 export type EventCheckCallback<Params = Record<string, unknown>> = (
     params: Params,
@@ -110,26 +121,18 @@ export type EventCheckCallback<Params = Record<string, unknown>> = (
  */
 export interface EventSubscriptionHooks<Params = Record<string, unknown>> {
     /**
-     * Called when a subscription with a given ID becomes active (first poll with
-     * a null cursor, inclusion in a push stream, or `events/subscribe`).
+     * Called when a subscription becomes active (first poll for a given
+     * `(principal, name, params)`, an `events/stream` request, or a fresh
+     * `events/subscribe`).
      */
     onSubscribe?: (subscriptionId: string, params: Params, ctx: ServerContext) => void | Promise<void>;
     /**
      * Called when a subscription is torn down (push stream closed, webhook
-     * unsubscribe/expiry, or first poll with a null cursor after a previous
-     * active subscription with the same ID is replaced).
+     * unsubscribe/expiry, or poll-state eviction).
      */
     onUnsubscribe?: (subscriptionId: string, params: Params, ctx: ServerContext) => void | Promise<void>;
 }
 
-/**
- * Optional filter applied when {@linkcode ServerEventManager.emit} is called in
- * broadcast mode. Determines whether an emitted event matches a given
- * subscription's params.
- *
- * If omitted, broadcast emits are delivered to all active subscriptions of the
- * event type (no filtering).
- */
 /**
  * Per-subscription delivery filter for broadcast emits.
  *
@@ -176,15 +179,11 @@ export interface EventConfig<InputArgs extends AnySchema | undefined = undefined
      */
     description?: string;
     /**
-     * Zod schema for subscription parameters. Converted to JSON Schema and
-     * exposed via `events/list` as `inputSchema`. Incoming params are validated
-     * against this before the check callback is invoked.
+     * Zod schema for subscription parameters.
      */
     inputSchema?: InputArgs;
     /**
-     * Zod schema for the event payload (`data` field). Converted to JSON Schema
-     * and exposed via `events/list` as `payloadSchema`. Not runtime-enforced —
-     * purely advisory for clients.
+     * Zod schema for the event payload (`data` field). Advisory only.
      */
     payloadSchema?: AnySchema;
     /**
@@ -198,19 +197,18 @@ export interface EventConfig<InputArgs extends AnySchema | undefined = undefined
     matches?: InputArgs extends AnySchema ? EventMatchCallback<SchemaOutput<InputArgs>> : EventMatchCallback;
     /**
      * Per-subscription payload transform applied after {@linkcode matches}
-     * accepts the event. Lets the author redact, expand, or reshape `data` for
-     * a specific subscriber based on their params. If omitted, the event is
-     * delivered as emitted.
+     * accepts the event.
      */
     transform?: InputArgs extends AnySchema ? EventTransformCallback<SchemaOutput<InputArgs>> : EventTransformCallback;
     /**
-     * Bounded in-memory event log retained per event-name. Holds every
-     * occurrence — emits and check-derived events — so that subscribers can
-     * resume from any prior cursor and so that all delivery modes share a
-     * single source of truth.
-     *
-     * Always on; supply this only to override the default capacity. The
-     * `matches` callback still filters at delivery and replay time.
+     * Declares this event type as emit-only — the upstream is push-only with
+     * no cursor-addressable change feed. The check function is omitted; poll is
+     * served from the SDK's ring buffer of recent emits, and `cursor: null` is
+     * returned for non-replayable behaviour when the buffer is unavailable.
+     */
+    emitOnly?: boolean;
+    /**
+     * Bounded in-memory event log retained per event-name.
      */
     buffer?: {
         /**
@@ -219,10 +217,6 @@ export interface EventConfig<InputArgs extends AnySchema | undefined = undefined
          */
         capacity?: number;
     };
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on `_meta` usage.
-     */
     _meta?: Record<string, unknown>;
 }
 
@@ -245,9 +239,8 @@ export interface RegisteredEvent {
  */
 export interface EventWebhookOptions {
     /**
-     * TTL (milliseconds) applied to webhook subscriptions. Subscriptions expire
-     * if not refreshed before this interval elapses. If unset, webhook mode is
-     * disabled entirely.
+     * TTL (milliseconds) applied to webhook subscriptions. If unset, webhook
+     * mode is disabled entirely.
      */
     ttlMs?: number;
     /**
@@ -266,24 +259,19 @@ export interface EventWebhookOptions {
     initialRetryDelayMs?: number;
     /**
      * Optional override for the HTTP client used to POST webhook deliveries.
-     * Useful for testing. Defaults to the global `fetch`.
      */
     fetch?: FetchLike;
     /**
      * DNS resolver invoked **on every delivery** to validate the callback host's
      * resolved address against private/loopback ranges (DNS-rebinding mitigation).
-     * Defaults to `node:dns/promises` `lookup(hostname, {all: true})`. Override
-     * for testing or to supply a caching resolver.
      */
     resolveHost?: HostResolver;
     /**
      * Extracts the caller's canonical principal identifier from the request
-     * context (e.g., OAuth `sub`, API key ID). If this returns a non-empty
-     * string, subscriptions are keyed by `(principal, delivery.url, id)`.
-     * If it returns `undefined`, the server falls back to `(delivery.url, id)`
-     * scoping.
-     *
-     * Defaults to `ctx.http?.authInfo?.clientId`.
+     * context (e.g., OAuth `sub`, API key ID). `events/subscribe` and
+     * `events/unsubscribe` MUST be called with an authenticated principal —
+     * the server rejects with `-32012 Unauthorized` if this returns
+     * `undefined`. Defaults to `ctx.http?.authInfo?.clientId`.
      */
     getPrincipal?: (ctx: ServerContext) => string | undefined;
 }
@@ -293,17 +281,13 @@ export interface EventWebhookOptions {
  */
 export interface EventPushOptions {
     /**
-     * If `true`, the SDK runs an internal polling loop per push subscription,
-     * calling the check callback at the event's recommended interval and pushing
-     * any results. If `false`, only {@linkcode ServerEventManager.emit | emit()}
-     * drives push delivery — the server author is responsible for emitting.
-     *
+     * If `true`, the SDK runs an internal polling loop per push subscription.
+     * If `false`, only {@linkcode ServerEventManager.emit | emit()} drives push.
      * Defaults to `true`.
      */
     pollDriven?: boolean;
     /**
-     * Interval (milliseconds) between heartbeat notifications on a push stream.
-     * Defaults to 30000ms (30 seconds).
+     * Interval (milliseconds) between heartbeat notifications. Defaults to 30s.
      */
     heartbeatIntervalMs?: number;
 }
@@ -313,14 +297,7 @@ export interface EventPushOptions {
  */
 export interface ServerEventManagerOptions {
     /**
-     * Maximum number of subscriptions per `events/poll` or `events/stream` request.
-     * Rejects with {@linkcode TOO_MANY_SUBSCRIPTIONS} if exceeded.
-     * Defaults to 100.
-     */
-    maxSubscriptionsPerRequest?: number;
-    /**
      * Maximum number of webhook subscriptions held concurrently.
-     * Rejects with {@linkcode TOO_MANY_SUBSCRIPTIONS} if exceeded.
      * Defaults to 1000.
      */
     maxWebhookSubscriptions?: number;
@@ -335,26 +312,19 @@ export interface ServerEventManagerOptions {
 }
 
 interface LogEntry {
-    /** Insertion order, internal-only. Never exposed on the wire. */
     seq: number;
-    /** Application-defined or SDK-auto-assigned cursor. Unique per event-name. */
     cursor: string;
+    /** ms since epoch — used for `maxAge` floor evaluation. */
+    at: number;
     occurrence: EventOccurrence;
 }
 
 interface EventLog {
     capacity: number;
     entries: LogEntry[];
-    /** Cursor → seq lookup for O(1) resume. */
     cursorMap: Map<string, number>;
     nextSeq: number;
-    /** Per-event-name counter for SDK-auto-assigned cursors when the app omits one. */
     autoCursorCounter: number;
-    /**
-     * FIFO of check-derived cursors that were entered into `cursorMap` (pointing
-     * at the log head at mint time) so push/webhook clients can resume from
-     * them. Evicted oldest-first at the same `capacity` to bound memory.
-     */
     checkCursorQueue: string[];
 }
 
@@ -366,6 +336,7 @@ interface InternalRegisteredEvent {
     hooks?: EventSubscriptionHooks;
     matches?: EventMatchCallback;
     transform?: EventTransformCallback;
+    emitOnly: boolean;
     log: EventLog;
     _meta?: Record<string, unknown>;
     check: EventCheckCallback;
@@ -373,54 +344,80 @@ interface InternalRegisteredEvent {
 }
 
 interface ActiveSubscription {
+    /** Derived routing handle (push: `req:<requestId>`; webhook: `sub_<hex>`). */
     id: string;
     eventName: string;
     params: Record<string, unknown>;
-    /** Last delivered cursor — what the client sees and resumes from. */
+    /** Last delivered/advanced cursor — what the client sees and resumes from. */
     cursor: string | null;
     /** Internal cursor passed back to check() — never exposed. */
     internalCheckCursor: string | null;
     ctx: ServerContext;
 }
 
+/** A push stream is one `events/stream` request — exactly one subscription. */
 interface PushStream {
-    subscriptions: Map<string, ActiveSubscription>;
-    ctx: ServerContext;
-    pollTimers: Map<string, ReturnType<typeof setTimeout>>;
+    requestId: RequestId;
+    sub: ActiveSubscription;
+    pollTimer?: ReturnType<typeof setTimeout>;
     heartbeatTimer?: ReturnType<typeof setInterval>;
     closed: boolean;
     resolve: () => void;
 }
 
 interface WebhookSubscription extends ActiveSubscription {
-    /** The compound key this subscription is stored under in `_webhookSubs`. */
     key: string;
-    /** True when keyed by principal; false when keyed by delivery URL. */
-    principalScoped: boolean;
     url: string;
-    secret: string;
+    /**
+     * Secrets for HMAC signing. Newest first; up to two retained so the server
+     * can dual-sign during rotation. Populated entirely from client-supplied
+     * `delivery.secret` values across refreshes.
+     */
+    secrets: string[];
+    /** Log seq at or before which all deliveries are acked or abandoned. */
+    acknowledgedSeq: number;
     expiresAt: number;
     deliveryStatus: WebhookDeliveryStatus;
     pollTimer?: ReturnType<typeof setTimeout>;
 }
 
+interface PollLease {
+    /** Derived id passed to lifecycle hooks. */
+    id: string;
+    checkCursor: string | null;
+    lastSeenSeq: number;
+    lastReturnedCursor?: string;
+    params: Record<string, unknown>;
+}
+
 const DEFAULT_POLL_SECONDS = 30;
 const DEFAULT_HEARTBEAT_MS = 30_000;
-const DEFAULT_MAX_SUBS_PER_REQUEST = 100;
 const DEFAULT_MAX_WEBHOOK_SUBS = 1000;
 const DEFAULT_MAX_EVENTS = 100;
 const DEFAULT_BUFFER_CAPACITY = 1000;
-/** Spec floor for subscription-id entropy — approximates 122 bits when base64/hex encoded. */
-const MIN_SUBSCRIPTION_ID_LENGTH = 16;
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} };
 
-function shallowEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-    const aKeys = Object.keys(a);
-    const bKeys = Object.keys(b);
-    if (aKeys.length !== bKeys.length) return false;
-    for (const k of aKeys) if (a[k] !== b[k]) return false;
-    return true;
+const EMIT_ONLY_CHECK: EventCheckCallback = () => ({ events: [], cursor: null, nextPollSeconds: DEFAULT_POLL_SECONDS });
+
+/**
+ * Stable JSON serialisation — sorts object keys recursively so two
+ * semantically-identical params produce the same hash regardless of insertion
+ * order.
+ */
+function canonicalJson(value: unknown): string {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(v => canonicalJson(v)).join(',')}]`;
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
+}
+
+async function sha256Hex(input: string): Promise<string> {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)));
+    let hex = '';
+    for (const b of digest) hex += b.toString(16).padStart(2, '0');
+    return hex;
 }
 
 /**
@@ -440,21 +437,13 @@ export class ServerEventManager {
     private _handlersInitialized = false;
     private _eventCounter = 0;
     /**
-     * Per-poll-subscription state, keyed by
-     * `${principal-or-anon}\0${eventName}\0${sub.id}`. Tracks both:
-     *
-     * - `checkCursor`: where check() should resume on the next poll
-     * - `lastSeenSeq`: highest log seq this client has been delivered (or
-     *   acknowledged as "head" via bootstrap). Used when the client passes
-     *   `cursor: null` on a follow-up poll so they keep getting incremental
-     *   batches without replaying.
-     *
-     * Capped via simple FIFO eviction to bound memory.
+     * Per-poll-subscription lease state, keyed by
+     * `(principal-or-anon, name, canonicalHash(params))`. Drives `onSubscribe`
+     * for poll mode and lets follow-up polls resume incrementally.
      */
-    private _pollState = new Map<string, { checkCursor: string | null; lastSeenSeq: number; lastReturnedCursor?: string }>();
-    private static readonly _MAX_POLL_STATE = 10_000;
+    private _pollLeases = new Map<string, PollLease>();
+    private static readonly _MAX_POLL_LEASES = 10_000;
 
-    private readonly _maxSubsPerRequest: number;
     private readonly _maxWebhookSubs: number;
     private readonly _pushOptions: Required<EventPushOptions>;
     private readonly _webhookOptions?: EventWebhookOptions;
@@ -466,7 +455,6 @@ export class ServerEventManager {
         private readonly _server: Server,
         options: ServerEventManagerOptions = {}
     ) {
-        this._maxSubsPerRequest = options.maxSubscriptionsPerRequest ?? DEFAULT_MAX_SUBS_PER_REQUEST;
         this._maxWebhookSubs = options.maxWebhookSubscriptions ?? DEFAULT_MAX_WEBHOOK_SUBS;
         this._pushOptions = {
             pollDriven: options.push?.pollDriven ?? true,
@@ -479,18 +467,23 @@ export class ServerEventManager {
     }
 
     /**
-     * Computes the compound subscription key used to store/look up webhook
-     * subscriptions. `(principal, delivery.url, id)` when a principal is present,
-     * otherwise `(delivery.url, id)`. `delivery.url` is part of the key in both
-     * scopes and is therefore immutable for a subscription's lifetime — to change
-     * endpoint, unsubscribe then resubscribe.
+     * Computes the compound subscription key `(principal, url, name, params)`
+     * and the deterministic routing `id` derived from it. Webhook subscribe and
+     * unsubscribe MUST be authenticated; throws `-32012 Unauthorized` otherwise.
      */
-    private _subscriptionKey(ctx: ServerContext, id: string, url: string): { key: string; principalScoped: boolean } {
+    private async _subscriptionKey(
+        ctx: ServerContext,
+        url: string,
+        name: string,
+        params: Record<string, unknown>
+    ): Promise<{ key: string; id: string }> {
         const principal = this._getPrincipal(ctx);
-        if (principal) {
-            return { key: `p:${principal}\0${url}\0${id}`, principalScoped: true };
+        if (!principal) {
+            throw new ProtocolError(EVENT_UNAUTHORIZED, 'events/subscribe requires an authenticated principal');
         }
-        return { key: `u:${url}\0${id}`, principalScoped: false };
+        const key = `${principal}\0${url}\0${name}\0${canonicalJson(params)}`;
+        const id = `sub_${(await sha256Hex(key)).slice(0, 16)}`;
+        return { key, id };
     }
 
     /**
@@ -499,10 +492,13 @@ export class ServerEventManager {
     register<InputArgs extends AnySchema | undefined>(
         name: string,
         config: EventConfig<InputArgs>,
-        check: InputArgs extends AnySchema ? EventCheckCallback<SchemaOutput<InputArgs>> : EventCheckCallback
+        check?: InputArgs extends AnySchema ? EventCheckCallback<SchemaOutput<InputArgs>> : EventCheckCallback
     ): RegisteredEvent {
         if (this._events.has(name)) {
             throw new Error(`Event ${name} is already registered`);
+        }
+        if (!check && !config.emitOnly) {
+            throw new Error(`Event ${name}: check callback is required unless emitOnly is set`);
         }
 
         const entry: InternalRegisteredEvent = {
@@ -513,6 +509,7 @@ export class ServerEventManager {
             hooks: config.hooks as EventSubscriptionHooks | undefined,
             matches: config.matches as EventMatchCallback | undefined,
             transform: config.transform as EventTransformCallback | undefined,
+            emitOnly: config.emitOnly ?? false,
             log: {
                 capacity: config.buffer?.capacity ?? DEFAULT_BUFFER_CAPACITY,
                 entries: [],
@@ -522,7 +519,7 @@ export class ServerEventManager {
                 checkCursorQueue: []
             },
             _meta: config._meta,
-            check: check as EventCheckCallback,
+            check: (check as EventCheckCallback | undefined) ?? EMIT_ONLY_CHECK,
             enabled: true
         };
         this._events.set(name, entry);
@@ -555,18 +552,12 @@ export class ServerEventManager {
 
     /**
      * Emits an event to active subscriptions and appends it to the event log.
-     * Two modes:
      *
-     * - **Broadcast**: omit `subscriptionId`. The event is appended to the log
-     *   and delivered to every active subscription of the given event type,
-     *   filtered by the event's `matches` callback if one was provided.
-     * - **Targeted**: provide `subscriptionId`. The event is delivered to that
-     *   subscription only and is NOT appended to the log (it bypasses the
-     *   broadcast log because it isn't addressed to other subscribers).
-     *
-     * The optional `cursor` lets applications use natural upstream identifiers
-     * (Stripe event IDs, GitHub timestamps, etc.) as cursors. When omitted, the
-     * SDK auto-assigns a per-event-name monotonic sequence cursor.
+     * - **Broadcast** (default): the event is appended to the log and delivered
+     *   to every active subscription of the given event type, filtered by the
+     *   event's `matches` callback if one was provided.
+     * - **Targeted** (`subscriptionId` set): delivered to that subscription only
+     *   and NOT appended to the log.
      */
     emit(
         eventName: string,
@@ -577,7 +568,6 @@ export class ServerEventManager {
         if (!event || !event.enabled) return;
 
         if (options.subscriptionId) {
-            // Targeted emits go to the named subscription only and are not logged.
             const occurrence = this._makeOccurrence(
                 eventName,
                 data,
@@ -586,8 +576,9 @@ export class ServerEventManager {
                 options.eventId
             );
             for (const stream of this._pushStreams) {
-                const sub = stream.subscriptions.get(options.subscriptionId);
-                if (sub && sub.eventName === eventName) this._deliverToPush(stream, sub, occurrence);
+                if (stream.sub.id === options.subscriptionId && stream.sub.eventName === eventName) {
+                    this._deliverToPush(stream, occurrence);
+                }
             }
             for (const sub of this._webhookSubs.values()) {
                 if (sub.id === options.subscriptionId && sub.eventName === eventName) {
@@ -598,20 +589,11 @@ export class ServerEventManager {
         }
 
         const occurrence = this._appendToLog(event, eventName, data, options.cursor, undefined, options.eventId);
-        // matches() may be async (e.g. upstream authz check), so fan-out is
-        // fire-and-forget. Within a single emit, matches-then-deliver for each
-        // sub runs sequentially, preserving per-sub ordering for this event.
-        // Across emits with async matches, apps that need strict ordering
-        // should keep authz decisions cache-hot so matches resolves sync.
         this._fanOut(event, eventName, occurrence).catch(error => {
-            // User-provided async matches() or delivery hooks may reject;
-            // isolate from the caller's emit() path. Log so it's debuggable
-            // rather than surfacing as an unhandled promise rejection.
             console.error(`[events] fan-out for ${eventName} failed:`, error);
         });
     }
 
-    /** Appends to the event log with dedup-by-cursor; evicts oldest on overflow. */
     private _appendToLog(
         event: InternalRegisteredEvent,
         eventName: string,
@@ -624,13 +606,12 @@ export class ServerEventManager {
         const cursor = explicitCursor ?? this._mintAutoCursor(event);
         const existing = log.cursorMap.get(cursor);
         if (existing !== undefined) {
-            // Dedup: same cursor already in the log (e.g. check() returned an event we already have).
             const entry = log.entries.find(e => e.seq === existing);
             return entry?.occurrence ?? this._makeOccurrence(eventName, data, _meta, cursor, eventId);
         }
         const occurrence = this._makeOccurrence(eventName, data, _meta, cursor, eventId);
         const seq = log.nextSeq++;
-        log.entries.push({ seq, cursor, occurrence });
+        log.entries.push({ seq, cursor, at: Date.now(), occurrence });
         log.cursorMap.set(cursor, seq);
         if (log.entries.length > log.capacity) {
             const evicted = log.entries.shift()!;
@@ -645,11 +626,9 @@ export class ServerEventManager {
 
     private async _fanOut(event: InternalRegisteredEvent, eventName: string, occurrence: EventOccurrence): Promise<void> {
         for (const stream of this._pushStreams) {
-            for (const sub of stream.subscriptions.values()) {
-                if (sub.eventName !== eventName) continue;
-                if (!(await this._safeMatches(event, sub.params, occurrence.data, sub.id))) continue;
-                this._deliverToPush(stream, sub, await this._safeTransform(event, sub.params, occurrence, sub.id));
-            }
+            if (stream.sub.eventName !== eventName) continue;
+            if (!(await this._safeMatches(event, stream.sub.params, occurrence.data, stream.sub.id))) continue;
+            this._deliverToPush(stream, await this._safeTransform(event, stream.sub.params, occurrence, stream.sub.id));
         }
         for (const sub of this._webhookSubs.values()) {
             if (sub.eventName !== eventName) continue;
@@ -658,12 +637,6 @@ export class ServerEventManager {
         }
     }
 
-    /**
-     * Evaluates the event's `matches` callback for a single subscription,
-     * isolating any rejection so one sub's failing hook doesn't abort delivery
-     * to its siblings (or surface as an unhandled rejection from a poll-loop
-     * timer). Returns `false` on error so the event is skipped for that sub.
-     */
     private async _safeMatches(
         event: InternalRegisteredEvent,
         params: Record<string, unknown>,
@@ -679,12 +652,6 @@ export class ServerEventManager {
         }
     }
 
-    /**
-     * Applies the event's `transform` hook (if any) to produce a per-subscriber
-     * payload. Returns the original occurrence when no transform is configured
-     * or when the hook throws (falling back to deliver-as-emitted is safer than
-     * dropping a matched event).
-     */
     private async _safeTransform(
         event: InternalRegisteredEvent,
         params: Record<string, unknown>,
@@ -703,45 +670,39 @@ export class ServerEventManager {
         }
     }
 
-    private _deliverToPush(stream: PushStream, sub: ActiveSubscription, occurrence: EventOccurrence | null): void {
-        if (occurrence === null) return;
-        sub.cursor = occurrence.cursor;
-        this._sendEventNotification(stream, sub.id, occurrence);
+    private _deliverToPush(stream: PushStream, occurrence: EventOccurrence | null): void {
+        if (occurrence === null || stream.closed) return;
+        stream.sub.cursor = occurrence.cursor ?? stream.sub.cursor;
+        void stream.sub.ctx.mcpReq.notify({
+            method: 'notifications/events/event',
+            params: { requestId: stream.requestId, ...occurrence }
+        });
     }
 
     /**
-     * Terminates a single active subscription (push or webhook) by ID, optionally
-     * with a reason. The server stops delivering events to that subscription and,
-     * for push streams, sends a `notifications/events/terminated` notification so
-     * the client can remove the subscription and notify the application.
-     *
-     * Use this when the user's access to an upstream resource is revoked mid-stream.
+     * Terminates a single active subscription (push or webhook) by its derived
+     * routing id, optionally with a structured reason. The server stops
+     * delivering events to that subscription, sends `notifications/events/terminated`
+     * (push) or a `terminated` control envelope (webhook), and fires
+     * `onUnsubscribe`.
      */
     terminate(subscriptionId: string, reason?: string | EventSubscriptionError): void {
         const error: EventSubscriptionError =
             typeof reason === 'object' ? reason : { code: EVENT_UNAUTHORIZED, message: reason ?? 'Subscription terminated' };
         for (const stream of this._pushStreams) {
-            const sub = stream.subscriptions.get(subscriptionId);
-            if (sub) {
+            if (stream.sub.id === subscriptionId) {
                 if (!stream.closed) {
-                    void stream.ctx.mcpReq.notify({
+                    void stream.sub.ctx.mcpReq.notify({
                         method: 'notifications/events/terminated',
-                        params: { id: subscriptionId, error }
+                        params: { requestId: stream.requestId, error }
                     });
                 }
-                const timer = stream.pollTimers.get(subscriptionId);
-                if (timer) clearTimeout(timer);
-                stream.pollTimers.delete(subscriptionId);
-                const event = this._events.get(sub.eventName);
-                if (event?.hooks?.onUnsubscribe) {
-                    void Promise.resolve(event.hooks.onUnsubscribe(sub.id, sub.params, stream.ctx)).catch(() => {});
-                }
-                stream.subscriptions.delete(subscriptionId);
+                this._closeStream(stream);
             }
         }
         for (const [key, webhook] of this._webhookSubs) {
             if (webhook.id === subscriptionId) {
-                void this._deliverWebhookError(webhook, error);
+                void this._deliverWebhookControl(webhook, { type: 'terminated', error });
                 void this._teardownWebhookSub(webhook);
                 this._webhookSubs.delete(key);
             }
@@ -782,7 +743,6 @@ export class ServerEventManager {
             this._server.assertCanSetRequestHandler('events/unsubscribe');
             this._server.setRequestHandler('events/subscribe', (req, ctx) => this._handleSubscribe(req.params, ctx));
             this._server.setRequestHandler('events/unsubscribe', (req, ctx) => this._handleUnsubscribe(req.params, ctx));
-            // Periodic reaper for expired webhook subscriptions.
             const reapInterval = Math.max(1000, Math.min(this._webhookOptions.ttlMs / 4, 60_000));
             this._webhookReaper = setInterval(() => this._reapExpiredWebhooks(), reapInterval);
             if (typeof this._webhookReaper === 'object' && 'unref' in this._webhookReaper) {
@@ -833,59 +793,49 @@ export class ServerEventManager {
         return { events };
     }
 
-    private async _handlePoll(
-        params: { subscriptions: EventSubscriptionSpec[]; maxEvents?: number },
-        ctx: ServerContext
-    ): Promise<PollEventsResult> {
-        if (params.subscriptions.length > this._maxSubsPerRequest) {
-            throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, `Too many subscriptions (max ${this._maxSubsPerRequest})`);
-        }
-        const maxEvents = params.maxEvents ?? DEFAULT_MAX_EVENTS;
-        const results: PollEventsResultEntry[] = [];
-        for (const spec of params.subscriptions) {
-            results.push(await this._pollOne(spec, maxEvents, ctx));
-        }
-        return { results };
-    }
-
     /**
-     * Returns log entries with `seq > cursor`'s seq, filtered by the event's
-     * `matches` callback. Used for resume-from-cursor across all three delivery
-     * modes.
-     *
-     * - `cursor === null` → no replay (fresh subscribe from "now")
-     * - `cursor` found in log → replay everything after it
-     * - `cursor` not found → CursorExpired (the buffer has wrapped past it, or
-     *   the cursor was never minted)
+     * Computes the replay slice from the log for a given cursor and `maxAge`
+     * floor. Never errors — when the cursor isn't found or the floor advances
+     * past it, returns `truncated: true` and resets to head.
      */
     private async _replayAfterCursor(
         event: InternalRegisteredEvent,
         params: Record<string, unknown>,
         cursor: string | null,
+        maxAge: number | undefined,
         subscriptionId: string
-    ): Promise<{ events: EventOccurrence[] } | { error: EventSubscriptionError }> {
-        if (cursor === null) return { events: [] };
-        const seq = event.log.cursorMap.get(cursor);
-        if (seq === undefined) {
-            return { error: { code: CURSOR_EXPIRED, message: 'Cursor not found in event log (re-subscribe to start from current head)' } };
+    ): Promise<{ events: EventOccurrence[]; truncated: boolean; headCursor: string | null }> {
+        const log = event.log;
+        const headCursor = log.entries.at(-1)?.cursor ?? null;
+        if (cursor === null) return { events: [], truncated: false, headCursor };
+
+        let truncated = false;
+        let fromSeq = log.cursorMap.get(cursor);
+        if (fromSeq === undefined) {
+            // Cursor not in retention — reset to head and signal gap.
+            return { events: [], truncated: true, headCursor };
         }
+
+        // Apply maxAge floor: skip entries older than now - maxAge.
+        const floorAt = maxAge !== undefined ? Date.now() - maxAge * 1000 : undefined;
         const events: EventOccurrence[] = [];
-        // Snapshot before iterating: matches() may be async, and a concurrent
-        // emit() can `entries.shift()` the live array mid-iteration, which
-        // makes the JS array iterator skip the next element silently.
         // eslint-disable-next-line unicorn/no-useless-spread -- intentional snapshot, not redundant
-        for (const entry of [...event.log.entries]) {
-            if (entry.seq <= seq) continue;
+        for (const entry of [...log.entries]) {
+            if (entry.seq <= fromSeq) continue;
+            if (floorAt !== undefined && entry.at < floorAt) {
+                truncated = true;
+                continue;
+            }
             if (!(await this._safeMatches(event, params, entry.occurrence.data, subscriptionId))) continue;
             const transformed = await this._safeTransform(event, params, entry.occurrence, subscriptionId);
             if (transformed !== null) events.push(transformed);
         }
-        return { events };
+        return { events, truncated, headCursor };
     }
 
     /**
-     * Runs check() and feeds results through the log + fan-out path. Returns
-     * the new internal check cursor and any per-poll state (hasMore, nextPollSeconds).
+     * Runs check() for a subscription. Maps `CURSOR_EXPIRED` (legacy throw or
+     * `truncated: true` from check()) into the gap model rather than an error.
      */
     private async _runCheckTick(
         event: InternalRegisteredEvent,
@@ -894,26 +844,28 @@ export class ServerEventManager {
         internalCheckCursor: string | null,
         ctx: ServerContext
     ): Promise<
-        | { events: EventOccurrence[]; nextInternalCheckCursor: string; nextPollSeconds?: number; hasMore?: boolean }
+        | {
+              events: EventOccurrence[];
+              nextInternalCheckCursor: string | null;
+              nextPollSeconds?: number;
+              hasMore?: boolean;
+              truncated: boolean;
+          }
         | { error: EventSubscriptionError }
     > {
         let checkResult: EventCheckResult;
         try {
             checkResult = await event.check(params, internalCheckCursor, ctx);
         } catch (error) {
-            return { error: this._toSubscriptionError(error) };
+            const subErr = this._toSubscriptionError(error);
+            if (subErr.code === CURSOR_EXPIRED) {
+                // Legacy throw mapped to gap model: reset and continue.
+                return { events: [], nextInternalCheckCursor: null, truncated: true };
+            }
+            return { error: subErr };
         }
-        // check() runs per-subscription with that sub's params (and may be
-        // scoped to its principal — e.g. Gmail returns one tenant's messages).
-        // Results MUST stay local to the calling subscription. They are NOT
-        // appended to the shared event log and NOT fanned out to other subs.
-        // emit() retains broadcast semantics; check() does not.
-        //
-        // Their cursors ARE registered in `cursorMap` (pointing at the current
-        // log head) so that a push/webhook client resuming from one finds it
-        // and replays log entries since that point, instead of always seeing
-        // CursorExpired. The cursors don't carry occurrences in `entries`, so
-        // the data stays per-sub-private; only the seq anchor is shared.
+        // check() results stay private to the calling subscription. Only their
+        // cursors are anchored at log head so a resume from one finds it.
         const headSeq = event.log.nextSeq - 1;
         const occurrences: EventOccurrence[] = checkResult.events.map(e => {
             const cursor = e.cursor ?? this._mintAutoCursor(event);
@@ -930,335 +882,264 @@ export class ServerEventManager {
             events: occurrences,
             nextInternalCheckCursor: checkResult.cursor,
             nextPollSeconds: checkResult.nextPollSeconds,
-            hasMore: checkResult.hasMore
+            hasMore: checkResult.hasMore,
+            truncated: checkResult.truncated ?? false
         };
     }
 
-    private async _pollOne(spec: EventSubscriptionSpec, maxEvents: number, ctx: ServerContext): Promise<PollEventsResultEntry> {
-        const event = this._events.get(spec.name);
+    private async _handlePoll(params: PollEventsRequestParams, ctx: ServerContext): Promise<PollEventsResult> {
+        const event = this._events.get(params.name);
         if (!event || !event.enabled) {
-            return { id: spec.id, error: { code: EVENT_NOT_FOUND, message: `Unknown event: ${spec.name}` } };
+            throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${params.name}`);
+        }
+        if (!this._computeDeliveryModes().includes('poll')) {
+            throw new ProtocolError(DELIVERY_MODE_UNSUPPORTED, `Event ${params.name} does not support poll delivery`);
         }
 
-        const paramsResult = await this._validateParams(event, spec.params);
+        const paramsResult = await this._validateParams(event, params.params);
         if ('error' in paramsResult) {
-            return { id: spec.id, error: paramsResult.error };
+            throw new ProtocolError(paramsResult.error.code, paramsResult.error.message, paramsResult.error.data);
         }
 
-        const pollKey = this._pollStateKey(ctx, spec.name, spec.id);
-        const existingState = this._pollState.get(pollKey);
-        const wireCursor = spec.cursor ?? null;
-        // Fire onSubscribe the first time we see this subscription id in the
-        // poll state, regardless of cursor. A `sub --from <cursor>` is still
-        // a fresh subscription from the server's perspective — it just wants
-        // replay from a prior point. App-level hooks (e.g. authz) need to run.
-        if (!existingState && event.hooks?.onSubscribe) {
-            try {
-                await event.hooks.onSubscribe(spec.id, paramsResult.params, ctx);
-            } catch (error) {
-                return { id: spec.id, error: this._toSubscriptionError(error) };
+        const leaseKey = await this._pollLeaseKey(ctx, params.name, paramsResult.params);
+        let lease = this._pollLeases.get(leaseKey);
+        const wireCursor = params.cursor;
+        let truncated = false;
+
+        if (!lease) {
+            const id = `poll_${(await sha256Hex(leaseKey)).slice(0, 16)}`;
+            if (event.hooks?.onSubscribe) {
+                await event.hooks.onSubscribe(id, paramsResult.params, ctx);
             }
-            // Persist minimal state immediately so a check() failure or
-            // CursorExpired below doesn't cause the next poll to see no state
-            // and re-fire onSubscribe (leaking refcounts, authz registrations).
-            this._setPollState(pollKey, { checkCursor: null, lastSeenSeq: event.log.nextSeq - 1 });
+            lease = { id, checkCursor: null, lastSeenSeq: event.log.nextSeq - 1, params: paramsResult.params };
+            this._setPollLease(leaseKey, lease, event, ctx);
         }
 
-        // Determine replay-from seq:
-        // - explicit wireCursor → look up in cursorMap, CursorExpired if missing
-        // - no wireCursor + existing state → resume from state.lastSeenSeq
-        // - no wireCursor + first poll → start from current head (skip pre-existing log entries)
+        // Determine replay-from seq.
         let replayFromSeq: number;
         if (wireCursor !== null) {
             const seq = event.log.cursorMap.get(wireCursor);
             if (seq !== undefined) {
                 replayFromSeq = seq;
-            } else if (existingState && existingState.lastReturnedCursor === wireCursor) {
-                // Cursor was a check-derived passthrough we returned previously
-                // (check() results never enter the shared log). Resume from the
-                // sub's persisted log position; the saved checkCursor below
-                // will pick up the check stream where it left off.
-                replayFromSeq = existingState.lastSeenSeq;
+            } else if (lease.lastReturnedCursor === wireCursor) {
+                replayFromSeq = lease.lastSeenSeq;
             } else {
-                // Reset only the parts of state that pin a stale cursor. We
-                // keep the entry itself so onSubscribe doesn't re-fire on the
-                // client's retry-with-cursor=null.
-                this._setPollState(pollKey, { checkCursor: null, lastSeenSeq: event.log.nextSeq - 1 });
-                return {
-                    id: spec.id,
-                    error: { code: CURSOR_EXPIRED, message: 'Cursor not found in event log (re-subscribe to start from current head)' }
-                };
+                // Gap — reset to head.
+                replayFromSeq = event.log.nextSeq - 1;
+                truncated = true;
             }
-        } else if (existingState) {
-            replayFromSeq = existingState.lastSeenSeq;
         } else {
-            // Fresh poll-sub: start from current head — log entries inserted before
-            // first poll are skipped (consistent with "subscribe from now").
-            replayFromSeq = event.log.nextSeq - 1;
+            replayFromSeq = lease.lastSeenSeq;
         }
 
-        // 1. Replay log entries with seq > replayFromSeq, filtered by matches.
+        // 1. Replay log entries with seq > replayFromSeq, filtered + maxAge floor.
+        const floorAt = params.maxAge !== undefined && wireCursor !== null ? Date.now() - params.maxAge * 1000 : undefined;
         const replayEvents: EventOccurrence[] = [];
-        // Snapshot before iterating: matches() may be async, and a concurrent
-        // emit() can `entries.shift()` mid-iteration which skips elements.
         // eslint-disable-next-line unicorn/no-useless-spread -- intentional snapshot, not redundant
         for (const entry of [...event.log.entries]) {
             if (entry.seq <= replayFromSeq) continue;
-            if (await this._safeMatches(event, paramsResult.params, entry.occurrence.data, spec.id)) {
-                const transformed = await this._safeTransform(event, paramsResult.params, entry.occurrence, spec.id);
+            if (floorAt !== undefined && entry.at < floorAt) {
+                truncated = true;
+                continue;
+            }
+            if (await this._safeMatches(event, paramsResult.params, entry.occurrence.data, lease.id)) {
+                const transformed = await this._safeTransform(event, paramsResult.params, entry.occurrence, lease.id);
                 if (transformed !== null) replayEvents.push(transformed);
             }
         }
 
-        // 2. Run a check() tick to discover new events; they enter the log and
-        //    fan out to other matching subs. Anything new this tick is also
-        //    appended to replayEvents (deduped by cursor).
-        const internalCheckCursor = existingState?.checkCursor ?? null;
-        const tick = await this._runCheckTick(event, spec.name, paramsResult.params, internalCheckCursor, ctx);
+        // 2. Run a check() tick.
+        const tick = await this._runCheckTick(event, params.name, paramsResult.params, lease.checkCursor, ctx);
         if ('error' in tick) {
-            // Reset checkCursor so the next poll re-bootstraps instead of
-            // looping on the same stale value. Preserve lastSeenSeq (set
-            // above on first poll, or carried from existingState) so log
-            // replay position isn't lost.
-            this._setPollState(pollKey, {
-                checkCursor: tick.error.code === CURSOR_EXPIRED ? null : internalCheckCursor,
-                lastSeenSeq: existingState?.lastSeenSeq ?? event.log.nextSeq - 1
-            });
-            return { id: spec.id, error: tick.error };
+            throw new ProtocolError(tick.error.code, tick.error.message, tick.error.data);
         }
+        truncated ||= tick.truncated;
         const replayCursors = new Set(replayEvents.map(e => e.cursor));
         for (const occ of tick.events) {
-            if (replayCursors.has(occ.cursor)) continue;
-            if (!(await this._safeMatches(event, paramsResult.params, occ.data, spec.id))) continue;
-            const transformed = await this._safeTransform(event, paramsResult.params, occ, spec.id);
+            if (occ.cursor !== null && replayCursors.has(occ.cursor)) continue;
+            if (!(await this._safeMatches(event, paramsResult.params, occ.data, lease.id))) continue;
+            const transformed = await this._safeTransform(event, paramsResult.params, occ, lease.id);
             if (transformed !== null) replayEvents.push(transformed);
         }
 
+        const maxEvents = params.maxEvents ?? DEFAULT_MAX_EVENTS;
         const occurrences = replayEvents.slice(0, maxEvents);
         const hasMore = (tick.hasMore ?? false) || replayEvents.length > maxEvents;
-        const newCursor = occurrences.length > 0 ? occurrences.at(-1)!.cursor : (wireCursor ?? undefined);
+        const newCursor = occurrences.at(-1)?.cursor ?? (truncated ? (event.log.entries.at(-1)?.cursor ?? null) : wireCursor);
 
-        // Compute new lastSeenSeq from the highest-seq entry we delivered, or
-        // fall back to current head if nothing was delivered (so future polls
-        // skip already-emitted-but-filtered events).
+        // Compute new lastSeenSeq.
         const deliveredCursors = new Set(occurrences.map(o => o.cursor));
         let newLastSeen = replayFromSeq;
         for (const entry of event.log.entries) {
-            if (deliveredCursors.has(entry.cursor) && entry.seq > newLastSeen) newLastSeen = entry.seq;
+            if (entry.cursor !== null && deliveredCursors.has(entry.cursor) && entry.seq > newLastSeen) newLastSeen = entry.seq;
         }
         if (occurrences.length === 0) newLastSeen = Math.max(newLastSeen, event.log.nextSeq - 1);
-        // Only persist `lastReturnedCursor` for check-derived cursors (not in
-        // the log). Log-anchored cursors don't need passthrough because they
-        // resolve via cursorMap; once evicted they MUST yield CursorExpired,
-        // not silently fall through to existingState.
-        const passthrough = newCursor !== undefined && !event.log.cursorMap.has(newCursor) ? newCursor : undefined;
-        this._setPollState(pollKey, {
-            checkCursor: tick.nextInternalCheckCursor,
-            lastSeenSeq: newLastSeen,
-            lastReturnedCursor: passthrough
-        });
+        const passthrough =
+            newCursor !== null && newCursor !== undefined && !event.log.cursorMap.has(newCursor) ? newCursor : undefined;
+        this._setPollLease(
+            leaseKey,
+            { ...lease, checkCursor: tick.nextInternalCheckCursor, lastSeenSeq: newLastSeen, lastReturnedCursor: passthrough },
+            event,
+            ctx
+        );
+
         return {
-            id: spec.id,
             events: occurrences,
-            cursor: newCursor,
+            cursor: newCursor ?? null,
+            truncated,
             hasMore,
             nextPollSeconds: tick.nextPollSeconds ?? DEFAULT_POLL_SECONDS
         };
     }
 
-    private _pollStateKey(ctx: ServerContext, eventName: string, subId: string): string {
+    private async _pollLeaseKey(ctx: ServerContext, eventName: string, params: Record<string, unknown>): Promise<string> {
         const principal = this._getPrincipal(ctx) ?? ctx.sessionId ?? 'anon';
-        return `${principal}\0${eventName}\0${subId}`;
+        return `${principal}\0${eventName}\0${await sha256Hex(canonicalJson(params))}`;
     }
 
-    private _setPollState(key: string, value: { checkCursor: string | null; lastSeenSeq: number; lastReturnedCursor?: string }): void {
-        if (this._pollState.has(key)) this._pollState.delete(key);
-        this._pollState.set(key, value);
-        while (this._pollState.size > ServerEventManager._MAX_POLL_STATE) {
-            const oldest = this._pollState.keys().next().value;
-            if (oldest === undefined) break;
-            this._pollState.delete(oldest);
+    private _setPollLease(key: string, value: PollLease, event: InternalRegisteredEvent, ctx: ServerContext): void {
+        if (this._pollLeases.has(key)) this._pollLeases.delete(key);
+        this._pollLeases.set(key, value);
+        while (this._pollLeases.size > ServerEventManager._MAX_POLL_LEASES) {
+            const oldestKey = this._pollLeases.keys().next().value;
+            if (oldestKey === undefined) break;
+            const evicted = this._pollLeases.get(oldestKey)!;
+            this._pollLeases.delete(oldestKey);
+            void this._safeOnUnsubscribe(event, evicted.id, evicted.params, ctx);
         }
     }
 
-    private _handleStream(params: { subscriptions: EventSubscriptionSpec[] }, ctx: ServerContext): Promise<Record<string, never>> {
-        if (params.subscriptions.length > this._maxSubsPerRequest) {
-            throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, `Too many subscriptions (max ${this._maxSubsPerRequest})`);
-        }
-
-        return new Promise(resolve => {
-            const stream: PushStream = {
-                subscriptions: new Map(),
-                ctx,
-                pollTimers: new Map(),
-                closed: false,
-                resolve: () => resolve({})
-            };
-
-            void this._openStream(stream, params.subscriptions);
-
-            ctx.mcpReq.signal.addEventListener('abort', () => this._closeStream(stream), { once: true });
-            this._pushStreams.add(stream);
+    private _handleStream(params: StreamEventsRequestParams, ctx: ServerContext): Promise<Record<string, never>> {
+        return new Promise((resolve, reject) => {
+            this._openStream(params, ctx, () => resolve({})).catch((error: unknown) => reject(error as Error));
         });
     }
 
-    private async _openStream(stream: PushStream, specs: EventSubscriptionSpec[]): Promise<void> {
-        for (const spec of specs) {
-            // The client can abort during any await in this loop; once
-            // _closeStream has run, registering more subs would never balance
-            // their onSubscribe with onUnsubscribe.
-            if (stream.closed) return;
-            const event = this._events.get(spec.name);
-            if (!event || !event.enabled) {
-                this._sendErrorNotification(stream, spec.id, { code: EVENT_NOT_FOUND, message: `Unknown event: ${spec.name}` });
-                continue;
-            }
-            const paramsResult = await this._validateParams(event, spec.params);
-            if ('error' in paramsResult) {
-                this._sendErrorNotification(stream, spec.id, paramsResult.error);
-                continue;
-            }
+    private async _openStream(spec: StreamEventsRequestParams, ctx: ServerContext, resolve: () => void): Promise<void> {
+        const event = this._events.get(spec.name);
+        if (!event || !event.enabled) {
+            throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${spec.name}`);
+        }
+        if (!this._computeDeliveryModes().includes('push')) {
+            throw new ProtocolError(DELIVERY_MODE_UNSUPPORTED, `Event ${spec.name} does not support push delivery`);
+        }
+        const paramsResult = await this._validateParams(event, spec.params);
+        if ('error' in paramsResult) {
+            throw new ProtocolError(paramsResult.error.code, paramsResult.error.message, paramsResult.error.data);
+        }
 
-            // Fire onSubscribe before replay so app hooks (e.g. authz that
-            // registers the sub for matches()) are in place by the time
-            // _replayAfterCursor runs its matches() filter. Resume via cursor
-            // is still a fresh subscription (new spec.id) from the server's
-            // perspective.
-            if (event.hooks?.onSubscribe) {
-                try {
-                    await event.hooks.onSubscribe(spec.id, paramsResult.params, stream.ctx);
-                } catch (error) {
-                    this._sendErrorNotification(stream, spec.id, this._toSubscriptionError(error));
-                    continue;
-                }
-            }
+        const requestId = ctx.mcpReq.id;
+        const subId = `req:${String(requestId)}`;
+        // Fire onSubscribe before replay so app hooks (authz that registers the
+        // sub for matches()) are in place by the time replay runs its filter.
+        if (event.hooks?.onSubscribe) {
+            await event.hooks.onSubscribe(subId, paramsResult.params, ctx);
+        }
 
-            const wireCursor = spec.cursor ?? null;
-            const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, spec.id);
-            if ('error' in replay) {
-                this._sendErrorNotification(stream, spec.id, replay.error);
-                // onSubscribe ran above; balance it now since this spec won't
-                // be added to stream.subscriptions and so _closeStream won't
-                // call onUnsubscribe for it.
-                await this._safeOnUnsubscribe(event, spec.id, paramsResult.params, stream.ctx);
-                continue;
-            }
-            if (stream.closed) {
-                await this._safeOnUnsubscribe(event, spec.id, paramsResult.params, stream.ctx);
-                return;
-            }
-
-            const active: ActiveSubscription = {
-                id: spec.id,
+        const stream: PushStream = {
+            requestId,
+            sub: {
+                id: subId,
                 eventName: spec.name,
                 params: paramsResult.params,
-                cursor: wireCursor,
+                cursor: spec.cursor,
                 internalCheckCursor: null,
-                ctx: stream.ctx
-            };
-            stream.subscriptions.set(spec.id, active);
+                ctx
+            },
+            closed: false,
+            resolve
+        };
+        ctx.mcpReq.signal.addEventListener('abort', () => this._closeStream(stream), { once: true });
+        this._pushStreams.add(stream);
 
-            // Replay first; each delivery advances active.cursor naturally via _deliverToPush.
-            for (const occ of replay.events) this._deliverToPush(stream, active, occ);
-            this._sendActiveNotification(stream, spec.id, active.cursor ?? '');
+        const replay = await this._replayAfterCursor(event, paramsResult.params, spec.cursor, spec.maxAge, subId);
+        if (stream.closed) {
+            await this._safeOnUnsubscribe(event, subId, paramsResult.params, ctx);
+            return;
+        }
 
-            // Initial check tick — gives applications immediate-first-poll behavior
-            // and lets the SDK pick up nextPollSeconds for subsequent ticks.
+        // Replay first; each delivery advances cursor naturally.
+        for (const occ of replay.events) this._deliverToPush(stream, occ);
+        stream.sub.cursor = stream.sub.cursor ?? replay.headCursor;
+        this._sendActiveNotification(stream, stream.sub.cursor, replay.truncated);
+
+        // Initial check tick + ongoing poll loop.
+        if (this._pushOptions.pollDriven) {
             let initialNextPoll: number | undefined;
-            if (this._pushOptions.pollDriven) {
-                const tick = await this._runCheckTick(event, spec.name, paramsResult.params, active.internalCheckCursor, stream.ctx);
-                if ('error' in tick) {
-                    this._sendErrorNotification(stream, spec.id, tick.error);
-                } else {
-                    active.internalCheckCursor = tick.nextInternalCheckCursor;
-                    initialNextPoll = tick.nextPollSeconds;
-                    for (const occ of tick.events) {
-                        if (!(await this._safeMatches(event, active.params, occ.data, active.id))) continue;
-                        this._deliverToPush(stream, active, await this._safeTransform(event, active.params, occ, active.id));
-                    }
+            const tick = await this._runCheckTick(event, spec.name, paramsResult.params, null, ctx);
+            if ('error' in tick) {
+                this._sendErrorNotification(stream, tick.error);
+            } else {
+                stream.sub.internalCheckCursor = tick.nextInternalCheckCursor;
+                initialNextPoll = tick.nextPollSeconds;
+                if (tick.truncated) this._sendActiveNotification(stream, stream.sub.cursor, true);
+                for (const occ of tick.events) {
+                    if (!(await this._safeMatches(event, paramsResult.params, occ.data, subId))) continue;
+                    this._deliverToPush(stream, await this._safeTransform(event, paramsResult.params, occ, subId));
                 }
-                this._schedulePushPoll(stream, active, event, initialNextPoll);
             }
+            this._schedulePushPoll(stream, event, initialNextPoll);
         }
 
         stream.heartbeatTimer = setInterval(() => {
             if (stream.closed) return;
-            void stream.ctx.mcpReq.notify({ method: 'notifications/events/heartbeat', params: {} });
+            void ctx.mcpReq.notify({
+                method: 'notifications/events/heartbeat',
+                params: { requestId, cursor: stream.sub.cursor }
+            });
         }, this._pushOptions.heartbeatIntervalMs);
         if (typeof stream.heartbeatTimer === 'object' && 'unref' in stream.heartbeatTimer) {
             (stream.heartbeatTimer as unknown as { unref: () => void }).unref();
         }
     }
 
-    private _schedulePushPoll(
-        stream: PushStream,
-        sub: ActiveSubscription,
-        event: InternalRegisteredEvent,
-        initialNextPollSeconds?: number
-    ): void {
+    private _schedulePushPoll(stream: PushStream, event: InternalRegisteredEvent, initialNextPollSeconds?: number): void {
         let currentInterval = (initialNextPollSeconds ?? DEFAULT_POLL_SECONDS) * 1000;
         const tick = async () => {
             if (stream.closed) return;
-            const result = await this._runCheckTick(event, sub.eventName, sub.params, sub.internalCheckCursor, stream.ctx);
+            const result = await this._runCheckTick(
+                event,
+                stream.sub.eventName,
+                stream.sub.params,
+                stream.sub.internalCheckCursor,
+                stream.sub.ctx
+            );
             if ('error' in result) {
-                this._sendErrorNotification(stream, sub.id, result.error);
-                if (result.error.code === CURSOR_EXPIRED) {
-                    sub.internalCheckCursor = null;
-                    stream.pollTimers.set(sub.id, setTimeout(tick, currentInterval));
-                } else {
-                    await this._safeOnUnsubscribe(event, sub.id, sub.params, stream.ctx);
-                    stream.subscriptions.delete(sub.id);
-                }
+                this._sendErrorNotification(stream, result.error);
+                stream.pollTimer = setTimeout(tick, currentInterval);
                 return;
             }
-            sub.internalCheckCursor = result.nextInternalCheckCursor;
-            // Filter check-derived events through this sub's matches and deliver.
+            if (result.truncated) {
+                stream.sub.internalCheckCursor = null;
+                this._sendActiveNotification(stream, stream.sub.cursor, true);
+            } else {
+                stream.sub.internalCheckCursor = result.nextInternalCheckCursor;
+            }
             for (const occ of result.events) {
-                if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
-                this._deliverToPush(stream, sub, await this._safeTransform(event, sub.params, occ, sub.id));
+                if (!(await this._safeMatches(event, stream.sub.params, occ.data, stream.sub.id))) continue;
+                this._deliverToPush(stream, await this._safeTransform(event, stream.sub.params, occ, stream.sub.id));
             }
             if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
-            stream.pollTimers.set(sub.id, setTimeout(tick, result.hasMore ? 0 : currentInterval));
+            stream.pollTimer = setTimeout(tick, result.hasMore ? 0 : currentInterval);
         };
-        stream.pollTimers.set(sub.id, setTimeout(tick, currentInterval));
+        stream.pollTimer = setTimeout(tick, currentInterval);
     }
 
     private _closeStream(stream: PushStream): void {
         if (stream.closed) return;
         stream.closed = true;
-        for (const timer of stream.pollTimers.values()) clearTimeout(timer);
-        stream.pollTimers.clear();
+        if (stream.pollTimer) clearTimeout(stream.pollTimer);
         if (stream.heartbeatTimer) clearInterval(stream.heartbeatTimer);
-        // Lifecycle: onUnsubscribe for every active subscription.
-        for (const sub of stream.subscriptions.values()) {
-            const event = this._events.get(sub.eventName);
-            if (event?.hooks?.onUnsubscribe) {
-                void Promise.resolve(event.hooks.onUnsubscribe(sub.id, sub.params, stream.ctx)).catch(() => {});
-            }
+        const event = this._events.get(stream.sub.eventName);
+        if (event?.hooks?.onUnsubscribe) {
+            void Promise.resolve(event.hooks.onUnsubscribe(stream.sub.id, stream.sub.params, stream.sub.ctx)).catch(() => {});
         }
-        stream.subscriptions.clear();
         this._pushStreams.delete(stream);
         stream.resolve();
     }
 
-    private async _handleSubscribe(
-        params: {
-            id: string;
-            name: string;
-            params?: Record<string, unknown>;
-            delivery: { mode: 'webhook'; url: string; secret?: string };
-            cursor?: string | null;
-        },
-        ctx: ServerContext
-    ): Promise<SubscribeEventResult> {
+    private async _handleSubscribe(params: SubscribeEventRequestParams, ctx: ServerContext): Promise<SubscribeEventResult> {
         const ttl = this._webhookOptions!.ttlMs!;
-
-        if (params.id.length < MIN_SUBSCRIPTION_ID_LENGTH) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
-                `Subscription id must be at least ${MIN_SUBSCRIPTION_ID_LENGTH} characters (use a UUIDv4 or similar high-entropy value)`
-            );
-        }
 
         const event = this._events.get(params.name);
         if (!event || !event.enabled) {
@@ -1275,70 +1156,57 @@ export class ServerEventManager {
             throw new ProtocolError(INVALID_CALLBACK_URL, urlCheck.reason ?? 'Callback URL rejected');
         }
 
-        const { key, principalScoped } = this._subscriptionKey(ctx, params.id, params.delivery.url);
+        // Validates format and decodability — throws on bad secrets.
+        decodeWebhookSecret(params.delivery.secret);
+
+        const { key, id } = await this._subscriptionKey(ctx, params.delivery.url, params.name, paramsResult.params);
         const existing = this._webhookSubs.get(key);
         const isNew = !existing;
         if (isNew && this._webhookSubs.size >= this._maxWebhookSubs) {
             throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, `Webhook subscription limit (${this._maxWebhookSubs}) reached`);
         }
 
-        // Refresh extends TTL for an existing subscription. It MUST NOT change
-        // event identity (name or params) — onSubscribe (and any authz it
-        // performs) only runs on create, so allowing identity to mutate on
-        // refresh would let a client switch from a low-privilege event to a
-        // high-privilege one without re-authorisation. To change event/params,
-        // unsubscribe then resubscribe.
-        if (existing && (existing.eventName !== params.name || !shallowEqual(existing.params, paramsResult.params))) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
-                'Refresh cannot change event name or params; unsubscribe then resubscribe'
-            );
-        }
-
-        // Fire onSubscribe for new subscriptions BEFORE replay and BEFORE
-        // registering in `_webhookSubs`, so app hooks (e.g. authz that
-        // populates state matches() reads) are in place when replay runs its
-        // matches() filter, and so a hook failure doesn't leave a half-
-        // registered sub behind.
         if (isNew && event.hooks?.onSubscribe) {
-            await event.hooks.onSubscribe(params.id, paramsResult.params, ctx);
+            await event.hooks.onSubscribe(id, paramsResult.params, ctx);
         }
 
         // Cursor semantics: on a fresh sub, null = start from now. On refresh,
         // null = keep the server's current position; non-null = replace.
         let cursor: string | null;
         let backlog: EventOccurrence[] = [];
+        let truncated = false;
         if (existing && (params.cursor ?? null) === null) {
             cursor = existing.cursor;
         } else {
-            const wireCursor = params.cursor ?? null;
-            const replay = await this._replayAfterCursor(event, paramsResult.params, wireCursor, params.id);
-            if ('error' in replay) {
-                if (isNew) await this._safeOnUnsubscribe(event, params.id, paramsResult.params, ctx);
-                throw new ProtocolError(replay.error.code, replay.error.message, replay.error.data);
-            }
+            const replay = await this._replayAfterCursor(event, paramsResult.params, params.cursor ?? null, params.maxAge, id);
             backlog = replay.events;
-            cursor = backlog.length > 0 ? backlog.at(-1)!.cursor : wireCursor;
+            truncated = replay.truncated;
+            cursor = backlog.at(-1)?.cursor ?? (truncated ? replay.headCursor : (params.cursor ?? null));
         }
 
         const expiresAt = Date.now() + ttl;
+        const headSeq = event.log.nextSeq - 1;
         const sub: WebhookSubscription = existing ?? {
-            id: params.id,
+            id,
             key,
-            principalScoped,
             eventName: params.name,
             params: paramsResult.params,
             cursor,
             internalCheckCursor: null,
             ctx,
             url: params.delivery.url,
-            secret: params.delivery.secret ?? generateWebhookSecret(),
+            secrets: [params.delivery.secret],
+            acknowledgedSeq: headSeq,
             expiresAt,
             deliveryStatus: { active: true, lastDeliveryAt: null, lastError: null }
         };
 
         sub.cursor = cursor;
-        if (params.delivery.secret !== undefined) sub.secret = params.delivery.secret;
+        // Secret rotation: if the supplied secret differs, retain previous
+        // for dual-signing until the next refresh.
+        if (params.delivery.secret !== sub.secrets[0]) {
+            sub.secrets = [params.delivery.secret, sub.secrets[0]!];
+        }
         sub.expiresAt = expiresAt;
         sub.ctx = ctx;
         const priorStatus = sub.deliveryStatus;
@@ -1348,20 +1216,17 @@ export class ServerEventManager {
             this._webhookSubs.set(key, sub);
         }
 
-        // Run an initial check tick so applications get an immediate-first-poll
-        // and so tests get a sane interval picked up from check()'s nextPollSeconds.
-        // Live emits arrive via fan-out independently of this loop.
+        // Initial check tick.
         let nextPollSeconds: number | undefined;
         const tick = await this._runCheckTick(event, params.name, paramsResult.params, sub.internalCheckCursor, ctx);
         if ('error' in tick) {
-            // Surface as initial-delivery problem; subsequent ticks may still recover.
-            void this._deliverWebhookError(sub, tick.error);
+            // Surfaced via deliveryStatus on the next refresh; don't fail subscribe.
         } else {
             sub.internalCheckCursor = tick.nextInternalCheckCursor;
             nextPollSeconds = tick.nextPollSeconds;
+            truncated ||= tick.truncated;
             for (const occ of tick.events) {
                 if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
-                sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, await this._safeTransform(event, sub.params, occ, sub.id));
             }
         }
@@ -1370,27 +1235,30 @@ export class ServerEventManager {
             this._scheduleWebhookPoll(sub, event, nextPollSeconds);
         }
 
-        for (const occ of backlog) {
-            sub.cursor = occ.cursor;
-            void this._deliverWebhook(sub, occ);
-        }
+        for (const occ of backlog) void this._deliverWebhook(sub, occ);
 
         return {
-            id: params.id,
-            secret: isNew ? sub.secret : undefined,
+            id,
             refreshBefore: new Date(expiresAt).toISOString(),
+            cursor: sub.cursor,
+            truncated,
             deliveryStatus: isNew ? undefined : priorStatus
         };
     }
 
-    private async _handleUnsubscribe(
-        params: { id: string; delivery: { url: string } },
-        ctx: ServerContext
-    ): Promise<Record<string, never>> {
-        const { key } = this._subscriptionKey(ctx, params.id, params.delivery.url);
+    private async _handleUnsubscribe(params: UnsubscribeEventRequestParams, ctx: ServerContext): Promise<Record<string, never>> {
+        const event = this._events.get(params.name);
+        if (!event) {
+            throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${params.name}`);
+        }
+        const paramsResult = await this._validateParams(event, params.params);
+        if ('error' in paramsResult) {
+            throw new ProtocolError(paramsResult.error.code, paramsResult.error.message, paramsResult.error.data);
+        }
+        const { key } = await this._subscriptionKey(ctx, params.delivery.url, params.name, paramsResult.params);
         const sub = this._webhookSubs.get(key);
         if (!sub) {
-            throw new ProtocolError(SUBSCRIPTION_NOT_FOUND, `Unknown subscription: ${params.id}`);
+            throw new ProtocolError(SUBSCRIPTION_NOT_FOUND, `No subscription matches the supplied key`);
         }
         await this._teardownWebhookSub(sub, ctx);
         this._webhookSubs.delete(key);
@@ -1407,17 +1275,17 @@ export class ServerEventManager {
             }
             const result = await this._runCheckTick(event, sub.eventName, sub.params, sub.internalCheckCursor, sub.ctx);
             if ('error' in result) {
-                if (result.error.code === CURSOR_EXPIRED) {
-                    void this._deliverWebhookError(sub, result.error);
-                    sub.internalCheckCursor = null;
-                }
                 sub.pollTimer = setTimeout(tick, currentInterval);
                 return;
             }
-            sub.internalCheckCursor = result.nextInternalCheckCursor;
+            if (result.truncated) {
+                sub.internalCheckCursor = null;
+                void this._deliverWebhookControl(sub, { type: 'gap', cursor: sub.cursor });
+            } else {
+                sub.internalCheckCursor = result.nextInternalCheckCursor;
+            }
             for (const occ of result.events) {
                 if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
-                sub.cursor = occ.cursor;
                 void this._deliverWebhook(sub, await this._safeTransform(event, sub.params, occ, sub.id));
             }
             if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
@@ -1428,11 +1296,7 @@ export class ServerEventManager {
 
     /**
      * Validates the callback URL's resolved address(es) against private/loopback
-     * ranges at delivery time (DNS-rebinding mitigation), returning a possibly
-     * rewritten target URL plus the `Host` header to send. For HTTP, the URL is
-     * rewritten to the validated IP literal so the connection is pinned; for
-     * HTTPS the original hostname is kept (TLS SNI/cert verification needs it),
-     * leaving a small TOCTOU window between resolution and connect.
+     * ranges at delivery time (DNS-rebinding mitigation).
      */
     private async _resolveDeliveryTarget(rawUrl: string): Promise<{ url: string; host: string }> {
         const parsed = new URL(rawUrl);
@@ -1441,7 +1305,9 @@ export class ServerEventManager {
             const addresses = await this._resolveHost(parsed.hostname);
             for (const { address } of addresses) {
                 if (isPrivateAddress(normaliseHostname(address))) {
-                    throw new Error(`Callback host ${parsed.hostname} resolved to private/loopback address ${address}`);
+                    throw Object.assign(new Error(`Callback host resolved to private/loopback address`), {
+                        category: 'connection_refused' as WebhookLastError
+                    });
                 }
             }
             if (parsed.protocol === 'http:' && addresses[0]) {
@@ -1452,7 +1318,29 @@ export class ServerEventManager {
         return { url: parsed.toString(), host };
     }
 
-    private async _postWebhook(sub: WebhookSubscription, body: string): Promise<void> {
+    private _classifyDeliveryError(error: unknown): WebhookLastError {
+        if (error && typeof error === 'object' && 'category' in error) {
+            return (error as { category: WebhookLastError }).category;
+        }
+        const msg = error instanceof Error ? error.message : String(error);
+        if (/abort|timeout/i.test(msg)) return 'timeout';
+        if (/tls|certificate|ssl/i.test(msg)) return 'tls_error';
+        if (/redirect/i.test(msg)) return 'connection_refused';
+        return 'connection_refused';
+    }
+
+    private async _postWebhook(sub: WebhookSubscription, msgId: string, body: string, occurrenceSeq?: number): Promise<void> {
+        if (new TextEncoder().encode(body).length > WEBHOOK_MAX_BODY_BYTES) {
+            console.error(`[events] webhook body for ${sub.id} exceeds ${WEBHOOK_MAX_BODY_BYTES} bytes; dropping`);
+            sub.deliveryStatus = {
+                ...sub.deliveryStatus,
+                active: sub.deliveryStatus.active,
+                lastError: 'http_4xx',
+                failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString()
+            };
+            return;
+        }
+
         const maxAttempts = this._webhookOptions?.maxDeliveryAttempts ?? 3;
         let delay = this._webhookOptions?.initialRetryDelayMs ?? 1000;
 
@@ -1460,31 +1348,48 @@ export class ServerEventManager {
             try {
                 const { url, host } = await this._resolveDeliveryTarget(sub.url);
                 const timestamp = Math.floor(Date.now() / 1000);
-                const signature = await computeWebhookSignature(sub.secret, timestamp, body);
+                const sigs = await Promise.all(sub.secrets.map(s => computeWebhookSignature(s, msgId, timestamp, body)));
                 const res = await this._fetch(url, {
                     method: 'POST',
                     redirect: 'error',
                     headers: {
                         'Content-Type': 'application/json',
                         Host: host,
-                        [WEBHOOK_SUBSCRIPTION_ID_HEADER]: sub.id,
-                        [WEBHOOK_SIGNATURE_HEADER]: signature,
-                        [WEBHOOK_TIMESTAMP_HEADER]: String(timestamp)
+                        [WEBHOOK_ID_HEADER]: msgId,
+                        [WEBHOOK_TIMESTAMP_HEADER]: String(timestamp),
+                        [WEBHOOK_SIGNATURE_HEADER]: sigs.join(' '),
+                        [WEBHOOK_SUBSCRIPTION_ID_HEADER]: sub.id
                     },
                     body
                 });
                 if (res.ok) {
                     sub.deliveryStatus = { active: true, lastDeliveryAt: new Date().toISOString(), lastError: null, failedSince: null };
+                    if (occurrenceSeq !== undefined && occurrenceSeq > sub.acknowledgedSeq) {
+                        sub.acknowledgedSeq = occurrenceSeq;
+                        const event = this._events.get(sub.eventName);
+                        const acked = event?.log.entries.find(e => e.seq === occurrenceSeq);
+                        if (acked) sub.cursor = acked.cursor;
+                    }
                     return;
                 }
-                throw new Error(`Webhook endpoint returned ${res.status} ${res.statusText}`);
+                const category: WebhookLastError = res.status >= 500 ? 'http_5xx' : 'http_4xx';
+                if (res.status === 413 || (res.status >= 400 && res.status < 500)) {
+                    // Non-retryable client errors.
+                    sub.deliveryStatus = {
+                        active: false,
+                        lastDeliveryAt: sub.deliveryStatus.lastDeliveryAt ?? null,
+                        lastError: category,
+                        failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString()
+                    };
+                    return;
+                }
+                throw Object.assign(new Error('http_5xx'), { category });
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
                 if (attempt >= maxAttempts) {
                     sub.deliveryStatus = {
                         active: false,
                         lastDeliveryAt: sub.deliveryStatus.lastDeliveryAt ?? null,
-                        lastError: message,
+                        lastError: this._classifyDeliveryError(error),
                         failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString()
                     };
                     return;
@@ -1497,18 +1402,19 @@ export class ServerEventManager {
 
     private _deliverWebhook(sub: WebhookSubscription, occurrence: EventOccurrence | null): Promise<void> {
         if (occurrence === null) return Promise.resolve();
-        return this._postWebhook(sub, JSON.stringify({ id: sub.id, ...occurrence }));
+        const event = this._events.get(sub.eventName);
+        const seq = occurrence.cursor ? event?.log.cursorMap.get(occurrence.cursor) : undefined;
+        return this._postWebhook(sub, occurrence.eventId, JSON.stringify(occurrence), seq);
     }
 
     /**
-     * POSTs a signed error envelope (`{ id, error }`) to the callback URL when a
-     * webhook subscription hits a terminal or recoverable error (CursorExpired,
-     * server-initiated termination). The endpoint can use this to surface the
-     * condition to the consuming client without waiting for the next refresh.
+     * POSTs a signed control envelope (`{type: 'gap'|'terminated'|'verification', ...}`)
+     * to the callback URL. `webhook-id` is `msg_<type>_<random>` so receivers can
+     * dedup retries.
      */
-    private _deliverWebhookError(sub: WebhookSubscription, error: EventSubscriptionError): Promise<void> {
-        sub.deliveryStatus = { ...sub.deliveryStatus, lastError: error.message };
-        return this._postWebhook(sub, JSON.stringify({ id: sub.id, error }));
+    private _deliverWebhookControl(sub: WebhookSubscription, envelope: WebhookControlEnvelope): Promise<void> {
+        const msgId = `msg_${envelope.type}_${(this._eventCounter++).toString(36)}`;
+        return this._postWebhook(sub, msgId, JSON.stringify(envelope));
     }
 
     private async _teardownWebhookSub(sub: WebhookSubscription, ctx?: ServerContext): Promise<void> {
@@ -1529,27 +1435,19 @@ export class ServerEventManager {
         }
     }
 
-    private _sendEventNotification(stream: PushStream, id: string, occurrence: EventOccurrence): void {
+    private _sendActiveNotification(stream: PushStream, cursor: string | null, truncated: boolean): void {
         if (stream.closed) return;
-        void stream.ctx.mcpReq.notify({
-            method: 'notifications/events/event',
-            params: { id, ...occurrence }
-        });
-    }
-
-    private _sendActiveNotification(stream: PushStream, id: string, cursor: string): void {
-        if (stream.closed) return;
-        void stream.ctx.mcpReq.notify({
+        void stream.sub.ctx.mcpReq.notify({
             method: 'notifications/events/active',
-            params: { id, cursor }
+            params: { requestId: stream.requestId, cursor, truncated }
         });
     }
 
-    private _sendErrorNotification(stream: PushStream, id: string, error: EventSubscriptionError): void {
+    private _sendErrorNotification(stream: PushStream, error: EventSubscriptionError): void {
         if (stream.closed) return;
-        void stream.ctx.mcpReq.notify({
+        void stream.sub.ctx.mcpReq.notify({
             method: 'notifications/events/error',
-            params: { id, error }
+            params: { requestId: stream.requestId, error }
         });
     }
 
@@ -1572,7 +1470,7 @@ export class ServerEventManager {
         name: string,
         data: Record<string, unknown>,
         _meta: Record<string, unknown> | undefined,
-        cursor: string,
+        cursor: string | null,
         eventId?: string
     ): EventOccurrence {
         return {
@@ -1585,11 +1483,6 @@ export class ServerEventManager {
         };
     }
 
-    /**
-     * Calls `onUnsubscribe` swallowing any error. Used on cleanup paths where
-     * the hook MUST NOT prevent further teardown (or surface as the request
-     * error in place of the original cause).
-     */
     private async _safeOnUnsubscribe(
         event: InternalRegisteredEvent,
         subId: string,
@@ -1600,7 +1493,7 @@ export class ServerEventManager {
         try {
             await event.hooks.onUnsubscribe(subId, params, ctx);
         } catch {
-            // Swallow — the caller is on a cleanup/error path already.
+            // Swallow — caller is on a cleanup/error path already.
         }
     }
 

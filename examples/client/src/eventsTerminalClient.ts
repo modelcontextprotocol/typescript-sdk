@@ -33,9 +33,8 @@
  *   2. One shared webhook listener at `http://127.0.0.1:<random>/hook`. The SDK's
  *      `ClientEventManager` accepts a single `WebhookConfig.url` and routes by the
  *      `X-MCP-Subscription-Id` header, so per-subscription URL paths are
- *      unnecessary. A `Map<subId, secret>` (populated via the `onSecret`
- *      callback) lets the listener verify each delivery with the correct
- *      server-minted secret before parsing the body.
+ *      unnecessary. The same client-supplied `whsec_` secret is used for all
+ *      subscriptions originated from this manager.
  *   3. `unsub` accepts either the full subscription UUID or a 1-based index from
  *      `subs` — UUIDs are unwieldy in a REPL.
  */
@@ -45,13 +44,15 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createInterface } from 'node:readline';
 
-import type { EventDeliveryMode, EventNotification, EventOccurrence, EventSubscription } from '@modelcontextprotocol/client';
+import type { EventDeliveryMode, EventOccurrence, EventSubscription, WebhookControlEnvelope } from '@modelcontextprotocol/client';
 import {
     Client,
     ClientEventManager,
+    generateWebhookSecret,
     StdioClientTransport,
     StreamableHTTPClientTransport,
     verifyWebhookSignature,
+    WEBHOOK_ID_HEADER,
     WEBHOOK_SIGNATURE_HEADER,
     WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
@@ -84,7 +85,7 @@ function help(): void {
 
 // ---- webhook listener ----------------------------------------------------
 
-const webhookSecrets = new Map<string, string>();
+const webhookSecret = generateWebhookSecret();
 let webhookServer: Server | undefined;
 let webhookUrl: string | undefined;
 let activeManager: ClientEventManager | undefined;
@@ -105,33 +106,28 @@ async function ensureWebhookListener(): Promise<string> {
                     res.writeHead(400).end();
                     return;
                 }
-                const secret = webhookSecrets.get(subId);
-                if (!secret) {
-                    res.writeHead(404).end();
-                    return;
-                }
                 const verify = await verifyWebhookSignature(
-                    secret,
+                    webhookSecret,
                     body,
-                    req.headers[WEBHOOK_SIGNATURE_HEADER.toLowerCase()] as string,
-                    req.headers[WEBHOOK_TIMESTAMP_HEADER.toLowerCase()] as string
+                    req.headers[WEBHOOK_ID_HEADER] as string,
+                    req.headers[WEBHOOK_TIMESTAMP_HEADER] as string,
+                    req.headers[WEBHOOK_SIGNATURE_HEADER] as string
                 );
                 if (!verify.valid) {
                     out(`  [webhook] rejected delivery for ${subId}: ${verify.reason}`);
                     res.writeHead(401).end();
                     return;
                 }
-                let payload: EventNotification['params'] | { id: string; error: { code: number; message: string } };
+                let payload: EventOccurrence | WebhookControlEnvelope;
                 try {
                     payload = JSON.parse(body);
                 } catch {
                     res.writeHead(400).end();
                     return;
                 }
-                if ('error' in payload) {
-                    out(`  [webhook] error for ${payload.id}: ${payload.error.code} ${payload.error.message}`);
-                } else {
-                    activeManager?.deliverWebhookPayload(payload);
+                activeManager?.deliverWebhookPayload(subId, payload);
+                if ('type' in payload) {
+                    out(`  [webhook] control ${payload.type} for ${subId}`);
                 }
                 res.writeHead(200).end();
             })();
@@ -170,15 +166,7 @@ async function main(): Promise<void> {
     // webhook` works without rebuilding. The listener references `activeManager`
     // (set below) so there's no construction-order cycle.
     const url = await ensureWebhookListener();
-    const manager = new ClientEventManager(client, {
-        webhook: {
-            url,
-            onSecret: (secret: string, subId: string) => {
-                webhookSecrets.set(subId, secret);
-                out(`  secret for ${subId.slice(0, 8)}…: ${secret.slice(0, 14)}…`);
-            }
-        }
-    });
+    const manager = new ClientEventManager(client, { webhook: { url, secret: webhookSecret } });
     activeManager = manager;
     const subs: EventSubscription[] = [];
 
@@ -263,7 +251,6 @@ async function main(): Promise<void> {
                         // is a safety net).
                         const idx = subs.indexOf(sub);
                         if (idx !== -1) subs.splice(idx, 1);
-                        webhookSecrets.delete(sub.id);
                     }
                 })();
                 return;
@@ -279,7 +266,6 @@ async function main(): Promise<void> {
                     subs.length = 0;
                     for (const sub of all) {
                         await sub.cancel();
-                        webhookSecrets.delete(sub.id);
                         out(`unsubscribed ${sub.id}`);
                     }
                     return;
@@ -293,7 +279,6 @@ async function main(): Promise<void> {
                 const subIdx = subs.indexOf(sub);
                 if (subIdx !== -1) subs.splice(subIdx, 1);
                 await sub.cancel();
-                webhookSecrets.delete(sub.id);
                 out(`unsubscribed ${sub.id}`);
                 return;
             }

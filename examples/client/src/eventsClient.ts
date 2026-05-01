@@ -22,9 +22,12 @@ import type { EventDeliveryMode } from '@modelcontextprotocol/client';
 import {
     Client,
     ClientEventManager,
+    generateWebhookSecret,
     StdioClientTransport,
     verifyWebhookSignature,
+    WEBHOOK_ID_HEADER,
     WEBHOOK_SIGNATURE_HEADER,
+    WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
 } from '@modelcontextprotocol/client';
 
@@ -34,9 +37,8 @@ const forcedMode = modeIdx === -1 ? undefined : (process.argv[modeIdx + 1] as Ev
 const webhookUrlIdx = process.argv.indexOf('--webhook-url');
 const webhookUrl = webhookUrlIdx === -1 ? 'http://127.0.0.1:4000/hook' : process.argv[webhookUrlIdx + 1]!;
 
-// Secret is server-minted and delivered via the `onSecret` callback on first
-// subscribe. We store it here so the webhook listener can verify signatures.
-let webhookSecret: string | null = null;
+// Client supplies the secret (Standard Webhooks `whsec_` format).
+const webhookSecret = generateWebhookSecret();
 
 async function main(): Promise<void> {
     // Spawn the example server as a child process.
@@ -57,16 +59,7 @@ async function main(): Promise<void> {
 
     console.log(`Connected. Server capabilities: ${JSON.stringify(client.getServerCapabilities())}`);
 
-    const webhookConfig =
-        forcedMode === 'webhook'
-            ? {
-                  url: webhookUrl,
-                  onSecret: (secret: string) => {
-                      webhookSecret = secret;
-                      console.log(`[webhook] received server-minted secret (${secret.slice(0, 14)}...)`);
-                  }
-              }
-            : undefined;
+    const webhookConfig = forcedMode === 'webhook' ? { url: webhookUrl, secret: webhookSecret } : undefined;
 
     const manager = new ClientEventManager(client, { webhook: webhookConfig });
 
@@ -128,22 +121,20 @@ function startWebhookReceiver(manager: ClientEventManager): void {
         });
         req.on('end', () => {
             void (async () => {
-                if (webhookSecret === null) {
-                    res.writeHead(503).end('webhook secret not yet received');
-                    return;
-                }
+                const subId = req.headers[WEBHOOK_SUBSCRIPTION_ID_HEADER.toLowerCase()] as string | undefined;
                 const verify = await verifyWebhookSignature(
                     webhookSecret,
                     body,
-                    req.headers[WEBHOOK_SIGNATURE_HEADER.toLowerCase()] as string,
-                    req.headers[WEBHOOK_TIMESTAMP_HEADER.toLowerCase()] as string
+                    req.headers[WEBHOOK_ID_HEADER] as string,
+                    req.headers[WEBHOOK_TIMESTAMP_HEADER] as string,
+                    req.headers[WEBHOOK_SIGNATURE_HEADER] as string
                 );
-                if (!verify.valid) {
-                    console.error(`[webhook] rejected delivery: ${verify.reason}`);
+                if (!verify.valid || !subId) {
+                    console.error(`[webhook] rejected delivery: ${verify.reason ?? 'missing subscription id'}`);
                     res.writeHead(401).end();
                     return;
                 }
-                manager.deliverWebhookPayload(JSON.parse(body));
+                manager.deliverWebhookPayload(subId, JSON.parse(body));
                 res.writeHead(200).end();
             })();
         });

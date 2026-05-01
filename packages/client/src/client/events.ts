@@ -1,12 +1,13 @@
 import type {
     EventDeliveryMode,
     EventDescriptor,
-    EventNotification,
     EventOccurrence,
     EventSubscriptionError,
-    RequestOptions
+    RequestId,
+    RequestOptions,
+    WebhookControlEnvelope
 } from '@modelcontextprotocol/core';
-import { CURSOR_EXPIRED, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { decodeWebhookSecret, generateWebhookSecret, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 
 import type { Client } from './client.js';
 
@@ -20,20 +21,12 @@ export interface WebhookConfig {
      */
     url: string;
     /**
-     * Optional shared secret to override server generation. If omitted, the
-     * server mints a secret and returns it in the subscribe response (see
-     * {@linkcode onSecret}). Supply this only when the secret is provisioned
-     * out-of-band.
+     * HMAC signing secret (Standard Webhooks `whsec_` format). The SDK
+     * generates one from a CSPRNG if omitted; supply this only when the secret
+     * is provisioned out-of-band (e.g. registered with a gateway). The same
+     * secret is sent on every subscribe call.
      */
     secret?: string;
-    /**
-     * Called whenever the server returns a (new) signing secret — on initial
-     * subscribe, and on any refresh where the server has (re)created the
-     * subscription (restart, TTL expiry). The receiver MUST verify deliveries
-     * with this secret. The current secret is also exposed as
-     * {@linkcode EventSubscription.secret}.
-     */
-    onSecret?: (secret: string, subscriptionId: string) => void | Promise<void>;
     /**
      * Fraction of the server-announced `refreshBefore` interval at which to
      * re-subscribe. `0.5` (the default) means refresh halfway through the TTL.
@@ -61,27 +54,22 @@ export interface SubscribeOptions {
      */
     signal?: AbortSignal;
     /**
-     * Resume from a known cursor. If set, the initial `events/subscribe` /
-     * `events/stream` / `events/poll` request carries this cursor so the server
-     * can replay buffered events from that point. Without it, delivery starts
-     * from the current head ("now").
+     * Resume from a known cursor.
      */
     cursor?: string;
+    /**
+     * Do not replay events older than this many seconds.
+     */
+    maxAge?: number;
 }
 
 /**
- * Retry behaviour for transport-level failures (network errors, transient
- * server errors) in the poll, push and webhook delivery loops.
- *
+ * Retry behaviour for transport-level failures across all delivery loops.
  * Exponential backoff: attempt N waits `min(baseDelayMs * 2^(N-1), maxDelayMs)`.
- * The attempt counter resets to 0 on the first successful round-trip.
  */
 export interface RetryOptions {
-    /** Maximum consecutive failures before the subscription is failed. Default 5. */
     maxAttempts?: number;
-    /** First retry delay in ms. Default 1000. */
     baseDelayMs?: number;
-    /** Ceiling on retry delay in ms. Default 30000. */
     maxDelayMs?: number;
 }
 
@@ -89,25 +77,9 @@ export interface RetryOptions {
  * Options for {@linkcode ClientEventManager}.
  */
 export interface ClientEventManagerOptions {
-    /**
-     * Webhook configuration. If set, the SDK will prefer webhook delivery
-     * where the server supports it.
-     */
     webhook?: WebhookConfig;
-    /**
-     * Default poll interval (seconds) if the server doesn't provide one.
-     * Defaults to 30.
-     */
     defaultPollIntervalSeconds?: number;
-    /**
-     * Low-level request options applied to all protocol calls (`events/poll`,
-     * `events/stream`, `events/subscribe`).
-     */
     requestOptions?: RequestOptions;
-    /**
-     * Retry behaviour for transport-level failures across all delivery loops.
-     * See {@linkcode RetryOptions}.
-     */
     retry?: RetryOptions;
 }
 
@@ -115,10 +87,6 @@ const DEFAULT_POLL_SECONDS = 30;
 const DEFAULT_DEDUPE_WINDOW = 256;
 const DEFAULT_RETRY: Required<RetryOptions> = { maxAttempts: 5, baseDelayMs: 1000, maxDelayMs: 30_000 };
 
-/**
- * Internal queue state backing a single {@linkcode EventSubscription}'s async
- * iterator.
- */
 interface SubscriptionQueue {
     buffer: EventOccurrence[];
     waiters: { resolve: (v: IteratorResult<EventOccurrence>) => void; reject: (e: Error) => void }[];
@@ -137,42 +105,35 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
     private _seen: string[] = [];
 
     /**
-     * The client-generated subscription ID (sent to the server as the `id` field).
+     * Routing handle. For webhook delivery this is the server-derived `id`
+     * returned by `events/subscribe` (deterministic over `(principal, url, name,
+     * params)`). For poll/push it is a local handle assigned by the SDK.
      */
-    readonly id: string;
-    /**
-     * The event type name this subscription is for.
-     */
+    id: string;
     readonly name: string;
-    /**
-     * Subscription parameters passed to the server.
-     */
     readonly params: Record<string, unknown>;
-    /**
-     * The delivery mode actually in use (may differ from what was requested if
-     * the server doesn't support the requested mode).
-     */
     readonly delivery: EventDeliveryMode;
-    /**
-     * Current cursor position. Updated after each delivered batch.
-     */
+    /** Current cursor. `null` means non-replayable or "start from now". */
     cursor: string | null = null;
     /**
-     * Current webhook signing secret (webhook delivery only). Set from the
-     * server's subscribe response; updated whenever the server (re)mints one.
+     * `true` if at any point the server signalled events were skipped (the
+     * cursor fell outside retention, `maxAge` floor advanced past it, or the
+     * server applied a ceiling). Consumers SHOULD treat this as a possible gap
+     * and re-fetch authoritative state via tools if it matters.
      */
+    truncated = false;
+    /** Webhook signing secret (webhook delivery only). */
     secret: string | null = null;
 
     /** @internal */
     constructor(
-        id: string,
         name: string,
         params: Record<string, unknown>,
         delivery: EventDeliveryMode,
         private readonly _dedupeWindow: number,
         private readonly _onCancel: () => Promise<void>
     ) {
-        this.id = id;
+        this.id = crypto.randomUUID();
         this.name = name;
         this.params = params;
         this.delivery = delivery;
@@ -184,7 +145,7 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
         if (this._seen.includes(occurrence.eventId)) return;
         this._seen.push(occurrence.eventId);
         if (this._seen.length > this._dedupeWindow) this._seen.shift();
-        this.cursor = occurrence.cursor;
+        if (occurrence.cursor !== undefined && occurrence.cursor !== null) this.cursor = occurrence.cursor;
         const waiter = this._queue.waiters.shift();
         if (waiter) {
             waiter.resolve({ value: occurrence, done: false });
@@ -198,9 +159,6 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
         if (this._queue.done) return;
         this._queue.done = true;
         this._queue.error = error;
-        // Reject (not resolve done:true) so a `for await` body sees the error
-        // immediately as a thrown exception, instead of exiting cleanly and
-        // never observing it.
         for (const waiter of this._queue.waiters) waiter.reject(error);
         this._queue.waiters = [];
     }
@@ -213,13 +171,6 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
         this._queue.waiters = [];
     }
 
-    /**
-     * Cancels this subscription. Stops the poll loop, closes the push stream
-     * connection (or re-opens it without this subscription if others remain),
-     * or calls `events/unsubscribe` (webhook mode).
-     *
-     * The async iterator completes cleanly after this call.
-     */
     async cancel(): Promise<void> {
         this._close();
         await this._onCancel();
@@ -246,10 +197,21 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
     }
 }
 
+interface SubState {
+    sub: EventSubscription;
+    /** Set on push streams to map `requestId` → sub. */
+    requestId?: RequestId;
+    pollTimer?: ReturnType<typeof setTimeout>;
+    pushController?: AbortController;
+    refreshTimer?: ReturnType<typeof setTimeout>;
+    attempts: number;
+    maxAge?: number;
+}
+
 /**
  * High-level client-side event subscription manager. Handles delivery mode
  * selection, poll loops, push stream lifecycle, webhook refresh cycles, cursor
- * tracking, deduplication, and cursor-expiry recovery.
+ * tracking, deduplication, and gap (`truncated`) handling.
  *
  * @example
  * ```ts source="./events.examples.ts#ClientEventManager_basicUsage"
@@ -265,32 +227,24 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
 export class ClientEventManager {
     private _eventTypes = new Map<string, EventDescriptor>();
     private _eventTypesLoaded = false;
-    private _subscriptions = new Map<string, EventSubscription>();
-
-    // Poll-mode state: one shared loop drives all poll-mode subscriptions.
-    private _pollSubs = new Map<string, EventSubscription>();
-    private _pollTimer?: ReturnType<typeof setTimeout>;
-    private _pollInFlight = false;
-
-    // Push-mode state: one shared `events/stream` request carries all push subs.
-    private _pushSubs = new Map<string, EventSubscription>();
-    private _pushController?: AbortController;
+    /** Keyed by the local handle (`sub.id`). */
+    private _states = new Map<string, SubState>();
+    /** Webhook subs additionally indexed by server-derived id for delivery routing. */
+    private _byServerId = new Map<string, SubState>();
     private _pushHandlersInstalled = false;
-    private _pushRestartTimer?: ReturnType<typeof setTimeout>;
-
-    // Webhook-mode state: per-subscription refresh timers.
-    private _webhookTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-    // Per-loop transport-error attempt counters, reset on success.
-    private _pollAttempts = 0;
-    private _pushAttempts = 0;
     private readonly _retry: Required<RetryOptions>;
+    private readonly _webhookSecret?: string;
 
     constructor(
         private readonly _client: Client,
         private readonly _options: ClientEventManagerOptions = {}
     ) {
         this._retry = { ...DEFAULT_RETRY, ..._options.retry };
+        if (_options.webhook) {
+            const secret = _options.webhook.secret ?? generateWebhookSecret();
+            decodeWebhookSecret(secret);
+            this._webhookSecret = secret;
+        }
     }
 
     private _backoffDelay(attempt: number): number {
@@ -298,9 +252,7 @@ export class ClientEventManager {
     }
 
     /**
-     * Lists event types the server offers, caching the result. Subsequent calls
-     * return the cached list unless `force` is `true` or a
-     * `notifications/events/list_changed` has been received.
+     * Lists event types the server offers, caching the result.
      */
     async listEvents(force = false): Promise<EventDescriptor[]> {
         if (!this._eventTypesLoaded || force) {
@@ -315,12 +267,6 @@ export class ClientEventManager {
     /**
      * Subscribes to an event type. Returns an {@linkcode EventSubscription} that
      * is also an `AsyncIterable` yielding `EventOccurrence`s as they arrive.
-     *
-     * For **poll** and **push** modes, the subscription is activated
-     * asynchronously (the first poll tick / stream bootstrap happens on the next
-     * event-loop turn). If you need to know the subscription is fully active
-     * before producing upstream events (e.g. in tests), await
-     * `sub.cursor !== null`.
      */
     async subscribe(name: string, params: Record<string, unknown> = {}, options: SubscribeOptions = {}): Promise<EventSubscription> {
         await this.listEvents();
@@ -334,47 +280,53 @@ export class ClientEventManager {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Event '${name}' does not support delivery mode '${mode}'`);
         }
 
-        const id = crypto.randomUUID();
         const dedupe = options.dedupeWindow ?? DEFAULT_DEDUPE_WINDOW;
-
-        const sub = new EventSubscription(id, name, params, mode, dedupe, async () => {
-            this._subscriptions.delete(id);
-            await this._teardown(sub);
-        });
+        const sub: EventSubscription = new EventSubscription(name, params, mode, dedupe, async () => this._teardown(sub));
         if (options.cursor !== undefined) sub.cursor = options.cursor;
-
         options.signal?.addEventListener('abort', () => void sub.cancel(), { once: true });
 
-        this._subscriptions.set(id, sub);
-        await this._activate(sub, descriptor);
+        const state: SubState = { sub, attempts: 0, maxAge: options.maxAge };
+        this._states.set(sub.id, state);
+        await this._activate(state);
         return sub;
     }
 
-    /**
-     * Cancels all active subscriptions and releases resources.
-     */
+    /** Cancels all active subscriptions and releases resources. */
     async close(): Promise<void> {
-        const subs = [...this._subscriptions.values()];
-        await Promise.all(subs.map(s => s.cancel()));
-        if (this._pollTimer) clearTimeout(this._pollTimer);
-        if (this._pushRestartTimer) clearTimeout(this._pushRestartTimer);
-        this._pushController?.abort();
-        for (const timer of this._webhookTimers.values()) clearTimeout(timer);
-        this._webhookTimers.clear();
+        await Promise.all([...this._states.values()].map(s => s.sub.cancel()));
     }
 
     /**
-     * Delivers a webhook POST body to the matching subscription. The caller is
-     * responsible for HMAC verification via `verifyWebhookSignature()`.
+     * Delivers a verified webhook POST body to the matching subscription. The
+     * caller is responsible for HMAC verification via `verifyWebhookSignature()`
+     * before calling this. `subscriptionId` is the value of the
+     * `X-MCP-Subscription-Id` header.
      *
-     * The body shape is `{ id, eventId, name, timestamp, data, cursor }`.
+     * The body is either a bare `EventOccurrence` (no top-level `type`) or a
+     * control envelope (`{type: 'gap'|'terminated'|'verification', ...}`).
      */
-    deliverWebhookPayload(payload: EventNotification['params']): void {
-        const sub = this._subscriptions.get(payload.id);
-        if (!sub || sub.delivery !== 'webhook') return;
-        const { id: _id, ...occurrence } = payload;
-        void _id;
-        sub._push(occurrence);
+    deliverWebhookPayload(subscriptionId: string, body: EventOccurrence | WebhookControlEnvelope): void {
+        const state = this._byServerId.get(subscriptionId);
+        if (!state || state.sub.delivery !== 'webhook') return;
+        if ('type' in body) {
+            switch (body.type) {
+                case 'gap': {
+                    state.sub.truncated = true;
+                    if (body.cursor !== null) state.sub.cursor = body.cursor;
+                    return;
+                }
+                case 'terminated': {
+                    state.sub._fail(new ProtocolError(body.error.code, body.error.message, body.error.data));
+                    void this._teardown(state.sub);
+                    return;
+                }
+                case 'verification': {
+                    // Receiver-side challenge response is the gateway's concern.
+                    return;
+                }
+            }
+        }
+        state.sub._push(body);
     }
 
     private _selectMode(descriptor: EventDescriptor): EventDeliveryMode {
@@ -383,266 +335,208 @@ export class ClientEventManager {
         return 'poll';
     }
 
-    private async _activate(sub: EventSubscription, descriptor: EventDescriptor): Promise<void> {
-        switch (sub.delivery) {
+    private async _activate(state: SubState): Promise<void> {
+        switch (state.sub.delivery) {
             case 'poll': {
-                this._pollSubs.set(sub.id, sub);
-                this._schedulePoll(0);
+                this._schedulePoll(state, 0);
                 break;
             }
             case 'push': {
-                this._pushSubs.set(sub.id, sub);
-                this._restartPushStream();
+                this._installPushHandlers();
+                this._openPushStream(state);
                 break;
             }
             case 'webhook': {
-                await this._activateWebhook(sub, descriptor);
+                await this._activateWebhook(state);
                 break;
             }
         }
     }
 
     private async _teardown(sub: EventSubscription): Promise<void> {
-        switch (sub.delivery) {
-            case 'poll': {
-                this._pollSubs.delete(sub.id);
-                if (this._pollSubs.size === 0 && this._pollTimer) {
-                    clearTimeout(this._pollTimer);
-                    this._pollTimer = undefined;
-                }
-                break;
-            }
-            case 'push': {
-                this._pushSubs.delete(sub.id);
-                this._restartPushStream();
-                break;
-            }
-            case 'webhook': {
-                const timer = this._webhookTimers.get(sub.id);
-                if (timer) clearTimeout(timer);
-                this._webhookTimers.delete(sub.id);
-                try {
-                    await this._client.unsubscribeEvent(
-                        { id: sub.id, delivery: { url: this._options.webhook!.url } },
-                        this._options.requestOptions
-                    );
-                } catch {
-                    // Best-effort cleanup — TTL will reclaim it.
-                }
-                break;
+        const state = this._states.get(sub.id);
+        if (!state) return;
+        this._states.delete(sub.id);
+        this._byServerId.delete(sub.id);
+        if (state.pollTimer) clearTimeout(state.pollTimer);
+        if (state.refreshTimer) clearTimeout(state.refreshTimer);
+        state.pushController?.abort();
+        if (sub.delivery === 'webhook') {
+            try {
+                await this._client.unsubscribeEvent(
+                    { name: sub.name, params: sub.params, delivery: { url: this._options.webhook!.url } },
+                    this._options.requestOptions
+                );
+            } catch {
+                // Best-effort — TTL will reclaim it.
             }
         }
     }
 
     // ------- Poll mode -------
 
-    private _schedulePoll(delayMs: number): void {
-        if (this._pollTimer) clearTimeout(this._pollTimer);
-        if (this._pollSubs.size === 0) return;
-        this._pollTimer = setTimeout(() => void this._runPoll(), delayMs);
+    private _schedulePoll(state: SubState, delayMs: number): void {
+        if (state.pollTimer) clearTimeout(state.pollTimer);
+        state.pollTimer = setTimeout(() => void this._runPoll(state), delayMs);
     }
 
-    private async _runPoll(): Promise<void> {
-        if (this._pollInFlight || this._pollSubs.size === 0) return;
-        this._pollInFlight = true;
-        const subs = [...this._pollSubs.values()];
-        const subscriptions = subs.map(s => ({ id: s.id, name: s.name, params: s.params, cursor: s.cursor }));
+    private async _runPoll(state: SubState): Promise<void> {
+        if (!this._states.has(state.sub.id)) return;
+        const sub = state.sub;
         try {
-            const { results } = await this._client.pollEvents({ subscriptions }, this._options.requestOptions);
-            let minNextMs = (this._options.defaultPollIntervalSeconds ?? DEFAULT_POLL_SECONDS) * 1000;
-            let anyHasMore = false;
-            for (const entry of results) {
-                const sub = this._pollSubs.get(entry.id);
-                if (!sub) continue;
-                if (entry.error) {
-                    this._handleSubError(sub, entry.error);
-                    continue;
-                }
-                for (const event of entry.events ?? []) sub._push(event);
-                if (entry.cursor) sub.cursor = entry.cursor;
-                if (entry.hasMore) anyHasMore = true;
-                if (entry.nextPollSeconds !== undefined) {
-                    minNextMs = Math.min(minNextMs, entry.nextPollSeconds * 1000);
-                }
-            }
-            this._pollAttempts = 0;
-            this._schedulePoll(anyHasMore ? 0 : minNextMs);
+            const result = await this._client.pollEvents(
+                { name: sub.name, params: sub.params, cursor: sub.cursor, maxAge: state.maxAge },
+                this._options.requestOptions
+            );
+            for (const event of result.events) sub._push(event);
+            if (result.cursor !== null) sub.cursor = result.cursor;
+            if (result.truncated) sub.truncated = true;
+            state.attempts = 0;
+            const nextSeconds = result.nextPollSeconds ?? this._options.defaultPollIntervalSeconds ?? DEFAULT_POLL_SECONDS;
+            this._schedulePoll(state, result.hasMore ? 0 : Math.max(1, nextSeconds) * 1000);
         } catch (error) {
-            this._pollAttempts++;
-            if (this._pollAttempts >= this._retry.maxAttempts) {
-                for (const sub of subs) sub._fail(error instanceof Error ? error : new Error(String(error)));
-                this._pollAttempts = 0;
+            state.attempts++;
+            if (state.attempts >= this._retry.maxAttempts) {
+                sub._fail(error instanceof Error ? error : new Error(String(error)));
+                this._states.delete(sub.id);
             } else {
-                this._schedulePoll(this._backoffDelay(this._pollAttempts));
+                this._schedulePoll(state, this._backoffDelay(state.attempts));
             }
-        } finally {
-            this._pollInFlight = false;
         }
     }
 
     // ------- Push mode -------
 
-    private _restartPushStream(delayMs = 0): void {
-        // Debounce restarts so rapid subscribe/unsubscribe batches coalesce.
-        if (this._pushRestartTimer) clearTimeout(this._pushRestartTimer);
-        this._pushRestartTimer = setTimeout(() => {
-            this._pushRestartTimer = undefined;
-            void this._openPushStream();
-        }, delayMs);
-    }
-
     private _installPushHandlers(): void {
         if (this._pushHandlersInstalled) return;
+        const route = (requestId: RequestId): SubState | undefined => {
+            for (const s of this._states.values()) if (s.requestId === requestId) return s;
+            return undefined;
+        };
         this._client.setNotificationHandler('notifications/events/event', n => {
-            const sub = this._pushSubs.get(n.params.id);
-            if (!sub) return;
-            const { id: _id, ...occurrence } = n.params;
-            void _id;
-            sub._push(occurrence);
+            const state = route(n.params.requestId);
+            if (!state) return;
+            const { requestId: _r, ...occurrence } = n.params;
+            void _r;
+            state.sub._push(occurrence);
         });
         this._client.setNotificationHandler('notifications/events/active', n => {
-            const sub = this._pushSubs.get(n.params.id);
-            if (sub) sub.cursor = n.params.cursor;
+            const state = route(n.params.requestId);
+            if (!state) return;
+            if (n.params.cursor !== null) state.sub.cursor = n.params.cursor;
+            if (n.params.truncated) state.sub.truncated = true;
         });
         this._client.setNotificationHandler('notifications/events/error', n => {
-            const sub = this._pushSubs.get(n.params.id);
-            if (sub) this._handleSubError(sub, n.params.error);
+            const state = route(n.params.requestId);
+            if (state) this._handleSubError(state.sub, n.params.error);
         });
         this._client.setNotificationHandler('notifications/events/terminated', n => {
-            const sub = this._pushSubs.get(n.params.id);
-            if (sub) {
-                sub._fail(new ProtocolError(n.params.error.code, n.params.error.message, n.params.error.data));
-                this._pushSubs.delete(sub.id);
+            const state = route(n.params.requestId);
+            if (state) {
+                state.sub._fail(new ProtocolError(n.params.error.code, n.params.error.message, n.params.error.data));
+                void this._teardown(state.sub);
             }
         });
-        // Heartbeat is a no-op — its absence over the transport's idle timeout
-        // is what signals connection death.
-        this._client.setNotificationHandler('notifications/events/heartbeat', () => {});
+        this._client.setNotificationHandler('notifications/events/heartbeat', n => {
+            const state = route(n.params.requestId);
+            if (state && n.params.cursor !== null) state.sub.cursor = n.params.cursor;
+        });
         this._pushHandlersInstalled = true;
     }
 
-    private async _openPushStream(): Promise<void> {
-        // Close any existing stream — cursor-based replay covers the gap.
-        this._pushController?.abort();
-        this._pushController = undefined;
-
-        if (this._pushSubs.size === 0) return;
-
-        this._installPushHandlers();
-
+    private _openPushStream(state: SubState): void {
+        state.pushController?.abort();
         const controller = new AbortController();
-        this._pushController = controller;
-        const subscriptions = [...this._pushSubs.values()].map(s => ({
-            id: s.id,
-            name: s.name,
-            params: s.params,
-            cursor: s.cursor
-        }));
+        state.pushController = controller;
+        const sub = state.sub;
 
-        // events/stream is long-lived — it never resolves until the controller aborts.
-        // 0x7fffffff is the max 32-bit signed int that setTimeout accepts (~24.8 days);
-        // larger values overflow to 1ms on Node. The server's heartbeat keeps the
-        // transport alive underneath.
+        // events/stream is long-lived; never resolves until cancelled.
         void this._client
             .request(
-                { method: 'events/stream', params: { subscriptions } },
+                {
+                    method: 'events/stream',
+                    params: { name: sub.name, params: sub.params, cursor: sub.cursor, maxAge: state.maxAge }
+                },
                 {
                     ...this._options.requestOptions,
                     signal: controller.signal,
-                    timeout: 0x7f_ff_ff_ff
+                    timeout: 0x7f_ff_ff_ff,
+                    onRequestId: id => {
+                        state.requestId = id;
+                    }
                 }
             )
             .then(() => {
-                this._pushAttempts = 0;
+                state.attempts = 0;
             })
             .catch(error => {
-                if (controller.signal.aborted) return;
-                this._pushAttempts++;
-                if (this._pushAttempts >= this._retry.maxAttempts) {
-                    for (const sub of this._pushSubs.values()) {
-                        sub._fail(error instanceof Error ? error : new Error(String(error)));
-                    }
-                    this._pushSubs.clear();
-                    this._pushAttempts = 0;
+                if (controller.signal.aborted || !this._states.has(sub.id)) return;
+                state.attempts++;
+                if (state.attempts >= this._retry.maxAttempts) {
+                    sub._fail(error instanceof Error ? error : new Error(String(error)));
+                    void this._teardown(sub);
                     return;
                 }
-                // Connection dropped unexpectedly — reconnect with cursors after backoff.
-                this._restartPushStream(this._backoffDelay(this._pushAttempts));
+                state.pollTimer = setTimeout(() => this._openPushStream(state), this._backoffDelay(state.attempts));
             });
     }
 
     // ------- Webhook mode -------
 
-    private async _activateWebhook(sub: EventSubscription, _descriptor: EventDescriptor): Promise<void> {
+    private async _activateWebhook(state: SubState): Promise<void> {
         const webhook = this._options.webhook;
-        if (!webhook) {
+        if (!webhook || !this._webhookSecret) {
             throw new SdkError(
                 SdkErrorCode.CapabilityNotSupported,
                 'Webhook delivery requested but no WebhookConfig is set on the ClientEventManager'
             );
         }
+        const sub = state.sub;
+        sub.secret = this._webhookSecret;
 
-        let attempts = 0;
         const refresh = async (isInitial: boolean) => {
             try {
                 const result = await this._client.subscribeEvent(
                     {
-                        id: sub.id,
                         name: sub.name,
                         params: sub.params,
-                        delivery: {
-                            mode: 'webhook',
-                            url: webhook.url,
-                            ...(webhook.secret === undefined ? {} : { secret: webhook.secret })
-                        },
-                        cursor: sub.cursor
+                        delivery: { mode: 'webhook', url: webhook.url, secret: this._webhookSecret! },
+                        cursor: sub.cursor,
+                        maxAge: state.maxAge
                     },
                     this._options.requestOptions
                 );
-                if (result.secret !== undefined) {
-                    sub.secret = result.secret;
-                    await webhook.onSecret?.(result.secret, sub.id);
+                // Server-derived id is the routing handle (X-MCP-Subscription-Id).
+                if (sub.id !== result.id) {
+                    this._byServerId.delete(sub.id);
+                    sub.id = result.id;
                 }
+                this._byServerId.set(result.id, state);
+                if (result.cursor !== null) sub.cursor = result.cursor;
+                if (result.truncated) sub.truncated = true;
 
-                // Surface delivery problems but don't kill the subscription —
-                // the refresh reactivates the server's delivery loop.
                 if (result.deliveryStatus && !result.deliveryStatus.active) {
                     console.warn(`[events] webhook delivery paused for ${sub.id}: ${result.deliveryStatus.lastError}`);
                 }
 
-                attempts = 0;
-                // The subscription may have been cancelled while we were
-                // awaiting subscribeEvent above; clearTimeout in _teardown
-                // doesn't stop an in-flight call. Don't reschedule if so —
-                // otherwise the timer revives a cancelled subscription forever.
-                if (!this._subscriptions.has(sub.id)) return;
+                state.attempts = 0;
+                if (!this._states.has(sub.id) && !this._byServerId.has(sub.id)) return;
                 const ttlMs = new Date(result.refreshBefore).getTime() - Date.now();
                 const fraction = webhook.refreshFraction ?? 0.5;
-                // Floor prevents a tight spin if refreshBefore is somehow in the past;
-                // 50ms is small enough to handle sub-second TTLs while still rate-limiting.
                 const nextMs = Math.max(50, ttlMs * fraction);
-                this._webhookTimers.set(
-                    sub.id,
-                    setTimeout(() => void refresh(false), nextMs)
-                );
+                state.refreshTimer = setTimeout(() => void refresh(false), nextMs);
             } catch (error) {
-                // Initial subscribe failure surfaces directly to subscribe()'s
-                // caller. Background refresh failures retry with backoff so a
-                // transient blip doesn't kill an otherwise-healthy subscription.
                 if (isInitial) {
                     sub._fail(error instanceof Error ? error : new Error(String(error)));
                     return;
                 }
-                if (!this._subscriptions.has(sub.id)) return;
-                attempts++;
-                if (attempts >= this._retry.maxAttempts) {
+                if (!this._states.has(sub.id) && !this._byServerId.has(sub.id)) return;
+                state.attempts++;
+                if (state.attempts >= this._retry.maxAttempts) {
                     sub._fail(error instanceof Error ? error : new Error(String(error)));
                     return;
                 }
-                this._webhookTimers.set(
-                    sub.id,
-                    setTimeout(() => void refresh(false), this._backoffDelay(attempts))
-                );
+                state.refreshTimer = setTimeout(() => void refresh(false), this._backoffDelay(state.attempts));
             }
         };
 
@@ -652,15 +546,9 @@ export class ClientEventManager {
     // ------- Shared -------
 
     private _handleSubError(sub: EventSubscription, error: EventSubscriptionError): void {
-        if (error.code === CURSOR_EXPIRED) {
-            // Recoverable: reset cursor and let the next tick/poll re-bootstrap.
-            sub.cursor = null;
-            return;
-        }
-        const protocolError = new ProtocolError(error.code, error.message, error.data);
-        sub._fail(protocolError);
-        this._subscriptions.delete(sub.id);
-        this._pollSubs.delete(sub.id);
-        this._pushSubs.delete(sub.id);
+        // notifications/events/error reports a recoverable failure; the
+        // subscription remains active and the server retries. Surface to
+        // diagnostics but don't kill the subscription.
+        console.warn(`[events] recoverable error on ${sub.name}:`, error.message);
     }
 }

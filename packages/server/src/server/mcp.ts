@@ -1006,7 +1006,7 @@ export class McpServer {
     registerEvent<InputArgs extends AnySchema | undefined = undefined>(
         name: string,
         config: EventConfig<InputArgs>,
-        check: InputArgs extends AnySchema ? EventCheckCallback<SchemaOutput<InputArgs>> : EventCheckCallback
+        check?: InputArgs extends AnySchema ? EventCheckCallback<SchemaOutput<InputArgs>> : EventCheckCallback
     ): RegisteredEvent {
         return this._getOrCreateEventManager().register(name, config, check);
     }

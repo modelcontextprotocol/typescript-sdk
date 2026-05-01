@@ -145,6 +145,13 @@ export type RequestOptions = {
      * If provided, associates this request with a related task.
      */
     relatedTask?: RelatedTaskMetadata;
+
+    /**
+     * Called with the JSON-RPC `id` assigned to this request once the request
+     * has been sent. Useful when the response carries notifications keyed by
+     * the request id (e.g. `events/stream`).
+     */
+    onRequestId?: (id: RequestId) => void;
 } & TransportSendOptions;
 
 /**
@@ -831,6 +838,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 jsonrpc: '2.0',
                 id: messageId
             };
+            options?.onRequestId?.(messageId);
 
             if (options?.onprogress) {
                 this._progressHandlers.set(messageId, options.onprogress);

@@ -106,8 +106,15 @@ export function generateWebhookSecret(): string {
 export async function computeWebhookSignature(secret: string, msgId: string, timestamp: number, body: string): Promise<string> {
     const keyBytes = decodeWebhookSecret(secret);
     const message = new TextEncoder().encode(`${msgId}.${timestamp}.${body}`);
-    const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, message));
+    // Some lib configs don't accept Uint8Array<ArrayBufferLike> as BufferSource;
+    // produce an exact ArrayBuffer.
+    const toBuf = (u8: Uint8Array): ArrayBuffer => {
+        const out = new ArrayBuffer(u8.byteLength);
+        new Uint8Array(out).set(u8);
+        return out;
+    };
+    const key = await crypto.subtle.importKey('raw', toBuf(keyBytes), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, toBuf(message)));
     let s = '';
     for (const b of mac) s += String.fromCodePoint(b);
     return `v1,${btoa(s)}`;
