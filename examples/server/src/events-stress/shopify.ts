@@ -111,7 +111,7 @@ export function createServer(shopifyOverride?: Shopify): McpServer {
         {
             events: {
                 push: { heartbeatIntervalMs: 15_000 },
-                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true } }
+                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true }, getPrincipal: ctx => ctx.sessionId ?? "stdio-demo" }
             }
         }
     );

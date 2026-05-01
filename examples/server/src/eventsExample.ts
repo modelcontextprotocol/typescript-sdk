@@ -37,7 +37,12 @@ const server = new McpServer(
                       urlValidation: {
                           allowInsecure: true, // for local testing
                           allowPrivateNetworks: true
-                      }
+                      },
+                      // Spec requires an authenticated principal for webhook
+                      // subscribe. Over stdio there's no HTTP auth, so for the
+                      // demo we treat the session id as the principal. A real
+                      // deployment uses ctx.http.authInfo.
+                      getPrincipal: ctx => ctx.sessionId ?? 'stdio-demo'
                   }
                 : undefined
         }
@@ -72,10 +77,9 @@ server.registerEvent(
         matches: (params, data) => {
             const v = (data as { value: number }).value;
             return v >= params.minValue && v % params.modulo === 0;
-        }
-    },
-    // Pure emit-driven: check is a no-op stub. Buffer + fan-out handle delivery.
-    async () => ({ events: [], cursor: '', nextPollSeconds: 5 })
+        },
+        emitOnly: true
+    }
 );
 
 // --- incident.created: emit-driven with lifecycle hooks ---
@@ -105,11 +109,9 @@ server.registerEvent(
                 console.error(`[incidents] subscriber ${id} left`);
             }
         },
-        matches: (params, data) => !params.severity || params.severity === data.severity
-    },
-    // Emit-driven: check is a no-op. The always-on event log makes emits
-    // visible to all delivery modes and supports resume via cursor.
-    async (_params, _cursor) => ({ events: [], cursor: '', nextPollSeconds: 5 })
+        matches: (params, data) => !params.severity || params.severity === data.severity,
+        emitOnly: true
+    }
 );
 
 // Simulate incidents arriving from upstream every 15 seconds.
