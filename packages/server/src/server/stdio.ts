@@ -49,6 +49,11 @@ export class StdioServerTransport implements Transport {
             // Ignore errors during close — stdin pipe ended
         });
     };
+    _onstdinend = () => {
+        this.close().catch(() => {
+            // Ignore errors during close — stdin pipe ended
+        });
+    };
 
     /**
      * Starts listening for messages on `stdin`.
@@ -64,6 +69,7 @@ export class StdioServerTransport implements Transport {
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
         this._stdin.on('close', this._onstdinclose);
+        this._stdin.on('end', this._onstdinend);
         this._stdout.on('error', this._onstdouterror);
     }
 
@@ -92,6 +98,7 @@ export class StdioServerTransport implements Transport {
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
         this._stdin.off('close', this._onstdinclose);
+        this._stdin.off('end', this._onstdinend);
         this._stdout.off('error', this._onstdouterror);
 
         // Check if we were the only data listener
