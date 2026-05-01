@@ -26,6 +26,14 @@
             "import": "./dist/index.mjs"
         }
     },
+    "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "sse": [
+                "dist/sse.d.mts"
+            ]
+        }
+    },
     "files": [
         "dist"
     ],
@@ -48,6 +56,11 @@
     "peerDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
         "hono": "catalog:runtimeServerOnly"
+    },
+    "peerDependenciesMeta": {
+        "hono": {
+            "optional": true
+        }
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",

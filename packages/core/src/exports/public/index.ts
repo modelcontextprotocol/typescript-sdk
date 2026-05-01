@@ -45,6 +45,7 @@ export type {
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
+    RequestHandlerSchemas,
     RequestOptions,
     ServerContext
 } from '../../shared/protocol.js';
@@ -70,6 +71,7 @@ export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/s
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
 export { createFetchWithInit } from '../../shared/transport.js';
+export { InMemoryTransport } from '../../util/inMemory.js';
 
 // URI Template
 export type { Variables } from '../../shared/uriTemplate.js';
@@ -104,11 +106,13 @@ export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.j
 export {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
+    isJSONRPCResponse,
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
     parseJSONRPCMessage
@@ -134,7 +138,9 @@ export { isTerminal } from '../../experimental/tasks/interfaces.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
-export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
+export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';
+export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema.js';
+export type { StandardSchemaV1, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
