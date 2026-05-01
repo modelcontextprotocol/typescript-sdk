@@ -175,7 +175,9 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                             `'${r.method}' is not a spec method; pass a result schema as the second argument to ctx.mcpReq.send().`
                         );
                     }
-                    const result = await send(r, options);
+                    // Thread the dispatch-local abort so env.send sinks (e.g. BackchannelCompat) see
+                    // cancellation when the inbound request is aborted, instead of waiting for their own timeout.
+                    const result = await send(r, { ...options, signal: options?.signal ?? localAbort.signal });
                     const parsed = await validateStandardSchema(resultSchema, result);
                     if (!parsed.success) {
                         throw new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${r.method}: ${parsed.error}`);

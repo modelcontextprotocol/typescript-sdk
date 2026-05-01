@@ -182,7 +182,8 @@ export class StreamDriver implements Outbound {
 
         return new Promise<StandardSchemaV1.InferOutput<T>>((resolve, reject) => {
             if (options?.signal?.aborted) {
-                throw options.signal.reason;
+                const reason = options.signal.reason;
+                throw reason instanceof Error ? reason : new DOMException('Request was aborted before send', 'AbortError');
             }
 
             const messageId = this._requestMessageId++;
