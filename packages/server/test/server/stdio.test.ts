@@ -179,3 +179,46 @@ test('should fire onerror before onclose on stdout error', async () => {
 
     expect(events).toEqual(['error', 'close']);
 });
+
+test('should fire onclose when stdin emits close', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => { throw error; };
+
+    let closeCount = 0;
+    server.onclose = () => { closeCount++; };
+
+    await server.start();
+    input.emit('close');
+
+    expect(closeCount).toBe(1);
+});
+
+test('should fire onclose when stdin emits end', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => { throw error; };
+
+    let closeCount = 0;
+    server.onclose = () => { closeCount++; };
+
+    await server.start();
+    input.push(null); // signals end-of-stream
+
+    // Allow microtasks to flush
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(closeCount).toBe(1);
+});
+
+test('should not fire onclose twice when close() called after stdin close', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = () => {};
+
+    let closeCount = 0;
+    server.onclose = () => { closeCount++; };
+
+    await server.start();
+    input.emit('close');
+    await server.close();
+
+    expect(closeCount).toBe(1);
+});
