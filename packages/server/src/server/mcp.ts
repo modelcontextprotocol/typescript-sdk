@@ -9,6 +9,7 @@ import type {
     CreateTaskServerContext,
     GetPromptResult,
     Implementation,
+    JsonSchemaType,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -30,6 +31,8 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isStandardSchema,
+    isZodRawShape,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -43,6 +46,7 @@ import type * as z from 'zod/v4';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
+import { fromJsonSchema } from '../fromJsonSchema.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
@@ -921,6 +925,105 @@ export class McpServer {
     }
 
     /**
+     * Registers a tool using the legacy variadic overloads (v1-style).
+     *
+     * **Note:** Use {@linkcode registerTool} for new code.
+     *
+     * @deprecated Prefer {@linkcode registerTool} with an explicit config object.
+     */
+    tool(
+        name: string,
+        paramsSchemaOrAnnotations: StandardSchemaWithJSON | ToolAnnotations | Record<string, unknown>,
+        cb: DeprecatedVariadicToolCallback
+    ): RegisteredTool;
+
+    /**
+     * @deprecated Prefer {@linkcode registerTool}.
+     */
+    tool(
+        name: string,
+        description: string,
+        paramsSchemaOrAnnotations: StandardSchemaWithJSON | ToolAnnotations | Record<string, unknown>,
+        cb: DeprecatedVariadicToolCallback
+    ): RegisteredTool;
+
+    /**
+     * Legacy `tool()` implementation. Parses arguments for the overloads declared above.
+     */
+    tool(name: string, ...rest: unknown[]): RegisteredTool {
+        if (this._registeredTools[name]) {
+            throw new Error(`Tool ${name} is already registered`);
+        }
+
+        let description: string | undefined;
+        let inputSchema: StandardSchemaWithJSON | undefined;
+        let annotations: ToolAnnotations | undefined;
+
+        if (typeof rest[0] === 'string') {
+            description = rest.shift() as string;
+        }
+
+        if (rest.length > 1) {
+            const firstArg = rest[0];
+
+            if (typeof firstArg === 'object' && firstArg !== null && !Array.isArray(firstArg)) {
+                const record = firstArg as Record<string, unknown>;
+
+                if (isZodRawShape(record) || isStandardSchema(record)) {
+                    inputSchema = normalizeRawShapeSchema(record as StandardSchemaWithJSON | ZodRawShape);
+                    rest.shift();
+
+                    if (
+                        rest.length > 1 &&
+                        typeof rest[0] === 'object' &&
+                        rest[0] !== null &&
+                        !Array.isArray(rest[0]) &&
+                        isToolAnnotationsOnlyObject(rest[0] as Record<string, unknown>)
+                    ) {
+                        annotations = rest.shift() as ToolAnnotations;
+                    }
+                } else if (isLikelyPlainJsonSchemaObject(record)) {
+                    inputSchema = fromJsonSchema(record as JsonSchemaType);
+                    rest.shift();
+
+                    if (
+                        rest.length > 1 &&
+                        typeof rest[0] === 'object' &&
+                        rest[0] !== null &&
+                        !Array.isArray(rest[0]) &&
+                        isToolAnnotationsOnlyObject(rest[0] as Record<string, unknown>)
+                    ) {
+                        annotations = rest.shift() as ToolAnnotations;
+                    }
+                } else if (isToolAnnotationsOnlyObject(record)) {
+                    annotations = rest.shift() as ToolAnnotations;
+                } else {
+                    throw new TypeError(
+                        `Tool "${name}": unrecognized third argument. Expected a Standard Schema, Zod raw shape ({ field: z.string() }), plain JSON Schema (e.g. { type: "object", properties: {...} }), or ToolAnnotations (${[...TOOL_ANNOTATION_KEYS].join(', ')}).`
+                    );
+                }
+            }
+        }
+
+        const callback = rest[0];
+        if (typeof callback !== 'function') {
+            throw new TypeError(`Tool "${name}": last argument must be the handler callback`);
+        }
+
+        return this._createRegisteredTool(
+            name,
+            undefined,
+            description,
+            inputSchema,
+            undefined,
+            annotations,
+            { taskSupport: 'forbidden' },
+            undefined,
+            callback as ToolCallback<StandardSchemaWithJSON | undefined>
+        );
+    }
+
+    /**
      * Registers a prompt with a config object and callback.
      *
      * @example
@@ -1148,6 +1251,14 @@ export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undef
 >;
 
 /**
+ * Callback type for deprecated {@linkcode McpServer.tool} positional overloads.
+ * Intentionally loose: plain JSON Schema (wrapped via {@linkcode fromJsonSchema}) does not participate in overload inference.
+ */
+export type DeprecatedVariadicToolCallback =
+    | ((args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>)
+    | ((ctx: ServerContext) => CallToolResult | Promise<CallToolResult>);
+
+/**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
 export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
@@ -1184,6 +1295,69 @@ export type RegisteredTool = {
     }): void;
     remove(): void;
 };
+
+const TOOL_ANNOTATION_KEYS = new Set(['title', 'readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint']);
+
+/** Structural hints that a plain object is JSON Schema (wire-shape) rather than {@linkcode ToolAnnotations}. */
+const JSON_SCHEMA_SHAPE_KEYS = [
+    'type',
+    'properties',
+    'items',
+    'required',
+    'additionalProperties',
+    '$schema',
+    '$ref',
+    '$defs',
+    'definitions',
+    'oneOf',
+    'anyOf',
+    'allOf',
+    'not',
+    'enum',
+    'const',
+    'minimum',
+    'maximum',
+    'minLength',
+    'maxLength',
+    'pattern',
+    'format',
+    'minItems',
+    'maxItems',
+    'prefixItems',
+    'description'
+] as const;
+
+function isToolAnnotationsOnlyObject(obj: Record<string, unknown>): boolean {
+    const keys = Object.keys(obj);
+    if (keys.length === 0) {
+        return false;
+    }
+    for (const key of keys) {
+        if (!TOOL_ANNOTATION_KEYS.has(key)) {
+            return false;
+        }
+    }
+    for (const [k, v] of Object.entries(obj)) {
+        if (k === 'title') {
+            if (typeof v !== 'string') {
+                return false;
+            }
+        } else if (typeof v !== 'boolean') {
+            return false;
+        }
+    }
+    return true;
+}
+
+function isLikelyPlainJsonSchemaObject(obj: Record<string, unknown>): boolean {
+    if (Object.keys(obj).length === 0) {
+        return false;
+    }
+    if (isToolAnnotationsOnlyObject(obj)) {
+        return false;
+    }
+    return JSON_SCHEMA_SHAPE_KEYS.some(k => k in obj);
+}
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
