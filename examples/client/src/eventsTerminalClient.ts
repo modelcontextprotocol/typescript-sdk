@@ -74,7 +74,7 @@ function help(): void {
         [
             'commands:',
             '  list                                 list available event types',
-            '  sub <name> <poll|push|webhook> [json] [--from <cursor>]   subscribe',
+            '  sub <name> <poll|push|webhook> [json] [--from <cursor>] [--max-age <s>]   subscribe',
             '  unsub [index|id]                     cancel one (or all if no arg)',
             '  subs                                 list active subscriptions',
             '  help                                 this help',
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
                 const [name, modeRaw, ...tail] = rest;
                 const mode = modeRaw?.toLowerCase() as EventDeliveryMode | undefined;
                 if (!name || !mode || !['poll', 'push', 'webhook'].includes(mode)) {
-                    out('usage: sub <name> <poll|push|webhook> [json-params] [--from <cursor>]');
+                    out('usage: sub <name> <poll|push|webhook> [json-params] [--from <cursor>] [--max-age <seconds>]');
                     return;
                 }
                 let fromCursor: string | undefined;
@@ -220,6 +220,17 @@ async function main(): Promise<void> {
                     }
                     tail.splice(fromIdx, 2);
                 }
+                let maxAge: number | undefined;
+                const maxAgeIdx = tail.indexOf('--max-age');
+                if (maxAgeIdx !== -1) {
+                    const raw = tail[maxAgeIdx + 1];
+                    maxAge = raw === undefined ? Number.NaN : Number(raw);
+                    if (!Number.isFinite(maxAge) || maxAge < 0) {
+                        out('--max-age requires a non-negative number of seconds');
+                        return;
+                    }
+                    tail.splice(maxAgeIdx, 2);
+                }
                 let params: Record<string, unknown> = {};
                 if (tail.length > 0) {
                     try {
@@ -229,14 +240,26 @@ async function main(): Promise<void> {
                         return;
                     }
                 }
-                const sub = await manager.subscribe(name, params, { delivery: mode, cursor: fromCursor });
+                const sub = await manager.subscribe(name, params, { delivery: mode, cursor: fromCursor, maxAge });
                 subs.push(sub);
-                out(`subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}${fromCursor === undefined ? '' : ` from=${fromCursor}`}`);
+                out(
+                    `subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}` +
+                        (fromCursor === undefined ? '' : ` from=${fromCursor}`) +
+                        (maxAge === undefined ? '' : ` maxAge=${maxAge}s`)
+                );
+                if (sub.truncated) {
+                    out(`  [${sub.delivery}] ⚠ truncated — server skipped events older than retention/maxAge; resuming from cursor=${sub.cursor}`);
+                }
                 void (async () => {
                     let gotAnyEvent = false;
+                    let seenTruncated = sub.truncated;
                     try {
                         for await (const ev of sub) {
                             gotAnyEvent = true;
+                            if (sub.truncated && !seenTruncated) {
+                                seenTruncated = true;
+                                out(`  [${sub.delivery}] ⚠ truncated — gap detected; some events were dropped before cursor=${sub.cursor}`);
+                            }
                             printOccurrence(sub.delivery, ev);
                         }
                     } catch (error) {
@@ -287,7 +310,9 @@ async function main(): Promise<void> {
                     out('  (none)');
                     return;
                 }
-                for (const [i, s] of subs.entries()) out(`  #${i + 1} ${s.id} ${s.name} [${s.delivery}] cursor=${s.cursor ?? 'null'}`);
+                for (const [i, s] of subs.entries()) {
+                    out(`  #${i + 1} ${s.id} ${s.name} [${s.delivery}] cursor=${s.cursor ?? 'null'}${s.truncated ? ' truncated' : ''}`);
+                }
                 return;
             }
             case 'quit':

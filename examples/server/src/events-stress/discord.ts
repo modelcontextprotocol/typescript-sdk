@@ -218,6 +218,13 @@ class DiscordApi {
         const res = await fetch(`https://discord.com/api/v10${path}`, {
             headers: { Authorization: auth }
         });
+        if (res.status === 401 || res.status === 403) {
+            const tokenKind = auth.startsWith('Bot ') ? 'bot token' : 'user access token';
+            throw new ProtocolError(
+                EVENT_UNAUTHORIZED,
+                `Discord rejected ${tokenKind} (${res.status}) when calling ${path} — token is invalid, expired, or lacks the required scopes`
+            );
+        }
         if (!res.ok) throw new Error(`discord ${path} ${res.status}`);
         return (await res.json()) as T;
     }
@@ -519,9 +526,6 @@ export function createServer(discord?: DiscordClient): McpServer {
         });
     });
 
-    client.once(Events.ClientReady, c => {
-        console.error(`discord gateway ready as ${c.user.tag}`);
-    });
 
     // --- MCP event registrations ---
 
