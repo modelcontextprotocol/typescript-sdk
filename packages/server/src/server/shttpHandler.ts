@@ -173,6 +173,11 @@ export function shttpHandler(
     const supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
     const onerror = options.onerror;
 
+    // Reject any pending backchannel sends on session close (DELETE, idle/capacity eviction).
+    if (session && backchannel) {
+        session.addCloseListener(sid => backchannel.closeSession(sid));
+    }
+
     /**
      * Per-request abort controllers for `notifications/cancelled`. Keyed by
      * `(sessionId, requestId)` so concurrent sessions reusing the same JSON-RPC id don't collide.
@@ -541,7 +546,6 @@ export function shttpHandler(
         const protoErr = validateProtocolVersion(req);
         if (protoErr) return protoErr;
         try {
-            backchannel?.closeSession(v.sessionId!);
             await session.delete(v.sessionId!);
         } catch (error) {
             onerror?.(error as Error);

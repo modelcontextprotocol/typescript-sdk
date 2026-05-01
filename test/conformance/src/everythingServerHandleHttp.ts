@@ -29,10 +29,7 @@ const handler = toNodeHttpHandler(
     handleHttp(mcp, {
         session: new SessionCompat({
             onsessioninitialized: sid => console.log(`Session initialized with ID: ${sid}`),
-            onsessionclosed: sid => {
-                console.log(`Session ${sid} closed`);
-                backchannel.closeSession(sid);
-            }
+            onsessionclosed: sid => console.log(`Session ${sid} closed`)
         }),
         backchannel,
         eventStore: createEventStore(),

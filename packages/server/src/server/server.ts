@@ -28,6 +28,7 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
+    StandardSchemaV1,
     TaskManagerOptions,
     ToolResultContent,
     ToolUseContent
@@ -53,6 +54,13 @@ import {
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
+
+/** Three-arg send used by `_createMessageVia`/`_elicitInputVia`; satisfied by both `_requestWithSchema` and `ctx.mcpReq.send`. */
+type SendWithSchema = <T extends StandardSchemaV1>(
+    request: { method: string; params?: Record<string, unknown> },
+    resultSchema: T,
+    options?: RequestOptions
+) => Promise<StandardSchemaV1.InferOutput<T>>;
 
 /**
  * Extended tasks capability that includes runtime configuration (store, messageQueue).
@@ -148,21 +156,18 @@ export class Server extends Protocol<ServerContext> {
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        const sendOpts = (options?: RequestOptions): RequestOptions => ({ ...options, relatedRequestId: ctx.mcpReq.id });
         return {
             ...ctx,
             mcpReq: {
                 ...ctx.mcpReq,
-                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
-                elicitInput: (params, options) =>
-                    ctx.mcpReq.send({ method: 'elicitation/create', params }, ElicitResultSchema, {
-                        ...options,
-                        relatedRequestId: ctx.mcpReq.id
-                    }),
-                requestSampling: (params, options) =>
-                    ctx.mcpReq.send({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, {
-                        ...options,
-                        relatedRequestId: ctx.mcpReq.id
-                    }) as Promise<CreateMessageResult>
+                log: async (level, data, logger) => {
+                    if (this._capabilities.logging && !this.isMessageIgnored(level, ctx.sessionId)) {
+                        await ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
+                    }
+                },
+                elicitInput: (params, options) => this._elicitInputVia(ctx.mcpReq.send, params, sendOpts(options)),
+                requestSampling: (params, options) => this._createMessageVia(ctx.mcpReq.send, params, sendOpts(options))
             },
             http: hasHttpInfo
                 ? {
@@ -466,14 +471,23 @@ export class Server extends Protocol<ServerContext> {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
-        // Capability check - only required when tools/toolChoice are provided
+        return this._createMessageVia((r, schema, opts) => this._requestWithSchema(r, schema, opts), params, options);
+    }
+
+    /**
+     * Shared body for {@linkcode createMessage} and `ctx.mcpReq.requestSampling`: capability check,
+     * tool_use/tool_result pairing validation, and result-schema selection. The `send` argument
+     * routes to either the connected driver (instance method) or `ctx.mcpReq.send` (per-request).
+     */
+    private async _createMessageVia(
+        send: SendWithSchema,
+        params: CreateMessageRequest['params'],
+        options?: RequestOptions
+    ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
-        // Message structure validation - always validate tool_use/tool_result pairs.
-        // These may appear even without tools/toolChoice in the current request when
-        // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
             const lastMessage = params.messages.at(-1)!;
             const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
@@ -515,11 +529,10 @@ export class Server extends Protocol<ServerContext> {
             }
         }
 
-        // Use different schemas based on whether tools are provided
         if (params.tools) {
-            return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+            return send({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
-        return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return send({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**
@@ -530,6 +543,18 @@ export class Server extends Protocol<ServerContext> {
      * @returns The result of the elicitation request.
      */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        return this._elicitInputVia((r, schema, opts) => this._requestWithSchema(r, schema, opts), params, options);
+    }
+
+    /**
+     * Shared body for {@linkcode elicitInput} and `ctx.mcpReq.elicitInput`: form/url capability
+     * sub-field check, mode defaulting, and post-receipt JSON-schema validation of `content`.
+     */
+    private async _elicitInputVia(
+        send: SendWithSchema,
+        params: ElicitRequestFormParams | ElicitRequestURLParams,
+        options?: RequestOptions
+    ): Promise<ElicitResult> {
         const mode = (params.mode ?? 'form') as 'form' | 'url';
 
         switch (mode) {
@@ -537,29 +562,22 @@ export class Server extends Protocol<ServerContext> {
                 if (!this._clientCapabilities?.elicitation?.url) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
                 }
-
                 const urlParams = params as ElicitRequestURLParams;
-                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                return send({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
                 }
-
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this._requestWithSchema(
-                    { method: 'elicitation/create', params: formParams },
-                    ElicitResultSchema,
-                    options
-                );
+                const result = await send({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
 
                 if (result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
                         const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
                         const validationResult = validator(result.content);
-
                         if (!validationResult.valid) {
                             throw new ProtocolError(
                                 ProtocolErrorCode.InvalidParams,
@@ -567,9 +585,7 @@ export class Server extends Protocol<ServerContext> {
                             );
                         }
                     } catch (error) {
-                        if (error instanceof ProtocolError) {
-                            throw error;
-                        }
+                        if (error instanceof ProtocolError) throw error;
                         throw new ProtocolError(
                             ProtocolErrorCode.InternalError,
                             `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
