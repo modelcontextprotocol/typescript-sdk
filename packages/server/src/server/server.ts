@@ -37,7 +37,6 @@ import {
     CallToolResultSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -231,24 +230,8 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
             }
 
-            const { params } = validatedRequest.data;
-
             const result = await handler(request, ctx);
 
-            // When task creation is requested, validate and return CreateTaskResult
-            if (params.task) {
-                const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                if (!taskValidationResult.success) {
-                    const errorMessage =
-                        taskValidationResult.error instanceof Error
-                            ? taskValidationResult.error.message
-                            : String(taskValidationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                }
-                return taskValidationResult.data;
-            }
-
-            // For non-task requests, validate against CallToolResultSchema
             const validationResult = parseSchema(CallToolResultSchema, result);
             if (!validationResult.success) {
                 const errorMessage =

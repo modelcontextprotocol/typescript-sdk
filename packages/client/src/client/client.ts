@@ -40,7 +40,6 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -354,20 +353,6 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                // When task creation is requested, validate and return CreateTaskResult
-                if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                    if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
-                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                    }
-                    return taskValidationResult.data;
-                }
-
-                // For non-task requests, validate against ElicitResultSchema
                 const validationResult = parseSchema(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -410,20 +395,6 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                // When task creation is requested, validate and return CreateTaskResult
-                if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                    if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
-                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                    }
-                    return taskValidationResult.data;
-                }
-
-                // For non-task requests, validate against appropriate schema based on tools presence
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
                 const validationResult = parseSchema(resultSchema, result);
