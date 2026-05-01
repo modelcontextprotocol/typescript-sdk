@@ -121,9 +121,11 @@ describe('Events', () => {
             const { check } = makeCounterEvent();
             const registered = server.registerEvent('e', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
             await connectPair(server, client);
-            expect((await client.listEvents()).events).toHaveLength(1);
+            const before = await client.listEvents();
+            expect(before.events).toHaveLength(1);
             registered.disable();
-            expect((await client.listEvents()).events).toHaveLength(0);
+            const after = await client.listEvents();
+            expect(after.events).toHaveLength(0);
         });
     });
 
@@ -368,7 +370,10 @@ describe('Events', () => {
             let reqId: RequestId | undefined;
             const ctrl = new AbortController();
             client
-                .request({ method: 'events/stream', params: { name: 'e', cursor: null } }, { signal: ctrl.signal, onRequestId: id => (reqId = id) })
+                .request(
+                    { method: 'events/stream', params: { name: 'e', cursor: null } },
+                    { signal: ctrl.signal, onRequestId: id => (reqId = id) }
+                )
                 .catch(() => {});
             await vi.waitFor(() => expect(active).toHaveLength(1));
 
@@ -424,6 +429,7 @@ describe('Events', () => {
                 { name: 's', version: '1.0.0' },
                 {
                     events: {
+                        // eslint-disable-next-line unicorn/no-useless-undefined -- explicit undefined to assert "no principal" behaviour
                         webhook: { ttlMs: 60_000, fetch: fetchMock, resolveHost: async () => [], getPrincipal: () => undefined }
                     }
                 }
@@ -564,9 +570,12 @@ describe('Events', () => {
         });
 
         it('verify rejects on missing headers', async () => {
-            expect((await verifyWebhookSignature(SECRET, '{}', null, '1', 'v1,x')).valid).toBe(false);
-            expect((await verifyWebhookSignature(SECRET, '{}', 'id', null, 'v1,x')).valid).toBe(false);
-            expect((await verifyWebhookSignature(SECRET, '{}', 'id', '1', null)).valid).toBe(false);
+            const r1 = await verifyWebhookSignature(SECRET, '{}', null, '1', 'v1,x');
+            expect(r1.valid).toBe(false);
+            const r2 = await verifyWebhookSignature(SECRET, '{}', 'id', null, 'v1,x');
+            expect(r2.valid).toBe(false);
+            const r3 = await verifyWebhookSignature(SECRET, '{}', 'id', '1', null);
+            expect(r3.valid).toBe(false);
         });
 
         it('generateWebhookSecret produces a value decodeWebhookSecret accepts', () => {

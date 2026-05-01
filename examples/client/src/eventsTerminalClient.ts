@@ -248,7 +248,9 @@ async function main(): Promise<void> {
                         (maxAge === undefined ? '' : ` maxAge=${maxAge}s`)
                 );
                 if (sub.truncated) {
-                    out(`  [${sub.delivery}] ⚠ truncated — server skipped events older than retention/maxAge; resuming from cursor=${sub.cursor}`);
+                    out(
+                        `  [${sub.delivery}] ⚠ truncated — server skipped events older than retention/maxAge; resuming from cursor=${sub.cursor}`
+                    );
                 }
                 void (async () => {
                     let gotAnyEvent = false;
@@ -258,7 +260,9 @@ async function main(): Promise<void> {
                             gotAnyEvent = true;
                             if (sub.truncated && !seenTruncated) {
                                 seenTruncated = true;
-                                out(`  [${sub.delivery}] ⚠ truncated — gap detected; some events were dropped before cursor=${sub.cursor}`);
+                                out(
+                                    `  [${sub.delivery}] ⚠ truncated — gap detected; some events were dropped before cursor=${sub.cursor}`
+                                );
                             }
                             printOccurrence(sub.delivery, ev);
                         }

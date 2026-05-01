@@ -409,6 +409,7 @@ function canonicalJson(value: unknown): string {
     if (value === null || typeof value !== 'object') return JSON.stringify(value);
     if (Array.isArray(value)) return `[${value.map(v => canonicalJson(v)).join(',')}]`;
     const obj = value as Record<string, unknown>;
+    // eslint-disable-next-line unicorn/no-array-sort -- Object.keys() returns a fresh array; in-place sort is fine and toSorted() needs ES2023 lib
     const keys = Object.keys(obj).sort();
     return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
 }
@@ -482,8 +483,8 @@ export class ServerEventManager {
             throw new ProtocolError(EVENT_UNAUTHORIZED, 'events/subscribe requires an authenticated principal');
         }
         const key = `${principal}\0${url}\0${name}\0${canonicalJson(params)}`;
-        const id = `sub_${(await sha256Hex(key)).slice(0, 16)}`;
-        return { key, id };
+        const hash = await sha256Hex(key);
+        return { key, id: `sub_${hash.slice(0, 16)}` };
     }
 
     /**
@@ -810,14 +811,14 @@ export class ServerEventManager {
         if (cursor === null) return { events: [], truncated: false, headCursor };
 
         let truncated = false;
-        let fromSeq = log.cursorMap.get(cursor);
+        const fromSeq = log.cursorMap.get(cursor);
         if (fromSeq === undefined) {
             // Cursor not in retention — reset to head and signal gap.
             return { events: [], truncated: true, headCursor };
         }
 
         // Apply maxAge floor: skip entries older than now - maxAge.
-        const floorAt = maxAge !== undefined ? Date.now() - maxAge * 1000 : undefined;
+        const floorAt = maxAge === undefined ? undefined : Date.now() - maxAge * 1000;
         const events: EventOccurrence[] = [];
         // eslint-disable-next-line unicorn/no-useless-spread -- intentional snapshot, not redundant
         for (const entry of [...log.entries]) {
@@ -907,7 +908,8 @@ export class ServerEventManager {
         let truncated = false;
 
         if (!lease) {
-            const id = `poll_${(await sha256Hex(leaseKey)).slice(0, 16)}`;
+            const hash = await sha256Hex(leaseKey);
+            const id = `poll_${hash.slice(0, 16)}`;
             if (event.hooks?.onSubscribe) {
                 await event.hooks.onSubscribe(id, paramsResult.params, ctx);
             }
@@ -917,7 +919,9 @@ export class ServerEventManager {
 
         // Determine replay-from seq.
         let replayFromSeq: number;
-        if (wireCursor !== null) {
+        if (wireCursor === null) {
+            replayFromSeq = lease.lastSeenSeq;
+        } else {
             const seq = event.log.cursorMap.get(wireCursor);
             if (seq !== undefined) {
                 replayFromSeq = seq;
@@ -928,8 +932,6 @@ export class ServerEventManager {
                 replayFromSeq = event.log.nextSeq - 1;
                 truncated = true;
             }
-        } else {
-            replayFromSeq = lease.lastSeenSeq;
         }
 
         // 1. Replay log entries with seq > replayFromSeq, filtered + maxAge floor.
@@ -974,8 +976,7 @@ export class ServerEventManager {
             if (entry.cursor !== null && deliveredCursors.has(entry.cursor) && entry.seq > newLastSeen) newLastSeen = entry.seq;
         }
         if (occurrences.length === 0) newLastSeen = Math.max(newLastSeen, event.log.nextSeq - 1);
-        const passthrough =
-            newCursor !== null && newCursor !== undefined && !event.log.cursorMap.has(newCursor) ? newCursor : undefined;
+        const passthrough = newCursor !== null && newCursor !== undefined && !event.log.cursorMap.has(newCursor) ? newCursor : undefined;
         this._setPollLease(
             leaseKey,
             { ...lease, checkCursor: tick.nextInternalCheckCursor, lastSeenSeq: newLastSeen, lastReturnedCursor: passthrough },

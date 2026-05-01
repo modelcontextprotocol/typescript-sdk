@@ -407,38 +407,39 @@ export class ClientEventManager {
 
     // ------- Push mode -------
 
+    private _routeByRequestId(requestId: RequestId): SubState | undefined {
+        for (const s of this._states.values()) if (s.requestId === requestId) return s;
+        return undefined;
+    }
+
     private _installPushHandlers(): void {
         if (this._pushHandlersInstalled) return;
-        const route = (requestId: RequestId): SubState | undefined => {
-            for (const s of this._states.values()) if (s.requestId === requestId) return s;
-            return undefined;
-        };
         this._client.setNotificationHandler('notifications/events/event', n => {
-            const state = route(n.params.requestId);
+            const state = this._routeByRequestId(n.params.requestId);
             if (!state) return;
             const { requestId: _r, ...occurrence } = n.params;
             void _r;
             state.sub._push(occurrence);
         });
         this._client.setNotificationHandler('notifications/events/active', n => {
-            const state = route(n.params.requestId);
+            const state = this._routeByRequestId(n.params.requestId);
             if (!state) return;
             if (n.params.cursor !== null) state.sub.cursor = n.params.cursor;
             if (n.params.truncated) state.sub.truncated = true;
         });
         this._client.setNotificationHandler('notifications/events/error', n => {
-            const state = route(n.params.requestId);
+            const state = this._routeByRequestId(n.params.requestId);
             if (state) this._handleSubError(state.sub, n.params.error);
         });
         this._client.setNotificationHandler('notifications/events/terminated', n => {
-            const state = route(n.params.requestId);
+            const state = this._routeByRequestId(n.params.requestId);
             if (state) {
                 state.sub._fail(new ProtocolError(n.params.error.code, n.params.error.message, n.params.error.data));
                 void this._teardown(state.sub);
             }
         });
         this._client.setNotificationHandler('notifications/events/heartbeat', n => {
-            const state = route(n.params.requestId);
+            const state = this._routeByRequestId(n.params.requestId);
             if (state && n.params.cursor !== null) state.sub.cursor = n.params.cursor;
         });
         this._pushHandlersInstalled = true;

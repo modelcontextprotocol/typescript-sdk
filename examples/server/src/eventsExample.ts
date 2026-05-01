@@ -62,57 +62,51 @@ setInterval(() => {
     server.emitEvent('counter.tick', { value: counter, timestamp: new Date().toISOString() }, { cursor: `tick-${counter}` });
 }, 1000);
 
-server.registerEvent(
-    'counter.tick',
-    {
-        description: 'Fires every time the in-memory counter is incremented (once per second)',
-        inputSchema: z.object({
-            minValue: z.number().default(0).describe('Only deliver ticks >= this value'),
-            modulo: z.number().int().positive().default(1).describe('Only deliver ticks divisible by this')
-        }),
-        payloadSchema: z.object({
-            value: z.number(),
-            timestamp: z.string()
-        }),
-        matches: (params, data) => {
-            const v = (data as { value: number }).value;
-            return v >= params.minValue && v % params.modulo === 0;
-        },
-        emitOnly: true
-    }
-);
+server.registerEvent('counter.tick', {
+    description: 'Fires every time the in-memory counter is incremented (once per second)',
+    inputSchema: z.object({
+        minValue: z.number().default(0).describe('Only deliver ticks >= this value'),
+        modulo: z.number().int().positive().default(1).describe('Only deliver ticks divisible by this')
+    }),
+    payloadSchema: z.object({
+        value: z.number(),
+        timestamp: z.string()
+    }),
+    matches: (params, data) => {
+        const v = (data as { value: number }).value;
+        return v >= params.minValue && v % params.modulo === 0;
+    },
+    emitOnly: true
+});
 
 // --- incident.created: emit-driven with lifecycle hooks ---
 
 const activeIncidentSubscribers = new Set<string>();
 
-server.registerEvent(
-    'incident.created',
-    {
-        description: 'Fires when a (simulated) PagerDuty incident is created',
-        inputSchema: z.object({
-            severity: z.enum(['P1', 'P2', 'P3', 'P4']).optional().describe('Filter by severity')
-        }),
-        payloadSchema: z.object({
-            incidentId: z.string(),
-            title: z.string(),
-            severity: z.enum(['P1', 'P2', 'P3', 'P4']),
-            service: z.string()
-        }),
-        hooks: {
-            onSubscribe: (id, params) => {
-                activeIncidentSubscribers.add(id);
-                console.error(`[incidents] subscriber ${id} joined (filter: ${params.severity ?? 'all'})`);
-            },
-            onUnsubscribe: id => {
-                activeIncidentSubscribers.delete(id);
-                console.error(`[incidents] subscriber ${id} left`);
-            }
+server.registerEvent('incident.created', {
+    description: 'Fires when a (simulated) PagerDuty incident is created',
+    inputSchema: z.object({
+        severity: z.enum(['P1', 'P2', 'P3', 'P4']).optional().describe('Filter by severity')
+    }),
+    payloadSchema: z.object({
+        incidentId: z.string(),
+        title: z.string(),
+        severity: z.enum(['P1', 'P2', 'P3', 'P4']),
+        service: z.string()
+    }),
+    hooks: {
+        onSubscribe: (id, params) => {
+            activeIncidentSubscribers.add(id);
+            console.error(`[incidents] subscriber ${id} joined (filter: ${params.severity ?? 'all'})`);
         },
-        matches: (params, data) => !params.severity || params.severity === data.severity,
-        emitOnly: true
-    }
-);
+        onUnsubscribe: id => {
+            activeIncidentSubscribers.delete(id);
+            console.error(`[incidents] subscriber ${id} left`);
+        }
+    },
+    matches: (params, data) => !params.severity || params.severity === data.severity,
+    emitOnly: true
+});
 
 // Simulate incidents arriving from upstream every 15 seconds.
 const SEVERITIES = ['P1', 'P2', 'P3', 'P4'] as const;

@@ -100,7 +100,11 @@ export function createServer(clients?: SlackClients): McpServer {
         {
             events: {
                 push: { heartbeatIntervalMs: 10_000 },
-                webhook: { ttlMs: 5 * 60 * 1000, urlValidation: { allowInsecure: true, allowPrivateNetworks: true }, getPrincipal: ctx => ctx.sessionId ?? "stdio-demo" }
+                webhook: {
+                    ttlMs: 5 * 60 * 1000,
+                    urlValidation: { allowInsecure: true, allowPrivateNetworks: true },
+                    getPrincipal: ctx => ctx.sessionId ?? 'stdio-demo'
+                }
             }
         }
     );
