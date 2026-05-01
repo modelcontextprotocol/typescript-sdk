@@ -260,8 +260,7 @@ export class StreamDriver implements Outbound {
         const jsonrpc: JSONRPCNotification = { jsonrpc: '2.0', method: notification.method, params: notification.params };
 
         const debounced = this._options.debouncedNotificationMethods ?? [];
-        const canDebounce =
-            debounced.includes(notification.method) && !notification.params && !options?.relatedRequestId && !options?.relatedTask;
+        const canDebounce = debounced.includes(notification.method) && !notification.params && !options?.relatedRequestId;
         if (canDebounce) {
             if (this._pendingDebouncedNotifications.has(notification.method)) return;
             this._pendingDebouncedNotifications.add(notification.method);
