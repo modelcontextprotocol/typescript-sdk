@@ -19,10 +19,6 @@ import type { BaseToolCallback } from '../../server/mcp.js';
 // Task Handler Types (for registerToolTask)
 // ============================================================================
 
-type TaskCallbackWithoutArgs<SendResultT extends Result, Ctx extends TaskServerContext | CreateTaskServerContext> =
-    | ((ctx: Ctx) => SendResultT | Promise<SendResultT>)
-    | ((_args: undefined, ctx: Ctx) => SendResultT | Promise<SendResultT>);
-
 /**
  * Handler for creating a task.
  * @experimental
@@ -32,7 +28,9 @@ export type CreateTaskRequestHandler<
     Args extends StandardSchemaWithJSON | undefined = undefined
 > = Args extends StandardSchemaWithJSON
     ? BaseToolCallback<SendResultT, CreateTaskServerContext, Args>
-    : TaskCallbackWithoutArgs<SendResultT, CreateTaskServerContext>;
+    :
+          | ((ctx: CreateTaskServerContext) => SendResultT | Promise<SendResultT>)
+          | ((_args: undefined, ctx: CreateTaskServerContext) => SendResultT | Promise<SendResultT>);
 
 /**
  * Handler for task operations (`get`, `getResult`).
@@ -43,7 +41,9 @@ export type TaskRequestHandler<
     Args extends StandardSchemaWithJSON | undefined = undefined
 > = Args extends StandardSchemaWithJSON
     ? BaseToolCallback<SendResultT, TaskServerContext, Args>
-    : TaskCallbackWithoutArgs<SendResultT, TaskServerContext>;
+    :
+          | ((ctx: TaskServerContext) => SendResultT | Promise<SendResultT>)
+          | ((_args: undefined, ctx: TaskServerContext) => SendResultT | Promise<SendResultT>);
 
 /**
  * Interface for task-based tool handlers.
