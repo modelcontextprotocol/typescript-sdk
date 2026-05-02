@@ -311,4 +311,68 @@ describe('UriTemplate', () => {
             expect(elapsed).toBeLessThan(100);
         });
     });
+
+    describe('optional query parameter matching (RFC 6570)', () => {
+        it('should match when no query parameters are present', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44');
+            expect(match).toEqual({ pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44' });
+        });
+
+        it('should match when a subset of query parameters are present', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44?selector=body');
+            expect(match).toEqual({ pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44', selector: 'body' });
+        });
+
+        it('should match when query parameters are in a different order', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes}');
+            const match = template.match('dom://page1?includeAttributes=true&selector=body');
+            expect(match).toEqual({ pageId: 'page1', includeAttributes: 'true', selector: 'body' });
+        });
+
+        it('should match when all query parameters are present', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://page1?selector=body&includeAttributes=true&includeText=true&includeChildren=true');
+            expect(match).toEqual({
+                pageId: 'page1',
+                selector: 'body',
+                includeAttributes: 'true',
+                includeText: 'true',
+                includeChildren: 'true'
+            });
+        });
+
+        it('should match with a single optional query param template', () => {
+            const template = new UriTemplate('/search{?q}');
+            expect(template.match('/search')).toEqual({});
+            expect(template.match('/search?q=test')).toEqual({ q: 'test' });
+        });
+
+        it('should match multiple optional query params with partial presence', () => {
+            const template = new UriTemplate('/search{?q,page,limit}');
+            expect(template.match('/search')).toEqual({});
+            expect(template.match('/search?q=test')).toEqual({ q: 'test' });
+            expect(template.match('/search?page=2&limit=10')).toEqual({ page: '2', limit: '10' });
+            expect(template.match('/search?q=test&page=1&limit=10')).toEqual({ q: 'test', page: '1', limit: '10' });
+        });
+
+        it('should ignore unknown query parameters not in the template', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?q=test&unknown=value&page=1');
+            expect(match).toEqual({ q: 'test', page: '1' });
+        });
+
+        it('should handle encoded query parameter values', () => {
+            const template = new UriTemplate('/search{?q}');
+            const match = template.match('/search?q=hello%20world');
+            expect(match).toEqual({ q: 'hello%20world' });
+        });
+
+        it('should still reject URIs that do not match the base path', () => {
+            const template = new UriTemplate('/users/{id}{?fields}');
+            expect(template.match('/posts/123')).toBeNull();
+            expect(template.match('/users/123/extra')).toBeNull();
+        });
+    });
 });
