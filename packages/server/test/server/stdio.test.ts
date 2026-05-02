@@ -182,10 +182,14 @@ test('should fire onerror before onclose on stdout error', async () => {
 
 test('should fire onclose when stdin emits close', async () => {
     const server = new StdioServerTransport(input, output);
-    server.onerror = error => { throw error; };
+    server.onerror = error => {
+        throw error;
+    };
 
     let closeCount = 0;
-    server.onclose = () => { closeCount++; };
+    server.onclose = () => {
+        closeCount++;
+    };
 
     await server.start();
     input.emit('close');
@@ -202,12 +206,18 @@ test('should fire onclose when stdin emits end', async () => {
         read: () => {}
     });
     const server = new StdioServerTransport(endOnlyInput, output);
-    server.onerror = error => { throw error; };
+    server.onerror = error => {
+        throw error;
+    };
 
     let closeCount = 0;
     let inputCloseCount = 0;
-    server.onclose = () => { closeCount++; };
-    endOnlyInput.on('close', () => { inputCloseCount++; });
+    server.onclose = () => {
+        closeCount++;
+    };
+    endOnlyInput.on('close', () => {
+        inputCloseCount++;
+    });
 
     await server.start();
     endOnlyInput.push(null); // signals end-of-stream without emitting close
@@ -224,7 +234,9 @@ test('should not fire onclose twice when close() called after stdin close', asyn
     server.onerror = () => {};
 
     let closeCount = 0;
-    server.onclose = () => { closeCount++; };
+    server.onclose = () => {
+        closeCount++;
+    };
 
     await server.start();
     input.emit('close');
