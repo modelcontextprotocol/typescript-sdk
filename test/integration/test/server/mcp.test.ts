@@ -2208,6 +2208,212 @@ describe('Zod v4', () => {
             // Clean up spies
             warnSpy.mockRestore();
         });
+
+        /***
+         * Test: Eager schema conversion at registration time (#1847)
+         *
+         * Schemas should be converted to JSON Schema when the tool is
+         * registered, not lazily on every `tools/list` request. This
+         * surfaces conversion errors at dev time and avoids redundant
+         * work on hot paths.
+         */
+        test('should convert tool schemas eagerly at registration time', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            // Register a tool with both input and output schemas.
+            const tool = mcpServer.registerTool(
+                'eager',
+                {
+                    inputSchema: z.object({ name: z.string() }),
+                    outputSchema: z.object({ result: z.number() })
+                },
+                async () => ({
+                    content: [{ type: 'text', text: '' }],
+                    structuredContent: { result: 1 }
+                })
+            );
+
+            // The cached JSON Schemas should already be populated immediately
+            // after registration — no client connection required.
+            expect(tool.inputJsonSchema).toMatchObject({
+                type: 'object',
+                properties: { name: { type: 'string' } }
+            });
+            expect(tool.outputJsonSchema).toMatchObject({
+                type: 'object',
+                properties: { result: { type: 'number' } }
+            });
+        });
+
+        /***
+         * Test: tools/list returns identical cached schemas (#1847)
+         *
+         * Two consecutive `tools/list` calls should return the exact
+         * same JSON Schema content, proving the cached value is reused
+         * rather than re-converted.
+         */
+        test('should reuse cached JSON Schema across tools/list calls', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool(
+                'cached',
+                {
+                    inputSchema: z.object({ name: z.string() }),
+                    outputSchema: z.object({ result: z.number() })
+                },
+                async () => ({
+                    content: [{ type: 'text', text: '' }],
+                    structuredContent: { result: 1 }
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const first = await client.request({ method: 'tools/list' });
+            const second = await client.request({ method: 'tools/list' });
+
+            // Both responses should produce identical JSON Schemas.
+            expect(first.tools[0]!.inputSchema).toEqual(second.tools[0]!.inputSchema);
+            expect(first.tools[0]!.outputSchema).toEqual(second.tools[0]!.outputSchema);
+            expect(first.tools[0]!.inputSchema).toMatchObject({
+                properties: { name: { type: 'string' } }
+            });
+        });
+
+        /***
+         * Test: tool.update() re-caches JSON Schema (#1847)
+         *
+         * When a schema is replaced via `update()`, the cached JSON
+         * Schema must be recomputed so the next `tools/list` reflects
+         * the change.
+         */
+        test('should re-cache JSON Schema when paramsSchema is updated', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool('updatable', { inputSchema: z.object({ name: z.string() }) }, async () => ({
+                content: [{ type: 'text', text: '' }]
+            }));
+
+            expect(tool.inputJsonSchema).toMatchObject({
+                properties: { name: { type: 'string' } }
+            });
+
+            tool.update({
+                paramsSchema: z.object({ name: z.string(), value: z.number() }),
+                callback: async () => ({ content: [{ type: 'text', text: '' }] })
+            });
+
+            // The cached JSON Schema should now reflect the new shape.
+            expect(tool.inputJsonSchema).toMatchObject({
+                properties: {
+                    name: { type: 'string' },
+                    value: { type: 'number' }
+                }
+            });
+        });
+
+        /***
+         * Test: tool.update() re-caches outputSchema JSON Schema (#1847)
+         */
+        test('should re-cache JSON Schema when outputSchema is updated', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool('output-updatable', { outputSchema: z.object({ result: z.number() }) }, async () => ({
+                content: [{ type: 'text', text: '' }],
+                structuredContent: { result: 1 }
+            }));
+
+            expect(tool.outputJsonSchema).toMatchObject({
+                properties: { result: { type: 'number' } }
+            });
+
+            tool.update({
+                outputSchema: z.object({ result: z.number(), sum: z.number() }),
+                callback: async () => ({
+                    content: [{ type: 'text', text: '' }],
+                    structuredContent: { result: 1, sum: 2 }
+                })
+            });
+
+            expect(tool.outputJsonSchema).toMatchObject({
+                properties: {
+                    result: { type: 'number' },
+                    sum: { type: 'number' }
+                }
+            });
+        });
+
+        /***
+         * Test: tool.update() leaves state consistent when schema conversion throws (#1847)
+         *
+         * If the new schema is invalid (e.g. non-object type), the conversion
+         * throws. State must remain unchanged — no partial mutation.
+         */
+        test('should not mutate tool state when paramsSchema conversion throws', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const originalCb = async () => ({
+                content: [{ type: 'text' as const, text: 'original' }]
+            });
+
+            const tool = mcpServer.registerTool('consistent', { inputSchema: z.object({ name: z.string() }) }, originalCb);
+
+            const originalInputSchema = tool.inputSchema;
+            const originalInputJsonSchema = tool.inputJsonSchema;
+
+            // z.string() is not an object schema, so conversion will throw.
+            expect(() => {
+                tool.update({
+                    paramsSchema: z.string() as never,
+                    callback: async () => ({ content: [{ type: 'text' as const, text: 'new' }] })
+                });
+            }).toThrow();
+
+            // State must be unchanged.
+            expect(tool.inputSchema).toBe(originalInputSchema);
+            expect(tool.inputJsonSchema).toBe(originalInputJsonSchema);
+        });
+
+        test('should not mutate tool state when outputSchema conversion throws', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.registerTool('consistent-output', { outputSchema: z.object({ result: z.number() }) }, async () => ({
+                content: [{ type: 'text' as const, text: '' }],
+                structuredContent: { result: 1 }
+            }));
+
+            const originalOutputSchema = tool.outputSchema;
+            const originalOutputJsonSchema = tool.outputJsonSchema;
+
+            expect(() => {
+                tool.update({
+                    outputSchema: z.string() as never
+                });
+            }).toThrow();
+
+            expect(tool.outputSchema).toBe(originalOutputSchema);
+            expect(tool.outputJsonSchema).toBe(originalOutputJsonSchema);
+        });
     });
 
     describe('resource()', () => {
@@ -4345,6 +4551,110 @@ describe('Zod v4', () => {
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test-without-meta');
             expect(result.prompts[0]!._meta).toBeUndefined();
+        });
+
+        /***
+         * Test: Eager prompt argument computation at registration (#1847)
+         *
+         * Like tools, prompt arguments should be computed once at
+         * registration time and reused on every `prompts/list` request.
+         */
+        test('should compute prompt arguments eagerly at registration time', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const prompt = mcpServer.registerPrompt(
+                'eager-prompt',
+                {
+                    argsSchema: z.object({
+                        name: z.string().describe('user name'),
+                        age: z.number().optional()
+                    })
+                },
+                async () => ({
+                    messages: [{ role: 'user', content: { type: 'text', text: '' } }]
+                })
+            );
+
+            // The cached arguments should already be populated immediately
+            // after registration.
+            expect(prompt.cachedArguments).toEqual([
+                { name: 'name', description: 'user name', required: true },
+                { name: 'age', description: undefined, required: false }
+            ]);
+        });
+
+        /***
+         * Test: prompt.update() re-caches arguments (#1847)
+         */
+        test('should re-cache prompt arguments when argsSchema is updated', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const prompt = mcpServer.registerPrompt(
+                'updatable-prompt',
+                {
+                    argsSchema: z.object({ name: z.string() })
+                },
+                async () => ({
+                    messages: [{ role: 'user', content: { type: 'text', text: '' } }]
+                })
+            );
+
+            expect(prompt.cachedArguments).toEqual([{ name: 'name', description: undefined, required: true }]);
+
+            prompt.update({
+                argsSchema: z.object({
+                    name: z.string(),
+                    extra: z.string().optional()
+                }),
+                callback: async () => ({
+                    messages: [{ role: 'user', content: { type: 'text', text: '' } }]
+                })
+            });
+
+            expect(prompt.cachedArguments).toEqual([
+                { name: 'name', description: undefined, required: true },
+                { name: 'extra', description: undefined, required: false }
+            ]);
+        });
+
+        /***
+         * Test: prompt.update() leaves state consistent when schema conversion throws (#1847)
+         */
+        test('should not mutate prompt state when argsSchema conversion throws', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const prompt = mcpServer.registerPrompt(
+                'consistent-prompt',
+                {
+                    argsSchema: z.object({ name: z.string() })
+                },
+                async () => ({
+                    messages: [{ role: 'user' as const, content: { type: 'text' as const, text: '' } }]
+                })
+            );
+
+            const originalArgsSchema = prompt.argsSchema;
+            const originalCachedArguments = prompt.cachedArguments;
+
+            // z.string() is not an object schema, so conversion will throw.
+            expect(() => {
+                prompt.update({
+                    argsSchema: z.string() as never
+                });
+            }).toThrow();
+
+            // State must be unchanged.
+            expect(prompt.argsSchema).toBe(originalArgsSchema);
+            expect(prompt.cachedArguments).toBe(originalCachedArguments);
         });
     });
 

@@ -139,20 +139,20 @@ export class McpServer {
                 tools: Object.entries(this._registeredTools)
                     .filter(([, tool]) => tool.enabled)
                     .map(([name, tool]): Tool => {
+                        // Use the JSON Schema cached at registration / update
+                        // time instead of re-converting on every request.
                         const toolDefinition: Tool = {
                             name,
                             title: tool.title,
                             description: tool.description,
-                            inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
-                                : EMPTY_OBJECT_JSON_SCHEMA,
+                            inputSchema: tool.inputJsonSchema ?? EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             execution: tool.execution,
                             _meta: tool._meta
                         };
 
-                        if (tool.outputSchema) {
-                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
+                        if (tool.outputJsonSchema) {
+                            toolDefinition.outputSchema = tool.outputJsonSchema;
                         }
 
                         return toolDefinition;
@@ -528,11 +528,13 @@ export class McpServer {
                 prompts: Object.entries(this._registeredPrompts)
                     .filter(([, prompt]) => prompt.enabled)
                     .map(([name, prompt]): Prompt => {
+                        // Use the prompt arguments cached at registration /
+                        // update time instead of recomputing on every request.
                         return {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            arguments: prompt.cachedArguments,
                             _meta: prompt._meta
                         };
                     })
@@ -705,6 +707,11 @@ export class McpServer {
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
         _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
+        // Compute prompt arguments eagerly so any schema-conversion errors
+        // surface at registration time and we don't recompute on every
+        // `prompts/list` request.
+        const cachedArguments = argsSchema ? promptArgumentsFromStandardSchema(argsSchema) : undefined;
+
         // Track current schema and callback for handler regeneration
         let currentArgsSchema = argsSchema;
         let currentCallback = callback;
@@ -713,6 +720,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            cachedArguments,
             _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
@@ -731,7 +739,10 @@ export class McpServer {
                 // Track if we need to regenerate the handler
                 let needsHandlerRegen = false;
                 if (updates.argsSchema !== undefined) {
+                    // Compute before mutating so state stays consistent if conversion throws.
+                    const newCachedArguments = promptArgumentsFromStandardSchema(updates.argsSchema);
                     registeredPrompt.argsSchema = updates.argsSchema;
+                    registeredPrompt.cachedArguments = newCachedArguments;
                     currentArgsSchema = updates.argsSchema;
                     needsHandlerRegen = true;
                 }
@@ -780,6 +791,12 @@ export class McpServer {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
+        // Convert schemas to JSON Schema eagerly so any errors (e.g. cycle
+        // detection) surface at registration time rather than on the first
+        // `tools/list` request, and so we don't re-convert on every list call.
+        const inputJsonSchema = inputSchema ? (standardSchemaToJsonSchema(inputSchema, 'input') as Tool['inputSchema']) : undefined;
+        const outputJsonSchema = outputSchema ? (standardSchemaToJsonSchema(outputSchema, 'output') as Tool['outputSchema']) : undefined;
+
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
@@ -788,6 +805,8 @@ export class McpServer {
             description,
             inputSchema,
             outputSchema,
+            inputJsonSchema,
+            outputJsonSchema,
             annotations,
             execution,
             _meta,
@@ -811,7 +830,10 @@ export class McpServer {
                 // Track if we need to regenerate the executor
                 let needsExecutorRegen = false;
                 if (updates.paramsSchema !== undefined) {
+                    // Compute before mutating so state stays consistent if conversion throws.
+                    const newInputJsonSchema = standardSchemaToJsonSchema(updates.paramsSchema, 'input') as Tool['inputSchema'];
                     registeredTool.inputSchema = updates.paramsSchema;
+                    registeredTool.inputJsonSchema = newInputJsonSchema;
                     needsExecutorRegen = true;
                 }
                 if (updates.callback !== undefined) {
@@ -823,7 +845,12 @@ export class McpServer {
                     registeredTool.executor = createToolExecutor(registeredTool.inputSchema, currentHandler);
                 }
 
-                if (updates.outputSchema !== undefined) registeredTool.outputSchema = updates.outputSchema;
+                if (updates.outputSchema !== undefined) {
+                    // Compute before mutating so state stays consistent if conversion throws.
+                    const newOutputJsonSchema = standardSchemaToJsonSchema(updates.outputSchema, 'output') as Tool['outputSchema'];
+                    registeredTool.outputSchema = updates.outputSchema;
+                    registeredTool.outputJsonSchema = newOutputJsonSchema;
+                }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
@@ -1162,6 +1189,18 @@ export type RegisteredTool = {
     description?: string;
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
+    /**
+     * @hidden
+     * Cached JSON Schema computed from `inputSchema` at registration time.
+     * Re-computed when `update({ paramsSchema })` is called.
+     */
+    inputJsonSchema?: Tool['inputSchema'];
+    /**
+     * @hidden
+     * Cached JSON Schema computed from `outputSchema` at registration time.
+     * Re-computed when `update({ outputSchema })` is called.
+     */
+    outputJsonSchema?: Tool['outputSchema'];
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
@@ -1308,6 +1347,12 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: StandardSchemaWithJSON;
+    /**
+     * @hidden
+     * Cached prompt arguments computed from `argsSchema` at registration time.
+     * Re-computed when `update({ argsSchema })` is called.
+     */
+    cachedArguments?: Prompt['arguments'];
     _meta?: Record<string, unknown>;
     /** @hidden */
     handler: PromptHandler;
