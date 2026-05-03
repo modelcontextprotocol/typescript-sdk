@@ -6,6 +6,8 @@
 
 /* eslint-disable @typescript-eslint/no-namespace */
 
+import * as z from 'zod/v4';
+
 // Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
 export interface StandardTypedV1<Input = unknown, Output = Input> {
@@ -138,6 +140,8 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
 
 // JSON Schema conversion
 
+let warnedZodFallback = false;
+
 /**
  * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
  *
@@ -149,7 +153,35 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
  * since that cannot satisfy the MCP spec.
  */
 export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
-    const result = schema['~standard'].jsonSchema[io]({ target: 'draft-2020-12' });
+    const std = schema['~standard'];
+    let result: Record<string, unknown>;
+    if (std.jsonSchema) {
+        result = std.jsonSchema[io]({ target: 'draft-2020-12' });
+    } else if (std.vendor === 'zod') {
+        // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
+        // The SDK already bundles zod 4, so fall back to its converter rather than crashing on tools/list.
+        // zod 3 schemas (which also report vendor 'zod') have `_def` but not `_zod`; the SDK-bundled
+        // zod 4 `z.toJSONSchema()` cannot introspect them, so throw a clear error instead of crashing.
+        if (!('_zod' in (schema as object))) {
+            throw new Error(
+                'Schema appears to be from zod 3, which the SDK cannot convert to JSON Schema. ' +
+                    'Upgrade to zod >=4.2.0, or wrap your JSON Schema with fromJsonSchema().'
+            );
+        }
+        if (!warnedZodFallback) {
+            warnedZodFallback = true;
+            console.warn(
+                '[mcp-sdk] Your zod version does not implement `~standard.jsonSchema` (added in zod 4.2.0). ' +
+                    'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
+            );
+        }
+        result = z.toJSONSchema(schema as unknown as z.ZodType, { target: 'draft-2020-12', io }) as Record<string, unknown>;
+    } else {
+        throw new Error(
+            `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +
+                `Upgrade to a version that does, or wrap your JSON Schema with fromJsonSchema().`
+        );
+    }
     if (result.type !== undefined && result.type !== 'object') {
         throw new Error(
             `MCP tool and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +
@@ -169,15 +201,15 @@ function formatIssue(issue: StandardSchemaV1.Issue): string {
     return `${path}: ${issue.message}`;
 }
 
-export async function validateStandardSchema<T extends StandardSchemaWithJSON>(
+export async function validateStandardSchema<T extends StandardSchemaV1>(
     schema: T,
     data: unknown
-): Promise<StandardSchemaValidationResult<StandardSchemaWithJSON.InferOutput<T>>> {
+): Promise<StandardSchemaValidationResult<StandardSchemaV1.InferOutput<T>>> {
     const result = await schema['~standard'].validate(data);
     if (result.issues && result.issues.length > 0) {
         return { success: false, error: result.issues.map(i => formatIssue(i)).join(', ') };
     }
-    return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaWithJSON.InferOutput<T> };
+    return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaV1.InferOutput<T> };
 }
 
 // Prompt argument extraction

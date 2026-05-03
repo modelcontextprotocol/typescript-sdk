@@ -127,7 +127,7 @@ catalogs:
       specifier: ^5.0.0
       version: 5.0.1
     zod:
-      specifier: ^4.0
+      specifier: ^4.2.0
       version: 4.3.6
 
 overrides:
@@ -650,8 +650,11 @@ importers:
 
   packages/middleware/express:
     dependencies:
-      express:
+      cors:
         specifier: catalog:runtimeServerOnly
+        version: 2.8.6
+      express:
+        specifier: ^4.18.0 || ^5.0.0
         version: 5.2.1
     devDependencies:
       '@eslint/js':
@@ -669,12 +672,18 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../../common/vitest-config
+      '@types/cors':
+        specifier: catalog:devTools
+        version: 2.8.19
       '@types/express':
         specifier: catalog:devTools
         version: 5.0.6
       '@types/express-serve-static-core':
         specifier: catalog:devTools
         version: 5.1.1
+      '@types/supertest':
+        specifier: catalog:devTools
+        version: 6.0.3
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260327.2
@@ -690,6 +699,9 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
+      supertest:
+        specifier: catalog:devTools
+        version: 7.2.2
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
@@ -889,9 +901,6 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config
-      '@types/cross-spawn':
-        specifier: catalog:devTools
-        version: 6.0.6
       '@types/eventsource':
         specifier: catalog:devTools
         version: 1.1.15

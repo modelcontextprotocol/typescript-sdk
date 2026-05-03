@@ -18,7 +18,8 @@ import {
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
-    startAuthorization
+    startAuthorization,
+    validateClientMetadataUrl
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
 
@@ -3830,6 +3831,80 @@ describe('OAuth Authorization', () => {
                 client_secret: 'generated-secret',
                 redirect_uris: ['http://localhost:3000/callback']
             });
+        });
+    });
+
+    describe('validateClientMetadataUrl', () => {
+        it('passes for valid HTTPS URL with path', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com/.well-known/oauth-client')).not.toThrow();
+        });
+
+        it('passes for valid HTTPS URL with multi-segment path', () => {
+            expect(() => validateClientMetadataUrl('https://example.com/clients/metadata.json')).not.toThrow();
+        });
+
+        it('throws OAuthError for HTTP URL', () => {
+            expect(() => validateClientMetadataUrl('http://client.example.com/.well-known/oauth-client')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('http://client.example.com/.well-known/oauth-client');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('http://client.example.com/.well-known/oauth-client');
+            }
+        });
+
+        it('throws OAuthError for non-URL string', () => {
+            expect(() => validateClientMetadataUrl('not-a-url')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('not-a-url');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('not-a-url');
+            }
+        });
+
+        it('passes silently for empty string', () => {
+            expect(() => validateClientMetadataUrl('')).not.toThrow();
+        });
+
+        it('throws OAuthError for root-path HTTPS URL with trailing slash', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com/')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('https://client.example.com/');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('https://client.example.com/');
+            }
+        });
+
+        it('throws OAuthError for root-path HTTPS URL without trailing slash', () => {
+            expect(() => validateClientMetadataUrl('https://client.example.com')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('https://client.example.com');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).code).toBe(OAuthErrorCode.InvalidClientMetadata);
+                expect((error as OAuthError).message).toContain('https://client.example.com');
+            }
+        });
+
+        it('passes silently for undefined', () => {
+            expect(() => validateClientMetadataUrl(undefined)).not.toThrow();
+        });
+
+        it('error message matches expected format', () => {
+            expect(() => validateClientMetadataUrl('http://example.com/path')).toThrow(OAuthError);
+            try {
+                validateClientMetadataUrl('http://example.com/path');
+            } catch (error) {
+                expect(error).toBeInstanceOf(OAuthError);
+                expect((error as OAuthError).message).toBe(
+                    'clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: http://example.com/path'
+                );
+            }
         });
     });
 
