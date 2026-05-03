@@ -118,14 +118,39 @@ export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx
  * transports consume. Called once at transport construction — the transport stores
  * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
  * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
+ *
+ * Uses a Proxy to intercept `saveTokens` calls made by the auth flow so that
+ * `token()` can detect expiry even when the provider stores the raw `expires_in`
+ * from the server response (e.g. 3600) rather than recomputing remaining seconds.
+ * The original provider is never mutated; spy assertions in tests remain valid.
  */
 export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider {
+    let issuedAt: number | undefined;
+
+    // Proxy intercepts saveTokens to record the issue timestamp without mutating the provider
+    const proxied: OAuthClientProvider = new Proxy(provider, {
+        get(target, prop, receiver) {
+            if (prop === 'saveTokens') {
+                return async (tokens: OAuthTokens) => {
+                    issuedAt = Math.floor(Date.now() / 1000);
+                    return target.saveTokens(tokens);
+                };
+            }
+            return Reflect.get(target, prop, receiver);
+        }
+    });
+
     return {
         token: async () => {
             const tokens = await provider.tokens();
-            return tokens?.access_token;
+            if (!tokens?.access_token) return;
+            if (tokens.expires_in !== undefined && issuedAt !== undefined) {
+                const elapsed = Math.floor(Date.now() / 1000) - issuedAt;
+                if (elapsed >= tokens.expires_in - 60) return;
+            }
+            return tokens.access_token;
         },
-        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
+        onUnauthorized: async ctx => handleOAuthUnauthorized(proxied, ctx)
     };
 }
 
