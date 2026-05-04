@@ -490,6 +490,8 @@ export class Client extends Protocol<ClientContext> {
             if (this._negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
                 transport.setProtocolVersion(this._negotiatedProtocolVersion);
             }
+            // Restart periodic ping since _onclose() clears the timer on disconnect
+            this.startPeriodicPing();
             return;
         }
         try {
@@ -533,6 +535,9 @@ export class Client extends Protocol<ClientContext> {
                 this._setupListChangedHandlers(this._pendingListChangedConfig);
                 this._pendingListChangedConfig = undefined;
             }
+
+            // Start periodic ping after successful initialization
+            this.startPeriodicPing();
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
