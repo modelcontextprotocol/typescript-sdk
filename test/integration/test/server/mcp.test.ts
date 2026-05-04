@@ -934,6 +934,7 @@ describe('Zod v4', () => {
             expect(result.tools[0]!.name).toBe('test');
             expect(result.tools[0]!.inputSchema).toMatchObject({
                 type: 'object',
+                additionalProperties: false,
                 properties: {
                     name: { type: 'string' },
                     value: { type: 'number' }
