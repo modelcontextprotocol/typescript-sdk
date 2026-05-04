@@ -873,8 +873,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 id: messageId
             };
 
-            if (options?.onprogress) {
-                this._progressHandlers.set(messageId, options.onprogress);
+            if (options?.onprogress || options?.resetTimeoutOnProgress) {
+                if (options.onprogress) {
+                    this._progressHandlers.set(messageId, options.onprogress);
+                }
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
