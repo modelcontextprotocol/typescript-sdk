@@ -15,7 +15,9 @@ import {
     ToolChoiceSchema,
     ToolResultContentSchema,
     ToolSchema,
-    ToolUseContentSchema
+    ToolUseContentSchema,
+    FileInputDescriptorSchema,
+    StringSchemaSchema
 } from '../src/types/index.js';
 
 describe('Types', () => {
@@ -1008,6 +1010,73 @@ describe('Types', () => {
                 expect(result.data.requestedSchema.type).toBe('object');
                 expect(result.data.requestedSchema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
                 expect(result.data.requestedSchema.additionalProperties).toBe(false);
+            }
+        });
+    });
+
+    describe('File inputs (SEP-2356)', () => {
+        test('FileInputDescriptor: validates full descriptor', () => {
+            const result = FileInputDescriptorSchema.safeParse({
+                accept: ['image/png', 'image/*', '.pdf'],
+                maxSize: 5242880
+            });
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.accept).toEqual(['image/png', 'image/*', '.pdf']);
+                expect(result.data.maxSize).toBe(5242880);
+            }
+        });
+
+        test('FileInputDescriptor: validates empty descriptor', () => {
+            expect(FileInputDescriptorSchema.safeParse({}).success).toBe(true);
+        });
+
+        test('FileInputDescriptor: rejects non-integer maxSize', () => {
+            expect(FileInputDescriptorSchema.safeParse({ maxSize: 1.5 }).success).toBe(false);
+        });
+
+        test('StringSchema: accepts mcpFile keyword with format uri', () => {
+            const result = StringSchemaSchema.safeParse({
+                type: 'string',
+                format: 'uri',
+                title: 'Profile photo',
+                mcpFile: { accept: ['image/*'], maxSize: 2097152 }
+            });
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.mcpFile?.accept).toEqual(['image/*']);
+                expect(result.data.mcpFile?.maxSize).toBe(2097152);
+            }
+        });
+
+        test('StringSchema: mcpFile is optional', () => {
+            expect(StringSchemaSchema.safeParse({ type: 'string', format: 'uri' }).success).toBe(true);
+        });
+
+        test('ElicitRequestFormParams: validates spec example with mcpFile property', () => {
+            const result = ElicitRequestFormParamsSchema.safeParse({
+                mode: 'form',
+                message: 'Please select a profile photo.',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        photo: {
+                            type: 'string',
+                            format: 'uri',
+                            title: 'Profile photo',
+                            mcpFile: { accept: ['image/*'], maxSize: 2097152 }
+                        }
+                    },
+                    required: ['photo']
+                }
+            });
+            expect(result.success).toBe(true);
+            if (result.success) {
+                const photo = result.data.requestedSchema.properties.photo;
+                if (photo?.type !== 'string' || !('mcpFile' in photo)) {
+                    throw new Error('expected StringSchema');
+                }
+                expect(photo.mcpFile?.accept).toEqual(['image/*']);
             }
         });
     });
