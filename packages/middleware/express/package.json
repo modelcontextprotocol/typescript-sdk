@@ -23,8 +23,12 @@
     ],
     "exports": {
         ".": {
-            "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "types": {
+                "import": "./dist/index.d.mts",
+                "require": "./dist/index.d.cts"
+            },
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.cjs"
         }
     },
     "types": "./dist/index.d.mts",
