@@ -4,24 +4,45 @@ import express from 'express';
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
 
 /**
+ * Host header validation options for DNS rebinding protection.
+ *
+ * Either skip validation entirely, or optionally provide an explicit allowlist.
+ */
+export type HostHeaderValidationOptions =
+    | {
+          /**
+           * When set to `true`, disables all automatic host header validation
+           * (DNS rebinding protection).
+           *
+           * Use this when the server sits behind a reverse proxy or load balancer
+           * that rewrites the `Host` header, or when running in an isolated network
+           * (e.g., containers) where DNS rebinding is not a concern.
+           */
+          skipHostHeaderValidation: true;
+          allowedHosts?: never;
+      }
+    | {
+          skipHostHeaderValidation?: false;
+          /**
+           * List of allowed hostnames for DNS rebinding protection.
+           * If provided, host header validation will be applied using this list.
+           * For IPv6, provide addresses with brackets (e.g., `'[::1]'`).
+           *
+           * This is useful when binding to `'0.0.0.0'` or `'::'` but still wanting
+           * to restrict which hostnames are allowed.
+           */
+          allowedHosts?: string[];
+      };
+
+/**
  * Options for creating an MCP Express application.
  */
-export interface CreateMcpExpressAppOptions {
+export type CreateMcpExpressAppOptions = {
     /**
      * The hostname to bind to. Defaults to `'127.0.0.1'`.
      * When set to `'127.0.0.1'`, `'localhost'`, or `'::1'`, DNS rebinding protection is automatically enabled.
      */
     host?: string;
-
-    /**
-     * List of allowed hostnames for DNS rebinding protection.
-     * If provided, host header validation will be applied using this list.
-     * For IPv6, provide addresses with brackets (e.g., `'[::1]'`).
-     *
-     * This is useful when binding to `'0.0.0.0'` or `'::'` but still wanting
-     * to restrict which hostnames are allowed.
-     */
-    allowedHosts?: string[];
 
     /**
      * Controls the maximum request body size for the JSON body parser.
@@ -31,7 +52,7 @@ export interface CreateMcpExpressAppOptions {
      * @example '1mb', '500kb', '10mb'
      */
     jsonLimit?: string;
-}
+} & HostHeaderValidationOptions;
 
 /**
  * Creates an Express application pre-configured for MCP servers.
@@ -60,27 +81,21 @@ export interface CreateMcpExpressAppOptions {
  * ```
  */
 export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): Express {
-    const { host = '127.0.0.1', allowedHosts, jsonLimit } = options;
+    const { host = '127.0.0.1', allowedHosts, jsonLimit, skipHostHeaderValidation } = options;
 
     const app = express();
     app.use(express.json(jsonLimit ? { limit: jsonLimit } : undefined));
 
-    // If allowedHosts is explicitly provided, use that for validation
-    if (allowedHosts) {
-        app.use(hostHeaderValidation(allowedHosts));
-    } else {
-        // Apply DNS rebinding protection automatically for localhost hosts
-        const localhostHosts = ['127.0.0.1', 'localhost', '::1'];
-        if (localhostHosts.includes(host)) {
-            app.use(localhostHostValidation());
-        } else if (host === '0.0.0.0' || host === '::') {
-            // Warn when binding to all interfaces without DNS rebinding protection
-            // eslint-disable-next-line no-console
-            console.warn(
-                `Warning: Server is binding to ${host} without DNS rebinding protection. ` +
-                    'Consider using the allowedHosts option to restrict allowed hosts, ' +
-                    'or use authentication to protect your server.'
-            );
+    if (!skipHostHeaderValidation) {
+        // If allowedHosts is explicitly provided, use that for validation
+        if (allowedHosts) {
+            app.use(hostHeaderValidation(allowedHosts));
+        } else {
+            // Apply DNS rebinding protection automatically for localhost hosts
+            const localhostHosts = ['127.0.0.1', 'localhost', '::1'];
+            if (localhostHosts.includes(host)) {
+                app.use(localhostHostValidation());
+            }
         }
     }
 
