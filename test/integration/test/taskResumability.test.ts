@@ -26,12 +26,11 @@ class InMemoryEventStore implements EventStore {
         { send }: { send: (eventId: string, message: JSONRPCMessage) => Promise<void> }
     ): Promise<string> {
         if (!lastEventId || !this.events.has(lastEventId)) return '';
-        const streamId = lastEventId.split('_')[0] ?? '';
+        const streamId = this.events.get(lastEventId)?.streamId ?? '';
         if (!streamId) return '';
 
         let found = false;
-        const sorted = [...this.events.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
-        for (const [eventId, { streamId: sid, message }] of sorted) {
+        for (const [eventId, { streamId: sid, message }] of this.events) {
             if (sid !== streamId) continue;
             if (eventId === lastEventId) {
                 found = true;
@@ -156,6 +155,40 @@ describe('Zod v4', () => {
 
             // Clean up
             await transport.close();
+        });
+
+        it('should replay events for standalone SSE stream IDs', async () => {
+            const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_777_506_150_663);
+            const randomSpy = vi.spyOn(Math, 'random').mockReturnValueOnce(0.9).mockReturnValueOnce(0.1);
+
+            const message1: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'notifications/message',
+                params: { level: 'info', data: 'first' }
+            };
+            const message2: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'notifications/message',
+                params: { level: 'info', data: 'second' }
+            };
+            const replayed: Array<{ eventId: string; message: JSONRPCMessage }> = [];
+
+            try {
+                const firstEventId = await eventStore.storeEvent('_GET_stream', message1);
+                const secondEventId = await eventStore.storeEvent('_GET_stream', message2);
+
+                const streamId = await eventStore.replayEventsAfter(firstEventId, {
+                    send: async (eventId, message) => {
+                        replayed.push({ eventId, message });
+                    }
+                });
+
+                expect(streamId).toBe('_GET_stream');
+                expect(replayed).toEqual([{ eventId: secondEventId, message: message2 }]);
+            } finally {
+                nowSpy.mockRestore();
+                randomSpy.mockRestore();
+            }
         });
 
         it('should have session ID functionality', async () => {
