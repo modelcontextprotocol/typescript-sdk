@@ -327,14 +327,21 @@ export class StreamableHTTPClientTransport implements Transport {
      *
      * @param lastEventId The ID of the last received event for resumability
      * @param attemptCount Current reconnection attempt count for this specific stream
+     * @param lastError The error that triggered this reconnection attempt, surfaced if max retries is exceeded
      */
-    private _scheduleReconnection(options: StartSSEOptions, attemptCount = 0): void {
+    private _scheduleReconnection(options: StartSSEOptions, attemptCount = 0, lastError?: unknown): void {
         // Use provided options or default options
         const maxRetries = this._reconnectionOptions.maxRetries;
 
         // Check if we've exceeded maximum retry attempts
         if (attemptCount >= maxRetries) {
-            this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
+            const reason = lastError === undefined ? undefined : lastError instanceof Error ? lastError.message : String(lastError);
+            this.onerror?.(
+                new Error(
+                    `Maximum reconnection attempts (${maxRetries}) exceeded` + (reason ? `: ${reason}` : '.'),
+                    lastError === undefined ? undefined : { cause: lastError }
+                )
+            );
             return;
         }
 
@@ -347,7 +354,7 @@ export class StreamableHTTPClientTransport implements Transport {
             this._startOrAuthSse(options).catch(error => {
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
-                    this._scheduleReconnection(options, attemptCount + 1);
+                    this._scheduleReconnection(options, attemptCount + 1, error);
                 } catch (scheduleError) {
                     this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
                 }
@@ -447,9 +454,6 @@ export class StreamableHTTPClientTransport implements Transport {
                     );
                 }
             } catch (error) {
-                // Handle stream errors - likely a network disconnect
-                this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
-
                 // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
                 // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
                 // BUT don't reconnect if we already received a response - the request is complete
@@ -464,11 +468,15 @@ export class StreamableHTTPClientTransport implements Transport {
                                 onresumptiontoken,
                                 replayMessageId
                             },
-                            0
+                            0,
+                            error
                         );
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
                     }
+                } else if (!this._abortController?.signal.aborted) {
+                    // Stream disconnected and reconnection will not happen; surface the error
+                    this.onerror?.(new Error(`SSE stream disconnected: ${error instanceof Error ? error.message : String(error)}`));
                 }
             }
         };
