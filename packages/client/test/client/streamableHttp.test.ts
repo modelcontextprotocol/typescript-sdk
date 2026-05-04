@@ -1998,6 +1998,31 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onerror).not.toHaveBeenCalled();
         });
 
+        it('ignores a late-firing reconnect after close() + start()', async () => {
+            let capturedReconnect: (() => void) | undefined;
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: reconnect => {
+                    capturedReconnect = reconnect;
+                }
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const fetchMock = globalThis.fetch as Mock;
+
+            await transport.start();
+            triggerReconnection(transport);
+            await transport.close();
+            await transport.start();
+
+            fetchMock.mockClear();
+            capturedReconnect?.();
+            await vi.runAllTimersAsync();
+
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
         it('still aborts and fires onclose if the cancel function throws', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
@@ -2015,6 +2040,63 @@ describe('StreamableHTTPClientTransport', () => {
             await expect(transport.close()).rejects.toThrow('cancel failed');
             expect(abortController?.signal.aborted).toBe(true);
             expect(onclose).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('Transport restart after close()', () => {
+        it('should allow start() after close() and not send stale session ID', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const fetchMock = globalThis.fetch as Mock;
+
+            // First lifecycle: start, receive a session ID, close
+            await transport.start();
+
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({
+                    'content-type': 'application/json',
+                    'mcp-session-id': 'stale-session-abc'
+                }),
+                json: async () => ({ jsonrpc: '2.0', result: {}, id: 'init-1' })
+            });
+
+            await transport.send({ jsonrpc: '2.0', method: 'initialize', params: {}, id: 'init-1' });
+            expect(transport.sessionId).toBe('stale-session-abc');
+
+            await transport.close();
+            expect(transport.sessionId).toBeUndefined();
+
+            // Second lifecycle: start() should not throw
+            await transport.start();
+
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+
+            // The post-restart request must NOT include the stale session ID
+            const postRestartHeaders = fetchMock.mock.calls[1]![1]?.headers as Headers;
+            expect(postRestartHeaders.get('mcp-session-id')).toBeNull();
+        });
+
+        it('should reset server-provided retry delay and upscoping header on close()', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            await transport.start();
+
+            const internal = transport as unknown as { _serverRetryMs?: number; _lastUpscopingHeader?: string };
+            internal._serverRetryMs = 3000;
+            internal._lastUpscopingHeader = 'Bearer realm="x"';
+
+            await transport.close();
+
+            expect(internal._serverRetryMs).toBeUndefined();
+            expect(internal._lastUpscopingHeader).toBeUndefined();
         });
     });
 });
