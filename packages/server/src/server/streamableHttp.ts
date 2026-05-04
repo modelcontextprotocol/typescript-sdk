@@ -18,6 +18,8 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
+import type { ToolScopeConfig } from './mcp.js';
+
 export type StreamId = string;
 export type EventId = string;
 
@@ -65,6 +67,48 @@ interface StreamMapping {
     resolveJson?: (response: Response) => void;
     /** Cleanup function to close stream and remove mapping */
     cleanup: () => void;
+}
+
+/**
+ * Configuration for automatic scope challenge handling on tool calls.
+ *
+ * When provided to the transport, the transport checks the client's token scopes
+ * (from {@linkcode AuthInfo.scopes}) against tool-level scope requirements before
+ * executing the tool. If the token lacks required scopes, the transport returns
+ * HTTP 403 with a `WWW-Authenticate` header per RFC 6750 §3.1, triggering the
+ * client's step-up authorization flow.
+ *
+ * The server implementer is responsible for populating {@linkcode AuthInfo.scopes}
+ * with the token's active scopes in their auth middleware, and for declaring the
+ * required/accepted scopes on each tool at registration time. The SDK only provides
+ * the plumbing to compare them and emit the correct HTTP response.
+ *
+ * This is only meaningful for HTTP-based transports — stdio transports have no
+ * concept of HTTP status codes or OAuth flows.
+ *
+ * @example
+ * ```typescript
+ * const transport = new WebStandardStreamableHTTPServerTransport({
+ *     sessionIdGenerator: () => crypto.randomUUID(),
+ *     scopeChallenge: {
+ *         resourceMetadataUrl: 'https://api.example.com/.well-known/oauth-protected-resource',
+ *     }
+ * });
+ * ```
+ */
+export interface ScopeChallengeConfig {
+    /**
+     * The `resource_metadata` URL to include in `WWW-Authenticate` headers.
+     * Should point to the server's OAuth Protected Resource Metadata document
+     * per RFC 9728.
+     */
+    resourceMetadataUrl: string;
+
+    /**
+     * Optional custom error description generator.
+     * If not provided, a default description listing the required scopes is used.
+     */
+    buildErrorDescription?: (toolName: string, requiredScopes: string[]) => string;
 }
 
 /**
@@ -152,6 +196,19 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Configuration for automatic scope challenge handling.
+     *
+     * When provided alongside tools registered with `scopes` metadata, the transport
+     * will check the client's token scopes before executing `tools/call` requests.
+     * If the token lacks required scopes, HTTP 403 is returned with a `WWW-Authenticate`
+     * header, triggering the client's step-up authorization (upscoping) flow.
+     *
+     * Also requires a `scopeResolver` to be set — a function that looks up scope
+     * metadata for a given tool name. This is typically wired to `McpServer.getToolScopes()`.
+     */
+    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -240,6 +297,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _scopeChallenge?: ScopeChallengeConfig;
+    private _scopeResolver?: (toolName: string) => ToolScopeConfig | undefined;
 
     sessionId?: string;
     onclose?: () => void;
@@ -257,6 +316,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._scopeChallenge = options.scopeChallenge;
+    }
+
+    /**
+     * Sets the scope resolver function, which looks up scope metadata for a given tool name.
+     * This is typically wired to `McpServer.getToolScopes()`.
+     *
+     * @example
+     * ```typescript
+     * transport.setScopeResolver((toolName) => mcpServer.getToolScopes(toolName));
+     * ```
+     */
+    setScopeResolver(resolver: (toolName: string) => ToolScopeConfig | undefined): void {
+        this._scopeResolver = resolver;
     }
 
     /**
@@ -305,6 +378,64 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         );
+    }
+
+    /**
+     * Checks if a tools/call request has sufficient scopes.
+     * Returns an HTTP 403 response with WWW-Authenticate header if scopes are insufficient,
+     * or undefined if the request should proceed normally.
+     *
+     * This implements the MCP Scope Challenge Handling spec (§10.1):
+     * https://modelcontextprotocol.io/specification/draft/basic/authorization#scope-challenge-handling
+     */
+    private _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Response | undefined {
+        if (!this._scopeChallenge || !this._scopeResolver || !authInfo) {
+            return undefined;
+        }
+
+        const activeScopes = authInfo.scopes;
+
+        for (const message of messages) {
+            if (!isJSONRPCRequest(message) || message.method !== 'tools/call') {
+                continue;
+            }
+
+            const toolName = (message.params as { name?: string })?.name;
+            if (!toolName) {
+                continue;
+            }
+
+            const toolScopes = this._scopeResolver(toolName);
+            if (!toolScopes) {
+                continue;
+            }
+
+            const acceptedScopes = toolScopes.accepted ?? toolScopes.required;
+
+            // Check if the token has any of the accepted scopes
+            if (acceptedScopes.some(s => activeScopes.includes(s))) {
+                continue;
+            }
+
+            // Additive scoping: recommend the union of existing + required scopes.
+            // This ensures the client never loses scopes it already has when
+            // re-authorizing, matching the pattern from github/github-mcp-server.
+            const recommendedScopes = [...new Set([...activeScopes, ...toolScopes.required])];
+
+            const errorDescription = this._scopeChallenge.buildErrorDescription
+                ? this._scopeChallenge.buildErrorDescription(toolName, toolScopes.required)
+                : `Additional scopes required: ${toolScopes.required.join(', ')}`;
+
+            const wwwAuthenticate = `Bearer error="insufficient_scope", scope="${recommendedScopes.join(' ')}", resource_metadata="${this._scopeChallenge.resourceMetadataUrl}", error_description="${errorDescription}"`;
+
+            return this.createJsonErrorResponse(403, -32_600, `Insufficient scope for tool: ${toolName}`, {
+                headers: {
+                    'WWW-Authenticate': wwwAuthenticate
+                }
+            });
+        }
+
+        return undefined;
     }
 
     /**
@@ -697,6 +828,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 if (protocolError) {
                     return protocolError;
                 }
+            }
+
+            // Pre-execution scope challenge check for tools/call requests.
+            // This runs BEFORE the SSE stream opens so we can still return HTTP 403.
+            const scopeChallengeResponse = this._checkScopeChallenge(messages, options?.authInfo);
+            if (scopeChallengeResponse) {
+                return scopeChallengeResponse;
             }
 
             // check if it contains requests

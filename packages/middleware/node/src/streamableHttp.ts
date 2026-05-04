@@ -11,7 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
-import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
+import type { ToolScopeConfig, WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
 /**
@@ -150,6 +150,17 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      */
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
         return this._webStandardTransport.send(message, options);
+    }
+
+    /**
+     * Sets the scope resolver for pre-execution scope challenge checks.
+     * Delegates to the underlying {@linkcode WebStandardStreamableHTTPServerTransport}.
+     *
+     * This is auto-wired by `McpServer.connect()` when `scopeChallenge`
+     * is configured on the transport.
+     */
+    setScopeResolver(resolver: (toolName: string) => ToolScopeConfig | undefined): void {
+        this._webStandardTransport.setScopeResolver(resolver);
     }
 
     /**
