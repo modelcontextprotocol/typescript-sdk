@@ -24,6 +24,10 @@
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
         },
+        "./stdio": {
+            "types": "./dist/stdio.d.mts",
+            "import": "./dist/stdio.mjs"
+        },
         "./validators/cf-worker": {
             "types": "./dist/validators/cfWorker.d.mts",
             "import": "./dist/validators/cfWorker.mjs"
@@ -45,6 +49,17 @@
                 "types": "./dist/shimsNode.d.mts",
                 "import": "./dist/shimsNode.mjs"
             }
+        }
+    },
+    "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "validators/cf-worker": [
+                "dist/validators/cfWorker.d.mts"
+            ],
+            "stdio": [
+                "dist/stdio.d.mts"
+            ]
         }
     },
     "files": [
