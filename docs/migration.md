@@ -2,6 +2,104 @@
 
 This guide covers the breaking changes introduced in v2 of the MCP TypeScript SDK and how to update your code.
 
+> **Note:** This guide describes the v2.0.0 release as a whole. The compatibility shims it references land across the [v2-bc PR series](https://github.com/modelcontextprotocol/typescript-sdk/pulls?q=is%3Apr+label%3Av2-bc); on any individual PR's branch some referenced symbols may not yet exist.
+
+## Upgrade paths
+
+There are two ways to move to v2. **Pick one before reading further.**
+
+### Path A — Stay on the `/sdk` package (recommended for most servers)
+
+`@modelcontextprotocol/sdk@^2` is a meta-package that re-exports the new split packages at the v1 import paths. **Your existing imports work unchanged.**
+
+```diff
+  // package.json
+- "@modelcontextprotocol/sdk": "^1.0.0"
++ "@modelcontextprotocol/sdk": "^2.0.0"
+```
+
+After bumping, run your typecheck. **If it passes, you're done — stop reading.** The v1 APIs (`@modelcontextprotocol/sdk/server/mcp.js`, `server.tool()` variadic, `McpError`, `RequestHandlerExtra`, `SSEServerTransport`, etc.) are `@deprecated` aliases that compile and run identically. Your IDE will show strikethrough and a hover note pointing at the new API, but there are no runtime warnings.
+
+If typecheck fails, fix only the errors you see — the table in [What the meta-package doesn't shim](#what-the-meta-package-doesnt-shim) lists the handful of changes that still need a one-line edit.
+
+**Do not rewrite imports to the split packages unless you're choosing Path B.**
+
+### Path B — Move to the split packages
+
+Choose this if you want to drop the `/sdk` dependency and import directly from `@modelcontextprotocol/server` / `@modelcontextprotocol/client`. Reasons:
+
+- Smaller bundle (you only ship what you use)
+- No `@deprecated` strikethrough in your editor
+- You're a host application, framework adapter, or custom transport author (these touch surface the meta-package doesn't fully cover)
+
+The rest of this guide is **Path B**. If you chose Path A, skip to [What the meta-package doesn't shim](#what-the-meta-package-doesnt-shim).
+
+> **Clients and frameworks** typically need a few more changes than servers — see the [Custom methods](#setrequesthandler-and-setnotificationhandler-use-method-strings), [Error hierarchy](#error-hierarchy-refactoring), and [Server auth](#server-auth-split) sections.
+
+## What the meta-package doesn't shim
+
+These are the changes you need regardless of which path you chose. Everything else in this guide is Path B only.
+
+| What | Change |
+|---|---|
+| `zod` version | Must be `^4.2.0` — see [Prerequisites](#zod-must-be-420) |
+| tsconfig `moduleResolution` | Must be `bundler`, `nodenext`, or `node16` — see [Prerequisites](#typescript-moduleresolution-must-be-bundler-nodenext-or-node16) |
+| `IsomorphicHeaders` type | → standard `Headers` — see [§](#headers-object-instead-of-plain-objects) |
+| `StreamableHTTPServerTransport` (Node) | → `NodeStreamableHTTPServerTransport` from `@modelcontextprotocol/node` — see [§](#streamablehttpservertransport-renamed) |
+| `server.tool(name, desc, schema, annotations, cb)` 5-arg form | → `registerTool(name, {description, inputSchema, annotations}, cb)` — see [§](#mcpservertool-prompt-resource-removed) |
+
+These five were intentionally not shimmed because the codemod handles them mechanically (`npx @modelcontextprotocol/codemod-v2`).
+
+## Prerequisites
+
+Before upgrading, check these three environment requirements. They are the most common source of confusing errors during migration.
+
+### Zod must be `^4.2.0`
+
+If you use Zod for tool/prompt schemas, you must be on **`zod@^4.2.0` or later**, and import from the `zod` (or `zod/v4`) entry point.
+
+Older Zod versions (3.x, or 4.0.0–4.1.x) do **not** implement the `~standard.jsonSchema` property the SDK uses to render `inputSchema` for `tools/list`. This passes type-checking but **crashes at runtime** when a client calls `tools/list`.
+
+```jsonc
+// package.json
+"dependencies": {
+  "zod": "^4.2.0"
+}
+```
+
+```typescript
+// Either of these works on zod@^4.2.0:
+import * as z from 'zod';
+import * as z from 'zod/v4';
+
+// This does NOT work (zod 3.x has no Standard Schema support):
+import * as z from 'zod/v3';
+```
+
+### TypeScript `moduleResolution` must be `bundler`, `nodenext`, or `node16`
+
+v2 packages ship ESM-only with an `exports` map and no top-level `main`/`types` fields. TypeScript's legacy `"moduleResolution": "node"` (or `"node10"`) cannot resolve them and fails with `TS2307: Cannot find module '@modelcontextprotocol/server'`.
+
+Update your `tsconfig.json`:
+
+```jsonc
+{
+    "compilerOptions": {
+        "moduleResolution": "bundler" // or "nodenext" / "node16"
+    }
+}
+```
+
+> We deliberately do **not** ship `main`/`types` fallback fields — testing showed it suppresses TypeScript's helpful "consider updating moduleResolution" diagnostic and replaces it with dozens of misleading transitive errors.
+
+### Testing locally with bun: clear the cache
+
+If you are testing a local v2 build via `file:` tarballs, note that **bun caches `file:` dependencies by filename** and ignores content changes. Re-packing the SDK without bumping the version installs a stale tarball.
+
+```bash
+bun pm cache rm && bun install --force
+```
+
 ## Overview
 
 Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
@@ -110,6 +208,10 @@ const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: ()
 ```
 
 ### Server-side SSE transport removed
+
+> **Path A users:** the meta-package re-exports `SSEServerTransport` and `SSEClientTransport` at their v1 paths. You don't need to change anything.
+>
+> **Path B users:** the v2 server package does not include SSE. Install `@modelcontextprotocol/server-auth-legacy` (which also bundles `LegacySSEServerTransport`) or migrate to Streamable HTTP per the example below.
 
 The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
 
@@ -396,6 +498,9 @@ server.setRequestHandler('acme/search', { params: SearchParams, result: SearchRe
 
 The handler receives the parsed `params` directly (not the full request envelope). `_meta` is stripped before validation and is available as `ctx.mcpReq._meta`. Supplying `result` types the handler's return value; omit it to return any `Result`.
 
+> **Warning:** Do **not** add custom fields to a _spec_ method's params (e.g., adding `{ tabId, image }` to `'notifications/message'`). v2 validates incoming spec messages against the spec schema, so unknown fields are stripped before your handler sees them. Use a vendor-prefixed
+> method name instead.
+
 For `setNotificationHandler`, the 3-arg handler is `(params, notification) => void`. The raw notification is the second argument, so `_meta` is recoverable via `notification.params?._meta`.
 
 #### Sending custom-method requests
@@ -512,6 +617,16 @@ const result = await specTypeSchemas.CallToolResult['~standard'].validate(value)
 
 `isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1<In, Out>`, which composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
+### Transitive dependencies still on v1
+
+If a package you depend on (e.g., a shared MCP utilities library or framework adapter) still vends types from `@modelcontextprotocol/sdk@^1`, you will see structural type errors where v1 and v2 types meet (`Server` is not assignable to `Server`, `Transport` not assignable to
+`Transport`).
+
+There is no SDK-side fix for this. Either:
+
+- Upgrade the transitive dependency to v2 first, or
+- Add a type assertion (`as unknown as Transport`) at the boundary until it is upgraded.
+
 ### Client list methods return empty results for missing capabilities
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, and `listTools()` now return empty results when the server didn't advertise the corresponding capability, instead of sending the request. This respects the MCP spec's capability negotiation.
@@ -553,6 +668,7 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `isJSONRPCResponse`                      | `isJSONRPCResultResponse` (see note below)                                                        |
 | `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                 |
 | `ResourceReference`                      | `ResourceTemplateReference`                                                                       |
+| `ResourceTemplate` (type)                | `ResourceTemplateType`                                                                            |
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                                                                        |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
