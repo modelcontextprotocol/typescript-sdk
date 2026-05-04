@@ -894,6 +894,28 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 > **Note:** These task APIs are marked `@experimental` and may change without notice.
 
+### Tool error sanitization
+
+Tool handlers that `throw new Error('message')` will now return `"Internal error"` to clients instead of the raw error message. This prevents accidental leakage of server internals (hostnames, connection strings, stack traces).
+
+To send a user-visible error message, use the new `ToolError` class:
+
+```typescript
+import { ToolError } from '@modelcontextprotocol/server';
+
+// Generic errors are sanitized -- client sees: "Internal error"
+server.registerTool('internal-tool', {}, async () => {
+    throw new Error('DB connection failed at 10.0.0.5:5432');
+});
+
+// ToolError messages pass through -- client sees: "Invalid country"
+server.registerTool('validated-tool', {}, async () => {
+    throw new ToolError('Invalid country');
+});
+```
+
+`ProtocolError` messages (SDK validation errors) are still passed through unchanged.
+
 ## Enhancements
 
 ### Automatic JSON Schema validator selection by runtime
