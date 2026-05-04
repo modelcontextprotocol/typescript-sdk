@@ -1,5 +1,25 @@
 # @modelcontextprotocol/node
 
+## 2.0.0-alpha.3
+
+### Patch Changes
+
+- [#1896](https://github.com/modelcontextprotocol/typescript-sdk/pull/1896) [`5433f40`](https://github.com/modelcontextprotocol/typescript-sdk/commit/5433f405972ab943c4d68b0eacf6d79baf132824) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Mark `hono` peer
+  dependency as optional. `@modelcontextprotocol/node` only uses `getRequestListener` from `@hono/node-server` (Node HTTP ↔ Web Standard conversion), which does not require the `hono` framework at runtime. Consumers no longer need to install `hono` to use
+  `NodeStreamableHTTPServerTransport`. Note: `@hono/node-server` itself still declares `hono` as a hard peer, so package managers may emit a warning; this is upstream and harmless for `getRequestListener`-only usage.
+
+- [#1898](https://github.com/modelcontextprotocol/typescript-sdk/pull/1898) [`2a7611d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/2a7611d46b0d4f4e7bd4147c7a3ad3da00e57e52) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add top-level `types`
+  field (and `typesVersions` on client/server for their subpath exports) so consumers on legacy `moduleResolution: "node"` can resolve type declarations. The `exports` map remains the source of truth for `nodenext`/`bundler` resolution. The `typesVersions` map includes entries
+  for subpaths added by sibling PRs in this series (`zod-schemas`, `stdio`); those entries are no-ops until the corresponding `dist/*.d.mts` files exist.
+
+- Updated dependencies [[`434b2f1`](https://github.com/modelcontextprotocol/typescript-sdk/commit/434b2f11ecec452f3dca0199f68afccd8b119dd4), [`db83829`](https://github.com/modelcontextprotocol/typescript-sdk/commit/db83829c5bd5d6659c5e7b96638b11953b0e262d),
+  [`42cb6b2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/42cb6b2b728347d8b58a0d1940b7e63366a29ab9), [`df4b6cc`](https://github.com/modelcontextprotocol/typescript-sdk/commit/df4b6cc88d6f24fc857519cf506a7a039f532637),
+  [`2c0c481`](https://github.com/modelcontextprotocol/typescript-sdk/commit/2c0c481cb9dbfd15c8613f765c940a5f5bace94d), [`2a7611d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/2a7611d46b0d4f4e7bd4147c7a3ad3da00e57e52),
+  [`e15a8ef`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e15a8ef3be19520d8159ae9f5b464ba3ac80a5ab), [`96db044`](https://github.com/modelcontextprotocol/typescript-sdk/commit/96db044fe965f0b7d5109e6d68598eaddce961c9),
+  [`9fc9070`](https://github.com/modelcontextprotocol/typescript-sdk/commit/9fc9070b7b8e18227127aaee9869f8809a87fdb1), [`55b1f06`](https://github.com/modelcontextprotocol/typescript-sdk/commit/55b1f06cd4569e334f3435b7971f0446f1ef9be9),
+  [`b256546`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b256546750277faeb7c886792aae5ed26e6904d5)]:
+    - @modelcontextprotocol/server@2.0.0-alpha.3
+
 ## 2.0.0-alpha.2
 
 ### Patch Changes
