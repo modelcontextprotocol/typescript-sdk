@@ -7,6 +7,14 @@ const MAX_VARIABLE_LENGTH = 1_000_000; // 1MB
 const MAX_TEMPLATE_EXPRESSIONS = 10_000;
 const MAX_REGEX_LENGTH = 1_000_000; // 1MB
 
+function safeDecode(s: string): string {
+    try {
+        return decodeURIComponent(s);
+    } catch {
+        return s;
+    }
+}
+
 export class UriTemplate {
     /**
      * Returns true if the given string contains any URI template expressions.
@@ -97,7 +105,7 @@ export class UriTemplate {
         return expr
             .slice(operator.length)
             .split(',')
-            .map(name => name.replace('*', '').trim())
+            .map(name => name.replaceAll('*', '').trim())
             .filter(name => name.length > 0);
     }
 
@@ -254,12 +262,19 @@ export class UriTemplate {
 
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
+
+        // Build regex pattern for path (non-query) parts
         let pattern = '^';
         const names: Array<{ name: string; exploded: boolean }> = [];
+        const queryParts: Array<{ name: string; exploded: boolean }> = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
+            } else if (part.operator === '?' || part.operator === '&') {
+                for (const name of part.names) {
+                    queryParts.push({ name, exploded: part.exploded });
+                }
             } else {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
@@ -269,20 +284,61 @@ export class UriTemplate {
             }
         }
 
+        // Only strip the URI fragment when the template has no {#var} operator;
+        // otherwise the fragment is part of what the path regex must capture.
+        const hasHashOperator = this.parts.some(p => typeof p !== 'string' && p.operator === '#');
+        let working = uri;
+        if (!hasHashOperator) {
+            const hashIndex = working.indexOf('#');
+            if (hashIndex !== -1) working = working.slice(0, hashIndex);
+        }
+
+        // Only split path/query when the template actually has {?..}/{&..}
+        // operators. Otherwise match the path regex against the full URI so
+        // {+var} can capture across '?' as it did before query-param support.
+        let pathPart = working;
+        let queryPart = '';
+        if (queryParts.length > 0) {
+            const queryIndex = working.indexOf('?');
+            if (queryIndex !== -1) {
+                pathPart = working.slice(0, queryIndex);
+                queryPart = working.slice(queryIndex + 1);
+            }
+        }
+
         pattern += '$';
         UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
         const regex = new RegExp(pattern);
-        const match = uri.match(regex);
-
+        const match = pathPart.match(regex);
         if (!match) return null;
 
         const result: Variables = {};
-        for (const [i, name_] of names.entries()) {
-            const { name, exploded } = name_!;
-            const value = match[i + 1]!;
-            const cleanName = name.replace('*', '');
 
+        for (const [i, { name, exploded }] of names.entries()) {
+            const value = match[i + 1]!;
+            const cleanName = name.replaceAll('*', '');
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+        }
+
+        if (queryParts.length > 0) {
+            const queryParams = new Map<string, string>();
+            if (queryPart) {
+                for (const pair of queryPart.split('&')) {
+                    const equalIndex = pair.indexOf('=');
+                    if (equalIndex !== -1) {
+                        const key = safeDecode(pair.slice(0, equalIndex));
+                        const value = safeDecode(pair.slice(equalIndex + 1));
+                        queryParams.set(key, value);
+                    }
+                }
+            }
+
+            for (const { name, exploded } of queryParts) {
+                const cleanName = name.replaceAll('*', '');
+                const value = queryParams.get(cleanName);
+                if (value === undefined) continue;
+                result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+            }
         }
 
         return result;
