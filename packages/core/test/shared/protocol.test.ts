@@ -556,6 +556,63 @@ describe('protocol tests', () => {
             await expect(requestPromise).resolves.toEqual({ result: 'success' });
         });
 
+        test('should not reset timeout for non-increasing progress notifications', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onErrorMock = vi.fn();
+            const onProgressMock = vi.fn();
+            protocol.onerror = onErrorMock;
+
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                resetTimeoutOnProgress: true,
+                onprogress: onProgressMock
+            });
+
+            vi.advanceTimersByTime(800);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 50,
+                        total: 100
+                    }
+                });
+            }
+            await Promise.resolve();
+
+            expect(onProgressMock).toHaveBeenCalledOnce();
+            expect(onProgressMock).toHaveBeenCalledWith({
+                progress: 50,
+                total: 100
+            });
+
+            vi.advanceTimersByTime(800);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 25,
+                        total: 100
+                    }
+                });
+            }
+            await Promise.resolve();
+
+            expect(onErrorMock).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('non-increasing') }));
+            expect(onProgressMock).toHaveBeenCalledOnce();
+
+            vi.advanceTimersByTime(201);
+            await expect(requestPromise).rejects.toThrow('Request timed out');
+        });
+
         test('should respect maxTotalTimeout', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
