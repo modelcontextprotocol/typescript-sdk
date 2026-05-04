@@ -868,6 +868,7 @@ type _K_EmbeddedResource = Assert<AssertExactKeys<SDKTypes.EmbeddedResource, Spe
 type _K_ResourceLink = Assert<AssertExactKeys<SDKTypes.ResourceLink, SpecTypes.ResourceLink>>;
 type _K_PromptMessage = Assert<AssertExactKeys<SDKTypes.PromptMessage, SpecTypes.PromptMessage>>;
 type _K_BooleanSchema = Assert<AssertExactKeys<SDKTypes.BooleanSchema, SpecTypes.BooleanSchema>>;
+// @ts-expect-error The written 2025-11-25 elicitation spec includes StringSchema.pattern, but generated spec types lag it.
 type _K_StringSchema = Assert<AssertExactKeys<SDKTypes.StringSchema, SpecTypes.StringSchema>>;
 type _K_NumberSchema = Assert<AssertExactKeys<SDKTypes.NumberSchema, SpecTypes.NumberSchema>>;
 type _K_UntitledSingleSelectEnumSchema = Assert<
