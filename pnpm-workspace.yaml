@@ -30,6 +30,7 @@ catalogs:
         typescript: ^5.9.3
         typescript-eslint: ^8.48.1
         vite-tsconfig-paths: ^5.1.4
+        fast-check: ^4.1.1
         vitest: ^4.0.15
     runtimeClientOnly:
         cross-spawn: ^7.0.5

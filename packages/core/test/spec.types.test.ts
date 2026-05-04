@@ -620,6 +620,14 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    TaskPartialNotificationParams: (sdk: SDKTypes.TaskPartialNotificationParams, spec: SpecTypes.TaskPartialNotificationParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TaskPartialNotification: (sdk: WithJSONRPC<SDKTypes.TaskPartialNotification>, spec: SpecTypes.TaskPartialNotification) => {
+        sdk = spec;
+        spec = sdk;
+    },
 
     /* JSON primitives */
     JSONValue: (sdk: SDKTypes.JSONValue, spec: SpecTypes.JSONValue) => {
@@ -908,6 +916,9 @@ type _K_GetTaskPayloadResult = Assert<AssertExactKeys<SDKTypes.GetTaskPayloadRes
 type _K_TaskStatusNotificationParams = Assert<
     AssertExactKeys<SDKTypes.TaskStatusNotificationParams, SpecTypes.TaskStatusNotificationParams>
 >;
+type _K_TaskPartialNotificationParams = Assert<
+    AssertExactKeys<SDKTypes.TaskPartialNotificationParams, SpecTypes.TaskPartialNotificationParams>
+>;
 type _K_JSONObject = Assert<AssertExactKeys<SDKTypes.JSONObject, SpecTypes.JSONObject>>;
 type _K_MetaObject = Assert<AssertExactKeys<SDKTypes.MetaObject, SpecTypes.MetaObject>>;
 // @ts-expect-error Genuine mismatch: SDK RequestMetaObject has extra 'io.modelcontextprotocol/related-task' not in spec
@@ -947,6 +958,7 @@ type _K_LoggingMessageNotification = Assert<
 >;
 type _K_InitializedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.InitializedNotification>, SpecTypes.InitializedNotification>>;
 type _K_TaskStatusNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.TaskStatusNotification>, SpecTypes.TaskStatusNotification>>;
+type _K_TaskPartialNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.TaskPartialNotification>, SpecTypes.TaskPartialNotification>>;
 
 // -- WithJSONRPCRequest-wrapped request types (21) --
 // SDK request types do not include `jsonrpc` or `id` — the spec types do. We
@@ -1086,7 +1098,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(176);
+        expect(specTypes).toHaveLength(178);
     });
 
     it('should have up to date list of missing sdk types', () => {

@@ -95,6 +95,7 @@
         "@types/eventsource": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
+        "fast-check": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
