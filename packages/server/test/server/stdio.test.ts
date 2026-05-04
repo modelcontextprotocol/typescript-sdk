@@ -24,6 +24,10 @@ beforeEach(() => {
     });
 });
 
+function waitForTransportWrites() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 test('should start then close cleanly', async () => {
     const server = new StdioServerTransport(input, output);
     server.onerror = error => {
@@ -101,6 +105,40 @@ test('should read multiple messages', async () => {
     await server.start();
     await finished;
     expect(readMessages).toEqual(messages);
+});
+
+test('should send invalid request error when malformed JSON-RPC request has an id', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let receivedError: Error | undefined;
+    server.onerror = error => {
+        receivedError = error;
+    };
+
+    await server.start();
+    input.push(JSON.stringify({ jsonrpc: '2.0', id: 1, method_: 'tools/list' }) + '\n');
+    await waitForTransportWrites();
+
+    expect(receivedError).toBeDefined();
+    expect(outputBuffer.readMessage()).toEqual({
+        jsonrpc: '2.0',
+        id: 1,
+        error: {
+            code: -32_600,
+            message: 'Invalid Request'
+        }
+    });
+});
+
+test('should not respond when malformed JSON-RPC notification has no id', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = () => {};
+
+    await server.start();
+    input.push(JSON.stringify({ jsonrpc: '2.0', method_: 'notifications/initialized' }) + '\n');
+    await waitForTransportWrites();
+
+    expect(outputBuffer.readMessage()).toBeNull();
 });
 
 test('should close and fire onerror when stdout errors', async () => {
