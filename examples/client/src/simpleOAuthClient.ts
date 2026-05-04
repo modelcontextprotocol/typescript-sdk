@@ -448,6 +448,11 @@ async function main(): Promise<void> {
         client.close();
         process.exit(0);
     });
+    process.on('SIGTERM', () => {
+        console.log('\n\n👋 Goodbye!');
+        client.close();
+        process.exit(0);
+    });
 
     try {
         await client.connect();

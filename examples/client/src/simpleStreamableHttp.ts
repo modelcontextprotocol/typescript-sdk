@@ -997,6 +997,10 @@ process.on('SIGINT', async () => {
     console.log('\nReceived SIGINT. Cleaning up...');
     await cleanup();
 });
+process.on('SIGTERM', async () => {
+    console.log('\nReceived SIGTERM. Cleaning up...');
+    await cleanup();
+});
 
 // Start the interactive client
 try {

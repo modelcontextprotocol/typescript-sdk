@@ -328,7 +328,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * This is invoked when {@linkcode Protocol.close | close()} is called as well.
      */
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
 
     /**
      * Callback for when an error occurs.
@@ -468,11 +468,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
         const _onclose = this.transport?.onclose;
-        this._transport.onclose = () => {
+        this._transport.onclose = async () => {
             try {
-                _onclose?.();
+                if (_onclose) await _onclose();
             } finally {
-                this._onclose();
+                await this._onclose();
             }
         };
 
@@ -502,28 +502,27 @@ export abstract class Protocol<ContextT extends BaseContext> {
         await this._transport.start();
     }
 
-    private _onclose(): void {
+    private async _onclose(): Promise<void> {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
         this._taskManager.onClose();
         this._pendingDebouncedNotifications.clear();
-
-        for (const info of this._timeoutInfo.values()) {
-            clearTimeout(info.timeoutId);
-        }
-        this._timeoutInfo.clear();
-
-        const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
-        this._requestHandlerAbortControllers = new Map();
-
-        const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
-
         this._transport = undefined;
 
         try {
-            this.onclose?.();
+            await this.onclose?.();
         } finally {
+            for (const info of this._timeoutInfo.values()) {
+                clearTimeout(info.timeoutId);
+            }
+            this._timeoutInfo.clear();
+
+            const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
+            this._requestHandlerAbortControllers = new Map();
+
+            const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+
             for (const handler of responseHandlers.values()) {
                 handler(error);
             }
