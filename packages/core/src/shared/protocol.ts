@@ -892,19 +892,23 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
                 this._progressHandlers.delete(messageId);
 
-                this._transport
-                    ?.send(
-                        {
-                            jsonrpc: '2.0',
-                            method: 'notifications/cancelled',
-                            params: {
-                                requestId: messageId,
-                                reason: String(reason)
-                            }
-                        },
-                        { relatedRequestId, resumptionToken, onresumptiontoken }
-                    )
-                    .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                // Per the MCP spec, the `initialize` request MUST NOT be cancelled by clients.
+                // Abort/timeout still rejects the promise locally; we just skip the wire notification.
+                if (request.method !== 'initialize') {
+                    this._transport
+                        ?.send(
+                            {
+                                jsonrpc: '2.0',
+                                method: 'notifications/cancelled',
+                                params: {
+                                    requestId: messageId,
+                                    reason: String(reason)
+                                }
+                            },
+                            { relatedRequestId, resumptionToken, onresumptiontoken }
+                        )
+                        .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                }
 
                 // Wrap the reason in an SdkError if it isn't already
                 const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
