@@ -25,6 +25,17 @@ const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOp
     maxRetries: 2
 };
 
+// Default behaviour when the server responds with HTTP 429 Too Many Requests.
+// `maxRetries` keeps total wait time bounded; `maxRetryAfterMs` caps any
+// individual `Retry-After` value so a malicious or misconfigured server cannot
+// make the client sleep for hours. `defaultRetryAfterMs` is used when the 429
+// response omits `Retry-After` entirely.
+const DEFAULT_STREAMABLE_HTTP_RATE_LIMIT_OPTIONS: StreamableHTTPRateLimitOptions = {
+    maxRetries: 3,
+    defaultRetryAfterMs: 1_000,
+    maxRetryAfterMs: 60_000
+};
+
 /**
  * Options for starting or authenticating an SSE connection
  */
@@ -77,6 +88,42 @@ export interface StreamableHTTPReconnectionOptions {
      * Default is 2.
      */
     maxRetries: number;
+}
+
+/**
+ * Configuration options controlling how the {@linkcode StreamableHTTPClientTransport}
+ * reacts to HTTP `429 Too Many Requests` responses.
+ *
+ * On 429 the transport waits for the duration indicated by the response's
+ * `Retry-After` header (delta-seconds or HTTP-date per RFC 7231 §7.1.3) and
+ * then retries the original request. If the header is missing, malformed, or
+ * exceeds {@linkcode maxRetryAfterMs}, the transport falls back to
+ * {@linkcode defaultRetryAfterMs}. Once {@linkcode maxRetries} consecutive
+ * 429 responses have been received the transport throws
+ * {@linkcode SdkErrorCode.ClientHttpRateLimited}.
+ *
+ * Pass `{ maxRetries: 0 }` to disable automatic 429 retries entirely (useful
+ * if the application has its own rate-limit handling).
+ */
+export interface StreamableHTTPRateLimitOptions {
+    /**
+     * Maximum number of automatic retries after consecutive 429 responses.
+     * Set to 0 to disable retrying. Default is 3.
+     */
+    maxRetries: number;
+
+    /**
+     * Delay in milliseconds to use when the 429 response omits or has an
+     * unparsable `Retry-After` header. Default is 1000 (1 second).
+     */
+    defaultRetryAfterMs: number;
+
+    /**
+     * Upper bound, in milliseconds, on any single retry delay. If the server
+     * provides a larger `Retry-After` value, it is clamped to this. Default
+     * is 60000 (60 seconds).
+     */
+    maxRetryAfterMs: number;
 }
 
 /**
@@ -143,6 +190,13 @@ export type StreamableHTTPClientTransportOptions = {
     reconnectionOptions?: StreamableHTTPReconnectionOptions;
 
     /**
+     * Options controlling how the transport reacts to HTTP `429 Too Many
+     * Requests` responses (Retry-After parsing, retry caps).
+     * See {@linkcode StreamableHTTPRateLimitOptions}.
+     */
+    rateLimitOptions?: StreamableHTTPRateLimitOptions;
+
+    /**
      * Custom scheduler for reconnection attempts. If not provided, `setTimeout` is used.
      * See {@linkcode ReconnectionScheduler}.
      */
@@ -179,6 +233,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _fetchWithInit: FetchLike;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
+    private _rateLimitOptions: StreamableHTTPRateLimitOptions;
     private _protocolVersion?: string;
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
@@ -205,6 +260,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+        this._rateLimitOptions = opts?.rateLimitOptions ?? DEFAULT_STREAMABLE_HTTP_RATE_LIMIT_OPTIONS;
         this._reconnectionScheduler = opts?.reconnectionScheduler;
     }
 
@@ -230,6 +286,80 @@ export class StreamableHTTPClientTransport implements Transport {
         });
     }
 
+    /**
+     * Parses an HTTP `Retry-After` header value (RFC 7231 §7.1.3). Accepts
+     * either a non-negative integer of seconds or an HTTP-date.
+     *
+     * @returns The retry delay in milliseconds, or `undefined` if the value
+     * is missing/unparseable or refers to a moment in the past.
+     */
+    private static _parseRetryAfter(headerValue: string | null | undefined): number | undefined {
+        if (headerValue == null) {
+            return undefined;
+        }
+        const trimmed = headerValue.trim();
+        if (trimmed.length === 0) {
+            return undefined;
+        }
+        // delta-seconds — the spec only requires non-negative integers, but we
+        // accept fractional seconds too because some servers emit them.
+        if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+            const seconds = Number(trimmed);
+            if (Number.isFinite(seconds) && seconds >= 0) {
+                return Math.round(seconds * 1000);
+            }
+            return undefined;
+        }
+        // HTTP-date — fall back to Date parsing. `Date.parse` is locale-tolerant
+        // enough for the IMF-fixdate / RFC 850 / asctime variants required by
+        // RFC 7231 in practice.
+        const dateMs = Date.parse(trimmed);
+        if (!Number.isFinite(dateMs)) {
+            return undefined;
+        }
+        const delta = dateMs - Date.now();
+        return delta > 0 ? delta : 0;
+    }
+
+    /**
+     * Inspects a 429 response and returns the delay (in ms) the client should
+     * wait before retrying, applying configured caps and fallbacks. Returns
+     * `null` if retries are disabled or exhausted.
+     */
+    private _getRateLimitRetryDelay(response: Response, attempt: number): number | null {
+        const { maxRetries, defaultRetryAfterMs, maxRetryAfterMs } = this._rateLimitOptions;
+        if (maxRetries <= 0 || attempt >= maxRetries) {
+            return null;
+        }
+        const headerDelay = StreamableHTTPClientTransport._parseRetryAfter(response.headers.get('retry-after'));
+        const delay = headerDelay ?? defaultRetryAfterMs;
+        return Math.min(Math.max(delay, 0), maxRetryAfterMs);
+    }
+
+    /**
+     * Sleep for `ms` milliseconds, aborting early if the transport's
+     * AbortController fires. The returned promise rejects with the abort
+     * reason in that case so the surrounding fetch loop bails out cleanly.
+     */
+    private _sleepWithAbort(ms: number): Promise<void> {
+        const signal = this._abortController?.signal;
+        return new Promise<void>((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(signal.reason ?? new Error('Aborted'));
+                return;
+            }
+            const timer = setTimeout(() => {
+                signal?.removeEventListener('abort', onAbort);
+                resolve();
+            }, ms);
+            const onAbort = () => {
+                clearTimeout(timer);
+                reject(signal?.reason ?? new Error('Aborted'));
+            };
+            signal?.addEventListener('abort', onAbort, { once: true });
+        });
+    }
+
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
         const { resumptionToken } = options;
 
@@ -246,12 +376,36 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers.set('last-event-id', resumptionToken);
             }
 
-            const response = await (this._fetch ?? fetch)(this._url, {
-                ...this._requestInit,
-                method: 'GET',
-                headers,
-                signal: this._abortController?.signal
-            });
+            // Issue the GET, retrying on 429 honouring `Retry-After`. All other
+            // status handling stays in the existing branches below.
+            const doGet = () =>
+                (this._fetch ?? fetch)(this._url, {
+                    ...this._requestInit,
+                    method: 'GET',
+                    headers,
+                    signal: this._abortController?.signal
+                });
+            let response = await doGet();
+            let rateLimitAttempt = 0;
+            while (response.status === 429) {
+                const delay = this._getRateLimitRetryDelay(response, rateLimitAttempt);
+                if (delay === null) {
+                    // Retries exhausted (or disabled) — surface as a typed error.
+                    await response.text?.().catch(() => {});
+                    throw new SdkError(
+                        SdkErrorCode.ClientHttpRateLimited,
+                        `Server returned 429 after ${rateLimitAttempt} retr${rateLimitAttempt === 1 ? 'y' : 'ies'}`,
+                        {
+                            status: 429,
+                            retryAfter: response.headers.get('retry-after')
+                        }
+                    );
+                }
+                await response.text?.().catch(() => {});
+                rateLimitAttempt += 1;
+                await this._sleepWithAbort(delay);
+                response = await doGet();
+            }
 
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
@@ -552,7 +706,29 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._url, init);
+            // Retry POST on 429 honouring `Retry-After`; non-429 responses fall
+            // through to the existing branches below for normal handling.
+            let response = await (this._fetch ?? fetch)(this._url, init);
+            let rateLimitAttempt = 0;
+            while (response.status === 429) {
+                const delay = this._getRateLimitRetryDelay(response, rateLimitAttempt);
+                if (delay === null) {
+                    const text = await response.text?.().catch(() => null);
+                    throw new SdkError(
+                        SdkErrorCode.ClientHttpRateLimited,
+                        `Server returned 429 after ${rateLimitAttempt} retr${rateLimitAttempt === 1 ? 'y' : 'ies'}`,
+                        {
+                            status: 429,
+                            retryAfter: response.headers.get('retry-after'),
+                            text
+                        }
+                    );
+                }
+                await response.text?.().catch(() => {});
+                rateLimitAttempt += 1;
+                await this._sleepWithAbort(delay);
+                response = await (this._fetch ?? fetch)(this._url, init);
+            }
 
             // Handle session ID received during initialization
             const sessionId = response.headers.get('mcp-session-id');
