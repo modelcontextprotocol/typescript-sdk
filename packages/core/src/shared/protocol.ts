@@ -388,7 +388,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 const schema = getRequestSchema(method as RequestMethod);
                 this._requestHandlers.set(method, (request, ctx) => {
                     // Validate request params via Zod (strips jsonrpc/id, so we pass original to handler)
-                    schema.parse(request);
+                    const result = schema.safeParse(request);
+                    if (!result.success) {
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid ${method} request: ${result.error.message}`);
+                    }
                     return handler(request, ctx);
                 });
             },

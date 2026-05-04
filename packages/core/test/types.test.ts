@@ -1,4 +1,5 @@
 import {
+    CallToolRequestSchema,
     CallToolResultSchema,
     ClientCapabilitiesSchema,
     CompleteRequestSchema,
@@ -982,6 +983,58 @@ describe('Types', () => {
                 expect(result.data.sampling?.context).toBeDefined();
                 expect(result.data.sampling?.tools).toBeDefined();
             }
+        });
+    });
+
+    describe('CallToolRequest arguments handling', () => {
+        test('should accept tools/call with arguments as object', () => {
+            const request = {
+                method: 'tools/call',
+                params: {
+                    name: 'echo',
+                    arguments: { message: 'hello' }
+                }
+            };
+            const result = CallToolRequestSchema.safeParse(request);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept tools/call with arguments omitted', () => {
+            const request = {
+                method: 'tools/call',
+                params: {
+                    name: 'echo'
+                }
+            };
+            const result = CallToolRequestSchema.safeParse(request);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.params.arguments).toBeUndefined();
+            }
+        });
+
+        test('should accept tools/call with arguments as null', () => {
+            const request = {
+                method: 'tools/call',
+                params: {
+                    name: 'echo',
+                    arguments: null
+                }
+            };
+            const result = CallToolRequestSchema.safeParse(request);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept tools/call with arguments as empty object', () => {
+            const request = {
+                method: 'tools/call',
+                params: {
+                    name: 'echo',
+                    arguments: {}
+                }
+            };
+            const result = CallToolRequestSchema.safeParse(request);
+            expect(result.success).toBe(true);
         });
     });
 
