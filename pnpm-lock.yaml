@@ -318,6 +318,19 @@ importers:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
 
+  examples/client-multi-server:
+    dependencies:
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../../packages/client
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.12.0
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+
   examples/client-quickstart:
     dependencies:
       '@anthropic-ai/sdk':
