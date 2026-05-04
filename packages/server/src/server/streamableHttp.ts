@@ -579,7 +579,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (eventId) {
                 eventData += `id: ${eventId}\n`;
             }
-            eventData += `data: ${JSON.stringify(message)}\n\n`;
+            const safeJson = JSON.stringify(message)
+                .replaceAll('\u2028', String.raw`\u2028`)
+                .replaceAll('\u2029', String.raw`\u2029`);
+            eventData += `data: ${safeJson}\n\n`;
             controller.enqueue(encoder.encode(eventData));
             return true;
         } catch (error) {
