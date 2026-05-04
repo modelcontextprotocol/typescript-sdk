@@ -38,6 +38,14 @@ const app = createMcpHonoApp();
 app.all('/mcp', c => transport.handleRequest(c.req.raw, { parsedBody: c.get('parsedBody') }));
 ```
 
+### Options
+
+`createMcpHonoApp({ ... })` supports:
+
+- `host` (default: `127.0.0.1`): used for localhost DNS rebinding protection behavior
+- `allowedHosts` (optional): explicit allowed hostnames
+- `maxBodyBytes` (default: `1_000_000`): maximum JSON request body size parsed by the built-in middleware
+
 ### Host header validation (DNS rebinding protection)
 
 ```ts
