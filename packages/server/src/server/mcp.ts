@@ -1206,7 +1206,12 @@ function createToolExecutor(
             if (inputSchema) {
                 return taskHandler.createTask(args, taskCtx);
             }
-            // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
+
+            if (taskHandler.createTask.length >= 2) {
+                return taskHandler.createTask(undefined, taskCtx);
+            }
+
+            // When no inputSchema, preserve the existing context-only handler signature.
             return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
         };
     }
