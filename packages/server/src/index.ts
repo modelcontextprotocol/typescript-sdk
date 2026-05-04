@@ -12,6 +12,7 @@ export type {
     AnyToolHandler,
     BaseToolCallback,
     CompleteResourceTemplateCallback,
+    DeprecatedVariadicToolCallback,
     ListResourcesCallback,
     PromptCallback,
     ReadResourceCallback,
