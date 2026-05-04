@@ -305,6 +305,22 @@ describe('protocol tests', () => {
         expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
     });
 
+    test('should route notification() to onerror instead of throwing after transport close', async () => {
+        const onerrorMock = vi.fn();
+        protocol.onerror = onerrorMock;
+        await protocol.connect(transport);
+        await transport.close();
+
+        await expect(protocol.notification({ method: 'notifications/message' })).resolves.toBeUndefined();
+
+        expect(onerrorMock).toHaveBeenCalledOnce();
+        const err = onerrorMock.mock.calls[0]?.[0];
+        expect(err).toBeInstanceOf(SdkError);
+        if (err instanceof SdkError) {
+            expect(err.code).toBe(SdkErrorCode.NotConnected);
+        }
+    });
+
     test('should not overwrite existing hooks when connecting transports', async () => {
         const oncloseMock = vi.fn();
         const onerrorMock = vi.fn();
