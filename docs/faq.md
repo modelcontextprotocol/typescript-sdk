@@ -71,7 +71,7 @@ The [server quickstart](./server-quickstart.md) walks you through building a wea
 
 ### Where are the server auth helpers?
 
-Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. Example packages provide a demo with `better-auth`.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, etc.) remain available as a frozen v1 copy in the deprecated `@modelcontextprotocol/server-auth-legacy` package; new code should use a dedicated IdP/OAuth library. Example packages provide a demo with `better-auth`.
 
 ### Why did we remove `server` SSE transport?
 

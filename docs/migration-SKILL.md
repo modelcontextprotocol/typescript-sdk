@@ -54,7 +54,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
 | `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
-| `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers removed (use external IdP/OAuth library)                                             |
+| `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers → `@modelcontextprotocol/server-auth-legacy` (deprecated; frozen v1 copy)            |
 | `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                 |
 
 ### Types / shared imports
@@ -194,6 +194,8 @@ Individual OAuth error classes replaced with single `OAuthError` class and `OAut
 
 Removed: `OAUTH_ERRORS` constant.
 
+For server-side Authorization-Server implementations, the v1 subclass hierarchy (and `OAUTH_ERRORS`) is still available from `@modelcontextprotocol/server-auth-legacy` (frozen v1 copy). For client-side error handling, use `OAuthError` + `OAuthErrorCode` as below.
+
 Update OAuth error handling:
 
 ```typescript
@@ -323,7 +325,7 @@ new URL(ctx.http?.req?.url).searchParams.get('debug')
 
 ### Server-side auth
 
-Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) are removed from the core SDK; use an external IdP/OAuth library. See `examples/server/src/` for demos.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) remain available as a frozen v1 copy in the deprecated `@modelcontextprotocol/server-auth-legacy` package; new code should use an external IdP/OAuth library. See `examples/server/src/` for demos.
 
 ### Host header validation (Express)
 
@@ -534,6 +536,6 @@ Access validators explicitly:
 6. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
 7. If using `hostHeaderValidation` from server, update import and signature per section 8
 8. If using server SSE transport, migrate to Streamable HTTP
-9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`) → `@modelcontextprotocol/express`; AS helpers → external IdP/OAuth library
+9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`) → `@modelcontextprotocol/express`; AS helpers → `@modelcontextprotocol/server-auth-legacy` (deprecated; frozen v1 copy) or an external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
 11. Verify: build with `tsc` / run tests
