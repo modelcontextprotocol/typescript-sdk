@@ -1224,6 +1224,65 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
         });
 
+        it('should fire onerror exactly once when _startOrAuthSse fails (not double-fire from catch + caller)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+
+            // POST returns 202, which triggers _startOrAuthSse when the outbound
+            // message is an initialized notification (streamableHttp.ts:642)
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            // The subsequent GET (_startOrAuthSse) fails with a non-ok status
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 500,
+                statusText: 'Internal Server Error',
+                headers: new Headers(),
+                text: async () => 'server error'
+            });
+
+            await transport.start();
+            // Sending an initialized notification triggers the _startOrAuthSse path
+            await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+
+            // Let the fire-and-forget _startOrAuthSse().catch() settle
+            await vi.runAllTimersAsync();
+
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy.mock.calls[0]![0].message).toContain('Failed to open SSE stream');
+        });
+
+        it('should fire onerror and reject when resumeStream fails', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 500,
+                statusText: 'Internal Server Error',
+                headers: new Headers(),
+                text: async () => 'server error'
+            });
+
+            await transport.start();
+            await expect(transport.resumeStream('event-123')).rejects.toThrow('Failed to open SSE stream');
+
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy.mock.calls[0]![0].message).toContain('Failed to open SSE stream');
+        });
+
         it('should not throw JSON parse error on priming events with empty data', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
