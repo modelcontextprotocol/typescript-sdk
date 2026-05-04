@@ -619,14 +619,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         try {
             // Validate the Accept header
             const acceptHeader = req.headers.get('accept');
-            // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
-            if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
-                this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
-                return this.createJsonErrorResponse(
-                    406,
-                    -32_000,
-                    'Not Acceptable: Client must accept both application/json and text/event-stream'
-                );
+            // When enableJsonResponse is true the server responds with a plain JSON body, so text/event-stream
+            // is not needed and requiring it would break strict JSON-RPC clients (e.g. AdCP buyer agents).
+            // In SSE streaming mode (the default) the client must advertise both media types.
+            const acceptOk = this._enableJsonResponse
+                ? acceptHeader?.includes('application/json')
+                : acceptHeader?.includes('application/json') && acceptHeader.includes('text/event-stream');
+            if (!acceptOk) {
+                const msg = this._enableJsonResponse
+                    ? 'Not Acceptable: Client must accept application/json'
+                    : 'Not Acceptable: Client must accept both application/json and text/event-stream';
+                this.onerror?.(new Error(msg));
+                return this.createJsonErrorResponse(406, -32_000, msg);
             }
 
             const ct = req.headers.get('content-type');
