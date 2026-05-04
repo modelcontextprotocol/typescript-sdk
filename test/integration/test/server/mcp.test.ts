@@ -809,6 +809,38 @@ describe('Zod v4', () => {
             ]);
         });
 
+        test('should debounce synchronous tool list changed notifications', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const notifications: Notification[] = [];
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            mcpServer.registerTool('initial', {}, async () => ({
+                content: [{ type: 'text', text: 'Initial response' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            for (let i = 0; i < 20; i++) {
+                mcpServer.registerTool(`tool-${i}`, {}, async () => ({
+                    content: [{ type: 'text', text: `Tool ${i} response` }]
+                }));
+            }
+
+            await new Promise(process.nextTick);
+
+            expect(notifications).toMatchObject([{ method: 'notifications/tools/list_changed' }]);
+        });
+
         /***
          * Test: listChanged capability should default to true when not specified
          */
