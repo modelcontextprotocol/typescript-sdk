@@ -48,6 +48,9 @@ catalogs:
     eslint-plugin-n:
       specifier: ^17.23.1
       version: 17.24.0
+    fast-check:
+      specifier: ^4.1.1
+      version: 4.7.0
     prettier:
       specifier: 3.6.2
       version: 3.6.2
@@ -553,6 +556,9 @@ importers:
       eslint-plugin-n:
         specifier: catalog:devTools
         version: 17.24.0(eslint@9.39.4)(typescript@5.9.3)
+      fast-check:
+        specifier: catalog:devTools
+        version: 4.7.0
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
@@ -632,6 +638,9 @@ importers:
       eslint-plugin-n:
         specifier: catalog:devTools
         version: 17.24.0(eslint@9.39.4)(typescript@5.9.3)
+      fast-check:
+        specifier: catalog:devTools
+        version: 4.7.0
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
@@ -916,6 +925,9 @@ importers:
       eslint-plugin-n:
         specifier: catalog:devTools
         version: 17.24.0(eslint@9.39.4)(typescript@5.9.3)
+      fast-check:
+        specifier: catalog:devTools
+        version: 4.7.0
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
@@ -3415,6 +3427,10 @@ packages:
   extendable-error@0.1.7:
     resolution: {integrity: sha512-UOiS2in6/Q0FK0R0q6UY9vYpQ21mr/Qn1KOnte7vsACuNJf514WvCCUHSRCPcgjPT2bAhNIJdlE6bVap1GKmeg==}
 
+  fast-check@4.7.0:
+    resolution: {integrity: sha512-NsZRtqvSSoCP0HbNjUD+r1JH8zqZalyp6gLY9e7OYs7NK9b6AHOs2baBFeBG7bVNsuoukh89x2Yg3rPsul8ziQ==}
+    engines: {node: '>=12.17.0'}
+
   fast-content-type-parse@3.0.0:
     resolution: {integrity: sha512-ZvLdcY8P+N8mGQJahJV5G4U88CSvT1rP8ApL6uETe88MBXrBHAkZlSEySdUlyztF7ccb+Znos3TFqaepHxdhBg==}
 
@@ -4315,6 +4331,9 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  pure-rand@8.4.0:
+    resolution: {integrity: sha512-IoM8YF/jY0hiugFo/wOWqfmarlE6J0wc6fDK1PhftMk7MGhVZl88sZimmqBBFomLOCSmcCCpsfj7wXASCpvK9A==}
 
   qs@6.15.0:
     resolution: {integrity: sha512-mAZTtNCeetKMH+pSjrb76NAM8V9a05I9aBZOHztWy/UqcJdQYNsf59vrRKWnojAT9Y+GbIvoTBC++CPHqpDBhQ==}
@@ -7301,6 +7320,10 @@ snapshots:
 
   extendable-error@0.1.7: {}
 
+  fast-check@4.7.0:
+    dependencies:
+      pure-rand: 8.4.0
+
   fast-content-type-parse@3.0.0: {}
 
   fast-decode-uri-component@1.0.1: {}
@@ -8165,6 +8188,8 @@ snapshots:
   punycode.js@2.3.1: {}
 
   punycode@2.3.1: {}
+
+  pure-rand@8.4.0: {}
 
   qs@6.15.0:
     dependencies:

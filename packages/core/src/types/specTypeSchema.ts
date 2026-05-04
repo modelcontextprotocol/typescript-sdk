@@ -167,6 +167,8 @@ const SPEC_SCHEMA_KEYS = [
     'TaskStatusSchema',
     'TaskStatusNotificationSchema',
     'TaskStatusNotificationParamsSchema',
+    'TaskPartialNotificationSchema',
+    'TaskPartialNotificationParamsSchema',
     'TextContentSchema',
     'TextResourceContentsSchema',
     'TitledMultiSelectEnumSchemaSchema',

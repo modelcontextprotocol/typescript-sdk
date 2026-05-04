@@ -365,6 +365,17 @@ export const ClientTasksCapabilitySchema = z.looseObject({
                 })
                 .optional()
         })
+        .optional(),
+    /**
+     * Present if the client supports streaming partial results for tasks.
+     */
+    streaming: z
+        .looseObject({
+            /**
+             * Present if the client supports receiving partial result notifications.
+             */
+            partial: JSONObjectSchema.optional()
+        })
         .optional()
 });
 
@@ -393,6 +404,17 @@ export const ServerTasksCapabilitySchema = z.looseObject({
                     call: JSONObjectSchema.optional()
                 })
                 .optional()
+        })
+        .optional(),
+    /**
+     * Present if the server supports streaming partial results for tasks.
+     */
+    streaming: z
+        .looseObject({
+            /**
+             * Present if the server supports sending partial result notifications.
+             */
+            partial: JSONObjectSchema.optional()
         })
         .optional()
 });
@@ -1294,7 +1316,13 @@ export const ToolExecutionSchema = z.object({
      *
      * If not present, defaults to `"forbidden"`.
      */
-    taskSupport: z.enum(['required', 'optional', 'forbidden']).optional()
+    taskSupport: z.enum(['required', 'optional', 'forbidden']).optional(),
+
+    /**
+     * Indicates that this tool intends to produce partial results when invoked as a task.
+     * This is informational only — clients MUST NOT treat it as a guarantee that partials will be sent.
+     */
+    streamPartial: z.boolean().optional()
 });
 
 /**
@@ -2127,6 +2155,25 @@ export const ServerRequestSchema = z.union([
     CancelTaskRequestSchema
 ]);
 
+/**
+ * Parameters for a `notifications/tasks/partial` notification.
+ */
+export const TaskPartialNotificationParamsSchema = NotificationsParamsSchema.merge(
+    z.object({
+        taskId: z.string().min(1),
+        content: z.array(ContentBlockSchema).min(1),
+        seq: z.int().nonnegative()
+    })
+);
+
+/**
+ * A notification sent when a task produces incremental content.
+ */
+export const TaskPartialNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tasks/partial'),
+    params: TaskPartialNotificationParamsSchema
+});
+
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
@@ -2136,6 +2183,7 @@ export const ServerNotificationSchema = z.union([
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
     TaskStatusNotificationSchema,
+    TaskPartialNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
 
