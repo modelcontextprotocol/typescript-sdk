@@ -2017,4 +2017,136 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onclose).toHaveBeenCalledTimes(1);
         });
     });
+
+    describe('idleTimeoutMs', () => {
+        it('rejects non-positive or non-finite values', () => {
+            expect(
+                () => new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { idleTimeoutMs: 0 })
+            ).toThrow(/positive finite/);
+            expect(
+                () => new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { idleTimeoutMs: -1 })
+            ).toThrow(/positive finite/);
+            expect(
+                () => new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { idleTimeoutMs: Infinity })
+            ).toThrow(/positive finite/);
+            expect(
+                () => new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { idleTimeoutMs: Number.NaN })
+            ).toThrow(/positive finite/);
+        });
+
+        it('defaults to no idle timeout (preserves existing behavior)', async () => {
+            // A stream that never enqueues anything should not trigger any error
+            // when no idleTimeoutMs is set — the reader simply waits.
+            const stream = new ReadableStream<Uint8Array>({
+                start() {
+                    /* never enqueue, never close */
+                }
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+
+            const onerror = vi.fn();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            transport.onerror = onerror;
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Wait long enough that any default timeout would have fired.
+            await new Promise(resolve => setTimeout(resolve, 100));
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('cancels the reader and fires onerror when no chunk arrives within idleTimeoutMs', async () => {
+            // Mock SSE source that never sends data
+            const stream = new ReadableStream<Uint8Array>({
+                start() {
+                    /* never enqueue, never close */
+                }
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+
+            const onerror = vi.fn();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                idleTimeoutMs: 50,
+                // Avoid kicking off a reconnect loop in this test — we only care about the timeout firing.
+                reconnectionOptions: {
+                    initialReconnectionDelay: 1000,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 0
+                }
+            });
+            transport.onerror = onerror;
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Wait past the idle timeout window
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            expect(onerror).toHaveBeenCalled();
+            const errMsg = (onerror.mock.calls[0]?.[0] as Error).message;
+            expect(errMsg).toMatch(/SSE stream disconnected/);
+            expect(errMsg).toMatch(/SSE idle timeout after 50ms/);
+        });
+
+        it('does not fire when chunks keep arriving within the window', async () => {
+            // Stream that emits a chunk every 30ms; idle timeout is 100ms — should never fire.
+            const encoder = new TextEncoder();
+            let cancelled = false;
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    let count = 0;
+                    const tick = (): void => {
+                        if (cancelled || count >= 4) return;
+                        controller.enqueue(
+                            encoder.encode(`event: message\ndata: {"jsonrpc":"2.0","method":"ping","params":{}}\n\n`)
+                        );
+                        count++;
+                        setTimeout(tick, 30);
+                    };
+                    tick();
+                },
+                cancel() {
+                    cancelled = true;
+                }
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+
+            const onerror = vi.fn();
+            const onmessage = vi.fn();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                idleTimeoutMs: 100
+            });
+            transport.onerror = onerror;
+            transport.onmessage = onmessage;
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Let all 4 chunks deliver (~120ms) plus a small buffer
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            expect(onmessage).toHaveBeenCalled();
+            expect(onerror).not.toHaveBeenCalled();
+        });
+    });
 });

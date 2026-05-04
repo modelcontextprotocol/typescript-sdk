@@ -160,6 +160,22 @@ export type StreamableHTTPClientTransportOptions = {
      * handshake so the reconnected transport continues sending the required header.
      */
     protocolVersion?: string;
+
+    /**
+     * Idle timeout for the SSE stream reader, in milliseconds.
+     *
+     * If no chunk is received from the server within this window, the reader is cancelled and
+     * the stream's normal disconnect/reconnect path runs (same as a network drop). The timer
+     * resets on every chunk arrival, so this is a per-chunk inactivity timeout, not a total
+     * stream lifetime.
+     *
+     * Useful for half-open TCP connections, stalled servers, and proxies that go silent
+     * without closing the socket. Without this option, `reader.read()` blocks indefinitely
+     * when the stream stalls.
+     *
+     * Defaults to undefined (no idle timeout — preserves existing behavior).
+     */
+    idleTimeoutMs?: number;
 };
 
 /**
@@ -184,6 +200,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private readonly _idleTimeoutMs?: number; // Per-chunk inactivity timeout for SSE reader; opt-in.
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -206,6 +223,12 @@ export class StreamableHTTPClientTransport implements Transport {
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
         this._reconnectionScheduler = opts?.reconnectionScheduler;
+        if (opts?.idleTimeoutMs !== undefined) {
+            if (!Number.isFinite(opts.idleTimeoutMs) || opts.idleTimeoutMs <= 0) {
+                throw new Error(`idleTimeoutMs must be a positive finite number; got ${opts.idleTimeoutMs}`);
+            }
+            this._idleTimeoutMs = opts.idleTimeoutMs;
+        }
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -376,7 +399,11 @@ export class StreamableHTTPClientTransport implements Transport {
         // Track whether we've received a response - if so, no need to reconnect
         // Reconnection is for when server disconnects BEFORE sending response
         let receivedResponse = false;
+        const idleTimeoutMs = this._idleTimeoutMs;
         const processStream = async () => {
+            // Track the idle timer outside the try so we can clear it from the catch and
+            // the post-loop block. Reassigned on every chunk arrival.
+            let idleTimer: ReturnType<typeof setTimeout> | undefined;
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
             try {
@@ -393,8 +420,24 @@ export class StreamableHTTPClientTransport implements Transport {
                     )
                     .getReader();
 
+                // Per-chunk inactivity timer. Cancelling the reader makes the next
+                // `await reader.read()` reject, which falls through to the catch
+                // block below — same path as a network drop.
+                const armIdleTimer = (): void => {
+                    if (idleTimeoutMs === undefined) return;
+                    if (idleTimer !== undefined) clearTimeout(idleTimer);
+                    idleTimer = setTimeout(() => {
+                        idleTimer = undefined;
+                        // `cancel()` on a ReadableStreamDefaultReader rejects pending reads.
+                        reader.cancel(new Error(`SSE idle timeout after ${idleTimeoutMs}ms`)).catch(() => {});
+                    }, idleTimeoutMs);
+                };
+                armIdleTimer();
+
                 while (true) {
                     const { value: event, done } = await reader.read();
+                    // Reset the idle timer on every chunk (data, priming, or close).
+                    armIdleTimer();
                     if (done) {
                         break;
                     }
@@ -469,6 +512,11 @@ export class StreamableHTTPClientTransport implements Transport {
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
                     }
+                }
+            } finally {
+                if (idleTimer !== undefined) {
+                    clearTimeout(idleTimer);
+                    idleTimer = undefined;
                 }
             }
         };
