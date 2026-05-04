@@ -167,6 +167,21 @@ if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpFailedToO
 }
 ```
 
+### Tool error classification (McpServer tools/call)
+
+`McpServer` now re-throws any `ProtocolError` from the `tools/call` handler as a JSON-RPC error. Previously only `UrlElicitationRequired` was re-thrown; other protocol errors were wrapped as `{ isError: true }` results.
+
+Behavior changes in `callTool` results:
+
+- Input validation failure: `{ isError: true }` → `{ isError: true }` (unchanged)
+- Output validation failure: `{ isError: true }` → throws `ProtocolError` (`InternalError`)
+- Task-required without task: `{ isError: true }` → throws `ProtocolError` (`InvalidParams`)
+- Handler throws `ProtocolError`: `{ isError: true }` → re-thrown as JSON-RPC error
+- No task store configured for `taskSupport: 'optional'` tool: `{ isError: true }` → throws `ProtocolError` (`InternalError`)
+- Handler throws plain `Error`: `{ isError: true }` → `{ isError: true }` (unchanged)
+
+Migration: if code checks `result.isError` to detect output-schema violations or deliberate `ProtocolError` throws, add a `try/catch` around `callTool`. If a handler throws `ProtocolError` expecting tool-level wrapping, change it to throw a plain `Error`.
+
 ### OAuth error consolidation
 
 Individual OAuth error classes replaced with single `OAuthError` class and `OAuthErrorCode` enum:

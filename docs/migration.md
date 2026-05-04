@@ -702,6 +702,45 @@ try {
 }
 ```
 
+#### Tool error classification
+
+The `tools/call` handler in `McpServer` now re-throws any `ProtocolError` as a JSON-RPC error instead of wrapping it in an `isError: true` result. Previously, only `UrlElicitationRequired` was re-thrown.
+
+This aligns error surfaces with the MCP spec's classification:
+
+- **Input validation failure** — unchanged, still returns `{ isError: true }` (spec classifies this as a tool-execution error)
+- **Output validation failure** — now throws `ProtocolError` with `InternalError` code (was `{ isError: true }`)
+- **Task-required tool called without task** — now throws `ProtocolError` with `InvalidParams` code (was `{ isError: true }`)
+- **Handler throws `ProtocolError`** — now re-thrown as a JSON-RPC error (was `{ isError: true }`)
+- **No task store configured for `taskSupport: 'optional'` tool** — now throws `ProtocolError` with `InternalError` code (was `{ isError: true }`)
+- **Handler throws plain `Error`** — unchanged, still returns `{ isError: true }`
+
+**Before (v1):**
+
+```typescript
+const result = await client.callTool({ name: 'test', arguments: {} });
+if (result.isError) {
+    // caught output-schema mismatches, task misconfig, handler ProtocolErrors
+}
+```
+
+**After (v2):**
+
+```typescript
+try {
+    const result = await client.callTool({ name: 'test', arguments: {} });
+    if (result.isError) {
+        // only input validation and ordinary handler exceptions land here
+    }
+} catch (error) {
+    if (error instanceof ProtocolError) {
+        // output validation failure, task misconfig, or handler-thrown ProtocolError
+    }
+}
+```
+
+If your tool handler was throwing `ProtocolError` expecting it to be wrapped as `isError: true`, throw a plain `Error` instead.
+
 #### New `SdkErrorCode` enum
 
 The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:

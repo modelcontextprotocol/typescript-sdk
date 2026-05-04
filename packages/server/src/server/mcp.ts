@@ -185,7 +185,7 @@ export class McpServer {
                 // Handle taskSupport 'required' without task augmentation
                 if (taskSupport === 'required' && !isTaskRequest) {
                     throw new ProtocolError(
-                        ProtocolErrorCode.MethodNotFound,
+                        ProtocolErrorCode.InvalidParams,
                         `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
                     );
                 }
@@ -208,8 +208,8 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                if (error instanceof ProtocolError) {
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
@@ -253,10 +253,9 @@ export class McpServer {
 
         const parseResult = await validateStandardSchema(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
-                `Input validation error: Invalid arguments for tool ${toolName}: ${parseResult.error}`
-            );
+            // Per spec, input validation failures are tool-execution errors (isError: true),
+            // not protocol errors — throw plain Error so the catch wraps it as a tool result.
+            throw new Error(`Input validation error: Invalid arguments for tool ${toolName}: ${parseResult.error}`);
         }
 
         return parseResult.data as unknown as Args;
@@ -281,7 +280,7 @@ export class McpServer {
 
         if (!result.structuredContent) {
             throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
+                ProtocolErrorCode.InternalError,
                 `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
             );
         }
@@ -290,7 +289,7 @@ export class McpServer {
         const parseResult = await validateStandardSchema(tool.outputSchema, result.structuredContent);
         if (!parseResult.success) {
             throw new ProtocolError(
-                ProtocolErrorCode.InvalidParams,
+                ProtocolErrorCode.InternalError,
                 `Output validation error: Invalid structured content for tool ${toolName}: ${parseResult.error}`
             );
         }
@@ -313,7 +312,7 @@ export class McpServer {
         ctx: ServerContext
     ): Promise<CallToolResult> {
         if (!ctx.task?.store) {
-            throw new Error('No task store provided for task-capable tool.');
+            throw new ProtocolError(ProtocolErrorCode.InternalError, 'No task store provided for task-capable tool.');
         }
 
         // Validate input and create task using the executor
@@ -327,15 +326,25 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await ctx.task.store.getTask(taskId);
-            if (!updatedTask) {
-                throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} not found during polling`);
+            try {
+                task = await ctx.task.store.getTask(taskId);
+            } catch (error) {
+                // RequestTaskStore.getTask throws InvalidParams when the task is
+                // missing, but a task vanishing mid-poll is a server-side issue
+                // (the client didn't even ask for a task) — surface as InternalError.
+                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.InvalidParams) {
+                    throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} vanished during automatic polling`);
+                }
+                throw error;
             }
-            task = updatedTask;
         }
 
         // Return the final result
-        return (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
+        const result = (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
+        if (task.status === 'completed') {
+            await this.validateToolOutput(tool, result, request.params.name);
+        }
+        return result;
     }
 
     private _completionHandlerInitialized = false;
