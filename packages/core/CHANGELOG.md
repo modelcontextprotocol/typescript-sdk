@@ -1,5 +1,37 @@
 # @modelcontextprotocol/core
 
+## 2.0.0-alpha.2
+
+### Minor Changes
+
+- [#1974](https://github.com/modelcontextprotocol/typescript-sdk/pull/1974) [`db83829`](https://github.com/modelcontextprotocol/typescript-sdk/commit/db83829c5bd5d6659c5e7b96638b11953b0e262d) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add custom (non-spec)
+  method support: a 3-arg `setRequestHandler(method, schemas, handler)` / `setNotificationHandler(method, schemas, handler)` form for vendor-prefixed methods, and a `request(req, resultSchema)` overload (also on `ctx.mcpReq.send`) for typed custom-method results. Spec-method
+  calls are unchanged.
+
+    Response result-schema validation failure now rejects with `SdkError(InvalidResult)` instead of a raw `ZodError`. Adds `SdkErrorCode.InvalidResult`.
+
+### Patch Changes
+
+- [#1930](https://github.com/modelcontextprotocol/typescript-sdk/pull/1930) [`bdfd7f0`](https://github.com/modelcontextprotocol/typescript-sdk/commit/bdfd7f0154e2afd4fd6d2e95e6aadd924c3775f2) Thanks [@Christian-Sidak](https://github.com/Christian-Sidak)! - Fix `requestStream` to
+  call `tasks/result` for failed tasks instead of yielding a hardcoded `ProtocolError`. When a task reaches the `failed` terminal status, the stream now retrieves and yields the actual stored result (matching the behavior for `completed` tasks), as required by the spec.
+
+- [#1901](https://github.com/modelcontextprotocol/typescript-sdk/pull/1901) [`e15a8ef`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e15a8ef3be19520d8159ae9f5b464ba3ac80a5ab) Thanks [@felixweinberger](https://github.com/felixweinberger)! -
+  `registerTool`/`registerPrompt` accept a raw Zod shape (`{ field: z.string() }`) for `inputSchema`/`outputSchema`/`argsSchema` in addition to a wrapped Standard Schema. Raw shapes are auto-wrapped with `z.object()`. The raw-shape overloads are `@deprecated`; prefer wrapping
+  with `z.object()`.
+
+    Also widens the `completable()` constraint from `StandardSchemaWithJSON` to `StandardSchemaV1` so v1's `completable(z.string(), fn)` continues to work.
+
+- [#1976](https://github.com/modelcontextprotocol/typescript-sdk/pull/1976) [`55b1f06`](https://github.com/modelcontextprotocol/typescript-sdk/commit/55b1f06cd4569e334f3435b7971f0446f1ef9be9) Thanks [@felixweinberger](https://github.com/felixweinberger)! - refactor: subclasses
+  override `_wrapHandler` hook instead of redeclaring `setRequestHandler`.
+
+- [#1768](https://github.com/modelcontextprotocol/typescript-sdk/pull/1768) [`866c08d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/866c08d3640c5213f80c3b4220e24c42acfc2db8) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Allow additional JSON
+  Schema properties in elicitInput's requestedSchema type by adding .catchall(z.unknown()), matching the pattern used by inputSchema. This fixes type incompatibility when using Zod v4's .toJSONSchema() output which includes extra properties like $schema and additionalProperties.
+
+- [#1895](https://github.com/modelcontextprotocol/typescript-sdk/pull/1895) [`b256546`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b256546750277faeb7c886792aae5ed26e6904d5) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Fix runtime crash on
+  `tools/list` when a tool's `inputSchema` comes from zod 4.0–4.1. The SDK requires `~standard.jsonSchema` (StandardJSONSchemaV1, added in zod 4.2.0); previously a missing `jsonSchema` crashed at `undefined[io]`. `standardSchemaToJsonSchema` now detects zod 4 schemas lacking
+  `jsonSchema` and falls back to the SDK-bundled `z.toJSONSchema()`, emitting a one-time console warning. zod 3 schemas (which the bundled zod 4 converter cannot introspect) and non-zod schema libraries without `jsonSchema` get a clear error pointing to `fromJsonSchema()`. The
+  workspace zod catalog is also bumped to `^4.2.0`.
+
 ## 2.0.0-alpha.1
 
 ### Minor Changes
