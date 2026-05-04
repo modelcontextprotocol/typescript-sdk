@@ -42,6 +42,7 @@ export { WebStandardStreamableHTTPServerTransport } from './server/streamableHtt
 
 // experimental exports
 export type { CreateTaskRequestHandler, TaskRequestHandler, ToolTaskHandler } from './experimental/tasks/interfaces.js';
+export { isToolTaskHandler } from './experimental/tasks/interfaces.js';
 export { ExperimentalMcpServerTasks } from './experimental/tasks/mcpServer.js';
 export { ExperimentalServerTasks } from './experimental/tasks/server.js';
 

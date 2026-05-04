@@ -13,7 +13,7 @@ import type {
     TaskServerContext
 } from '@modelcontextprotocol/core';
 
-import type { BaseToolCallback } from '../../server/mcp.js';
+import type { AnyToolHandler, BaseToolCallback } from '../../server/mcp.js';
 
 // ============================================================================
 // Task Handler Types (for registerToolTask)
@@ -30,19 +30,27 @@ export type CreateTaskRequestHandler<
 
 /**
  * Handler for task operations (`get`, `getResult`).
+ *
+ * Receives only the context (no tool arguments — they are not available at
+ * `tasks/get` or `tasks/result` time). Access the task ID via `ctx.task.id`.
+ *
  * @experimental
  */
-export type TaskRequestHandler<SendResultT extends Result, Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    SendResultT,
-    TaskServerContext,
-    Args
->;
+export type TaskRequestHandler<SendResultT extends Result> = (ctx: TaskServerContext) => SendResultT | Promise<SendResultT>;
 
 /**
  * Interface for task-based tool handlers.
  *
- * Task-based tools split a long-running operation into three phases:
- * `createTask`, `getTask`, and `getTaskResult`.
+ * Task-based tools create a task on `tools/call` and by default let the SDK's
+ * `TaskStore` handle subsequent `tasks/get` and `tasks/result` requests.
+ *
+ * Provide `getTask` and `getTaskResult` to override the default lookups — useful
+ * when proxying an external job system (e.g., AWS Step Functions, CI/CD pipelines)
+ * where the external system is the source of truth for task state.
+ *
+ * **Note:** the taskId → tool mapping used to dispatch `getTask`/`getTaskResult`
+ * is held in-memory and does not survive server restarts or span multiple
+ * instances. In those scenarios, requests fall through to the `TaskStore`.
  *
  * @see {@linkcode @modelcontextprotocol/server!experimental/tasks/mcpServer.ExperimentalMcpServerTasks#registerToolTask | registerToolTask} for registration.
  * @experimental
@@ -56,11 +64,23 @@ export interface ToolTaskHandler<Args extends StandardSchemaWithJSON | undefined
      */
     createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
     /**
-     * Handler for `tasks/get` requests.
+     * Optional handler for `tasks/get` requests. When omitted, the configured
+     * `TaskStore` is consulted directly.
      */
-    getTask: TaskRequestHandler<GetTaskResult, Args>;
+    getTask?: TaskRequestHandler<GetTaskResult>;
     /**
-     * Handler for `tasks/result` requests.
+     * Optional handler for `tasks/result` requests. When omitted, the configured
+     * `TaskStore` is consulted directly.
      */
-    getTaskResult: TaskRequestHandler<CallToolResult, Args>;
+    getTaskResult?: TaskRequestHandler<CallToolResult>;
+}
+
+/**
+ * Type guard for {@linkcode ToolTaskHandler}.
+ * @experimental
+ */
+export function isToolTaskHandler(
+    handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
+): handler is ToolTaskHandler<StandardSchemaWithJSON | undefined> {
+    return 'createTask' in handler;
 }

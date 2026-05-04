@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { CallToolResult, Notification, TextContent } from '@modelcontextprotocol/core';
+import type { CallToolResult, CreateTaskResult, Notification, TextContent } from '@modelcontextprotocol/core';
 import {
     getDisplayName,
     InMemoryTaskStore,
@@ -2062,14 +2062,6 @@ describe('Zod v4', () => {
                     createTask: async (_args, ctx) => {
                         const task = await ctx.task.store.createTask({ ttl: 60_000 });
                         return { task };
-                    },
-                    getTask: async (_args, ctx) => {
-                        const task = await ctx.task.store.getTask(ctx.task.id);
-                        if (!task) throw new Error('Task not found');
-                        return task;
-                    },
-                    getTaskResult: async (_args, ctx) => {
-                        return (await ctx.task.store.getTaskResult(ctx.task.id)) as CallToolResult;
                     }
                 }
             );
@@ -2132,14 +2124,6 @@ describe('Zod v4', () => {
                     createTask: async (_args, ctx) => {
                         const task = await ctx.task.store.createTask({ ttl: 60_000 });
                         return { task };
-                    },
-                    getTask: async (_args, ctx) => {
-                        const task = await ctx.task.store.getTask(ctx.task.id);
-                        if (!task) throw new Error('Task not found');
-                        return task;
-                    },
-                    getTaskResult: async (_args, ctx) => {
-                        return (await ctx.task.store.getTaskResult(ctx.task.id)) as CallToolResult;
                     }
                 }
             );
@@ -6515,17 +6499,6 @@ describe('Zod v4', () => {
                         }, 200);
 
                         return { task };
-                    },
-                    getTask: async (_args, ctx) => {
-                        const task = await ctx.task.store.getTask(ctx.task.id);
-                        if (!task) {
-                            throw new Error('Task not found');
-                        }
-                        return task;
-                    },
-                    getTaskResult: async (_input, ctx) => {
-                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                        return result as CallToolResult;
                     }
                 }
             );
@@ -6619,17 +6592,6 @@ describe('Zod v4', () => {
                         }, 150);
 
                         return { task };
-                    },
-                    getTask: async (_args, ctx) => {
-                        const task = await ctx.task.store.getTask(ctx.task.id);
-                        if (!task) {
-                            throw new Error('Task not found');
-                        }
-                        return task;
-                    },
-                    getTaskResult: async (_value, ctx) => {
-                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                        return result as CallToolResult;
                     }
                 }
             );
@@ -6725,17 +6687,6 @@ describe('Zod v4', () => {
                         }, 200);
 
                         return { task };
-                    },
-                    getTask: async (_args, ctx) => {
-                        const task = await ctx.task.store.getTask(ctx.task.id);
-                        if (!task) {
-                            throw new Error('Task not found');
-                        }
-                        return task;
-                    },
-                    getTaskResult: async (_data, ctx) => {
-                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                        return result as CallToolResult;
                     }
                 }
             );
@@ -6844,17 +6795,6 @@ describe('Zod v4', () => {
                         }, 150);
 
                         return { task };
-                    },
-                    getTask: async ctx => {
-                        const task = await ctx.task.store.getTask(ctx.task.id);
-                        if (!task) {
-                            throw new Error('Task not found');
-                        }
-                        return task;
-                    },
-                    getTaskResult: async ctx => {
-                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                        return result as CallToolResult;
                     }
                 }
             );
@@ -6945,17 +6885,6 @@ describe('Zod v4', () => {
                         }, 150);
 
                         return { task };
-                    },
-                    getTask: async ctx => {
-                        const task = await ctx.task.store.getTask(ctx.task.id);
-                        if (!task) {
-                            throw new Error('Task not found');
-                        }
-                        return task;
-                    },
-                    getTaskResult: async ctx => {
-                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                        return result as CallToolResult;
                     }
                 }
             );
@@ -6976,6 +6905,123 @@ describe('Zod v4', () => {
 
             // Wait for async operations to complete
             await waitForLatch();
+            taskStore.cleanup();
+        });
+
+        test('should invoke optional getTask/getTaskResult handlers when provided', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { tools: {}, tasks: { requests: { tools: { call: {} } }, taskStore } } }
+            );
+            const client = new Client(
+                { name: 'test client', version: '1.0' },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
+
+            const getTask = vi.fn(async ctx => ctx.task.store.getTask(ctx.task.id));
+            const getTaskResult = vi.fn(async ctx => (await ctx.task.store.getTaskResult(ctx.task.id)) as CallToolResult);
+
+            mcpServer.experimental.tasks.registerToolTask(
+                'proxy-task',
+                { inputSchema: z.object({ n: z.number() }), execution: { taskSupport: 'required' } },
+                {
+                    createTask: async ({ n }, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 50 });
+                        const store = ctx.task.store;
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: `n=${n}` }]
+                            });
+                            releaseLatch();
+                        }, 100);
+                        return { task };
+                    },
+                    getTask,
+                    getTaskResult
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const created = (await client.callTool(
+                { name: 'proxy-task', arguments: { n: 7 } },
+                { task: { ttl: 60_000 } }
+            )) as CreateTaskResult;
+            const taskId = created.task.taskId;
+
+            await waitForLatch();
+
+            // tasks/get should route to the user's getTask handler
+            const task = await client.experimental.tasks.getTask(taskId);
+            expect(task.status).toBe('completed');
+            expect(getTask).toHaveBeenCalled();
+
+            // tasks/result should route to the user's getTaskResult handler
+            const result = await client.experimental.tasks.getTaskResult(taskId);
+            expect((result as CallToolResult).content).toEqual([{ type: 'text', text: 'n=7' }]);
+            expect(getTaskResult).toHaveBeenCalledTimes(1);
+
+            taskStore.cleanup();
+        });
+
+        test('should fall through to TaskStore when getTask/getTaskResult are omitted', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { tools: {}, tasks: { requests: { tools: { call: {} } }, taskStore } } }
+            );
+            const client = new Client(
+                { name: 'test client', version: '1.0' },
+                { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+            );
+
+            const storeGetTask = vi.spyOn(taskStore, 'getTask');
+            const storeGetTaskResult = vi.spyOn(taskStore, 'getTaskResult');
+
+            mcpServer.experimental.tasks.registerToolTask(
+                'store-only-task',
+                { inputSchema: z.object({}), execution: { taskSupport: 'required' } },
+                {
+                    createTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 50 });
+                        const store = ctx.task.store;
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: 'done' }]
+                            });
+                            releaseLatch();
+                        }, 100);
+                        return { task };
+                    }
+                    // no getTask, no getTaskResult
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const created = (await client.callTool(
+                { name: 'store-only-task', arguments: {} },
+                { task: { ttl: 60_000 } }
+            )) as CreateTaskResult;
+            const taskId = created.task.taskId;
+
+            await waitForLatch();
+            storeGetTask.mockClear();
+            storeGetTaskResult.mockClear();
+
+            await client.experimental.tasks.getTask(taskId);
+            expect(storeGetTask).toHaveBeenCalled();
+
+            await client.experimental.tasks.getTaskResult(taskId);
+            expect(storeGetTaskResult).toHaveBeenCalled();
+
             taskStore.cleanup();
         });
 
@@ -7020,17 +7066,6 @@ describe('Zod v4', () => {
                         createTask: async (_args, ctx) => {
                             const task = await ctx.task.store.createTask({ ttl: 60_000, pollInterval: 100 });
                             return { task };
-                        },
-                        getTask: async (_args, ctx) => {
-                            const task = await ctx.task.store.getTask(ctx.task.id);
-                            if (!task) {
-                                throw new Error('Task not found');
-                            }
-                            return task;
-                        },
-                        getTaskResult: async (_args, ctx) => {
-                            const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                            return result as CallToolResult;
                         }
                     }
                 );

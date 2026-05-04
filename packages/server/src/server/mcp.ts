@@ -42,6 +42,7 @@ import {
 import type * as z from 'zod/v4';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
+import { isToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
@@ -72,10 +73,12 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    private _experimental: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+        this._experimental = { tasks: new ExperimentalMcpServerTasks(this) };
+        this._experimental.tasks._installOverrides(this.server.taskManager);
     }
 
     /**
@@ -86,11 +89,6 @@ export class McpServer {
      * @experimental
      */
     get experimental(): { tasks: ExperimentalMcpServerTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalMcpServerTasks(this)
-            };
-        }
         return this._experimental;
     }
 
@@ -114,6 +112,7 @@ export class McpServer {
      * Closes the connection.
      */
     async close(): Promise<void> {
+        this._experimental.tasks.onClose();
         await this.server.close();
     }
 
@@ -172,7 +171,7 @@ export class McpServer {
             try {
                 const isTaskRequest = !!request.params.task;
                 const taskSupport = tool.execution?.taskSupport;
-                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<StandardSchemaWithJSON>);
+                const isTaskHandler = isToolTaskHandler(tool.handler);
 
                 // Validate task hint configuration
                 if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
@@ -201,6 +200,10 @@ export class McpServer {
 
                 // Return CreateTaskResult immediately for task requests
                 if (isTaskRequest) {
+                    const createTaskResult = result as CreateTaskResult;
+                    if (createTaskResult.task) {
+                        this._experimental.tasks._recordTask(createTaskResult.task.taskId, request.params.name);
+                    }
                     return result;
                 }
 
@@ -320,22 +323,33 @@ export class McpServer {
         const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
         const createTaskResult = (await tool.executor(args, ctx)) as CreateTaskResult;
 
-        // Poll until completion
         const taskId = createTaskResult.task.taskId;
+        // Note: no _recordTask here — automatic polling calls handlers directly rather
+        // than routing through tasks/get and tasks/result, so the _taskToTool map entry
+        // would never be consumed and would leak until onClose().
+
+        const handler = isToolTaskHandler(tool.handler) ? tool.handler : undefined;
+        const taskCtx = { ...ctx, task: { ...ctx.task, id: taskId, store: ctx.task.store } };
+
+        // Poll until completion — use custom handlers when provided, else TaskStore
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5000;
 
-        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
+        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled' && task.status !== 'input_required') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await ctx.task.store.getTask(taskId);
-            if (!updatedTask) {
-                throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} not found during polling`);
-            }
-            task = updatedTask;
+            task = handler?.getTask ? await handler.getTask(taskCtx) : await ctx.task.store.getTask(taskId);
         }
 
-        // Return the final result
-        return (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
+        if (task.status === 'input_required') {
+            throw new ProtocolError(
+                ProtocolErrorCode.InternalError,
+                `Task ${taskId} requires input but the client did not request task augmentation; automatic polling cannot deliver elicitation.`
+            );
+        }
+
+        return handler?.getTaskResult
+            ? await handler.getTaskResult(taskCtx)
+            : ((await ctx.task.store.getTaskResult(taskId)) as CallToolResult);
     }
 
     private _completionHandlerInitialized = false;
@@ -1194,9 +1208,7 @@ function createToolExecutor(
     inputSchema: StandardSchemaWithJSON | undefined,
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
 ): ToolExecutor {
-    const isTaskHandler = 'createTask' in handler;
-
-    if (isTaskHandler) {
+    if (isToolTaskHandler(handler)) {
         const taskHandler = handler as TaskHandlerInternal;
         return async (args, ctx) => {
             if (!ctx.task?.store) {
