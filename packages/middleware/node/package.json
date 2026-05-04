@@ -24,6 +24,10 @@
         ".": {
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
+        },
+        "./sse": {
+            "types": "./dist/sse.d.mts",
+            "import": "./dist/sse.mjs"
         }
     },
     "types": "./dist/index.d.mts",
@@ -51,7 +55,9 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly"
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "content-type": "catalog:runtimeServerOnly",
+        "raw-body": "catalog:runtimeServerOnly"
     },
     "peerDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
@@ -70,6 +76,7 @@
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@eslint/js": "catalog:devTools",
+        "@types/content-type": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",

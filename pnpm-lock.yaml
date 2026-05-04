@@ -98,6 +98,9 @@ catalogs:
     '@hono/node-server':
       specifier: ^1.19.9
       version: 1.19.11
+    content-type:
+      specifier: ^1.0.5
+      version: 1.0.5
     cors:
       specifier: ^2.8.5
       version: 2.8.6
@@ -110,6 +113,9 @@ catalogs:
     hono:
       specifier: ^4.11.4
       version: 4.12.9
+    raw-body:
+      specifier: ^3.0.0
+      version: 3.0.2
   runtimeShared:
     '@cfworker/json-schema':
       specifier: ^4.1.1
@@ -818,9 +824,15 @@ importers:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
         version: 1.19.11(hono@4.12.9)
+      content-type:
+        specifier: catalog:runtimeServerOnly
+        version: 1.0.5
       hono:
         specifier: catalog:runtimeServerOnly
         version: 4.12.9
+      raw-body:
+        specifier: catalog:runtimeServerOnly
+        version: 3.0.2
     devDependencies:
       '@eslint/js':
         specifier: catalog:devTools
@@ -843,6 +855,9 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../../common/vitest-config
+      '@types/content-type':
+        specifier: catalog:devTools
+        version: 1.1.9
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260327.2
