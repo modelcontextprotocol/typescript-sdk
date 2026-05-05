@@ -159,4 +159,49 @@ describe('handler-registration transform', () => {
         expect(result).toContain('SomeSchema');
         expect(result).not.toContain("'tools/call'");
     });
+
+    it('emits diagnostic for custom method schema (not in spec map)', () => {
+        const input = [
+            `const AcmeSearch = z.object({ method: z.literal('acme/search'), params: z.object({ query: z.string() }) });`,
+            `server.setRequestHandler(AcmeSearch, async (request) => {`,
+            `    return { items: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = handlerRegistrationTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.length).toBe(1);
+        expect(result.diagnostics[0]!.message).toContain('Custom method handler');
+        expect(result.diagnostics[0]!.message).toContain('AcmeSearch');
+        expect(result.diagnostics[0]!.message).toContain('3-arg form');
+    });
+
+    it('emits diagnostic for custom notification schema', () => {
+        const input = [
+            `const CustomNotification = z.object({ method: z.literal('acme/notify') });`,
+            `server.setNotificationHandler(CustomNotification, async () => {});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = handlerRegistrationTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.length).toBe(1);
+        expect(result.diagnostics[0]!.message).toContain('Custom method handler');
+        expect(result.diagnostics[0]!.message).toContain('setNotificationHandler');
+        expect(result.diagnostics[0]!.message).toContain('CustomNotification');
+    });
+
+    it('does not emit diagnostic when first arg is a string literal (v2 style)', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request) => {`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = handlerRegistrationTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.length).toBe(0);
+    });
 });

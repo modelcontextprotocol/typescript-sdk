@@ -71,6 +71,30 @@ describe('mock-paths transform', () => {
             const result = applyTransform(input);
             expect(result).toContain(`'@modelcontextprotocol/server'`);
         });
+
+        it('rewrites client stdio mock to /stdio subpath', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({`,
+                `    StdioClientTransport: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/client/stdio'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        it('rewrites server stdio mock to /stdio subpath', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({`,
+                `    StdioServerTransport: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/server/stdio'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
     });
 
     describe('jest.mock', () => {

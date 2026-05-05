@@ -199,6 +199,53 @@ describe('import-paths transform', () => {
         expect(result).toContain('@modelcontextprotocol/server');
     });
 
+    it('rewrites client stdio to @modelcontextprotocol/client/stdio subpath', () => {
+        const input = `import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/client/stdio"`);
+        expect(result).toContain('StdioClientTransport');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('routes all client stdio symbols to /stdio subpath', () => {
+        const input = [
+            `import { StdioClientTransport, DEFAULT_INHERITED_ENV_VARS, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('StdioClientTransport');
+        expect(result).toContain('DEFAULT_INHERITED_ENV_VARS');
+        expect(result).toContain('getDefaultEnvironment');
+        expect(result).toContain('@modelcontextprotocol/client/stdio');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('routes type-only StdioServerParameters to /stdio subpath', () => {
+        const input = `import type { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain('StdioServerParameters');
+        expect(result).toContain('@modelcontextprotocol/client/stdio');
+    });
+
+    it('rewrites server stdio to @modelcontextprotocol/server/stdio subpath', () => {
+        const input = `import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/server/stdio"`);
+        expect(result).toContain('StdioServerTransport');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('preserves alias for client stdio import and routes to subpath', () => {
+        const input = [
+            `import { StdioClientTransport as T } from '@modelcontextprotocol/sdk/client/stdio.js';`,
+            `const transport = new T({});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('@modelcontextprotocol/client/stdio');
+        expect(result).toContain('StdioClientTransport as T');
+    });
+
     it('emits warning for namespace import with renamedSymbols', () => {
         const input = [
             `import * as transport from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
@@ -229,7 +276,7 @@ describe('import-paths transform', () => {
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         expect(result.diagnostics.length).toBeGreaterThan(0);
-        expect(result.diagnostics[0]!.message).toContain('auth removed');
+        expect(result.diagnostics[0]!.message).toContain('auth router removed');
     });
 
     it('handles per-specifier type modifiers', () => {

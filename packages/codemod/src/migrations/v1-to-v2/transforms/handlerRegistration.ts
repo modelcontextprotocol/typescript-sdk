@@ -1,7 +1,8 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Transform, TransformContext, TransformResult } from '../../../types.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
+import { warning } from '../../../utils/diagnostics.js';
 import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
 import { NOTIFICATION_SCHEMA_TO_METHOD, SCHEMA_TO_METHOD } from '../mappings/schemaToMethodMap.js';
 
@@ -15,6 +16,7 @@ export const handlerRegistrationTransform: Transform = {
     id: 'handlers',
     apply(sourceFile: SourceFile, _context: TransformContext): TransformResult {
         let changesCount = 0;
+        const diagnostics: Diagnostic[] = [];
 
         const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
 
@@ -36,7 +38,18 @@ export const handlerRegistrationTransform: Transform = {
             const schemaName = firstArg.getText();
             const originalName = resolveOriginalImportName(sourceFile, schemaName) ?? schemaName;
             const methodString = ALL_SCHEMA_TO_METHOD[originalName];
-            if (!methodString) continue;
+            if (!methodString) {
+                diagnostics.push(
+                    warning(
+                        sourceFile.getFilePath(),
+                        call.getStartLineNumber(),
+                        `Custom method handler: ${methodName}(${schemaName}, ...). ` +
+                            `In v2, use the 3-arg form: ${methodName}('method/name', { params, result? }, handler). ` +
+                            `See migration.md for details.`
+                    )
+                );
+                continue;
+            }
 
             if (!isImportedFromMcp(sourceFile, schemaName)) continue;
 
@@ -46,6 +59,6 @@ export const handlerRegistrationTransform: Transform = {
             removeUnusedImport(sourceFile, schemaName, true);
         }
 
-        return { changesCount, diagnostics: [] };
+        return { changesCount, diagnostics };
     }
 };

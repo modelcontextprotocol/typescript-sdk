@@ -77,7 +77,8 @@ export const importPathsTransform: Transform = {
                 mapping = {
                     target: '',
                     status: 'removed',
-                    removalMessage: 'Server auth removed in v2. Use an external auth library (e.g., better-auth).'
+                    removalMessage:
+                        'Server auth removed in v2. For RS auth, see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
                 };
             }
 
@@ -220,7 +221,8 @@ function rewriteExportDeclarations(
             mapping = {
                 target: '',
                 status: 'removed',
-                removalMessage: 'Server auth removed in v2. Use an external auth library (e.g., better-auth).'
+                removalMessage:
+                    'Server auth removed in v2. For RS auth, see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
             };
         }
 

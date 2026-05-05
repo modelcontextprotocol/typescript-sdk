@@ -27,7 +27,13 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
     '@modelcontextprotocol/sdk/client/stdio.js': {
         target: '@modelcontextprotocol/client',
-        status: 'moved'
+        status: 'moved',
+        symbolTargetOverrides: {
+            StdioClientTransport: '@modelcontextprotocol/client/stdio',
+            DEFAULT_INHERITED_ENV_VARS: '@modelcontextprotocol/client/stdio',
+            getDefaultEnvironment: '@modelcontextprotocol/client/stdio',
+            StdioServerParameters: '@modelcontextprotocol/client/stdio'
+        }
     },
     '@modelcontextprotocol/sdk/client/websocket.js': {
         target: '',
@@ -44,7 +50,7 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/server/stdio.js': {
-        target: '@modelcontextprotocol/server',
+        target: '@modelcontextprotocol/server/stdio',
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/server/streamableHttp.js': {
@@ -80,22 +86,26 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     '@modelcontextprotocol/sdk/server/auth/provider.js': {
         target: '',
         status: 'removed',
-        removalMessage: 'Server auth removed in v2. Use an external auth library (e.g., better-auth).'
+        removalMessage:
+            'Server auth provider removed in v2. For Resource-Server auth (token verification), see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
     },
     '@modelcontextprotocol/sdk/server/auth/router.js': {
         target: '',
         status: 'removed',
-        removalMessage: 'Server auth removed in v2. Use an external auth library (e.g., better-auth).'
+        removalMessage:
+            'Server auth router removed in v2. For metadata endpoints, see mcpAuthMetadataRouter from @modelcontextprotocol/express. For full OAuth AS router, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
     },
     '@modelcontextprotocol/sdk/server/auth/middleware.js': {
         target: '',
         status: 'removed',
-        removalMessage: 'Server auth removed in v2. Use an external auth library (e.g., better-auth).'
+        removalMessage:
+            'Server auth middleware removed in v2. For bearer token validation, see requireBearerAuth from @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
     },
     '@modelcontextprotocol/sdk/server/auth/errors.js': {
         target: '',
         status: 'removed',
-        removalMessage: 'Server auth removed in v2. Use an external auth library (e.g., better-auth).'
+        removalMessage:
+            'Auth error subclasses consolidated in v2. Use OAuthError + OAuthErrorCode from @modelcontextprotocol/server. See also @modelcontextprotocol/server-auth-legacy (PR #1908).'
     },
 
     '@modelcontextprotocol/sdk/types.js': {
