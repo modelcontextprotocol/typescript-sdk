@@ -5023,6 +5023,112 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 ])
             );
         });
+
+        // Regression for https://github.com/modelcontextprotocol/typescript-sdk/issues/1643
+        // Before the fix, normalizeObjectSchema returned undefined for
+        // discriminated unions and unions, so registerTool silently dropped
+        // the schema in tools/list and emitted EMPTY_OBJECT_JSON_SCHEMA. Tool
+        // calls still validated correctly via the fallback in validateToolInput.
+        test('should expose a discriminated union inputSchema in tools/list', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            const inputSchema = z.discriminatedUnion('action', [
+                z.object({ action: z.literal('create'), name: z.string() }),
+                z.object({ action: z.literal('delete'), id: z.string() })
+            ]);
+
+            server.registerTool('mutate', { inputSchema }, async args => ({
+                content: [{ type: 'text' as const, text: JSON.stringify(args) }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const list = await client.listTools();
+            expect(list.tools).toHaveLength(1);
+            const advertised = list.tools[0].inputSchema as Record<string, unknown>;
+            expect(advertised.type).toBe('object');
+            // Both v3 (zod-to-json-schema) and v4 (Mini) emit oneOf or anyOf.
+            const branches = (advertised.oneOf ?? advertised.anyOf) as Array<Record<string, unknown>> | undefined;
+            expect(branches).toBeDefined();
+            expect(branches).toHaveLength(2);
+
+            // Tool calls keep working.
+            const ok = await client.callTool({
+                name: 'mutate',
+                arguments: { action: 'create', name: 'foo' }
+            });
+            expect(ok.isError).toBeFalsy();
+
+            const bad = await client.callTool({
+                name: 'mutate',
+                arguments: { action: 'create' }
+            });
+            expect(bad.isError).toBe(true);
+        });
+
+        test('should expose a union of objects inputSchema in tools/list', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            const inputSchema = z.union([
+                z.object({ kind: z.literal('a'), x: z.string() }),
+                z.object({ kind: z.literal('b'), y: z.number() })
+            ]);
+
+            server.registerTool('pick', { inputSchema }, async () => ({
+                content: [{ type: 'text' as const, text: 'ok' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const list = await client.listTools();
+            const advertised = list.tools[0].inputSchema as Record<string, unknown>;
+            expect(advertised.type).toBe('object');
+            expect(advertised.oneOf ?? advertised.anyOf).toBeDefined();
+        });
+
+        test('should expose a discriminated union outputSchema in tools/list', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            const outputSchema = z.discriminatedUnion('kind', [
+                z.object({ kind: z.literal('ok'), data: z.string() }),
+                z.object({ kind: z.literal('err'), message: z.string() })
+            ]);
+
+            server.registerTool(
+                'maybe',
+                {
+                    inputSchema: z.object({ should_fail: z.boolean() }),
+                    outputSchema
+                },
+                async ({ should_fail }) => {
+                    const structured = should_fail ? { kind: 'err' as const, message: 'oops' } : { kind: 'ok' as const, data: 'fine' };
+                    return {
+                        content: [{ type: 'text' as const, text: JSON.stringify(structured) }],
+                        structuredContent: structured
+                    };
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const list = await client.listTools();
+            const advertised = list.tools[0].outputSchema as Record<string, unknown> | undefined;
+            expect(advertised).toBeDefined();
+            expect(advertised!.type).toBe('object');
+            expect(advertised!.oneOf ?? advertised!.anyOf).toBeDefined();
+
+            const ok = await client.callTool({ name: 'maybe', arguments: { should_fail: false } });
+            expect(ok.isError).toBeFalsy();
+        });
     });
 
     describe('Tools with transformation schemas', () => {
