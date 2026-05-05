@@ -264,7 +264,7 @@ describe('integration', () => {
         expect(warnings).toHaveLength(0);
         const errors = result.diagnostics.filter(d => d.level === DiagnosticLevel.Error);
         expect(errors).toHaveLength(1);
-        expect(errors[0].message).toContain('boom');
+        expect(errors[0]!.message).toContain('boom');
 
         // Phantom package from the reverted transform should not leak into package.json
         expect(result.packageJsonChanges).toBeDefined();
