@@ -112,7 +112,8 @@ First, let's set up our imports and create the basic client class in `src/index.
 
 ```ts source="../examples/client-quickstart/src/index.ts#prelude"
 import Anthropic from '@anthropic-ai/sdk';
-import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import readline from 'readline/promises';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
