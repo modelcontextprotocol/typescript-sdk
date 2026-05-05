@@ -5,6 +5,7 @@ export interface ImportMapping {
     /** Route specific symbols to a different target package than `target`. */
     symbolTargetOverrides?: Record<string, string>;
     removalMessage?: string;
+    /** No entries currently set this; scaffolding for when a v1 symbol has no v2 equivalent yet. */
     isV2Gap?: boolean;
 }
 

@@ -73,6 +73,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         const fileDiagnostics: Diagnostic[] = [];
         const originalText = sourceFile.getFullText();
 
+        const fileUsedPackages = new Set<string>();
         try {
             for (const transform of enabledTransforms) {
                 const result = transform.apply(sourceFile, context);
@@ -80,12 +81,16 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
                 fileDiagnostics.push(...result.diagnostics);
                 if (result.usedPackages) {
                     for (const pkg of result.usedPackages) {
-                        allUsedPackages.add(pkg);
+                        fileUsedPackages.add(pkg);
                     }
                 }
             }
+            for (const pkg of fileUsedPackages) {
+                allUsedPackages.add(pkg);
+            }
         } catch (error_) {
             const filePath = sourceFile.getFilePath();
+            fileDiagnostics.length = 0;
             fileDiagnostics.push(error(filePath, 1, `Transform failed: ${error_ instanceof Error ? error_.message : String(error_)}`));
             sourceFile.replaceWithText(originalText);
             fileChanges = 0;

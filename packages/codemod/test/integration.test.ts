@@ -212,6 +212,63 @@ describe('integration', () => {
         expect(result.filesChanged).toBeGreaterThanOrEqual(1);
     });
 
+    it('rollback on transform error does not leak packages or diagnostics', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' }
+        });
+
+        const input = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            ``
+        ].join('\n');
+        writeFileSync(path.join(dir, 'broken.ts'), input);
+
+        const leakyTransform: Transform = {
+            name: 'leaky',
+            id: 'imports',
+            apply(sourceFile) {
+                return {
+                    changesCount: 1,
+                    diagnostics: [{ level: DiagnosticLevel.Warning, file: sourceFile.getFilePath(), line: 1, message: 'should not survive rollback' }],
+                    usedPackages: new Set(['@modelcontextprotocol/phantom-pkg'])
+                };
+            }
+        };
+
+        const failingTransform: Transform = {
+            name: 'failing',
+            id: 'failing',
+            apply() {
+                throw new Error('boom');
+            }
+        };
+
+        const testMigration: Migration = {
+            name: 'test-rollback',
+            description: 'Tests that rollback cleans up all side effects',
+            transforms: [leakyTransform, failingTransform]
+        };
+
+        const result = run(testMigration, { targetDir: dir });
+
+        // File should be rolled back
+        const output = readFileSync(path.join(dir, 'broken.ts'), 'utf8');
+        expect(output).toBe(input);
+
+        // Only the error diagnostic should survive — not the warning from the reverted transform
+        const warnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning);
+        expect(warnings).toHaveLength(0);
+        const errors = result.diagnostics.filter(d => d.level === DiagnosticLevel.Error);
+        expect(errors).toHaveLength(1);
+        expect(errors[0].message).toContain('boom');
+
+        // Phantom package from the reverted transform should not leak into package.json
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/phantom-pkg');
+    });
+
     it('respects transform filter option', () => {
         const dir = createTempDir();
         const input = [
