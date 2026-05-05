@@ -327,7 +327,7 @@ export class McpServer {
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             if (ctx.mcpReq.signal.aborted) {
-                throw new ProtocolError(ProtocolErrorCode.RequestCancelled, 'Request cancelled during task polling');
+                throw new ProtocolError(ProtocolErrorCode.InternalError, 'Request cancelled during task polling');
             }
             await new Promise(resolve => setTimeout(resolve, pollInterval));
             const updatedTask = await ctx.task.store.getTask(taskId);
