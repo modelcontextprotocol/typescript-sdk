@@ -231,7 +231,9 @@ describe('integration', () => {
             apply(sourceFile) {
                 return {
                     changesCount: 1,
-                    diagnostics: [{ level: DiagnosticLevel.Warning, file: sourceFile.getFilePath(), line: 1, message: 'should not survive rollback' }],
+                    diagnostics: [
+                        { level: DiagnosticLevel.Warning, file: sourceFile.getFilePath(), line: 1, message: 'should not survive rollback' }
+                    ],
                     usedPackages: new Set(['@modelcontextprotocol/phantom-pkg'])
                 };
             }
