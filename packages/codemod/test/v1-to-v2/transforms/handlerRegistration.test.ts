@@ -193,12 +193,7 @@ describe('handler-registration transform', () => {
     });
 
     it('does not emit diagnostic when first arg is a string literal (v2 style)', () => {
-        const input = [
-            `server.setRequestHandler('tools/call', async (request) => {`,
-            `    return { content: [] };`,
-            `});`,
-            ''
-        ].join('\n');
+        const input = [`server.setRequestHandler('tools/call', async (request) => {`, `    return { content: [] };`, `});`, ''].join('\n');
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = handlerRegistrationTransform.apply(sourceFile, ctx);

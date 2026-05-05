@@ -65,11 +65,7 @@ describe('spec-schema-access transform', () => {
         });
 
         it('adds specTypeSchemas import', () => {
-            const input = [
-                `import { ToolSchema } from '@modelcontextprotocol/server';`,
-                `const s = ToolSchema;`,
-                ''
-            ].join('\n');
+            const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const s = ToolSchema;`, ''].join('\n');
             const { text } = applyTransform(input);
             expect(text).toContain('specTypeSchemas.Tool');
             expect(text).toMatch(/import.*specTypeSchemas.*from/);
@@ -93,11 +89,9 @@ describe('spec-schema-access transform', () => {
 
     describe('diagnostic only: .parse(v)', () => {
         it('emits diagnostic for parse usage', () => {
-            const input = [
-                `import { ToolSchema } from '@modelcontextprotocol/server';`,
-                `const tool = ToolSchema.parse(raw);`,
-                ''
-            ].join('\n');
+            const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const tool = ToolSchema.parse(raw);`, ''].join(
+                '\n'
+            );
             const { text, result } = applyTransform(input);
             expect(text).toContain('ToolSchema.parse');
             expect(result.changesCount).toBe(0);
@@ -121,11 +115,7 @@ describe('spec-schema-access transform', () => {
 
     describe('no-op cases', () => {
         it('does nothing for non-MCP imports', () => {
-            const input = [
-                `import { CallToolRequestSchema } from './local';`,
-                `CallToolRequestSchema.safeParse(data);`,
-                ''
-            ].join('\n');
+            const input = [`import { CallToolRequestSchema } from './local';`, `CallToolRequestSchema.safeParse(data);`, ''].join('\n');
             const { text, result } = applyTransform(input);
             expect(text).toContain('CallToolRequestSchema.safeParse');
             expect(result.changesCount).toBe(0);
@@ -133,11 +123,9 @@ describe('spec-schema-access transform', () => {
         });
 
         it('does nothing for non-spec schema names', () => {
-            const input = [
-                `import { SomeRandomSchema } from '@modelcontextprotocol/server';`,
-                `SomeRandomSchema.parse(data);`,
-                ''
-            ].join('\n');
+            const input = [`import { SomeRandomSchema } from '@modelcontextprotocol/server';`, `SomeRandomSchema.parse(data);`, ''].join(
+                '\n'
+            );
             const { text, result } = applyTransform(input);
             expect(text).toContain('SomeRandomSchema.parse');
             expect(result.changesCount).toBe(0);
@@ -145,10 +133,7 @@ describe('spec-schema-access transform', () => {
         });
 
         it('does nothing when no remaining references', () => {
-            const input = [
-                `import { CallToolRequestSchema } from '@modelcontextprotocol/server';`,
-                ''
-            ].join('\n');
+            const input = [`import { CallToolRequestSchema } from '@modelcontextprotocol/server';`, ''].join('\n');
             const { result } = applyTransform(input);
             expect(result.changesCount).toBe(0);
             expect(result.diagnostics.length).toBe(0);
