@@ -4,7 +4,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 import { SPEC_SCHEMA_NAMES, specSchemaToTypeName } from '../../../generated/specSchemaMap.js';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils.js';
+import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils.js';
 
 export const specSchemaAccessTransform: Transform = {
     name: 'Spec schema standalone usage',
@@ -27,6 +27,7 @@ export const specSchemaAccessTransform: Transform = {
                 const result = handleReference(ref, localName, typeName, sourceFile, diagnostics);
                 if (result) changesCount++;
             }
+            removeUnusedImport(sourceFile, localName, true);
         }
 
         return { changesCount, diagnostics };
@@ -128,6 +129,31 @@ function handleReference(
             )
         );
         return false;
+    }
+
+    if (parent && Node.isExportSpecifier(parent)) {
+        diagnostics.push(
+            warning(
+                sourceFile.getFilePath(),
+                ref.getStartLineNumber(),
+                `Re-export of ${localName} requires manual update: replace with specTypeSchemas.${typeName} or remove.`
+            )
+        );
+        return false;
+    }
+
+    if (parent && Node.isShorthandPropertyAssignment(parent)) {
+        const line = ref.getStartLineNumber();
+        parent.replaceWithText(`${localName}: specTypeSchemas.${typeName}`);
+        ensureImport(sourceFile, 'specTypeSchemas');
+        diagnostics.push(
+            warning(
+                sourceFile.getFilePath(),
+                line,
+                `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — Zod methods like .safeParse()/.parse() are not available.`
+            )
+        );
+        return true;
     }
 
     // Value position: replace identifier with specTypeSchemas.X

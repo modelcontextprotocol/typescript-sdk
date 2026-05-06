@@ -140,6 +140,66 @@ describe('spec-schema-access transform', () => {
         });
     });
 
+    describe('import cleanup after transform', () => {
+        it('removes original schema import after all refs are auto-transformed', () => {
+            const input = [
+                `import { CallToolRequestSchema } from '@modelcontextprotocol/server';`,
+                `const valid = CallToolRequestSchema.safeParse(data).success;`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain('isSpecType.CallToolRequest(data)');
+            expect(text).not.toMatch(/import\s*\{[^}]*CallToolRequestSchema[^}]*\}/);
+        });
+
+        it('keeps original schema import when some refs are diagnostic-only', () => {
+            const input = [
+                `import { CallToolRequestSchema } from '@modelcontextprotocol/server';`,
+                `const valid = CallToolRequestSchema.safeParse(data).success;`,
+                `const parsed = CallToolRequestSchema.parse(data);`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain('isSpecType.CallToolRequest(data)');
+            expect(text).toContain('CallToolRequestSchema.parse');
+            expect(text).toMatch(/import\s*\{[^}]*CallToolRequestSchema[^}]*\}/);
+        });
+
+        it('removes schema specifier from import that also has other symbols', () => {
+            const input = [
+                `import { CallToolRequestSchema, McpError } from '@modelcontextprotocol/server';`,
+                `const valid = CallToolRequestSchema.safeParse(data).success;`,
+                `throw new McpError(1, 'fail');`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).not.toMatch(/import\s*\{[^}]*CallToolRequestSchema[^}]*\}/);
+            expect(text).toContain('McpError');
+            expect(text).toContain(`@modelcontextprotocol/server`);
+        });
+    });
+
+    describe('parent-kind guards', () => {
+        it('emits diagnostic for re-exported schema (ExportSpecifier)', () => {
+            const input = [
+                `import { CallToolRequestSchema } from '@modelcontextprotocol/server';`,
+                `export { CallToolRequestSchema };`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('export { CallToolRequestSchema }');
+            expect(result.diagnostics.some(d => d.message.includes('Re-export'))).toBe(true);
+            expect(result.changesCount).toBe(0);
+        });
+
+        it('expands shorthand property assignment', () => {
+            const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const schemas = { ToolSchema };`, ''].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('ToolSchema: specTypeSchemas.Tool');
+            expect(result.changesCount).toBeGreaterThan(0);
+        });
+    });
+
     describe('aliased imports', () => {
         it('handles aliased import and references original name in diagnostic', () => {
             const input = [

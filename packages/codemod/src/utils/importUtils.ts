@@ -62,7 +62,10 @@ export function addOrMergeImport(
 }
 
 export function isAnyMcpSpecifier(specifier: string): boolean {
-    return isSdkSpecifier(specifier) || V2_PACKAGES.has(specifier);
+    if (isSdkSpecifier(specifier)) return true;
+    if (V2_PACKAGES.has(specifier)) return true;
+    const secondSlash = specifier.indexOf('/', specifier.indexOf('/') + 1);
+    return secondSlash !== -1 && V2_PACKAGES.has(specifier.slice(0, secondSlash));
 }
 
 export function hasMcpImports(sourceFile: SourceFile): boolean {

@@ -94,6 +94,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             fileDiagnostics.push(error(filePath, 1, `Transform failed: ${error_ instanceof Error ? error_.message : String(error_)}`));
             sourceFile.replaceWithText(originalText);
             fileChanges = 0;
+            fileUsedPackages.clear();
         }
 
         if (fileChanges > 0 || fileDiagnostics.length > 0) {

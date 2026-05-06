@@ -7,6 +7,12 @@ import { findPackageJson } from './projectAnalyzer.js';
 const V1_PACKAGE = '@modelcontextprotocol/sdk';
 const PRIVATE_PACKAGES = new Set(['@modelcontextprotocol/core']);
 
+function normalizeToRoot(pkg: string): string {
+    const secondSlash = pkg.indexOf('/', pkg.indexOf('/') + 1);
+    if (secondSlash === -1) return pkg;
+    return pkg.slice(0, secondSlash);
+}
+
 function detectIndent(text: string): string {
     const match = text.match(/\n([ \t]+)/);
     return match ? match[1]! : '  ';
@@ -31,7 +37,9 @@ export function updatePackageJson(targetDir: string, usedPackages: Set<string>, 
     const inDevDeps = devDeps !== undefined && V1_PACKAGE in devDeps;
     if (!inDeps && !inDevDeps) return undefined;
 
-    const packagesToAdd = [...usedPackages].filter(pkg => !PRIVATE_PACKAGES.has(pkg) && pkg in V2_PACKAGE_VERSIONS);
+    const packagesToAdd = [...new Set([...usedPackages].map(pkg => normalizeToRoot(pkg)))].filter(
+        pkg => !PRIVATE_PACKAGES.has(pkg) && pkg in V2_PACKAGE_VERSIONS
+    );
 
     // Determine which section to add v2 packages to.
     // If v1 SDK was in both, prefer dependencies.

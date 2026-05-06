@@ -399,6 +399,17 @@ describe('import-paths transform', () => {
         expect(result).not.toContain('@modelcontextprotocol/sdk');
     });
 
+    it('includes subpath target in usedPackages for stdio-only file', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'client' });
+        expect(result.usedPackages).toBeDefined();
+        expect(result.usedPackages!.has('@modelcontextprotocol/client/stdio')).toBe(true);
+    });
+
     it('resolves InMemoryTransport based on sibling client imports', () => {
         const input = [
             `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,

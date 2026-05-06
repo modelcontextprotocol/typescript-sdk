@@ -241,6 +241,38 @@ describe('updatePackageJson', () => {
         expect(result).toBeUndefined();
     });
 
+    it('normalizes subpath packages to root before adding to package.json', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: {
+                '@modelcontextprotocol/sdk': '^1.0.0'
+            }
+        });
+
+        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/client/stdio']), false);
+
+        expect(result).toBeDefined();
+        expect(result!.added).toContain('@modelcontextprotocol/client');
+
+        const pkg = readPkgJson(dir);
+        const deps = pkg.dependencies as Record<string, string>;
+        expect(deps['@modelcontextprotocol/client']).toBeDefined();
+    });
+
+    it('deduplicates root and subpath packages', () => {
+        const dir = createTempDir();
+        writePkgJson(dir, {
+            dependencies: {
+                '@modelcontextprotocol/sdk': '^1.0.0'
+            }
+        });
+
+        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/client', '@modelcontextprotocol/client/stdio']), false);
+
+        expect(result).toBeDefined();
+        expect(result!.added.filter(p => p === '@modelcontextprotocol/client')).toHaveLength(1);
+    });
+
     it('adds multiple v2 packages', () => {
         const dir = createTempDir();
         writePkgJson(dir, {
