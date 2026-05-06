@@ -212,11 +212,9 @@ describe('spec-schema-access transform', () => {
         });
 
         it('skips BindingElement property-name', () => {
-            const input = [
-                `import { ToolSchema } from '@modelcontextprotocol/server';`,
-                `const { ToolSchema: local } = obj;`,
-                ''
-            ].join('\n');
+            const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const { ToolSchema: local } = obj;`, ''].join(
+                '\n'
+            );
             const { text, result } = applyTransform(input);
             expect(text).toContain('ToolSchema: local');
             expect(result.changesCount).toBe(0);
