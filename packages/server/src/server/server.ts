@@ -446,6 +446,21 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
+     * Restores the initialize-handshake state (client capabilities and version) from
+     * persisted `InitializeRequest` params. Use this in multi-node deployments when
+     * reconstructing a server for a session that was initialized on a different node,
+     * so that capability-gated server-initiated features (sampling, elicitation, roots)
+     * work correctly on the hydrated instance.
+     *
+     * Pair with the `sessionId` option on `WebStandardStreamableHTTPServerTransport`
+     * to restore transport-layer session validation alongside protocol-layer state.
+     */
+    restoreInitializeState(params: InitializeRequest['params']): void {
+        this._clientCapabilities = params.capabilities;
+        this._clientVersion = params.clientInfo;
+    }
+
+    /**
      * After initialization has completed, this will be populated with information about the client's name and version.
      */
     getClientVersion(): Implementation | undefined {
