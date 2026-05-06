@@ -1,5 +1,6 @@
 # MCP TypeScript SDK
 
+<!-- prettier-ignore -->
 > [!IMPORTANT]
 > **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
 >
@@ -7,7 +8,8 @@
 >
 > For v1 documentation, see the [V1 API docs](https://ts.sdk.modelcontextprotocol.io/). For v2 API docs, see [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
 
-[![NPM Version - Server](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fserver?label=%40modelcontextprotocol%2Fserver)](https://www.npmjs.com/package/@modelcontextprotocol/server) [![NPM Version - Client](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fclient?label=%40modelcontextprotocol%2Fclient)](https://www.npmjs.com/package/@modelcontextprotocol/client) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fserver)
+[![NPM Version - Server](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fserver?label=%40modelcontextprotocol%2Fserver)](https://www.npmjs.com/package/@modelcontextprotocol/server)
+[![NPM Version - Client](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fclient?label=%40modelcontextprotocol%2Fclient)](https://www.npmjs.com/package/@modelcontextprotocol/client) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fserver)
 
 <details>
 <summary>Table of Contents</summary>
@@ -103,19 +105,19 @@ import * as z from 'zod/v4';
 const server = new McpServer({ name: 'greeting-server', version: '1.0.0' });
 
 server.registerTool(
-  'greet',
-  {
-    description: 'Greet someone by name',
-    inputSchema: z.object({ name: z.string() }),
-  },
-  async ({ name }) => ({
-    content: [{ type: 'text', text: `Hello, ${name}!` }],
-  }),
+    'greet',
+    {
+        description: 'Greet someone by name',
+        inputSchema: z.object({ name: z.string() })
+    },
+    async ({ name }) => ({
+        content: [{ type: 'text', text: `Hello, ${name}!` }]
+    })
 );
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
 }
 
 main();
@@ -126,7 +128,8 @@ Ready to build something real? Follow the step-by-step quickstart tutorials:
 - [Build a weather server](docs/server-quickstart.md) — server quickstart
 - [Build an LLM-powered chatbot](docs/client-quickstart.md) — client quickstart
 
-The complete code for each tutorial is in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/) and [`examples/client-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client-quickstart/). For more advanced runnable examples, see:
+The complete code for each tutorial is in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/) and
+[`examples/client-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client-quickstart/). For more advanced runnable examples, see:
 
 - [`examples/server/README.md`](examples/server/README.md) — server examples index
 - [`examples/client/README.md`](examples/client/README.md) — client examples index
