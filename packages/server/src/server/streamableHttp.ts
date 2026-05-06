@@ -7,7 +7,15 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    ClientCapabilities,
+    Implementation,
+    JSONRPCMessage,
+    MessageExtraInfo,
+    RequestId,
+    Transport
+} from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -152,6 +160,30 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Callback to restore session state for stateless deployments.
+     *
+     * Called when a non-initialize request arrives and the transport is not yet
+     * initialized. The transport reads the session ID from the `mcp-session-id`
+     * request header and passes it to this callback.
+     *
+     * Return cached client capabilities and version info to adopt the session,
+     * or `undefined` to reject the request.
+     *
+     * This callback is never called for `initialize` requests — those follow
+     * the normal handshake path. Note that {@linkcode WebStandardStreamableHTTPServerTransportOptions.onsessioninitialized | onsessioninitialized}
+     * is NOT called during replay — it only fires for new session creation.
+     *
+     * @param sessionId - The session ID from the `mcp-session-id` request header.
+     * @returns Cached client state to restore, or `undefined` if the session is unknown.
+     */
+    replayInitialization?: (
+        sessionId: string
+    ) =>
+        | { clientCapabilities: ClientCapabilities; clientVersion: Implementation }
+        | undefined
+        | Promise<{ clientCapabilities: ClientCapabilities; clientVersion: Implementation } | undefined>;
 }
 
 /**
@@ -240,11 +272,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _replayInitialization?: WebStandardStreamableHTTPServerTransportOptions['replayInitialization'];
+    private _replayInProgress = false;
 
     sessionId?: string;
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    oninitializationreplay?: (data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void;
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
@@ -257,6 +292,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._replayInitialization = options.replayInitialization;
     }
 
     /**
@@ -349,6 +385,17 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const validationError = this.validateRequestHeaders(req);
         if (validationError) {
             return validationError;
+        }
+
+        // Attempt stateless session replay before dispatching to method handlers.
+        let replayError: Response | undefined;
+        try {
+            replayError = await this._tryReplayInitialization(req);
+        } catch {
+            return this.createJsonErrorResponse(500, -32_603, 'Internal error: session replay failed');
+        }
+        if (replayError) {
+            return replayError;
         }
 
         switch (req.method) {
@@ -841,13 +888,44 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Attempts to restore session state via the `replayInitialization` callback.
+     * Called once in `handleRequest()` before method dispatch.
+     *
+     * No-op when already initialized, no callback provided, or no session ID header.
+     * On success, sets `sessionId` and `_initialized`, then invokes `oninitializationreplay`
+     * so the server can seed client capabilities and version info.
+     */
+    private async _tryReplayInitialization(req: Request): Promise<Response | undefined> {
+        if (this._initialized || this._replayInProgress || !this._replayInitialization) return undefined;
+
+        const sessionId = req.headers.get('mcp-session-id');
+        if (!sessionId) return undefined;
+
+        this._replayInProgress = true;
+        try {
+            const result = await this._replayInitialization(sessionId);
+            if (!result) {
+                // Session unknown/expired — 404 tells the client to re-initialize per spec
+                this.onerror?.(new Error('Session not found'));
+                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            }
+
+            this.sessionId = sessionId;
+            this._initialized = true;
+            this.oninitializationreplay?.(result);
+            return undefined;
+        } finally {
+            this._replayInProgress = false;
+        }
+    }
+
+    /**
      * Validates session ID for non-initialization requests.
      * Returns `Response` error if invalid, `undefined` otherwise
      */
     private validateSession(req: Request): Response | undefined {
-        if (this.sessionIdGenerator === undefined) {
-            // If the sessionIdGenerator ID is not set, the session management is disabled
-            // and we don't need to validate the session ID
+        if (this.sessionIdGenerator === undefined && this.sessionId === undefined && !this._replayInitialization) {
+            // Session management is fully disabled (no generator, no adopted/replayed session, no replay callback)
             return undefined;
         }
         if (!this._initialized) {

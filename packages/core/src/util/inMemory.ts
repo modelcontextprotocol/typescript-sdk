@@ -1,6 +1,6 @@
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type { Transport } from '../shared/transport.js';
-import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/index.js';
+import type { AuthInfo, ClientCapabilities, Implementation, JSONRPCMessage, RequestId } from '../types/index.js';
 
 interface QueuedMessage {
     message: JSONRPCMessage;
@@ -21,6 +21,7 @@ export class InMemoryTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
+    oninitializationreplay?: (data: { clientCapabilities: ClientCapabilities; clientVersion: Implementation }) => void;
     sessionId?: string;
 
     /**

@@ -993,4 +993,303 @@ describe('Zod v4', () => {
             expect(cleanupCalls).toEqual(['stream-1']);
         });
     });
+
+    describe('replayInitialization', () => {
+        const REPLAY_SESSION_ID = 'replayed-session-abc';
+        const REPLAY_CAPABILITIES = { sampling: {}, elicitation: { form: {} } };
+        const REPLAY_VERSION = { name: 'cached-client', version: '2.0.0' };
+        const REPLAY_DATA = {
+            clientCapabilities: REPLAY_CAPABILITIES,
+            clientVersion: REPLAY_VERSION
+        };
+
+        it('should call replayInitialization with session ID from header on non-init POST', async () => {
+            const replayFn = vi.fn().mockReturnValue(REPLAY_DATA);
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: replayFn
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            await transport.handleRequest(request);
+
+            expect(replayFn).toHaveBeenCalledWith(REPLAY_SESSION_ID);
+        });
+
+        it('should set transport sessionId and _initialized after successful replay', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => REPLAY_DATA
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            expect(transport.sessionId).toBeUndefined();
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            await transport.handleRequest(request);
+
+            expect(transport.sessionId).toBe(REPLAY_SESSION_ID);
+        });
+
+        it('should invoke oninitializationreplay with replayed data', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => REPLAY_DATA
+            });
+
+            const oninitializationreplaySpy = vi.fn();
+            transport.oninitializationreplay = oninitializationreplaySpy;
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            await transport.handleRequest(request);
+
+            // The server's connect() chains its own hook, so verify the original was also called
+            expect(oninitializationreplaySpy).toHaveBeenCalledWith(REPLAY_DATA);
+        });
+
+        it('should seed server capabilities via oninitializationreplay hook', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => REPLAY_DATA
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            expect(mcpServer.server.getClientCapabilities()).toBeUndefined();
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            await transport.handleRequest(request);
+
+            expect(mcpServer.server.getClientCapabilities()).toEqual(REPLAY_CAPABILITIES);
+            expect(mcpServer.server.getClientVersion()).toEqual(REPLAY_VERSION);
+        });
+
+        it('should pass validateSession after successful replay', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => REPLAY_DATA
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            mcpServer.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            }));
+            await mcpServer.connect(transport);
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            const response = await transport.handleRequest(request);
+
+            // Should NOT be 400 "Server not initialized" or 404 "Session not found"
+            expect(response.status).toBe(200);
+        });
+
+        it('should return 404 when callback returns undefined (session unknown)', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => undefined
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            const response = await transport.handleRequest(request);
+
+            // Replay returned undefined → 404 tells client to re-initialize per spec
+            expect(response.status).toBe(404);
+            const data = await response.json();
+            expectErrorResponse(data, -32_001, /Session not found/);
+        });
+
+        it('should return 500 when callback throws', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => {
+                    throw new Error('Redis connection failed');
+                }
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(500);
+            const data = await response.json();
+            expectErrorResponse(data, -32_603, /session replay failed/);
+        });
+
+        it('should not call callback when no replayInitialization is provided', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            // Without init, a non-init request should be rejected normally
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: 'some-session'
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+        });
+
+        it('should not call callback for initialize requests', async () => {
+            const replayFn = vi.fn().mockReturnValue(REPLAY_DATA);
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                replayInitialization: replayFn
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            // Init request has no mcp-session-id header → callback is not called
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+            await transport.handleRequest(request);
+
+            expect(replayFn).not.toHaveBeenCalled();
+        });
+
+        it('should not call callback when transport is already initialized', async () => {
+            const replayFn = vi.fn().mockReturnValue(REPLAY_DATA);
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                replayInitialization: replayFn
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            // Normal init first
+            const initRequest = createRequest('POST', TEST_MESSAGES.initialize);
+            const initResponse = await transport.handleRequest(initRequest);
+            const sessionId = initResponse.headers.get('mcp-session-id')!;
+
+            // Subsequent request should NOT trigger replay
+            const toolsRequest = createRequest('POST', TEST_MESSAGES.toolsList, { sessionId });
+            await transport.handleRequest(toolsRequest);
+
+            expect(replayFn).not.toHaveBeenCalled();
+        });
+
+        it('should not call callback when mcp-session-id header is missing', async () => {
+            const replayFn = vi.fn().mockReturnValue(REPLAY_DATA);
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: replayFn
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            // POST without session ID header
+            const request = createRequest('POST', TEST_MESSAGES.toolsList);
+            await transport.handleRequest(request);
+
+            expect(replayFn).not.toHaveBeenCalled();
+        });
+
+        it('should reject mismatched session ID after replay', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => REPLAY_DATA
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            // First request replays with REPLAY_SESSION_ID
+            const request1 = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            await transport.handleRequest(request1);
+
+            // Second request with a different session ID should be rejected
+            const request2 = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: 'wrong-session-id'
+            });
+            const response2 = await transport.handleRequest(request2);
+
+            expect(response2.status).toBe(404);
+            const data = await response2.json();
+            expectErrorResponse(data, -32_001, /Session not found/);
+        });
+
+        it('should work with GET requests', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => REPLAY_DATA
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            const request = createRequest('GET', undefined, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            const response = await transport.handleRequest(request);
+
+            // Should open an SSE stream, not reject
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('text/event-stream');
+            expect(transport.sessionId).toBe(REPLAY_SESSION_ID);
+        });
+
+        it('should work with DELETE requests', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: () => REPLAY_DATA
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            await mcpServer.connect(transport);
+
+            const request = createRequest('DELETE', undefined, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+        });
+
+        it('should support async callback', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                replayInitialization: async sessionId => {
+                    // Simulate async cache lookup
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                    return sessionId === REPLAY_SESSION_ID ? REPLAY_DATA : undefined;
+                }
+            });
+
+            const mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
+            mcpServer.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            }));
+            await mcpServer.connect(transport);
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId: REPLAY_SESSION_ID
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(mcpServer.server.getClientCapabilities()).toEqual(REPLAY_CAPABILITIES);
+        });
+    });
 });
