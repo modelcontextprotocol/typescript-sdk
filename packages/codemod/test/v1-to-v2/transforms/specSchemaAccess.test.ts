@@ -192,11 +192,34 @@ describe('spec-schema-access transform', () => {
             expect(result.changesCount).toBe(0);
         });
 
-        it('expands shorthand property assignment', () => {
+        it('expands shorthand property assignment and removes import', () => {
             const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const schemas = { ToolSchema };`, ''].join('\n');
             const { text, result } = applyTransform(input);
-            expect(text).toContain('ToolSchema: specTypeSchemas.Tool');
+            expect(text).toContain("'ToolSchema': specTypeSchemas.Tool");
+            expect(text).not.toMatch(/import\s*\{[^}]*ToolSchema[^}]*\}/);
             expect(result.changesCount).toBeGreaterThan(0);
+        });
+
+        it('skips PropertyAssignment name-node (non-shorthand)', () => {
+            const input = [
+                `import { ToolSchema } from '@modelcontextprotocol/server';`,
+                `const schemas = { ToolSchema: myValidator };`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('ToolSchema: myValidator');
+            expect(result.changesCount).toBe(0);
+        });
+
+        it('skips BindingElement property-name', () => {
+            const input = [
+                `import { ToolSchema } from '@modelcontextprotocol/server';`,
+                `const { ToolSchema: local } = obj;`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('ToolSchema: local');
+            expect(result.changesCount).toBe(0);
         });
     });
 

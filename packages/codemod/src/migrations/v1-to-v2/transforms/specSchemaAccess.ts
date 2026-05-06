@@ -144,7 +144,7 @@ function handleReference(
 
     if (parent && Node.isShorthandPropertyAssignment(parent)) {
         const line = ref.getStartLineNumber();
-        parent.replaceWithText(`${localName}: specTypeSchemas.${typeName}`);
+        parent.replaceWithText(`'${localName}': specTypeSchemas.${typeName}`);
         ensureImport(sourceFile, 'specTypeSchemas');
         diagnostics.push(
             warning(
@@ -154,6 +154,14 @@ function handleReference(
             )
         );
         return true;
+    }
+
+    if (parent && Node.isPropertyAssignment(parent) && parent.getNameNode() === ref) {
+        return false;
+    }
+
+    if (parent && Node.isBindingElement(parent) && parent.getPropertyNameNode() === ref) {
+        return false;
     }
 
     // Value position: replace identifier with specTypeSchemas.X
