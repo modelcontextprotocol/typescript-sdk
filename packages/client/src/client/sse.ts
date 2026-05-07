@@ -261,8 +261,7 @@ export class SSEClientTransport implements Transport {
                 ...this._requestInit,
                 method: 'POST',
                 headers,
-                body: JSON.stringify(message),
-                signal: this._abortController?.signal
+                body: JSON.stringify(message)
             };
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
