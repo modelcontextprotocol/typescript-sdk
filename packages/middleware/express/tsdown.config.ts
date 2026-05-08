@@ -3,8 +3,15 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
     failOnWarn: 'ci-only',
     entry: ['src/index.ts'],
-    format: ['esm'],
     outDir: 'dist',
+    format: {
+        esm: {
+            outDir: 'dist/esm'
+        },
+        cjs: {
+            outDir: 'dist/cjs'
+        }
+    },
     clean: true,
     sourcemap: true,
     target: 'esnext',

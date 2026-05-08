@@ -20,17 +20,25 @@
         "node.js",
         "middleware"
     ],
+    "main": "./dist/cjs/index.cjs",
+    "module": "./dist/esm/index.mjs",
+    "types": "./dist/cjs/index.d.cts",
     "exports": {
         ".": {
-            "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "import": {
+                "types": "./dist/esm/index.d.mts",
+                "default": "./dist/esm/index.mjs"
+            },
+            "require": {
+                "types": "./dist/cjs/index.d.cts",
+                "default": "./dist/cjs/index.cjs"
+            }
         }
     },
-    "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
             "sse": [
-                "dist/sse.d.mts"
+                "dist/cjs/sse.d.cts"
             ]
         }
     },

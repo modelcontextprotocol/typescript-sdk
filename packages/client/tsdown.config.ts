@@ -7,8 +7,16 @@ export default defineConfig({
     entry: ['src/index.ts', 'src/stdio.ts', 'src/shimsNode.ts', 'src/shimsWorkerd.ts', 'src/shimsBrowser.ts', 'src/validators/cfWorker.ts'],
 
     // 2. Output Configuration
-    format: ['esm'],
     outDir: 'dist',
+    format: {
+        esm: {
+            outDir: 'dist/esm'
+        },
+        cjs: {
+            outDir: 'dist/cjs'
+        }
+    },
+
     clean: true, // Recommended: Cleans 'dist' before building
     sourcemap: true,
 
