@@ -103,6 +103,9 @@
             ],
             "stdio": [
                 "dist/cjs/stdio.d.cts"
+            ],
+            "_shims": [
+                "dist/cjs/shimsNode.d.cts"
             ]
         }
     },
