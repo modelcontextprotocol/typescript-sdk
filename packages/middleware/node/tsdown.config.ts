@@ -29,6 +29,7 @@ export default defineConfig({
     //    Bundles d.ts files into a single output
     dts: {
         resolver: 'tsc',
+        parallel: true,
         // override just for DTS generation:
         compilerOptions: {
             baseUrl: '.',
