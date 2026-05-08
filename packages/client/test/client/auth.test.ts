@@ -1422,6 +1422,49 @@ describe('OAuth Authorization', () => {
             expect(prmCalls).toHaveLength(1);
             expect(prmCalls[0]![0].toString()).toBe(cachedPrmUrl);
         });
+
+        it('propagates saveTokens errors instead of silently swallowing them during refresh', async () => {
+            const saveTokensError = new Error('Filesystem write failed');
+            const provider = createMockProvider({
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    resourceMetadata: validResourceMetadata,
+                    authorizationServerMetadata: validAuthMetadata
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'old-access',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                }),
+                saveTokens: vi.fn().mockRejectedValue(saveTokensError)
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            // saveTokens failure must propagate — not be silently swallowed
+            await expect(auth(provider, { serverUrl: 'https://resource.example.com' })).rejects.toThrow('Filesystem write failed');
+
+            // Verify the refresh exchange itself succeeded (token endpoint was called)
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+        });
     });
 
     describe('selectClientAuthMethod', () => {
