@@ -5,21 +5,22 @@ import { JSONRPCMessageSchema } from '../types/index.js';
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  */
 export class ReadBuffer {
-    private _buffer?: Buffer;
+    private _decoder = new TextDecoder('utf-8');
+    private _text = '';
 
     append(chunk: Buffer): void {
-        this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
+        this._text += this._decoder.decode(chunk, { stream: true });
     }
 
     readMessage(): JSONRPCMessage | null {
-        while (this._buffer) {
-            const index = this._buffer.indexOf('\n');
+        while (this._text) {
+            const index = this._text.indexOf('\n');
             if (index === -1) {
                 return null;
             }
 
-            const line = this._buffer.toString('utf8', 0, index).replace(/\r$/, '');
-            this._buffer = this._buffer.subarray(index + 1);
+            const line = this._text.slice(0, index).replace(/\r$/, '');
+            this._text = this._text.slice(index + 1);
 
             try {
                 return deserializeMessage(line);
@@ -37,7 +38,8 @@ export class ReadBuffer {
     }
 
     clear(): void {
-        this._buffer = undefined;
+        this._decoder = new TextDecoder('utf-8');
+        this._text = '';
     }
 }
 
