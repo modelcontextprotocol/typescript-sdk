@@ -1,23 +1,24 @@
-import { StringDecoder } from 'node:string_decoder';
 import type { JSONRPCMessage } from '../types/index.js';
 import { JSONRPCMessageSchema } from '../types/index.js';
 
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  *
- * Uses `StringDecoder` to preserve multi-byte UTF-8 sequences across
- * chunk boundaries. `Buffer.toString('utf8', ...)` decodes a slice
- * eagerly and produces replacement characters when a multi-byte
- * sequence is split between chunks; `StringDecoder.write()` carries
- * the partial bytes forward so characters like em-dashes (U+2014) or
- * emoji decode intact regardless of how the stream is chunked.
+ * Uses `TextDecoder` with streaming mode to preserve multi-byte UTF-8
+ * sequences across chunk boundaries. `Buffer.toString('utf8', ...)`
+ * decodes a slice eagerly and produces replacement characters when a
+ * multi-byte sequence is split between chunks; `TextDecoder.decode`
+ * with `{ stream: true }` carries the partial bytes forward so
+ * characters like em-dashes (U+2014) or emoji decode intact regardless
+ * of how the stream is chunked. `TextDecoder` is a Web Standards API
+ * available across Node, Cloudflare Workers, Deno, and Bun.
  */
 export class ReadBuffer {
-    private _decoder = new StringDecoder('utf8');
+    private _decoder = new TextDecoder('utf-8');
     private _text = '';
 
     append(chunk: Buffer): void {
-        this._text += this._decoder.write(chunk);
+        this._text += this._decoder.decode(chunk, { stream: true });
     }
 
     readMessage(): JSONRPCMessage | null {
@@ -46,7 +47,7 @@ export class ReadBuffer {
     }
 
     clear(): void {
-        this._decoder = new StringDecoder('utf8');
+        this._decoder = new TextDecoder('utf-8');
         this._text = '';
     }
 }
