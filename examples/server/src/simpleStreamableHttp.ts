@@ -1,12 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-import {
-    createProtectedResourceMetadataRouter,
-    getOAuthProtectedResourceMetadataUrl,
-    requireBearerAuth,
-    setupAuthServer
-} from '@modelcontextprotocol/examples-shared';
-import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
@@ -25,7 +20,6 @@ import { InMemoryEventStore } from './inMemoryEventStore.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
-const strictOAuth = process.argv.includes('--oauth-strict');
 const dangerousLoggingEnabled = process.argv.includes('--dangerous-logging-enabled');
 
 // Create shared task store for demonstration
@@ -624,7 +618,7 @@ if (useOAuth) {
     const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
     const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-    setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth, demoMode: true, dangerousLoggingEnabled });
+    setupAuthServer({ authServerUrl, mcpServerUrl, demoMode: true, dangerousLoggingEnabled });
 
     // Add protected resource metadata route to the MCP server
     // This allows clients to discover the auth server
@@ -632,10 +626,9 @@ if (useOAuth) {
     app.use(createProtectedResourceMetadataRouter('/mcp'));
 
     authMiddleware = requireBearerAuth({
+        verifier: demoTokenVerifier,
         requiredScopes: [],
-        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
-        strictResource: strictOAuth,
-        expectedResource: mcpServerUrl
+        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
     });
 }
 
@@ -651,8 +644,8 @@ const mcpPostHandler = async (req: Request, res: Response) => {
         console.log('Request body:', req.body);
     }
 
-    if (useOAuth && req.app.locals.auth) {
-        console.log('Authenticated user:', req.app.locals.auth);
+    if (useOAuth && req.auth) {
+        console.log('Authenticated user:', req.auth);
     }
     try {
         let transport: NodeStreamableHTTPServerTransport;
@@ -742,8 +735,8 @@ const mcpGetHandler = async (req: Request, res: Response) => {
         return;
     }
 
-    if (useOAuth && req.app.locals.auth) {
-        console.log('Authenticated SSE connection from user:', req.app.locals.auth);
+    if (useOAuth && req.auth) {
+        console.log('Authenticated SSE connection from user:', req.auth);
     }
 
     // Check for Last-Event-ID header for resumability

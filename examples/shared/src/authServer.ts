@@ -9,6 +9,9 @@
  * See: https://www.better-auth.com/docs/plugins/mcp
  */
 
+import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
+import type { AuthInfo } from '@modelcontextprotocol/server';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import { toNodeHandler } from 'better-auth/node';
 import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from 'better-auth/plugins';
 import cors from 'cors';
@@ -21,7 +24,6 @@ import { createDemoAuth, DEMO_USER_CREDENTIALS } from './auth.js';
 export interface SetupAuthServerOptions {
     authServerUrl: URL;
     mcpServerUrl: URL;
-    strictResource?: boolean;
     /**
      * Examples should be used for **demo** only and not for production purposes, however this mode disables some logging and other features.
      */
@@ -284,60 +286,29 @@ export function createProtectedResourceMetadataRouter(resourcePath = '/mcp'): Ro
 }
 
 /**
- * Verifies an access token using better-auth's getMcpSession.
- * This can be used by MCP servers to validate tokens.
+ * Demo {@link OAuthTokenVerifier} backed by better-auth's `getMcpSession`.
+ * Pass this to `requireBearerAuth({ verifier: demoTokenVerifier, ... })` from
+ * `@modelcontextprotocol/express` to validate Bearer tokens against the demo
+ * Authorization Server started by `setupAuthServer`.
  */
-export async function verifyAccessToken(
-    token: string,
-    options?: { strictResource?: boolean; expectedResource?: URL }
-): Promise<{
-    token: string;
-    clientId: string;
-    scopes: string[];
-    expiresAt: number;
-}> {
-    const auth = getAuth();
+export const demoTokenVerifier: OAuthTokenVerifier = {
+    async verifyAccessToken(token: string): Promise<AuthInfo> {
+        const auth = getAuth();
 
-    try {
-        // Create a mock request with the Authorization header
         const headers = new Headers();
         headers.set('Authorization', `Bearer ${token}`);
 
-        // Use better-auth's getMcpSession API
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const session = await (auth.api as any).getMcpSession({
-            headers
-        });
-
+        const session = await (auth.api as any).getMcpSession({ headers });
         if (!session) {
-            throw new Error('Invalid token');
+            throw new OAuthError(OAuthErrorCode.InvalidToken, 'Invalid token');
         }
 
-        // OAuthAccessToken has:
-        // - accessToken, refreshToken: string
-        // - accessTokenExpiresAt, refreshTokenExpiresAt: Date
-        // - clientId, userId: string
-        // - scopes: string (space-separated)
         const scopes = typeof session.scopes === 'string' ? session.scopes.split(' ') : ['openid'];
         const expiresAt = session.accessTokenExpiresAt
             ? Math.floor(new Date(session.accessTokenExpiresAt).getTime() / 1000)
             : Math.floor(Date.now() / 1000) + 3600;
 
-        // Note: better-auth's OAuthAccessToken doesn't have a resource field
-        // Resource validation would need to be done at a different layer
-        if (options?.strictResource && options.expectedResource) {
-            // For now, we skip resource validation as it's not in the session
-            // In production, you'd store and validate this separately
-            console.warn('[Auth] Resource validation requested but not available in better-auth session');
-        }
-
-        return {
-            token,
-            clientId: session.clientId,
-            scopes,
-            expiresAt
-        };
-    } catch (error) {
-        throw new Error(`Token verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return { token, clientId: session.clientId, scopes, expiresAt };
     }
-}
+};

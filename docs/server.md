@@ -22,7 +22,8 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate, StdioServerTransport } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 ```
 

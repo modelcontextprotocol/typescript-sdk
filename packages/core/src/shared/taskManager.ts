@@ -32,6 +32,7 @@ import {
     TaskStatusNotificationSchema
 } from '../types/index.js';
 import type { AnyObjectSchema, AnySchema, SchemaOutput } from '../util/schema.js';
+import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import type { BaseContext, NotificationOptions, RequestOptions } from './protocol.js';
 import type { ResponseMessage } from './responseMessage.js';
 
@@ -39,7 +40,11 @@ import type { ResponseMessage } from './responseMessage.js';
  * Host interface for TaskManager to call back into Protocol. @internal
  */
 export interface TaskManagerHost {
-    request<T extends AnySchema>(request: Request, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>>;
+    request<T extends StandardSchemaV1>(
+        request: Request,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>>;
     notification(notification: Notification, options?: NotificationOptions): Promise<void>;
     reportError(error: Error): void;
     removeProgressHandler(token: number): void;
@@ -57,7 +62,11 @@ export interface TaskManagerHost {
 export interface InboundContext {
     sessionId?: string;
     sendNotification: (notification: Notification, options?: NotificationOptions) => Promise<void>;
-    sendRequest: <U extends AnySchema>(request: Request, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
+    sendRequest: <U extends StandardSchemaV1>(
+        request: Request,
+        resultSchema: U,
+        options?: RequestOptions
+    ) => Promise<StandardSchemaV1.InferOutput<U>>;
 }
 
 /**
@@ -67,11 +76,11 @@ export interface InboundContext {
 export interface InboundResult {
     taskContext?: BaseContext['task'];
     sendNotification: (notification: Notification) => Promise<void>;
-    sendRequest: <U extends AnySchema>(
+    sendRequest: <U extends StandardSchemaV1>(
         request: Request,
         resultSchema: U,
         options?: Omit<RequestOptions, 'relatedTask'>
-    ) => Promise<SchemaOutput<U>>;
+    ) => Promise<StandardSchemaV1.InferOutput<U>>;
     routeResponse: (message: JSONRPCResponse | JSONRPCErrorResponse) => Promise<boolean>;
     hasTaskCreationParams: boolean;
     /**
@@ -274,7 +283,10 @@ export class TaskManager {
 
         if (!task) {
             try {
-                const result = await host.request(request, resultSchema, options);
+                // TODO: SchemaOutput<T> (Zod) and StandardSchemaV1.InferOutput<T> (host.request's return)
+                // resolve to the same type for Zod schemas, but TS can't unify them generically.
+                // Removing this cast requires aligning ResponseMessage<T extends Result> with StandardSchema.
+                const result = (await host.request(request, resultSchema, options)) as SchemaOutput<T>;
                 yield { type: 'result', result };
             } catch (error) {
                 yield {
@@ -346,7 +358,8 @@ export class TaskManager {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<SchemaOutput<T>> {
-        return this._requireHost.request({ method: 'tasks/result', params }, resultSchema, options);
+        // TODO: same SchemaOutput<T> vs StandardSchemaV1.InferOutput<T> mismatch as requestStream above.
+        return this._requireHost.request({ method: 'tasks/result', params }, resultSchema, options) as Promise<SchemaOutput<T>>;
     }
 
     async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
@@ -563,9 +576,17 @@ export class TaskManager {
     private wrapSendRequest(
         relatedTaskId: string,
         taskStore: RequestTaskStore | undefined,
-        originalSendRequest: <V extends AnySchema>(request: Request, resultSchema: V, options?: RequestOptions) => Promise<SchemaOutput<V>>
-    ): <V extends AnySchema>(request: Request, resultSchema: V, options?: TaskRequestOptions) => Promise<SchemaOutput<V>> {
-        return async <V extends AnySchema>(request: Request, resultSchema: V, options?: TaskRequestOptions) => {
+        originalSendRequest: <V extends StandardSchemaV1>(
+            request: Request,
+            resultSchema: V,
+            options?: RequestOptions
+        ) => Promise<StandardSchemaV1.InferOutput<V>>
+    ): <V extends StandardSchemaV1>(
+        request: Request,
+        resultSchema: V,
+        options?: TaskRequestOptions
+    ) => Promise<StandardSchemaV1.InferOutput<V>> {
+        return async <V extends StandardSchemaV1>(request: Request, resultSchema: V, options?: TaskRequestOptions) => {
             const requestOptions: RequestOptions = { ...options };
             if (relatedTaskId && !requestOptions.relatedTask) {
                 requestOptions.relatedTask = { taskId: relatedTaskId };

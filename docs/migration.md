@@ -50,14 +50,17 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 **After (v2):**
 
 ```typescript
-import { Client, StreamableHTTPClientTransport, StdioClientTransport } from '@modelcontextprotocol/client';
-import { McpServer, StdioServerTransport, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 // Node.js HTTP server transport is in the @modelcontextprotocol/node package
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 ```
 
-Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
+Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly
+— it is an internal package.
 
 ### Dropped Node.js 18 and CommonJS
 
@@ -130,11 +133,11 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
 ```
 
-### Server auth removed
+### Server auth split
 
-Server-side OAuth/auth has been removed entirely from the SDK. This includes `mcpAuthRouter`, `OAuthServerProvider`, `OAuthTokenVerifier`, `requireBearerAuth`, `authenticateClient`, `ProxyOAuthServerProvider`, `allowedMethods`, and all associated types.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are now first-class in `@modelcontextprotocol/express`.
 
-Use a dedicated auth library (e.g., `better-auth`) or a full Authorization Server instead. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
+Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
 
 Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
@@ -294,11 +297,11 @@ This applies to:
 
 **Removed Zod-specific helpers** from `@modelcontextprotocol/core` (use Standard Schema equivalents):
 
-| Removed | Replacement |
-|---|---|
-| `schemaToJson(schema)` | `standardSchemaToJsonSchema(schema)` |
-| `parseSchemaAsync(schema, data)` | `validateStandardSchema(schema, data)` |
-| `SchemaInput<T>` | `StandardSchemaWithJSON.InferInput<T>` |
+| Removed                                                                              | Replacement                                                       |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `schemaToJson(schema)`                                                               | `standardSchemaToJsonSchema(schema)`                              |
+| `parseSchemaAsync(schema, data)`                                                     | `validateStandardSchema(schema, data)`                            |
+| `SchemaInput<T>`                                                                     | `StandardSchemaWithJSON.InferInput<T>`                            |
 | `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema` | No replacement — these are now internal Zod introspection helpers |
 
 ### Host header validation moved
@@ -364,6 +367,48 @@ server.setNotificationHandler('notifications/message', notification => {
 
 The request and notification parameters remain fully typed via `RequestTypeMap` and `NotificationTypeMap`. You no longer need to import the individual `*RequestSchema` or `*NotificationSchema` constants for handler registration.
 
+#### Custom (non-spec) methods
+
+For vendor-prefixed methods (anything not in the MCP spec), use the 3-arg form: pass the method string, a `{ params, result? }` schemas object, and the handler. Any [Standard Schema](https://standardschema.dev) library works (Zod, Valibot, ArkType).
+
+**Before (v1):**
+
+```typescript
+const AcmeSearch = z.object({
+    method: z.literal('acme/search'),
+    params: z.object({ query: z.string(), limit: z.number().int() })
+});
+server.setRequestHandler(AcmeSearch, async request => {
+    return { items: [/* ... */] };
+});
+```
+
+**After (v2):**
+
+```typescript
+const SearchParams = z.object({ query: z.string(), limit: z.number().int() });
+const SearchResult = z.object({ items: z.array(z.string()) });
+
+server.setRequestHandler('acme/search', { params: SearchParams, result: SearchResult }, async (params, ctx) => {
+    return { items: [/* ... */] };
+});
+```
+
+The handler receives the parsed `params` directly (not the full request envelope). `_meta` is stripped before validation and is available as `ctx.mcpReq._meta`. Supplying `result` types the handler's return value; omit it to return any `Result`.
+
+For `setNotificationHandler`, the 3-arg handler is `(params, notification) => void`. The raw notification is the second argument, so `_meta` is recoverable via `notification.params?._meta`.
+
+#### Sending custom-method requests
+
+`request()` and `ctx.mcpReq.send()` accept a result schema as the second argument; for custom methods this is required:
+
+```typescript
+const result = await client.request({ method: 'acme/search', params: { query: 'mcp', limit: 3 } }, SearchResult);
+result.items; // string[]
+```
+
+For spec methods the 1-arg form still works and the result type is inferred from the method name.
+
 Common method string replacements:
 
 | Schema (v1)                             | Method string (v2)                       |
@@ -382,10 +427,10 @@ Common method string replacements:
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
 
-### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer take a schema parameter
+### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer require a schema parameter for spec methods
 
-The public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer accept a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
-like `CallToolResultSchema` or `ElicitResultSchema` when making requests.
+For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
+like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
 
 **`client.request()` — Before (v1):**
 
@@ -442,17 +487,30 @@ const result = await client.callTool({ name: 'my-tool', arguments: {} });
 
 The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
 
-If you were using `CallToolResultSchema` for **runtime validation** (not just in `request()`/`callTool()` calls), use the new `isCallToolResult` type guard instead:
+For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
+
+If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `isSpecType` or `specTypeSchemas`:
 
 ```typescript
 // v1: runtime validation with Zod schema
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
-if (CallToolResultSchema.safeParse(value).success) { /* ... */ }
+if (CallToolResultSchema.safeParse(value).success) {
+    /* ... */
+}
 
-// v2: use the type guard
-import { isCallToolResult } from '@modelcontextprotocol/client';
-if (isCallToolResult(value)) { /* ... */ }
+// v2: keyed type predicate
+import { isSpecType } from '@modelcontextprotocol/client';
+if (isSpecType.CallToolResult(value)) {
+    /* ... */
+}
+const blocks = mixed.filter(isSpecType.ContentBlock);
+
+// v2: or get the StandardSchemaV1 validator object directly
+import { specTypeSchemas } from '@modelcontextprotocol/client';
+const result = await specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
+
+`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1<In, Out>`, which composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 
@@ -469,40 +527,39 @@ const client = new Client(
 );
 ```
 
-### `InMemoryTransport` removed from public API
+### `InMemoryTransport` moved
 
-`InMemoryTransport` has been removed from the public API surface. It was previously used for in-process client-server connections and testing.
-
-For **testing**, import it directly from the internal core package:
+`InMemoryTransport` is now exported from `@modelcontextprotocol/client` and `@modelcontextprotocol/server` (both re-export it). It is still intended for in-process client-server connections and testing.
 
 ```typescript
 // v1
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-// v2 (testing only — @modelcontextprotocol/core is internal, not for production use)
-import { InMemoryTransport } from '@modelcontextprotocol/core';
+// v2
+import { InMemoryTransport } from '@modelcontextprotocol/server';
+// or
+import { InMemoryTransport } from '@modelcontextprotocol/client';
 ```
-
-For **production in-process connections**, use `StreamableHTTPClientTransport` with a local server URL, or connect client and server via paired streams.
 
 ### Removed type aliases and deprecated exports
 
 The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
 
-| Removed                                  | Replacement                                      |
-| ---------------------------------------- | ------------------------------------------------ |
-| `JSONRPCError`                           | `JSONRPCErrorResponse`                           |
-| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                     |
-| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                         |
-| `isJSONRPCResponse`                      | `isJSONRPCResultResponse` (see note below)       |
-| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                |
-| `ResourceReference`                      | `ResourceTemplateReference`                      |
-| `IsomorphicHeaders`                      | Use Web Standard `Headers`                       |
+| Removed                                  | Replacement                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `JSONRPCError`                           | `JSONRPCErrorResponse`                                                                            |
+| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                                                                      |
+| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                                                          |
+| `isJSONRPCResponse`                      | `isJSONRPCResultResponse` (see note below)                                                        |
+| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                 |
+| `ResourceReference`                      | `ResourceTemplateReference`                                                                       |
+| `IsomorphicHeaders`                      | Use Web Standard `Headers`                                                                        |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
 All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
 
-> **Note on `isJSONRPCResponse`:** v1's `isJSONRPCResponse` was a deprecated alias that only checked for *result* responses (it was equivalent to `isJSONRPCResultResponse`). v2 removes the deprecated alias and introduces a **new** `isJSONRPCResponse` with corrected semantics — it checks for *any* response (either result or error). If you are migrating v1 code that used `isJSONRPCResponse`, rename it to `isJSONRPCResultResponse` to preserve the original behavior. Use the new `isJSONRPCResponse` only when you want to match both result and error responses.
+> **Note on `isJSONRPCResponse`:** v1's `isJSONRPCResponse` was a deprecated alias that only checked for _result_ responses (it was equivalent to `isJSONRPCResultResponse`). v2 removes the deprecated alias and introduces a **new** `isJSONRPCResponse` with corrected semantics — it
+> checks for _any_ response (either result or error). If you are migrating v1 code that used `isJSONRPCResponse`, rename it to `isJSONRPCResultResponse` to preserve the original behavior. Use the new `isJSONRPCResponse` only when you want to match both result and error responses.
 
 **Before (v1):**
 
@@ -530,7 +587,7 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
 | `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
 | `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
-| `extra.requestInfo`                      | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)     |
+| `extra.requestInfo`                      | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)      |
 | `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
 | `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
 | `extra.sessionId`                        | `ctx.sessionId`                                                        |
@@ -658,6 +715,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response      |
 | `SdkErrorCode.ConnectionClosed`                   | Connection was closed                       |
 | `SdkErrorCode.SendFailed`                         | Failed to send message                      |
+| `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
 | `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                    |
 | `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication |
 | `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping  |
@@ -797,7 +855,8 @@ try {
 
 ### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
 
-The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let the server decide the lifetime.
+The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let
+the server decide the lifetime.
 
 This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
 

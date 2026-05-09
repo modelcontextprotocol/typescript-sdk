@@ -26,9 +26,9 @@ import {
     SdkError,
     SdkErrorCode,
     SSEClientTransport,
-    StdioClientTransport,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 ```
 
 ## Connecting to a server

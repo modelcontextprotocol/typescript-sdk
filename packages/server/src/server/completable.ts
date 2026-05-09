@@ -1,19 +1,19 @@
-import type { StandardSchemaWithJSON } from '@modelcontextprotocol/core';
+import type { StandardSchemaV1 } from '@modelcontextprotocol/core';
 
 export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 
-export type CompleteCallback<T extends StandardSchemaWithJSON = StandardSchemaWithJSON> = (
-    value: StandardSchemaWithJSON.InferInput<T>,
+export type CompleteCallback<T extends StandardSchemaV1 = StandardSchemaV1> = (
+    value: StandardSchemaV1.InferInput<T>,
     context?: {
         arguments?: Record<string, string>;
     }
-) => StandardSchemaWithJSON.InferInput<T>[] | Promise<StandardSchemaWithJSON.InferInput<T>[]>;
+) => StandardSchemaV1.InferInput<T>[] | Promise<StandardSchemaV1.InferInput<T>[]>;
 
-export type CompletableMeta<T extends StandardSchemaWithJSON = StandardSchemaWithJSON> = {
+export type CompletableMeta<T extends StandardSchemaV1 = StandardSchemaV1> = {
     complete: CompleteCallback<T>;
 };
 
-export type CompletableSchema<T extends StandardSchemaWithJSON> = T & {
+export type CompletableSchema<T extends StandardSchemaV1> = T & {
     [COMPLETABLE_SYMBOL]: CompletableMeta<T>;
 };
 
@@ -48,7 +48,7 @@ export type CompletableSchema<T extends StandardSchemaWithJSON> = T & {
  *
  * @see {@linkcode server/mcp.McpServer.registerPrompt | McpServer.registerPrompt} for using completable schemas in prompt argument definitions
  */
-export function completable<T extends StandardSchemaWithJSON>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {
+export function completable<T extends StandardSchemaV1>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {
     Object.defineProperty(schema as object, COMPLETABLE_SYMBOL, {
         value: { complete } as CompletableMeta<T>,
         enumerable: false,
@@ -61,14 +61,14 @@ export function completable<T extends StandardSchemaWithJSON>(schema: T, complet
 /**
  * Checks if a schema is completable (has completion metadata).
  */
-export function isCompletable(schema: unknown): schema is CompletableSchema<StandardSchemaWithJSON> {
+export function isCompletable(schema: unknown): schema is CompletableSchema<StandardSchemaV1> {
     return !!schema && typeof schema === 'object' && COMPLETABLE_SYMBOL in (schema as object);
 }
 
 /**
  * Gets the completer callback from a completable schema, if it exists.
  */
-export function getCompleter<T extends StandardSchemaWithJSON>(schema: T): CompleteCallback<T> | undefined {
+export function getCompleter<T extends StandardSchemaV1>(schema: T): CompleteCallback<T> | undefined {
     const meta = (schema as unknown as { [COMPLETABLE_SYMBOL]?: CompletableMeta<T> })[COMPLETABLE_SYMBOL];
     return meta?.complete as CompleteCallback<T> | undefined;
 }

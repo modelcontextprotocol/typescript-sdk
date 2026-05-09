@@ -4,7 +4,8 @@
  * ArkType implements the Standard Schema spec with built-in JSON Schema conversion.
  */
 
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { type } from 'arktype';
 
 const server = new McpServer({

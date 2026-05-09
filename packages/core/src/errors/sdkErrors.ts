@@ -26,6 +26,8 @@ export enum SdkErrorCode {
     ConnectionClosed = 'CONNECTION_CLOSED',
     /** Failed to send message */
     SendFailed = 'SEND_FAILED',
+    /** Response result failed local schema validation */
+    InvalidResult = 'INVALID_RESULT',
 
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',
