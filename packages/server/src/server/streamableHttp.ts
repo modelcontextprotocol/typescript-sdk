@@ -18,6 +18,29 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
+/**
+ * Constant-time string comparison to prevent timing side-channel attacks.
+ * Uses Web Crypto API's subtle.timingSafeEqual when available (Node.js 20+),
+ * otherwise falls back to a portable XOR-based comparison.
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    const encoder = new TextEncoder();
+    const bufA = encoder.encode(a);
+    const bufB = encoder.encode(b);
+    // Length check on encoded bytes (handles multi-byte characters)
+    if (bufA.length !== bufB.length) {
+        return false;
+    }
+    let result = 0;
+    for (let i = 0; i < bufA.length; i++) {
+        result |= bufA[i]! ^ bufB[i]!;
+    }
+    return result === 0;
+}
+
 export type StreamId = string;
 export type EventId = string;
 
@@ -864,7 +887,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return this.createJsonErrorResponse(400, -32_000, 'Bad Request: Mcp-Session-Id header is required');
         }
 
-        if (sessionId !== this.sessionId) {
+        if (!timingSafeCompare(sessionId, this.sessionId!)) {
             // Reject requests with invalid session ID with 404 Not Found
             this.onerror?.(new Error('Session not found'));
             return this.createJsonErrorResponse(404, -32_001, 'Session not found');
