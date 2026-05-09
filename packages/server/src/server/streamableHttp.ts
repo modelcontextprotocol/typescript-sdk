@@ -20,8 +20,8 @@ import {
 
 /**
  * Constant-time string comparison to prevent timing side-channel attacks.
- * Uses Web Crypto API's subtle.timingSafeEqual when available (Node.js 20+),
- * otherwise falls back to a portable XOR-based comparison.
+ * Uses a portable XOR-based comparison that works across all Web Standards
+ * runtimes (Node.js, Cloudflare Workers, Deno, Bun).
  */
 function timingSafeCompare(a: string, b: string): boolean {
     if (a.length !== b.length) {
@@ -30,13 +30,12 @@ function timingSafeCompare(a: string, b: string): boolean {
     const encoder = new TextEncoder();
     const bufA = encoder.encode(a);
     const bufB = encoder.encode(b);
-    // Length check on encoded bytes (handles multi-byte characters)
     if (bufA.length !== bufB.length) {
         return false;
     }
     let result = 0;
-    for (let i = 0; i < bufA.length; i++) {
-        result |= bufA[i]! ^ bufB[i]!;
+    for (const [index, byte] of bufA.entries()) {
+        result |= byte ^ bufB[index]!;
     }
     return result === 0;
 }
