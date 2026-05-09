@@ -3,15 +3,6 @@ import { JSONRPCMessageSchema } from '../types/index.js';
 
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
- *
- * Uses `TextDecoder` with streaming mode to preserve multi-byte UTF-8
- * sequences across chunk boundaries. `Buffer.toString('utf8', ...)`
- * decodes a slice eagerly and produces replacement characters when a
- * multi-byte sequence is split between chunks; `TextDecoder.decode`
- * with `{ stream: true }` carries the partial bytes forward so
- * characters like em-dashes (U+2014) or emoji decode intact regardless
- * of how the stream is chunked. `TextDecoder` is a Web Standards API
- * available across Node, Cloudflare Workers, Deno, and Bun.
  */
 export class ReadBuffer {
     private _decoder = new TextDecoder('utf-8');
@@ -22,7 +13,7 @@ export class ReadBuffer {
     }
 
     readMessage(): JSONRPCMessage | null {
-        while (this._text.length > 0) {
+        while (this._text) {
             const index = this._text.indexOf('\n');
             if (index === -1) {
                 return null;
