@@ -1,25 +1,34 @@
+import { StringDecoder } from 'node:string_decoder';
 import type { JSONRPCMessage } from '../types/index.js';
 import { JSONRPCMessageSchema } from '../types/index.js';
 
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
+ *
+ * Uses `StringDecoder` to preserve multi-byte UTF-8 sequences across
+ * chunk boundaries. `Buffer.toString('utf8', ...)` decodes a slice
+ * eagerly and produces replacement characters when a multi-byte
+ * sequence is split between chunks; `StringDecoder.write()` carries
+ * the partial bytes forward so characters like em-dashes (U+2014) or
+ * emoji decode intact regardless of how the stream is chunked.
  */
 export class ReadBuffer {
-    private _buffer?: Buffer;
+    private _decoder = new StringDecoder('utf8');
+    private _text = '';
 
     append(chunk: Buffer): void {
-        this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
+        this._text += this._decoder.write(chunk);
     }
 
     readMessage(): JSONRPCMessage | null {
-        while (this._buffer) {
-            const index = this._buffer.indexOf('\n');
+        while (this._text.length > 0) {
+            const index = this._text.indexOf('\n');
             if (index === -1) {
                 return null;
             }
 
-            const line = this._buffer.toString('utf8', 0, index).replace(/\r$/, '');
-            this._buffer = this._buffer.subarray(index + 1);
+            const line = this._text.slice(0, index).replace(/\r$/, '');
+            this._text = this._text.slice(index + 1);
 
             try {
                 return deserializeMessage(line);
@@ -37,7 +46,8 @@ export class ReadBuffer {
     }
 
     clear(): void {
-        this._buffer = undefined;
+        this._decoder = new StringDecoder('utf8');
+        this._text = '';
     }
 }
 
