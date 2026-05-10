@@ -36,6 +36,7 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     standardSchemaToJsonSchema,
+    SUBSCRIPTION_ID_META_KEY,
     SUBSCRIPTION_NOT_FOUND,
     TOO_MANY_SUBSCRIPTIONS,
     WEBHOOK_ID_HEADER,
@@ -90,13 +91,13 @@ export interface EventCheckResult {
     truncated?: boolean;
     /**
      * If `true`, more events are available and the SDK SHOULD invoke check()
-     * again immediately without waiting for `nextPollSeconds`.
+     * again immediately without waiting for `nextPollMs`.
      */
     hasMore?: boolean;
     /**
-     * Recommended seconds until the next check call.
+     * Recommended milliseconds until the next check call.
      */
-    nextPollSeconds?: number;
+    nextPollMs?: number;
 }
 
 /**
@@ -314,7 +315,7 @@ export interface ServerEventManagerOptions {
 interface LogEntry {
     seq: number;
     cursor: string;
-    /** ms since epoch — used for `maxAge` floor evaluation. */
+    /** ms since epoch — used for `maxAgeMs` floor evaluation. */
     at: number;
     occurrence: EventOccurrence;
 }
@@ -390,7 +391,7 @@ interface PollLease {
     params: Record<string, unknown>;
 }
 
-const DEFAULT_POLL_SECONDS = 30;
+const DEFAULT_POLL_MS = 30_000;
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_MAX_WEBHOOK_SUBS = 1000;
 const DEFAULT_MAX_EVENTS = 100;
@@ -398,7 +399,7 @@ const DEFAULT_BUFFER_CAPACITY = 1000;
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} };
 
-const EMIT_ONLY_CHECK: EventCheckCallback = () => ({ events: [], cursor: null, nextPollSeconds: DEFAULT_POLL_SECONDS });
+const EMIT_ONLY_CHECK: EventCheckCallback = () => ({ events: [], cursor: null, nextPollMs: DEFAULT_POLL_MS });
 
 /**
  * Stable JSON serialisation — sorts object keys recursively so two
@@ -676,7 +677,7 @@ export class ServerEventManager {
         stream.sub.cursor = occurrence.cursor ?? stream.sub.cursor;
         void stream.sub.ctx.mcpReq.notify({
             method: 'notifications/events/event',
-            params: { requestId: stream.requestId, ...occurrence }
+            params: { ...occurrence, _meta: { ...occurrence._meta, [SUBSCRIPTION_ID_META_KEY]: stream.requestId } }
         });
     }
 
@@ -695,7 +696,7 @@ export class ServerEventManager {
                 if (!stream.closed) {
                     void stream.sub.ctx.mcpReq.notify({
                         method: 'notifications/events/terminated',
-                        params: { requestId: stream.requestId, error }
+                        params: { error, _meta: { [SUBSCRIPTION_ID_META_KEY]: stream.requestId } }
                     });
                 }
                 this._closeStream(stream);
@@ -795,7 +796,7 @@ export class ServerEventManager {
     }
 
     /**
-     * Computes the replay slice from the log for a given cursor and `maxAge`
+     * Computes the replay slice from the log for a given cursor and `maxAgeMs`
      * floor. Never errors — when the cursor isn't found or the floor advances
      * past it, returns `truncated: true` and resets to head.
      */
@@ -803,7 +804,7 @@ export class ServerEventManager {
         event: InternalRegisteredEvent,
         params: Record<string, unknown>,
         cursor: string | null,
-        maxAge: number | undefined,
+        maxAgeMs: number | undefined,
         subscriptionId: string
     ): Promise<{ events: EventOccurrence[]; truncated: boolean; headCursor: string | null }> {
         const log = event.log;
@@ -817,8 +818,8 @@ export class ServerEventManager {
             return { events: [], truncated: true, headCursor };
         }
 
-        // Apply maxAge floor: skip entries older than now - maxAge.
-        const floorAt = maxAge === undefined ? undefined : Date.now() - maxAge * 1000;
+        // Apply maxAgeMs floor: skip entries older than now - maxAgeMs.
+        const floorAt = maxAgeMs === undefined ? undefined : Date.now() - maxAgeMs;
         const events: EventOccurrence[] = [];
         // eslint-disable-next-line unicorn/no-useless-spread -- intentional snapshot, not redundant
         for (const entry of [...log.entries]) {
@@ -848,7 +849,7 @@ export class ServerEventManager {
         | {
               events: EventOccurrence[];
               nextInternalCheckCursor: string | null;
-              nextPollSeconds?: number;
+              nextPollMs?: number;
               hasMore?: boolean;
               truncated: boolean;
           }
@@ -882,7 +883,7 @@ export class ServerEventManager {
         return {
             events: occurrences,
             nextInternalCheckCursor: checkResult.cursor,
-            nextPollSeconds: checkResult.nextPollSeconds,
+            nextPollMs: checkResult.nextPollMs,
             hasMore: checkResult.hasMore,
             truncated: checkResult.truncated ?? false
         };
@@ -934,8 +935,8 @@ export class ServerEventManager {
             }
         }
 
-        // 1. Replay log entries with seq > replayFromSeq, filtered + maxAge floor.
-        const floorAt = params.maxAge !== undefined && wireCursor !== null ? Date.now() - params.maxAge * 1000 : undefined;
+        // 1. Replay log entries with seq > replayFromSeq, filtered + maxAgeMs floor.
+        const floorAt = params.maxAgeMs !== undefined && wireCursor !== null ? Date.now() - params.maxAgeMs : undefined;
         const replayEvents: EventOccurrence[] = [];
         // eslint-disable-next-line unicorn/no-useless-spread -- intentional snapshot, not redundant
         for (const entry of [...event.log.entries]) {
@@ -989,7 +990,7 @@ export class ServerEventManager {
             cursor: newCursor ?? null,
             truncated,
             hasMore,
-            nextPollSeconds: tick.nextPollSeconds ?? DEFAULT_POLL_SECONDS
+            nextPollMs: tick.nextPollMs ?? DEFAULT_POLL_MS
         };
     }
 
@@ -1053,7 +1054,7 @@ export class ServerEventManager {
         ctx.mcpReq.signal.addEventListener('abort', () => this._closeStream(stream), { once: true });
         this._pushStreams.add(stream);
 
-        const replay = await this._replayAfterCursor(event, paramsResult.params, spec.cursor, spec.maxAge, subId);
+        const replay = await this._replayAfterCursor(event, paramsResult.params, spec.cursor, spec.maxAgeMs, subId);
         if (stream.closed) {
             await this._safeOnUnsubscribe(event, subId, paramsResult.params, ctx);
             return;
@@ -1073,7 +1074,7 @@ export class ServerEventManager {
                 this._sendErrorNotification(stream, tick.error);
             } else {
                 stream.sub.internalCheckCursor = tick.nextInternalCheckCursor;
-                initialNextPoll = tick.nextPollSeconds;
+                initialNextPoll = tick.nextPollMs;
                 if (tick.truncated) this._sendActiveNotification(stream, stream.sub.cursor, true);
                 for (const occ of tick.events) {
                     if (!(await this._safeMatches(event, paramsResult.params, occ.data, subId))) continue;
@@ -1087,7 +1088,7 @@ export class ServerEventManager {
             if (stream.closed) return;
             void ctx.mcpReq.notify({
                 method: 'notifications/events/heartbeat',
-                params: { requestId, cursor: stream.sub.cursor }
+                params: { cursor: stream.sub.cursor, _meta: { [SUBSCRIPTION_ID_META_KEY]: requestId } }
             });
         }, this._pushOptions.heartbeatIntervalMs);
         if (typeof stream.heartbeatTimer === 'object' && 'unref' in stream.heartbeatTimer) {
@@ -1095,8 +1096,8 @@ export class ServerEventManager {
         }
     }
 
-    private _schedulePushPoll(stream: PushStream, event: InternalRegisteredEvent, initialNextPollSeconds?: number): void {
-        let currentInterval = (initialNextPollSeconds ?? DEFAULT_POLL_SECONDS) * 1000;
+    private _schedulePushPoll(stream: PushStream, event: InternalRegisteredEvent, initialNextPollMs?: number): void {
+        let currentInterval = initialNextPollMs ?? DEFAULT_POLL_MS;
         const tick = async () => {
             if (stream.closed) return;
             const result = await this._runCheckTick(
@@ -1121,7 +1122,7 @@ export class ServerEventManager {
                 if (!(await this._safeMatches(event, stream.sub.params, occ.data, stream.sub.id))) continue;
                 this._deliverToPush(stream, await this._safeTransform(event, stream.sub.params, occ, stream.sub.id));
             }
-            if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
+            if (result.nextPollMs !== undefined) currentInterval = result.nextPollMs;
             stream.pollTimer = setTimeout(tick, result.hasMore ? 0 : currentInterval);
         };
         stream.pollTimer = setTimeout(tick, currentInterval);
@@ -1183,7 +1184,7 @@ export class ServerEventManager {
         if (existing && (params.cursor ?? null) === null) {
             cursor = existing.cursor;
         } else {
-            const replay = await this._replayAfterCursor(event, paramsResult.params, params.cursor ?? null, params.maxAge, id);
+            const replay = await this._replayAfterCursor(event, paramsResult.params, params.cursor ?? null, params.maxAgeMs, id);
             backlog = replay.events;
             truncated = replay.truncated;
             cursor = backlog.at(-1)?.cursor ?? (truncated ? replay.headCursor : (params.cursor ?? null));
@@ -1222,13 +1223,13 @@ export class ServerEventManager {
         }
 
         // Initial check tick.
-        let nextPollSeconds: number | undefined;
+        let nextPollMs: number | undefined;
         const tick = await this._runCheckTick(event, params.name, paramsResult.params, sub.internalCheckCursor, ctx);
         if ('error' in tick) {
             // Surfaced via deliveryStatus on the next refresh; don't fail subscribe.
         } else {
             sub.internalCheckCursor = tick.nextInternalCheckCursor;
-            nextPollSeconds = tick.nextPollSeconds;
+            nextPollMs = tick.nextPollMs;
             truncated ||= tick.truncated;
             for (const occ of tick.events) {
                 if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
@@ -1237,7 +1238,7 @@ export class ServerEventManager {
         }
 
         if (isNew && this._pushOptions.pollDriven) {
-            this._scheduleWebhookPoll(sub, event, nextPollSeconds);
+            this._scheduleWebhookPoll(sub, event, nextPollMs);
         }
 
         for (const occ of backlog) void this._deliverWebhook(sub, occ);
@@ -1270,8 +1271,8 @@ export class ServerEventManager {
         return {};
     }
 
-    private _scheduleWebhookPoll(sub: WebhookSubscription, event: InternalRegisteredEvent, initialNextPollSeconds?: number): void {
-        let currentInterval = (initialNextPollSeconds ?? DEFAULT_POLL_SECONDS) * 1000;
+    private _scheduleWebhookPoll(sub: WebhookSubscription, event: InternalRegisteredEvent, initialNextPollMs?: number): void {
+        let currentInterval = initialNextPollMs ?? DEFAULT_POLL_MS;
         const tick = async () => {
             if (!this._webhookSubs.has(sub.key)) return;
             if (!sub.deliveryStatus.active) {
@@ -1293,7 +1294,7 @@ export class ServerEventManager {
                 if (!(await this._safeMatches(event, sub.params, occ.data, sub.id))) continue;
                 void this._deliverWebhook(sub, await this._safeTransform(event, sub.params, occ, sub.id));
             }
-            if (result.nextPollSeconds !== undefined) currentInterval = result.nextPollSeconds * 1000;
+            if (result.nextPollMs !== undefined) currentInterval = result.nextPollMs;
             sub.pollTimer = setTimeout(tick, result.hasMore ? 0 : currentInterval);
         };
         sub.pollTimer = setTimeout(tick, currentInterval);
@@ -1444,7 +1445,7 @@ export class ServerEventManager {
         if (stream.closed) return;
         void stream.sub.ctx.mcpReq.notify({
             method: 'notifications/events/active',
-            params: { requestId: stream.requestId, cursor, truncated }
+            params: { cursor, truncated, _meta: { [SUBSCRIPTION_ID_META_KEY]: stream.requestId } }
         });
     }
 
@@ -1452,7 +1453,7 @@ export class ServerEventManager {
         if (stream.closed) return;
         void stream.sub.ctx.mcpReq.notify({
             method: 'notifications/events/error',
-            params: { requestId: stream.requestId, error }
+            params: { error, _meta: { [SUBSCRIPTION_ID_META_KEY]: stream.requestId } }
         });
     }
 

@@ -18,6 +18,7 @@ import {
     isSafeWebhookUrl,
     ProtocolError,
     ProtocolErrorCode,
+    SUBSCRIPTION_ID_META_KEY,
     SUBSCRIPTION_NOT_FOUND,
     verifyWebhookSignature,
     WEBHOOK_ID_HEADER,
@@ -37,7 +38,7 @@ async function connectPair(server: McpServer, client: Client) {
 const HOOK_URL = 'https://hooks.example.com/endpoint';
 const SECRET = generateWebhookSecret();
 
-function makeCounterEvent(nextPollSeconds?: number) {
+function makeCounterEvent(nextPollMs?: number) {
     const state = { value: 0 };
     const check = async (params: { minValue: number }, cursor: string | null) => {
         const position = cursor === null ? state.value : Number(cursor);
@@ -45,7 +46,7 @@ function makeCounterEvent(nextPollSeconds?: number) {
         for (let i = position + 1; i <= state.value; i++) {
             if (i >= params.minValue) events.push({ name: 'counter.tick', data: { value: i } });
         }
-        return { events, cursor: String(state.value), nextPollSeconds };
+        return { events, cursor: String(state.value), nextPollMs };
     };
     return { state, check };
 }
@@ -133,11 +134,11 @@ describe('Events', () => {
 
     describe('events/poll', () => {
         beforeEach(() => {
-            const { check } = makeCounterEvent(5);
+            const { check } = makeCounterEvent(5000);
             server.registerEvent('counter.tick', { inputSchema: z.object({ minValue: z.number().default(0) }) }, check);
         });
 
-        it('returns flat result with events, cursor, truncated, nextPollSeconds', async () => {
+        it('returns flat result with events, cursor, truncated, nextPollMs', async () => {
             await connectPair(server, client);
             server.emitEvent('counter.tick', { value: 1 });
             server.emitEvent('counter.tick', { value: 2 });
@@ -150,7 +151,7 @@ describe('Events', () => {
             expect(result.events.map(e => e.data.value)).toEqual([3]);
             expect(result.cursor).toBeTypeOf('string');
             expect(result.truncated).toBe(false);
-            expect(result.nextPollSeconds).toBe(5);
+            expect(result.nextPollMs).toBe(5000);
         });
 
         it('replays from a known cursor', async () => {
@@ -174,18 +175,18 @@ describe('Events', () => {
             expect(result.events).toEqual([]);
         });
 
-        it('honours maxAge floor and signals truncated when it skips events', async () => {
+        it('honours maxAgeMs floor and signals truncated when it skips events', async () => {
             await connectPair(server, client);
             await client.pollEvents({ name: 'counter.tick', cursor: null });
             server.emitEvent('counter.tick', { value: 1 }, { cursor: 'old' });
             await new Promise(r => setTimeout(r, 30));
-            // maxAge=0 → floor=now → all entries are older → truncated.
-            const result = await client.pollEvents({ name: 'counter.tick', cursor: 'old', maxAge: 0 });
+            // maxAgeMs=0 → floor=now → all entries are older → truncated.
+            const result = await client.pollEvents({ name: 'counter.tick', cursor: 'old', maxAgeMs: 0 });
             // Asking for events strictly after 'old' with floor=now: zero events,
             // and since the entry itself was inside retention but skipped by floor,
             // the spec says set truncated. (If 'old' is the only entry, replay is
             // empty regardless; the floor still trips truncated when applied.)
-            // Relaxed assertion: maxAge with cursor returns successfully (no error).
+            // Relaxed assertion: maxAgeMs with cursor returns successfully (no error).
             expect(result).toHaveProperty('truncated');
             expect(result.events).toEqual([]);
         });
@@ -193,6 +194,21 @@ describe('Events', () => {
         it('rejects unknown event name with EventNotFound', async () => {
             await connectPair(server, client);
             await expect(client.pollEvents({ name: 'nope', cursor: null })).rejects.toMatchObject({ code: EVENT_NOT_FOUND });
+        });
+
+        it('honours maxEvents — slices the batch and sets hasMore:true with intermediate cursor', async () => {
+            await connectPair(server, client);
+            const r0 = await client.pollEvents({ name: 'counter.tick', cursor: null });
+            for (let i = 1; i <= 5; i++) server.emitEvent('counter.tick', { value: i }, { cursor: `c${i}` });
+
+            const r1 = await client.pollEvents({ name: 'counter.tick', cursor: r0.cursor, maxEvents: 2 });
+            expect(r1.events.map(e => e.data.value)).toEqual([1, 2]);
+            expect(r1.hasMore).toBe(true);
+            expect(r1.cursor).toBe('c2');
+
+            const r2 = await client.pollEvents({ name: 'counter.tick', cursor: r1.cursor, maxEvents: 10 });
+            expect(r2.events.map(e => e.data.value)).toEqual([3, 4, 5]);
+            expect(r2.hasMore).toBe(false);
         });
 
         it('rejects invalid params with InvalidParams', async () => {
@@ -231,7 +247,7 @@ describe('Events', () => {
             client.setNotificationHandler('notifications/events/terminated', n => void terminated.push(n.params));
         });
 
-        function openStream(body: { name: string; params?: Record<string, unknown>; cursor: string | null; maxAge?: number }) {
+        function openStream(body: { name: string; params?: Record<string, unknown>; cursor: string | null; maxAgeMs?: number }) {
             const ctrl = new AbortController();
             let requestId: RequestId | undefined;
             const p = client
@@ -243,18 +259,22 @@ describe('Events', () => {
             return { ctrl, p, requestId: () => requestId };
         }
 
-        it('routes notifications by requestId of the parent events/stream request', async () => {
+        const metaSubId = (params: { _meta?: Record<string, unknown> }) => params._meta?.[SUBSCRIPTION_ID_META_KEY];
+
+        it('routes notifications via _meta.subscriptionId of the parent events/stream request', async () => {
             server.registerEvent('e', { emitOnly: true });
             await connectPair(server, client);
 
             const stream = openStream({ name: 'e', cursor: null });
             await vi.waitFor(() => expect(active).toHaveLength(1));
-            expect(active[0]!.requestId).toBe(stream.requestId());
+            expect(metaSubId(active[0]!)).toBe(stream.requestId());
+            expect(active[0]).not.toHaveProperty('requestId');
             expect(active[0]!.truncated).toBe(false);
 
             server.emitEvent('e', { n: 1 });
             await vi.waitFor(() => expect(received).toHaveLength(1));
-            expect(received[0]!.requestId).toBe(stream.requestId());
+            expect(metaSubId(received[0]!)).toBe(stream.requestId());
+            expect(received[0]).not.toHaveProperty('requestId');
             expect(received[0]!.data.n).toBe(1);
 
             stream.ctrl.abort();
@@ -278,19 +298,19 @@ describe('Events', () => {
             stream.ctrl.abort();
         });
 
-        it('heartbeat carries {requestId, cursor}', async () => {
+        it('heartbeat carries {cursor, _meta.subscriptionId}', async () => {
             server = new McpServer({ name: 's', version: '1.0.0' }, { events: { push: { heartbeatIntervalMs: 20 } } });
             server.registerEvent('e', { emitOnly: true });
             await connectPair(server, client);
 
             const stream = openStream({ name: 'e', cursor: null });
             await vi.waitFor(() => expect(heartbeats.length).toBeGreaterThan(0));
-            expect(heartbeats[0]!.requestId).toBe(stream.requestId());
+            expect(metaSubId(heartbeats[0]!)).toBe(stream.requestId());
             expect(heartbeats[0]).toHaveProperty('cursor');
             stream.ctrl.abort();
         });
 
-        it('terminate sends notifications/events/terminated with requestId + structured error', async () => {
+        it('terminate sends notifications/events/terminated with _meta.subscriptionId + structured error', async () => {
             server.registerEvent('e', { emitOnly: true });
             await connectPair(server, client);
             const stream = openStream({ name: 'e', cursor: null });
@@ -298,7 +318,7 @@ describe('Events', () => {
 
             server.terminateEventSubscription(`req:${String(stream.requestId())}`, { code: EVENT_UNAUTHORIZED, message: 'revoked' });
             await vi.waitFor(() => expect(terminated).toHaveLength(1));
-            expect(terminated[0]!.requestId).toBe(stream.requestId());
+            expect(metaSubId(terminated[0]!)).toBe(stream.requestId());
             expect(terminated[0]!.error.code).toBe(EVENT_UNAUTHORIZED);
         });
 
@@ -608,10 +628,10 @@ describe('Events', () => {
 
     describe('ClientEventManager E2E', () => {
         it('poll mode delivers events through the iterator', async () => {
-            server.registerEvent('e', {}, async () => ({ events: [], cursor: '', nextPollSeconds: 0.01 }));
+            server.registerEvent('e', {}, async () => ({ events: [], cursor: '', nextPollMs: 10 }));
             await connectPair(server, client);
 
-            const mgr = new ClientEventManager(client, { defaultPollIntervalSeconds: 0.01 });
+            const mgr = new ClientEventManager(client, { defaultPollIntervalMs: 10 });
             const sub = await mgr.subscribe('e', {}, { delivery: 'poll' });
             const got: number[] = [];
             void (async () => {
@@ -626,7 +646,7 @@ describe('Events', () => {
             await sub.cancel();
         });
 
-        it('push mode routes by requestId', async () => {
+        it('push mode routes by _meta.subscriptionId', async () => {
             server.registerEvent('e', { emitOnly: true });
             await connectPair(server, client);
 

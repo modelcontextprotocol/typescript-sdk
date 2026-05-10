@@ -198,7 +198,7 @@ export function createServer(clients?: SlackClients): McpServer {
             matches: (params, data) => params.channelId === data.channelId,
             buffer: { capacity: 500 }
         },
-        async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
+        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30000 })
     );
 
     // slack.reaction_added — PURE emit. No Slack REST endpoint lists reactions
@@ -222,7 +222,7 @@ export function createServer(clients?: SlackClients): McpServer {
             matches: (params, data) => params.channelId === data.channelId,
             buffer: { capacity: 500 }
         },
-        async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
+        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30000 })
     );
 
     return server;

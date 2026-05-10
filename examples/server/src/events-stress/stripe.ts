@@ -112,19 +112,19 @@ export function createServer(stripeOverride?: Stripe): McpServer {
                 // Bootstrap: anchor at the newest existing event for this type.
                 const head = await stripe.events.list({ types: [stripeType], limit: 1 });
                 const latest = head.data[0]?.id ?? `bootstrap:${Date.now()}`;
-                return { events: [], cursor: latest, nextPollSeconds: 10 };
+                return { events: [], cursor: latest, nextPollMs: 10000 };
             }
             // Synthetic bootstrap cursor — nothing to page before yet.
             if (cursor.startsWith('bootstrap:')) {
                 const head = await stripe.events.list({ types: [stripeType], limit: 1 });
                 const first = head.data[0];
-                if (!first) return { events: [], cursor, nextPollSeconds: 10 };
+                if (!first) return { events: [], cursor, nextPollMs: 10000 };
                 // Re-enter with a real event id so ending_before works next tick.
                 return {
                     events: [{ name: mcpName, data: toPayload(first, expand) }],
                     cursor: first.id,
                     hasMore: false,
-                    nextPollSeconds: 10
+                    nextPollMs: 10000
                 };
             }
             const page = await stripe.events.list({
@@ -137,7 +137,7 @@ export function createServer(stripeOverride?: Stripe): McpServer {
                 events: chronological.map(e => ({ name: mcpName, data: toPayload(e, expand) })),
                 cursor: chronological.at(-1)?.id ?? cursor,
                 hasMore: page.has_more,
-                nextPollSeconds: 10
+                nextPollMs: 10000
             };
         };
 

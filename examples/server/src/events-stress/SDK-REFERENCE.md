@@ -45,14 +45,14 @@ server.registerEvent(
     async (params, cursor, ctx) => {
         if (cursor === null) {
             // Bootstrap: return empty events + a fresh cursor representing "now"
-            return { events: [], cursor: freshCursor(), nextPollSeconds: 30 };
+            return { events: [], cursor: freshCursor(), nextPollMs: 30_000 };
         }
         // Resume: fetch events since `cursor`
         const delta = await upstream.fetchSince(cursor);
         return {
             events: delta.map(d => ({ name: 'source.event_name', data: {...} })),
             cursor: delta.newCursor,
-            nextPollSeconds: 30,          // how long until next poll
+            nextPollMs: 30_000,           // how long until next poll
             hasMore: delta.hasMore        // if true, client polls again immediately
         };
     }
@@ -64,7 +64,7 @@ server.registerEvent(
 - `cursor: null` means bootstrap. Return `{ events: [], cursor: <now> }`.
 - `cursor: string` means resume. Return events since that position.
 - Throw `new ProtocolError(CURSOR_EXPIRED, msg)` if the cursor is stale (e.g., upstream 410 Gone). The client will re-bootstrap with `cursor: null`.
-- `nextPollSeconds` drives the SDK's internal poll loops for push/webhook and the client's poll cadence. Return it every time.
+- `nextPollMs` drives the SDK's internal poll loops for push/webhook and the client's poll cadence. Return it every time.
 
 ### `server.emitEvent(name, data, options?)`
 
@@ -89,7 +89,7 @@ Kill a single active push/webhook subscription (e.g., user's access revoked).
 | Upstream                                                                          | Pattern                                                                                                                                                                                                    |
 | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Poll-only API with cursor (Gmail historyId, Stripe `/events`)                     | Check callback only. No `emit()`.                                                                                                                                                                          |
-| Webhook inbound (GitHub, PagerDuty, Shopify)                                      | HTTP route verifies HMAC → `server.emitEvent(...)`. Check callback returns `{ events: [], cursor: 'emit-only', nextPollSeconds: N }`. Buffer is always-on; tune `buffer: { capacity: N }` for high volume. |
+| Webhook inbound (GitHub, PagerDuty, Shopify)                                      | HTTP route verifies HMAC → `server.emitEvent(...)`. Check callback returns `{ events: [], cursor: 'emit-only', nextPollMs: N }`. Buffer is always-on; tune `buffer: { capacity: N }` for high volume.      |
 | Outbound WebSocket/gRPC stream (Slack Socket Mode, Salesforce Pub/Sub, k8s watch) | Open stream in `onSubscribe` (refcounted), push via `emitEvent()` in message handler, close in `onUnsubscribe`.                                                                                            |
 | Dual-path (webhook + cursor API)                                                  | Check callback reads the durable cursor API. Webhook handler calls `emitEvent()` for low-latency. Client gets whichever arrives first; `eventId` dedup at the client handles overlap.                      |
 

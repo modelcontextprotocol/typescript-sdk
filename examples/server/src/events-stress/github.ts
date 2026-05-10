@@ -107,7 +107,7 @@ export function createServer(webhooksOverride?: Webhooks): McpServer {
             buffer: { capacity: 1000 }
         },
         // emit-only: check callback is inert; buffer surfaces emits to poll.
-        async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
+        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30000 })
     );
 
     server.registerEvent(
@@ -127,7 +127,7 @@ export function createServer(webhooksOverride?: Webhooks): McpServer {
             },
             buffer: { capacity: 1000 }
         },
-        async () => ({ events: [], cursor: 'emit-only', nextPollSeconds: 30 })
+        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30000 })
     );
 
     // --- Webhook handlers: strip fat payload, emit minimal projection ---------

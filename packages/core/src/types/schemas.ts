@@ -2228,11 +2228,11 @@ export const PollEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     cursor: z.string().nullable(),
     /**
-     * Do not replay events older than this many seconds. The server begins from
-     * whichever is later: the supplied `cursor` or `now − maxAge`. If the floor
-     * advances past the cursor, the server SHOULD set `truncated: true`.
+     * Do not replay events older than this many milliseconds. The server begins
+     * from whichever is later: the supplied `cursor` or `now − maxAgeMs`. If the
+     * floor advances past the cursor, the server SHOULD set `truncated: true`.
      */
-    maxAge: z.number().int().nonnegative().optional(),
+    maxAgeMs: z.number().int().nonnegative().optional(),
     /**
      * Optional cap on events returned. If more are available the server returns
      * a partial batch with `hasMore: true`.
@@ -2266,18 +2266,18 @@ export const PollEventsResultSchema = ResultSchema.extend({
     /**
      * `true` if delivery started later than the supplied cursor — events were
      * skipped because the cursor fell outside the retention window, the
-     * `maxAge` floor advanced past it, or the server applied its own ceiling.
+     * `maxAgeMs` floor advanced past it, or the server applied its own ceiling.
      */
     truncated: z.boolean(),
     /**
      * If `true`, more events are available beyond this batch. The client SHOULD
-     * poll again immediately (ignoring `nextPollSeconds`) to drain the backlog.
+     * poll again immediately (ignoring `nextPollMs`) to drain the backlog.
      */
     hasMore: z.boolean().optional(),
     /**
-     * Recommended seconds until the next poll. Ignored when `hasMore` is `true`.
+     * Recommended milliseconds until the next poll. Ignored when `hasMore` is `true`.
      */
-    nextPollSeconds: z.number().optional()
+    nextPollMs: z.number().optional()
 });
 
 /**
@@ -2297,10 +2297,10 @@ export const StreamEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     cursor: z.string().nullable(),
     /**
-     * Do not replay events older than this many seconds. See
-     * {@linkcode PollEventsRequestParams.maxAge}.
+     * Do not replay events older than this many milliseconds. See
+     * {@linkcode PollEventsRequestParams.maxAgeMs}.
      */
-    maxAge: z.number().int().nonnegative().optional()
+    maxAgeMs: z.number().int().nonnegative().optional()
 });
 
 /**
@@ -2365,10 +2365,10 @@ export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend(
      */
     cursor: z.string().nullable().optional(),
     /**
-     * Do not replay events older than this many seconds. See
-     * {@linkcode PollEventsRequestParams.maxAge}.
+     * Do not replay events older than this many milliseconds. See
+     * {@linkcode PollEventsRequestParams.maxAgeMs}.
      */
-    maxAge: z.number().int().nonnegative().optional()
+    maxAgeMs: z.number().int().nonnegative().optional()
 });
 
 /**
@@ -2439,7 +2439,7 @@ export const SubscribeEventResultSchema = ResultSchema.extend({
     cursor: z.string().nullable(),
     /**
      * `true` if delivery started later than the supplied cursor (retention
-     * window, `maxAge` floor, or server-side ceiling).
+     * window, `maxAgeMs` floor, or server-side ceiling).
      */
     truncated: z.boolean(),
     /**
@@ -2490,11 +2490,6 @@ export const EventListChangedNotificationSchema = NotificationSchema.extend({
  * Parameters for a {@linkcode EventNotification | notifications/events/event} notification.
  */
 export const EventNotificationParamsSchema = NotificationsParamsSchema.extend({
-    /**
-     * The JSON-RPC `id` of the parent `events/stream` request, so a client with
-     * multiple concurrent streams can route notifications to the correct one.
-     */
-    requestId: RequestIdSchema,
     ...EventOccurrenceSchema.shape
 });
 
@@ -2511,10 +2506,6 @@ export const EventNotificationSchema = NotificationSchema.extend({
  */
 export const EventActiveNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
-     * The JSON-RPC `id` of the parent `events/stream` request.
-     */
-    requestId: RequestIdSchema,
-    /**
      * The subscription's cursor position. `null` for non-replayable event types.
      */
     cursor: z.string().nullable(),
@@ -2529,7 +2520,7 @@ export const EventActiveNotificationParamsSchema = NotificationsParamsSchema.ext
 /**
  * Confirms a subscription on an `events/stream` request is active. Sent once
  * before any events, and again mid-stream with `truncated: true` whenever a
- * gap is detected (the cursor fell outside retention, `maxAge` floor advanced
+ * gap is detected (the cursor fell outside retention, `maxAgeMs` floor advanced
  * past it, or the server applied a ceiling).
  */
 export const EventActiveNotificationSchema = NotificationSchema.extend({
@@ -2541,10 +2532,6 @@ export const EventActiveNotificationSchema = NotificationSchema.extend({
  * Parameters for a {@linkcode EventErrorNotification | notifications/events/error} notification.
  */
 export const EventErrorNotificationParamsSchema = NotificationsParamsSchema.extend({
-    /**
-     * The JSON-RPC `id` of the parent `events/stream` request.
-     */
-    requestId: RequestIdSchema,
     /**
      * Structured error describing the failure.
      */
@@ -2565,10 +2552,6 @@ export const EventErrorNotificationSchema = NotificationSchema.extend({
  */
 export const EventTerminatedNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
-     * The JSON-RPC `id` of the parent `events/stream` request.
-     */
-    requestId: RequestIdSchema,
-    /**
      * Structured error describing why the subscription ended.
      */
     error: EventSubscriptionErrorSchema
@@ -2588,10 +2571,6 @@ export const EventTerminatedNotificationSchema = NotificationSchema.extend({
  * Parameters for a {@linkcode EventHeartbeatNotification | notifications/events/heartbeat} notification.
  */
 export const EventHeartbeatNotificationParamsSchema = NotificationsParamsSchema.extend({
-    /**
-     * The JSON-RPC `id` of the parent `events/stream` request.
-     */
-    requestId: RequestIdSchema,
     /**
      * The position the server has checked up to, so the client's persisted
      * cursor advances even when no events match. `null` for non-replayable

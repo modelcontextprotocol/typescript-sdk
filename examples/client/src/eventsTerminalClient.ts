@@ -74,7 +74,7 @@ function help(): void {
         [
             'commands:',
             '  list                                 list available event types',
-            '  sub <name> <poll|push|webhook> [json] [--from <cursor>] [--max-age <s>]   subscribe',
+            '  sub <name> <poll|push|webhook> [json] [--from <cursor>] [--max-age-ms <ms>]   subscribe',
             '  unsub [index|id]                     cancel one (or all if no arg)',
             '  subs                                 list active subscriptions',
             '  help                                 this help',
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
                 const [name, modeRaw, ...tail] = rest;
                 const mode = modeRaw?.toLowerCase() as EventDeliveryMode | undefined;
                 if (!name || !mode || !['poll', 'push', 'webhook'].includes(mode)) {
-                    out('usage: sub <name> <poll|push|webhook> [json-params] [--from <cursor>] [--max-age <seconds>]');
+                    out('usage: sub <name> <poll|push|webhook> [json-params] [--from <cursor>] [--max-age-ms <ms>]');
                     return;
                 }
                 let fromCursor: string | undefined;
@@ -220,13 +220,13 @@ async function main(): Promise<void> {
                     }
                     tail.splice(fromIdx, 2);
                 }
-                let maxAge: number | undefined;
-                const maxAgeIdx = tail.indexOf('--max-age');
+                let maxAgeMs: number | undefined;
+                const maxAgeIdx = tail.indexOf('--max-age-ms');
                 if (maxAgeIdx !== -1) {
                     const raw = tail[maxAgeIdx + 1];
-                    maxAge = raw === undefined ? Number.NaN : Number(raw);
-                    if (!Number.isFinite(maxAge) || maxAge < 0) {
-                        out('--max-age requires a non-negative number of seconds');
+                    maxAgeMs = raw === undefined ? Number.NaN : Number(raw);
+                    if (!Number.isFinite(maxAgeMs) || maxAgeMs < 0) {
+                        out('--max-age-ms requires a non-negative number of milliseconds');
                         return;
                     }
                     tail.splice(maxAgeIdx, 2);
@@ -240,16 +240,16 @@ async function main(): Promise<void> {
                         return;
                     }
                 }
-                const sub = await manager.subscribe(name, params, { delivery: mode, cursor: fromCursor, maxAge });
+                const sub = await manager.subscribe(name, params, { delivery: mode, cursor: fromCursor, maxAgeMs });
                 subs.push(sub);
                 out(
                     `subscribed #${subs.length} id=${sub.id} mode=${sub.delivery}` +
                         (fromCursor === undefined ? '' : ` from=${fromCursor}`) +
-                        (maxAge === undefined ? '' : ` maxAge=${maxAge}s`)
+                        (maxAgeMs === undefined ? '' : ` maxAgeMs=${maxAgeMs}`)
                 );
                 if (sub.truncated) {
                     out(
-                        `  [${sub.delivery}] ⚠ truncated — server skipped events older than retention/maxAge; resuming from cursor=${sub.cursor}`
+                        `  [${sub.delivery}] ⚠ truncated — server skipped events older than retention/maxAgeMs; resuming from cursor=${sub.cursor}`
                     );
                 }
                 void (async () => {

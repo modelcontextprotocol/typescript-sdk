@@ -107,7 +107,7 @@ export function createServer(gmail: gmail_v1.Gmail = defaultGmailClient()): McpS
                 const { data: profile } = await gmail.users.getProfile({ userId: 'me' });
                 const historyId = profile.historyId;
                 if (!historyId) throw new Error('Gmail getProfile returned no historyId');
-                return { events: [], cursor: encodeCursor(historyId), nextPollSeconds: 20 };
+                return { events: [], cursor: encodeCursor(historyId), nextPollMs: 20000 };
             }
 
             // --- Resume branch ----------------------------------------------------
@@ -160,7 +160,7 @@ export function createServer(gmail: gmail_v1.Gmail = defaultGmailClient()): McpS
                 cursor: nextCursor,
                 hasMore: Boolean(page.nextPageToken),
                 // Back off when quiet, tighten when busy.
-                nextPollSeconds: events.length > 0 ? 10 : 45
+                nextPollMs: events.length > 0 ? 10_000 : 45_000
             };
         }
     );

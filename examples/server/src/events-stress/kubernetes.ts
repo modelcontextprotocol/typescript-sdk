@@ -205,7 +205,7 @@ export function createServer(deps?: K8sDeps): McpServer {
         },
         async (params, cursor) => {
             if (cursor === null) {
-                return { events: [], cursor: await bootstrap(params), nextPollSeconds: 5 };
+                return { events: [], cursor: await bootstrap(params), nextPollMs: 5000 };
             }
             const cur = decodeCursor(cursor);
             const { frames, newRV, hasMore } = await drainWatch<V1Pod>(
@@ -229,7 +229,7 @@ export function createServer(deps?: K8sDeps): McpServer {
                 events,
                 cursor: encodeCursor({ ...cur, pods: newRV }),
                 hasMore,
-                nextPollSeconds: 5
+                nextPollMs: 5000
             };
         }
     );
@@ -243,7 +243,7 @@ export function createServer(deps?: K8sDeps): McpServer {
         },
         async (params, cursor) => {
             if (cursor === null) {
-                return { events: [], cursor: await bootstrap(params), nextPollSeconds: 5 };
+                return { events: [], cursor: await bootstrap(params), nextPollMs: 5000 };
             }
             const cur = decodeCursor(cursor);
             const { frames, newRV, hasMore } = await drainWatch<CoreV1Event>(
@@ -267,7 +267,7 @@ export function createServer(deps?: K8sDeps): McpServer {
                 events,
                 cursor: encodeCursor({ ...cur, events: newRV }),
                 hasMore,
-                nextPollSeconds: 5
+                nextPollMs: 5000
             };
         }
     );

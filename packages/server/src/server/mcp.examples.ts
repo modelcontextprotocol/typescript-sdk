@@ -161,7 +161,7 @@ function McpServer_registerEvent_basic(server: McpServer, counter: { current: nu
             for (let i = position + 1; i <= counter.current; i++) {
                 if (i >= minValue) events.push({ name: 'counter.tick', data: { value: i } });
             }
-            return { events, cursor: String(counter.current), nextPollSeconds: 5 };
+            return { events, cursor: String(counter.current), nextPollMs: 5000 };
         }
     );
     //#endregion McpServer_registerEvent_basic

@@ -4,6 +4,13 @@ export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
+/**
+ * `_meta` key carrying the JSON-RPC `id` of the parent `events/stream` request
+ * on every `notifications/events/*` message, so a client with multiple
+ * concurrent streams can route notifications to the correct one. See SEP-2575.
+ */
+export const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId';
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
 

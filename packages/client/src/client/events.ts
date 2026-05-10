@@ -7,7 +7,7 @@ import type {
     RequestOptions,
     WebhookControlEnvelope
 } from '@modelcontextprotocol/core';
-import { decodeWebhookSecret, generateWebhookSecret, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { decodeWebhookSecret, generateWebhookSecret, ProtocolError, SdkError, SdkErrorCode, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
 
 import type { Client } from './client.js';
 
@@ -58,9 +58,14 @@ export interface SubscribeOptions {
      */
     cursor?: string;
     /**
-     * Do not replay events older than this many seconds.
+     * Do not replay events older than this many milliseconds.
      */
-    maxAge?: number;
+    maxAgeMs?: number;
+    /**
+     * Cap the number of events the server returns per poll batch. Ignored for
+     * push and webhook delivery.
+     */
+    maxEvents?: number;
 }
 
 /**
@@ -78,12 +83,12 @@ export interface RetryOptions {
  */
 export interface ClientEventManagerOptions {
     webhook?: WebhookConfig;
-    defaultPollIntervalSeconds?: number;
+    defaultPollIntervalMs?: number;
     requestOptions?: RequestOptions;
     retry?: RetryOptions;
 }
 
-const DEFAULT_POLL_SECONDS = 30;
+const DEFAULT_POLL_MS = 30_000;
 const DEFAULT_DEDUPE_WINDOW = 256;
 const DEFAULT_RETRY: Required<RetryOptions> = { maxAttempts: 5, baseDelayMs: 1000, maxDelayMs: 30_000 };
 
@@ -117,7 +122,7 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
     cursor: string | null = null;
     /**
      * `true` if at any point the server signalled events were skipped (the
-     * cursor fell outside retention, `maxAge` floor advanced past it, or the
+     * cursor fell outside retention, `maxAgeMs` floor advanced past it, or the
      * server applied a ceiling). Consumers SHOULD treat this as a possible gap
      * and re-fetch authoritative state via tools if it matters.
      */
@@ -199,13 +204,14 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
 
 interface SubState {
     sub: EventSubscription;
-    /** Set on push streams to map `requestId` → sub. */
+    /** The parent stream's JSON-RPC id; matched against incoming `_meta[subscriptionId]`. */
     requestId?: RequestId;
     pollTimer?: ReturnType<typeof setTimeout>;
     pushController?: AbortController;
     refreshTimer?: ReturnType<typeof setTimeout>;
     attempts: number;
-    maxAge?: number;
+    maxAgeMs?: number;
+    maxEvents?: number;
 }
 
 /**
@@ -285,7 +291,7 @@ export class ClientEventManager {
         if (options.cursor !== undefined) sub.cursor = options.cursor;
         options.signal?.addEventListener('abort', () => void sub.cancel(), { once: true });
 
-        const state: SubState = { sub, attempts: 0, maxAge: options.maxAge };
+        const state: SubState = { sub, attempts: 0, maxAgeMs: options.maxAgeMs, maxEvents: options.maxEvents };
         this._states.set(sub.id, state);
         await this._activate(state);
         return sub;
@@ -385,15 +391,15 @@ export class ClientEventManager {
         const sub = state.sub;
         try {
             const result = await this._client.pollEvents(
-                { name: sub.name, params: sub.params, cursor: sub.cursor, maxAge: state.maxAge },
+                { name: sub.name, params: sub.params, cursor: sub.cursor, maxAgeMs: state.maxAgeMs, maxEvents: state.maxEvents },
                 this._options.requestOptions
             );
             for (const event of result.events) sub._push(event);
             if (result.cursor !== null) sub.cursor = result.cursor;
             if (result.truncated) sub.truncated = true;
             state.attempts = 0;
-            const nextSeconds = result.nextPollSeconds ?? this._options.defaultPollIntervalSeconds ?? DEFAULT_POLL_SECONDS;
-            this._schedulePoll(state, result.hasMore ? 0 : nextSeconds * 1000);
+            const nextMs = result.nextPollMs ?? this._options.defaultPollIntervalMs ?? DEFAULT_POLL_MS;
+            this._schedulePoll(state, result.hasMore ? 0 : nextMs);
         } catch (error) {
             state.attempts++;
             if (state.attempts >= this._retry.maxAttempts) {
@@ -407,7 +413,9 @@ export class ClientEventManager {
 
     // ------- Push mode -------
 
-    private _routeByRequestId(requestId: RequestId): SubState | undefined {
+    private _routeByMeta(meta: Record<string, unknown> | undefined): SubState | undefined {
+        const requestId = meta?.[SUBSCRIPTION_ID_META_KEY] as RequestId | undefined;
+        if (requestId === undefined) return undefined;
         for (const s of this._states.values()) if (s.requestId === requestId) return s;
         return undefined;
     }
@@ -415,31 +423,31 @@ export class ClientEventManager {
     private _installPushHandlers(): void {
         if (this._pushHandlersInstalled) return;
         this._client.setNotificationHandler('notifications/events/event', n => {
-            const state = this._routeByRequestId(n.params.requestId);
+            const state = this._routeByMeta(n.params._meta);
             if (!state) return;
-            const { requestId: _r, ...occurrence } = n.params;
-            void _r;
+            const { _meta, ...occurrence } = n.params;
+            void _meta;
             state.sub._push(occurrence);
         });
         this._client.setNotificationHandler('notifications/events/active', n => {
-            const state = this._routeByRequestId(n.params.requestId);
+            const state = this._routeByMeta(n.params._meta);
             if (!state) return;
             if (n.params.cursor !== null) state.sub.cursor = n.params.cursor;
             if (n.params.truncated) state.sub.truncated = true;
         });
         this._client.setNotificationHandler('notifications/events/error', n => {
-            const state = this._routeByRequestId(n.params.requestId);
+            const state = this._routeByMeta(n.params._meta);
             if (state) this._handleSubError(state.sub, n.params.error);
         });
         this._client.setNotificationHandler('notifications/events/terminated', n => {
-            const state = this._routeByRequestId(n.params.requestId);
+            const state = this._routeByMeta(n.params._meta);
             if (state) {
                 state.sub._fail(new ProtocolError(n.params.error.code, n.params.error.message, n.params.error.data));
                 void this._teardown(state.sub);
             }
         });
         this._client.setNotificationHandler('notifications/events/heartbeat', n => {
-            const state = this._routeByRequestId(n.params.requestId);
+            const state = this._routeByMeta(n.params._meta);
             if (state && n.params.cursor !== null) state.sub.cursor = n.params.cursor;
         });
         this._pushHandlersInstalled = true;
@@ -456,7 +464,7 @@ export class ClientEventManager {
             .request(
                 {
                     method: 'events/stream',
-                    params: { name: sub.name, params: sub.params, cursor: sub.cursor, maxAge: state.maxAge }
+                    params: { name: sub.name, params: sub.params, cursor: sub.cursor, maxAgeMs: state.maxAgeMs }
                 },
                 {
                     ...this._options.requestOptions,
@@ -503,7 +511,7 @@ export class ClientEventManager {
                         params: sub.params,
                         delivery: { mode: 'webhook', url: webhook.url, secret: this._webhookSecret! },
                         cursor: sub.cursor,
-                        maxAge: state.maxAge
+                        maxAgeMs: state.maxAgeMs
                     },
                     this._options.requestOptions
                 );
