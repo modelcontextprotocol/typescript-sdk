@@ -7,7 +7,14 @@ import type {
     RequestOptions,
     WebhookControlEnvelope
 } from '@modelcontextprotocol/core';
-import { decodeWebhookSecret, generateWebhookSecret, ProtocolError, SdkError, SdkErrorCode, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
+import {
+    decodeWebhookSecret,
+    generateWebhookSecret,
+    ProtocolError,
+    SdkError,
+    SdkErrorCode,
+    SUBSCRIPTION_ID_META_KEY
+} from '@modelcontextprotocol/core';
 
 import type { Client } from './client.js';
 
