@@ -107,7 +107,7 @@ export function createServer(gmail: gmail_v1.Gmail = defaultGmailClient()): McpS
                 const { data: profile } = await gmail.users.getProfile({ userId: 'me' });
                 const historyId = profile.historyId;
                 if (!historyId) throw new Error('Gmail getProfile returned no historyId');
-                return { events: [], cursor: encodeCursor(historyId), nextPollMs: 20000 };
+                return { events: [], cursor: encodeCursor(historyId), nextPollMs: 20_000 };
             }
 
             // --- Resume branch ----------------------------------------------------

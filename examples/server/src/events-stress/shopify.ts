@@ -183,7 +183,7 @@ export function createServer(shopifyOverride?: Shopify): McpServer {
             }
         },
         // emit-only: no upstream cursor API for orders. buffer handles poll.
-        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30000 })
+        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30_000 })
     );
 
     server.registerEvent(
@@ -196,7 +196,7 @@ export function createServer(shopifyOverride?: Shopify): McpServer {
             // No hooks: privacy webhooks are configured in the Partner dashboard
             // and cannot be (de)registered via the Admin API.
         },
-        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 60000 })
+        async () => ({ events: [], cursor: 'emit-only', nextPollMs: 60_000 })
     );
 
     // --- Inbound webhook HTTP listener --------------------------------------

@@ -108,7 +108,7 @@ const memberPayload = z.object({
 const filterMatches = (params: Filter, data: Record<string, unknown>) =>
     (!params.guildId || params.guildId === data.guildId) && (!params.channelId || params.channelId === data.channelId);
 
-const emitOnlyCheck = async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30000 });
+const emitOnlyCheck = async () => ({ events: [], cursor: 'emit-only', nextPollMs: 30_000 });
 
 // --- authz primitives --------------------------------------------------------
 
