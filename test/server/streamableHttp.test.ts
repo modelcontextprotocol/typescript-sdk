@@ -1115,6 +1115,29 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
         });
 
+        it('should accept JSON-only Accept header in JSON response mode', async () => {
+            const toolsListMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: {},
+                id: 'json-req-1'
+            };
+
+            const response = await sendPostRequest(baseUrl, toolsListMessage, sessionId, { Accept: 'application/json' });
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('application/json');
+
+            const result = await response.json();
+            expect(result).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.arrayContaining([expect.objectContaining({ name: 'greet' })])
+                }),
+                id: 'json-req-1'
+            });
+        });
+
         it('should return JSON response for batch requests', async () => {
             const batchMessages: JSONRPCMessage[] = [
                 { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'batch-1' },
