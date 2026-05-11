@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
@@ -240,7 +240,7 @@ describe('StreamableHTTPClientTransport', () => {
         transport.onerror = errorSpy;
 
         await expect(transport.send(message)).rejects.toThrow(
-            new SdkError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
+            new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
                 status: 404,
                 text: 'Session not found'
             })
@@ -1871,8 +1871,9 @@ describe('StreamableHTTPClientTransport', () => {
                 .mockResolvedValueOnce(unauthedResponse);
 
             const error = await transport.send(message).catch(e => e);
-            expect(error).toBeInstanceOf(SdkError);
-            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect((error as SdkHttpError).status).toBe(401);
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-access-token',
                 token_type: 'Bearer',

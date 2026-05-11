@@ -2,7 +2,7 @@ import type { IncomingMessage, Server } from 'node:http';
 import { createServer } from 'node:http';
 
 import type { JSONRPCMessage, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock } from 'vitest';
 
@@ -99,8 +99,9 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
             .mockResolvedValueOnce({ ok: false, status: 401, headers: new Headers(), text: async () => 'unauthorized' });
 
         const error = await transport.send(message).catch(e => e);
-        expect(error).toBeInstanceOf(SdkError);
-        expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+        expect(error).toBeInstanceOf(SdkHttpError);
+        expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+        expect((error as SdkHttpError).status).toBe(401);
         expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
     });
 

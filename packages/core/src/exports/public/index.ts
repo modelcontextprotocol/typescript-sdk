@@ -13,7 +13,8 @@
 export { OAuthError, OAuthErrorCode } from '../../auth/errors.js';
 
 // SDK error types (local errors that never cross the wire)
-export { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
+export { SdkError, SdkErrorCode, SdkHttpError } from '../../errors/sdkErrors.js';
+export type { SdkHttpErrorData } from '../../errors/sdkErrors.js';
 
 // Auth TypeScript types (NOT Zod schemas like OAuthMetadataSchema)
 export type {

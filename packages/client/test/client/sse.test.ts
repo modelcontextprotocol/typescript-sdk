@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
@@ -1587,8 +1587,9 @@ describe('SSEClientTransport', () => {
             await transport.start();
 
             const error = await transport.send(message).catch(e => e);
-            expect(error).toBeInstanceOf(SdkError);
-            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect((error as SdkHttpError).status).toBe(401);
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
             expect(postCount).toBe(2);
         });

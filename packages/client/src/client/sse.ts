@@ -1,5 +1,5 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
@@ -286,7 +286,7 @@ export class SSEClientTransport implements Transport {
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
                             status: 401
                         });
                     }
