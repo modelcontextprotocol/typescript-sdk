@@ -726,10 +726,14 @@ export class StreamableHTTPClientTransport implements Transport {
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
-                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToTerminateSession, `Failed to terminate session: ${response.statusText}`, {
-                    status: response.status,
-                    statusText: response.statusText
-                });
+                throw new SdkHttpError(
+                    SdkErrorCode.ClientHttpFailedToTerminateSession,
+                    `Failed to terminate session: ${response.statusText}`,
+                    {
+                        status: response.status,
+                        statusText: response.statusText
+                    }
+                );
             }
 
             this._sessionId = undefined;
