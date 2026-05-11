@@ -12,11 +12,11 @@ import type {
     ResultTypeMap
 } from './types.js';
 
-export const JSONValueSchema: z.ZodType<JSONValue> = z.lazy(() =>
+export const JSONValueSchema: z.ZodType<JSONValue, JSONValue> = z.lazy(() =>
     z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])
 );
-export const JSONObjectSchema: z.ZodType<JSONObject> = z.record(z.string(), JSONValueSchema);
-export const JSONArraySchema: z.ZodType<JSONArray> = z.array(JSONValueSchema);
+export const JSONObjectSchema: z.ZodType<JSONObject, JSONObject> = z.record(z.string(), JSONValueSchema);
+export const JSONArraySchema: z.ZodType<JSONArray, JSONArray> = z.array(JSONValueSchema);
 /**
  * A progress token, used to associate progress notifications with the original request.
  */
