@@ -72,6 +72,7 @@
         "tslib": "^2.8.1",
         "tsx": "catalog:devTools",
         "typedoc": "catalog:devTools",
+        "vite": "^7.3.2",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools",
