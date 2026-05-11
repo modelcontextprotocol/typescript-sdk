@@ -13,7 +13,7 @@ import {
     OpenIdProviderDiscoveryMetadataSchema,
     OpenIdProviderMetadataSchema
 } from '../shared/auth.js';
-import type { StandardSchemaV1 } from '../util/standardSchema.js';
+import type { StandardSchemaV1, StandardSchemaV1Sync } from '../util/standardSchema.js';
 import * as schemas from './schemas.js';
 
 /**
@@ -235,7 +235,7 @@ type SpecTypeInputs = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.input<SchemaFor<K>> : never;
 };
 
-type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1<SpecTypeInputs[K], SpecTypes[K]> };
+type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1Sync<SpecTypeInputs[K], SpecTypes[K]> };
 type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
 
 const _specTypeSchemas: Record<string, StandardSchemaV1> = {};

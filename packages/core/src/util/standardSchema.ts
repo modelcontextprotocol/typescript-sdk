@@ -114,6 +114,21 @@ export namespace StandardSchemaWithJSON {
     export type InferOutput<Schema extends StandardTypedV1> = StandardTypedV1.InferOutput<Schema>;
 }
 
+/**
+ * Narrowing of {@linkcode StandardSchemaV1} whose `validate` is guaranteed synchronous.
+ *
+ * Zod schemas always validate synchronously, so every entry in `specTypeSchemas` satisfies
+ * this interface. Consumers can call `validate()` and access `.issues` / `.value` on the
+ * result without `await`.
+ *
+ * `StandardSchemaV1Sync` is assignable to `StandardSchemaV1` — it is a strict subtype.
+ */
+export interface StandardSchemaV1Sync<Input = unknown, Output = Input> extends StandardSchemaV1<Input, Output> {
+    readonly '~standard': StandardSchemaV1<Input, Output>['~standard'] & {
+        readonly validate: (value: unknown, options?: StandardSchemaV1.Options | undefined) => StandardSchemaV1.Result<Output>;
+    };
+}
+
 // Type guards
 
 export function isStandardJSONSchema(schema: unknown): schema is StandardJSONSchemaV1 {
