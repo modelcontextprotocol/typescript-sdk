@@ -513,6 +513,43 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: SEP-2549 list TTL
+         */
+        test('should include ttl on list results when listTtlSeconds is configured', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { listTtlSeconds: 60 });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool('t', {}, async () => ({ content: [] }));
+            mcpServer.registerPrompt('p', {}, async () => ({ messages: [] }));
+            mcpServer.registerResource('r', 'file:///r', {}, async () => ({ contents: [] }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const tools = await client.request({ method: 'tools/list' });
+            expect(tools.ttl).toBe(60);
+            const prompts = await client.request({ method: 'prompts/list' });
+            expect(prompts.ttl).toBe(60);
+            const resources = await client.request({ method: 'resources/list' });
+            expect(resources.ttl).toBe(60);
+            const templates = await client.request({ method: 'resources/templates/list' });
+            expect(templates.ttl).toBe(60);
+        });
+
+        test('should omit ttl on list results when listTtlSeconds is not configured', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool('t', {}, async () => ({ content: [] }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const tools = await client.request({ method: 'tools/list' });
+            expect(tools).not.toHaveProperty('ttl');
+        });
+
+        /***
          * Test: Updating Existing Tool
          */
         test('should update existing tool', async () => {

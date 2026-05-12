@@ -86,6 +86,14 @@ export type ServerOptions = ProtocolOptions & {
      * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Optional `ttl` (in seconds) included on `tools/list`, `prompts/list`, `resources/list`,
+     * and `resources/templates/list` responses (SEP-2549). Tells clients how long the response
+     * may be considered fresh; clients may cache and re-poll on this schedule. Supplements, does
+     * not replace, the `list_changed` notification mechanism.
+     */
+    listTtlSeconds?: number;
 };
 
 /**
