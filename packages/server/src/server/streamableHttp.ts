@@ -560,8 +560,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            // Replay events - returns the streamId for backwards compatibility
-            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
+            // Replay events. The returned stream id is ignored: `streamId` (from
+            // getStreamIdForEventId above) is the ownership-verified key and is what `send()`
+            // looks up; using the replay return value risks a divergent EventStore registering
+            // the new connection under a key that nothing reads.
+            await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
                     if (!success) {
@@ -574,11 +577,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            this._streamMapping.set(replayedStreamId, {
+            this._streamMapping.set(streamId, {
                 controller: streamController!,
                 encoder,
                 cleanup: () => {
-                    this._streamMapping.delete(replayedStreamId);
+                    this._streamMapping.delete(streamId);
                     try {
                         streamController!.close();
                     } catch {
