@@ -197,15 +197,6 @@ export type BaseContext = {
 };
 
 /**
- * Typed reader for an extension key on {@linkcode BaseContext.ext}. Extensions export
- * a thin wrapper around this (e.g. `taskContext(ctx)`) so handlers get a typed value
- * without casting at the call site.
- */
-export function readExt<T>(ctx: BaseContext, key: string): T | undefined {
-    return ctx.ext?.[key] as T | undefined;
-}
-
-/**
  * Context provided to server-side request handlers, extending {@linkcode BaseContext} with server-specific fields.
  */
 export type ServerContext = BaseContext & {
