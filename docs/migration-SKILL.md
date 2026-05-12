@@ -416,7 +416,7 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.sendRequest(...)`         | `ctx.mcpReq.send(...)`                                                     |
 | `extra.sendNotification(...)`    | `ctx.mcpReq.notify(...)`                                                   |
 | `extra.authInfo`                 | `ctx.http?.authInfo`                                                       |
-| `extra.sessionId`                | `ctx.sessionId`                                                            |
+| `extra.sessionId`                | `ctx.sessionId` _(deprecated, SEP-2567)_ — prefer `ctx.http?.authInfo` for identity; for the legacy header value use `legacySessionId(transport)` |
 | `extra.requestInfo`              | `ctx.http?.req` (standard Web `Request`, only `ServerContext`)             |
 | `extra.closeSSEStream`           | `ctx.http?.closeSSE` (only `ServerContext`)                                |
 | `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
