@@ -545,11 +545,30 @@ export const InitializeResultSchema = ResultSchema.extend({
 });
 
 /**
+ * SEP-2575 `server/discover` result. Same shape as {@linkcode InitializeResultSchema} but
+ * without the negotiated `protocolVersion` field; the client asserts the version per request
+ * via `_meta` instead of via a stateful handshake. Stateless: the server writes no instance
+ * fields when handling this.
+ */
+export const ServerDiscoverResultSchema = InitializeResultSchema.omit({ protocolVersion: true });
+
+/**
  * This notification is sent from the client to the server after initialization has finished.
  */
 export const InitializedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/initialized'),
     params: NotificationsParamsSchema.optional()
+});
+
+/* Discover (SEP-2575) */
+/**
+ * SEP-2575 stateless capability discovery. The server responds with its capabilities,
+ * info, and instructions; no protocol-version negotiation occurs (the client asserts the
+ * version per request via `_meta`).
+ */
+export const ServerDiscoverRequestSchema = RequestSchema.extend({
+    method: z.literal('server/discover'),
+    params: BaseRequestParamsSchema.optional()
 });
 
 /* Ping */
@@ -2079,6 +2098,7 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
     InitializeRequestSchema,
+    ServerDiscoverRequestSchema,
     CompleteRequestSchema,
     SetLevelRequestSchema,
     GetPromptRequestSchema,
@@ -2159,6 +2179,7 @@ export const ServerResultSchema = z.union([
 const resultSchemas: Record<string, z.core.$ZodType> = {
     ping: EmptyResultSchema,
     initialize: InitializeResultSchema,
+    'server/discover': ServerDiscoverResultSchema,
     'completion/complete': CompleteResultSchema,
     'logging/setLevel': EmptyResultSchema,
     'prompts/get': GetPromptResultSchema,

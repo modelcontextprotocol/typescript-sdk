@@ -125,6 +125,8 @@ import type {
     SamplingMessageContentBlockSchema,
     SamplingMessageSchema,
     ServerCapabilitiesSchema,
+    ServerDiscoverRequestSchema,
+    ServerDiscoverResultSchema,
     ServerNotificationSchema,
     ServerRequestSchema,
     ServerResultSchema,
@@ -259,6 +261,8 @@ export type InitializeRequestParams = Infer<typeof InitializeRequestParamsSchema
 export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
 export type InitializeResult = Infer<typeof InitializeResultSchema>;
+export type ServerDiscoverRequest = Infer<typeof ServerDiscoverRequestSchema>;
+export type ServerDiscoverResult = Infer<typeof ServerDiscoverResultSchema>;
 export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
 
 /* Ping */
@@ -420,6 +424,7 @@ export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNot
 export type ResultTypeMap = {
     ping: EmptyResult;
     initialize: InitializeResult;
+    'server/discover': ServerDiscoverResult;
     'completion/complete': CompleteResult;
     'logging/setLevel': EmptyResult;
     'prompts/get': GetPromptResult;

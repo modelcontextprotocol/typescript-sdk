@@ -28,6 +28,7 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
+    ServerDiscoverResult,
     StandardSchemaV1,
     ToolResultContent,
     ToolUseContent
@@ -116,6 +117,7 @@ export class Server extends Protocol<ServerContext> {
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
+        this.setRequestHandler('server/discover', () => this._ondiscover());
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
@@ -140,17 +142,21 @@ export class Server extends Protocol<ServerContext> {
         // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
         const sendOpts = (options?: RequestOptions): RequestOptions => ({ ...options, relatedRequestId: ctx.mcpReq.id });
+        // SEP-2575: prefer per-request peer scope (lifted from `_meta` by S4) over the
+        // singleton handshake state. Falls back to the singleton for the connect() path.
+        const reqCaps = ctx.mcpReq.clientCapabilities ?? this._clientCapabilities;
+        const reqLogLevel = ctx.mcpReq.logLevel;
         return {
             ...ctx,
             mcpReq: {
                 ...ctx.mcpReq,
                 log: async (level, data, logger) => {
-                    if (this._capabilities.logging && !this.isMessageIgnored(level, ctx.sessionId)) {
+                    if (this._capabilities.logging && !this.isMessageIgnored(level, ctx.sessionId, reqLogLevel)) {
                         await ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
                     }
                 },
-                elicitInput: (params, options) => this._elicitInputVia(ctx.mcpReq.send, params, sendOpts(options)),
-                requestSampling: (params, options) => this._createMessageVia(ctx.mcpReq.send, params, sendOpts(options))
+                elicitInput: (params, options) => this._elicitInputVia(ctx.mcpReq.send, reqCaps, params, sendOpts(options)),
+                requestSampling: (params, options) => this._createMessageVia(ctx.mcpReq.send, reqCaps, params, sendOpts(options))
             },
             http: hasHttpInfo
                 ? {
@@ -186,8 +192,9 @@ export class Server extends Protocol<ServerContext> {
     private readonly LOG_LEVEL_SEVERITY = new Map(LoggingLevelSchema.options.map((level, index) => [level, index]));
 
     // Is a message with the given level ignored in the log level set for the given session id?
-    private isMessageIgnored = (level: LoggingLevel, sessionId?: string): boolean => {
-        const currentLevel = this._loggingLevels.get(sessionId);
+    private isMessageIgnored = (level: LoggingLevel, sessionId?: string, requestLevel?: LoggingLevel): boolean => {
+        // SEP-2575: per-request `_meta.logLevel` (S4) takes precedence over session-stored level.
+        const currentLevel = requestLevel ?? this._loggingLevels.get(sessionId);
         return currentLevel ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)! : false;
     };
 
@@ -376,7 +383,8 @@ export class Server extends Protocol<ServerContext> {
             }
 
             case 'ping':
-            case 'initialize': {
+            case 'initialize':
+            case 'server/discover': {
                 // No specific capability required for these methods
                 break;
             }
@@ -395,8 +403,17 @@ export class Server extends Protocol<ServerContext> {
 
         this.transport?.setProtocolVersion?.(protocolVersion);
 
+        return { protocolVersion, ...this._ondiscover() };
+    }
+
+    /**
+     * SEP-2575 `server/discover` handler. Returns capabilities, server info and instructions
+     * without negotiating a protocol version (the client asserts the version per request via
+     * `_meta`). Stateless: writes no instance fields, so one Server can serve unlimited
+     * concurrent stateless clients on the dispatch() path.
+     */
+    private _ondiscover(): ServerDiscoverResult {
         return {
-            protocolVersion,
             capabilities: this.getCapabilities(),
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
@@ -454,7 +471,12 @@ export class Server extends Protocol<ServerContext> {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
-        return this._createMessageVia((r, schema, opts) => this._requestWithSchema(r, schema, opts), params, options);
+        return this._createMessageVia(
+            (r, schema, opts) => this._requestWithSchema(r, schema, opts),
+            this._clientCapabilities,
+            params,
+            options
+        );
     }
 
     /**
@@ -469,13 +491,14 @@ export class Server extends Protocol<ServerContext> {
      */
     private async _createMessageVia(
         send: SendWithSchema,
+        caps: ClientCapabilities | undefined,
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Base `sampling` capability is checked via assertCapabilityForMethod() (gated on
         // enforceStrictCapabilities, which defaults to false). Only the `sampling.tools`
         // sub-capability is enforced here unconditionally, matching the v1 createMessage body.
-        if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
+        if ((params.tools || params.toolChoice) && !caps?.sampling?.tools) {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
@@ -534,7 +557,12 @@ export class Server extends Protocol<ServerContext> {
      * @returns The result of the elicitation request.
      */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
-        return this._elicitInputVia((r, schema, opts) => this._requestWithSchema(r, schema, opts), params, options);
+        return this._elicitInputVia(
+            (r, schema, opts) => this._requestWithSchema(r, schema, opts),
+            this._clientCapabilities,
+            params,
+            options
+        );
     }
 
     /**
@@ -543,6 +571,7 @@ export class Server extends Protocol<ServerContext> {
      */
     private async _elicitInputVia(
         send: SendWithSchema,
+        caps: ClientCapabilities | undefined,
         params: ElicitRequestFormParams | ElicitRequestURLParams,
         options?: RequestOptions
     ): Promise<ElicitResult> {
@@ -550,14 +579,14 @@ export class Server extends Protocol<ServerContext> {
 
         switch (mode) {
             case 'url': {
-                if (!this._clientCapabilities?.elicitation?.url) {
+                if (!caps?.elicitation?.url) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
                 }
                 const urlParams = params as ElicitRequestURLParams;
                 return send({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
             }
             case 'form': {
-                if (!this._clientCapabilities?.elicitation?.form) {
+                if (!caps?.elicitation?.form) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
                 }
                 const formParams: ElicitRequestFormParams =

@@ -151,6 +151,8 @@ const SPEC_SCHEMA_KEYS = [
     'SamplingMessageSchema',
     'SamplingMessageContentBlockSchema',
     'ServerCapabilitiesSchema',
+    'ServerDiscoverRequestSchema',
+    'ServerDiscoverResultSchema',
     'ServerNotificationSchema',
     'ServerRequestSchema',
     'ServerResultSchema',
