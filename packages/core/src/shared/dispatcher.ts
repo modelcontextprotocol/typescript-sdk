@@ -153,8 +153,14 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
      */
     dispatch(request: JSONRPCRequest, env: RequestEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
         // SEP-2575: lift per-request peer scope from _meta. Adapter-supplied env wins
-        // (e.g. SessionCompat passing its stored init capabilities).
-        const enrichedEnv: RequestEnv = { ...readMetaRequestScope(request.params?._meta), ...env };
+        // (e.g. SessionCompat passing its stored init capabilities), but only when the
+        // adapter set a *defined* value. An adapter that builds env with explicit
+        // `clientCapabilities: undefined` (as shttpHandler does on a stateless POST)
+        // must not clobber the value lifted from _meta, so strip undefined own-keys
+        // from env before spreading.
+        const definedEnv: RequestEnv = {};
+        for (const [k, v] of Object.entries(env)) if (v !== undefined) (definedEnv as Record<string, unknown>)[k] = v;
+        const enrichedEnv: RequestEnv = { ...readMetaRequestScope(request.params?._meta), ...definedEnv };
         // eslint-disable-next-line unicorn/consistent-function-scoping -- closes over `this`
         let chain: DispatchFn = (r, e) => this._dispatchCore(r, e);
         // eslint-disable-next-line unicorn/no-array-reverse -- toReversed() requires ES2023 lib; consumers may target ES2022
