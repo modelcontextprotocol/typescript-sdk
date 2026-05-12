@@ -27,7 +27,7 @@ type InputResponses = Record<string, Result>;
 export interface ContinuationCompatOptions {
     /**
      * Maximum number of suspended handler frames to retain. New suspensions beyond this
-     * cap throw, surfacing as a 500 from {@linkcode shttpHandler}. Defaults to 1000.
+     * cap yield a JSON-RPC `-32000` error response for the request. Defaults to 1000.
      */
     maxContinuations?: number;
     /**
@@ -185,16 +185,14 @@ export class ContinuationCompat {
         this._allowAnonymous = options.allowAnonymousSuspend ?? false;
     }
 
-    private _resolvePrincipal(env: RequestEnv): string | undefined {
-        const p = principalOf(env);
-        if (p === undefined && !this._allowAnonymous) {
-            throw new SdkError(
-                SdkErrorCode.CapabilityNotSupported,
-                'ContinuationCompat: refusing to suspend without a principal (no authInfo.token or mcp-session-id). ' +
-                    'Deploy behind authenticating middleware, configure SessionCompat, or set allowAnonymousSuspend: true.'
-            );
-        }
-        return p;
+    /**
+     * Returns a JSON-RPC error response for the given message; the three new-frame
+     * guards yield this instead of throwing so SSE-mode clients receive the error
+     * (a throw inside `_drive` is swallowed by `shttpHandler`'s outer catch and the
+     * stream just closes empty).
+     */
+    private _capacityError(id: JSONRPCRequest['id'], message: string): JSONRPCErrorResponse {
+        return { jsonrpc: '2.0', id, error: { code: -32_000, message } };
     }
 
     private _decPrincipal(owner: string | undefined): void {
@@ -258,7 +256,7 @@ export class ContinuationCompat {
         if (incomingState !== undefined && this._frames.has(incomingState)) {
             token = incomingState;
             const entry = this._frames.get(token)!;
-            if (entry.owner !== this._resolvePrincipal(env)) {
+            if (entry.owner !== principalOf(env)) {
                 yield {
                     jsonrpc: '2.0',
                     id: request.id,
@@ -281,14 +279,27 @@ export class ContinuationCompat {
             const responses = (params.inputResponses ?? {}) as InputResponses;
             cont.answer(responses);
         } else if (incomingState === undefined) {
-            const owner = this._resolvePrincipal(env);
+            const owner = principalOf(env);
+            if (owner === undefined && !this._allowAnonymous) {
+                yield this._capacityError(
+                    request.id,
+                    'ContinuationCompat: refusing to suspend without a principal (no authInfo.token or mcp-session-id). ' +
+                        'Deploy behind authenticating middleware, configure SessionCompat, or set allowAnonymousSuspend: true.'
+                );
+                return;
+            }
             if (this._frames.size >= this._max) {
-                throw new Error(`ContinuationCompat at capacity (maxContinuations=${this._max})`);
+                yield this._capacityError(request.id, `ContinuationCompat at capacity (maxContinuations=${this._max})`);
+                return;
             }
             if (owner !== undefined) {
                 const n = this._perPrincipalCount.get(owner) ?? 0;
                 if (n >= this._perPrincipalMax) {
-                    throw new Error(`ContinuationCompat: principal at per-principal capacity (perPrincipalMax=${this._perPrincipalMax})`);
+                    yield this._capacityError(
+                        request.id,
+                        `ContinuationCompat: principal at per-principal capacity (perPrincipalMax=${this._perPrincipalMax})`
+                    );
+                    return;
                 }
                 this._perPrincipalCount.set(owner, n + 1);
             }

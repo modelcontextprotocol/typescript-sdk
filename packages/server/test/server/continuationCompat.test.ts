@@ -336,7 +336,8 @@ describe('ContinuationCompat — suspend/resume via shttpHandler', () => {
         const { cb } = suspendingServer();
         const handler = shttpHandler(cb, { continuations, enableJsonResponse: true });
         const r = await handler(post({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 't' } }));
-        expect(r.status).toBe(500);
+        expect(r.status).toBe(200);
+        expect(await r.json()).toMatchObject({ id: 1, error: { code: -32_000, message: expect.stringContaining('without a principal') } });
         expect(continuations.size).toBe(0);
     });
 
@@ -348,7 +349,11 @@ describe('ContinuationCompat — suspend/resume via shttpHandler', () => {
         await handler(post({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 't' } }), auth('alice'));
         await handler(post({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 't' } }), auth('alice'));
         const r3 = await handler(post({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 't' } }), auth('alice'));
-        expect(r3.status).toBe(500);
+        expect(r3.status).toBe(200);
+        expect(await r3.json()).toMatchObject({
+            id: 3,
+            error: { code: -32_000, message: expect.stringContaining('per-principal capacity') }
+        });
         // bob is unaffected
         const rb = await handler(post({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 't' } }), auth('bob'));
         expect(rb.status).toBe(200);
