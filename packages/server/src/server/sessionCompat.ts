@@ -73,7 +73,7 @@ interface SessionEntry {
     /**
      * EventStore stream IDs minted for this session (per-POST SSE streams plus the standalone
      * GET stream). Used to reject `Last-Event-ID` replay for streams the session does not own.
-     * Bounded to {@linkcode MAX_STREAM_IDS_PER_SESSION}; oldest entries evicted on overflow.
+     * Bounded to `MAX_STREAM_IDS_PER_SESSION` (256); oldest entries evicted on overflow.
      */
     streamIds: Set<string>;
     /** Subset of {@linkcode streamIds} exempt from FIFO eviction (e.g. the standalone GET stream). */
@@ -255,7 +255,7 @@ export class SessionCompat {
     /**
      * Records an EventStore stream ID as belonging to this session so {@linkcode ownsStreamId}
      * can authorise `Last-Event-ID` replay. The set is bounded; once it reaches
-     * {@linkcode MAX_STREAM_IDS_PER_SESSION} the oldest entry is evicted, so very old POST
+     * `MAX_STREAM_IDS_PER_SESSION` (256) the oldest entry is evicted, so very old POST
      * streams become non-resumable in favour of bounding memory.
      */
     addStreamId(sessionId: string, streamId: string, opts?: { protected?: boolean }): void {
@@ -346,7 +346,13 @@ export class SessionCompat {
             // Already closed.
         }
         this._sessions.delete(id);
-        for (const cb of this._closeListeners) void Promise.resolve(cb(id));
+        for (const cb of this._closeListeners) {
+            try {
+                void Promise.resolve(cb(id)).catch(error => this._onerror?.(error as Error));
+            } catch (error) {
+                this._onerror?.(error as Error);
+            }
+        }
     }
 
     private _evictIdle(): void {

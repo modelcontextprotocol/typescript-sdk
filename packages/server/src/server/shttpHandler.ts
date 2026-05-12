@@ -306,8 +306,7 @@ export function shttpHandler(
             authInfo: extra?.authInfo,
             httpReq: req,
             sessionId,
-            clientCapabilities:
-                initParams?.capabilities ?? (sessionId !== undefined ? session?.clientCapabilities(sessionId) : undefined),
+            clientCapabilities: initParams?.capabilities ?? (sessionId === undefined ? undefined : session?.clientCapabilities(sessionId)),
             _transportExtra: { request: req, authInfo: extra?.authInfo }
         };
 
