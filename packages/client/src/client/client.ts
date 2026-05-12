@@ -9,7 +9,10 @@ import type {
     CompleteRequest,
     GetPromptRequest,
     Implementation,
+    IncompleteResult,
+    JSONRPCErrorResponse,
     JSONRPCRequest,
+    JSONRPCResultResponse,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -22,12 +25,15 @@ import type {
     LoggingLevel,
     MessageExtraInfo,
     NotificationMethod,
+    NotificationOptions,
     ProtocolOptions,
     ReadResourceRequest,
+    Request,
     RequestMethod,
     RequestOptions,
     Result,
     ServerCapabilities,
+    StandardSchemaV1,
     SubscribeRequest,
     Tool,
     Transport,
@@ -44,6 +50,7 @@ import {
     EmptyResultSchema,
     GetPromptResultSchema,
     InitializeResultSchema,
+    isJSONRPCErrorResponse,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
@@ -55,12 +62,16 @@ import {
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
+    RAW_RESULT_SCHEMA,
     ReadResourceResultSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    validateStandardSchema
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import type { ClientTransport } from './clientTransport.js';
+import { isClientTransport } from './clientTransport.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -179,7 +190,38 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     listChanged?: ListChangedHandlers;
+
+    /**
+     * SEP-2322: maximum number of incomplete-result rounds before failing. Each round
+     * services the server's `inputRequests` via local handlers (sampling, elicitation,
+     * roots, ping only; other methods are rejected) and re-sends with
+     * `params.{inputResponses, requestState}`. Prevents unbounded looping on a server
+     * that returns `incomplete` forever.
+     *
+     * @default 16
+     */
+    mrtrMaxRounds?: number;
 };
+
+const DEFAULT_MRTR_MAX_ROUNDS = 16;
+
+/** SEP-2322 client-side detection. The server signals it cannot complete without client input. */
+/**
+ * Methods the SEP-2322 retry loop will service from `inputRequests`. The server cannot
+ * use this channel to invoke arbitrary client handlers (e.g. a custom-method handler the
+ * application registered for unrelated purposes); only the spec-defined client-side
+ * request methods are dispatched.
+ */
+const ALLOWED_INPUT_REQUEST_METHODS: ReadonlySet<string> = new Set(['sampling/createMessage', 'elicitation/create', 'roots/list', 'ping']);
+
+function isIncompleteResult(r: unknown): r is IncompleteResult {
+    if (typeof r !== 'object' || r === null) return false;
+    const o = r as { resultType?: unknown; inputRequests?: unknown };
+    // (deliberately narrow guard; the loop body validates method against ALLOWED_INPUT_REQUEST_METHODS)
+    if (o.resultType !== 'incomplete') return false;
+    if (o.inputRequests === undefined) return true;
+    return typeof o.inputRequests === 'object' && o.inputRequests !== null && !Array.isArray(o.inputRequests);
+}
 
 /**
  * An MCP client on top of a pluggable transport.
@@ -223,6 +265,12 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    /** Set when {@linkcode connect} was given a request-shaped {@linkcode ClientTransport}. */
+    private _clientTransport?: ClientTransport;
+    /** Monotonic id counter for the request-shaped path. */
+    private _ctRequestId = 0;
+    /** SEP-2322: maximum incomplete-result rounds before failing. */
+    private readonly _mrtrMaxRounds: number;
 
     /**
      * Initializes this client with the given name and version information.
@@ -235,6 +283,7 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+        this._mrtrMaxRounds = options?.mrtrMaxRounds ?? DEFAULT_MRTR_MAX_ROUNDS;
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -297,7 +346,7 @@ export class Client extends Protocol<ClientContext> {
      * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
      */
     public registerCapabilities(capabilities: ClientCapabilities): void {
-        if (this.transport) {
+        if (this.transport || this._clientTransport) {
             throw new Error('Cannot register capabilities after connecting to transport');
         }
 
@@ -429,7 +478,27 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
+    override async connect(transport: Transport | ClientTransport, options?: RequestOptions): Promise<void> {
+        if (isClientTransport(transport)) {
+            // Request-shaped transport: bypass Protocol's pipe wiring. _requestWithSchema
+            // routes via _clientTransport.fetch() per call; inbound server requests are
+            // serviced via _serviceInputRequests over the SEP-2322 retry loop.
+            this._clientTransport = transport;
+            await this._initializeOrDiscover(options);
+            // Wire the optional unsolicited stream so list-changed handlers can fire between fetches.
+            if (transport.subscribe) {
+                void (async () => {
+                    try {
+                        for await (const n of transport.subscribe!({ onrequest: r => this._serviceInboundRequest(r) })) {
+                            await this.dispatchNotification(n).catch(error => this.onerror?.(error as Error));
+                        }
+                    } catch (error) {
+                        this.onerror?.(error as Error);
+                    }
+                })();
+            }
+            return;
+        }
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
         // Restore the protocol version negotiated during the original initialize handshake
@@ -472,9 +541,14 @@ export class Client extends Protocol<ClientContext> {
 
             this._instructions = result.instructions;
 
-            await this.notification({
-                method: 'notifications/initialized'
-            });
+            // SEP-2575: post-initialize handshake notification only on legacy protocol
+            // versions. 2026-06-30+ servers do not require it (initialize itself is
+            // optional there); skipping avoids an extra round-trip on stateless servers.
+            if (this._negotiatedProtocolVersion < '2026-06-30') {
+                await this.notification({
+                    method: 'notifications/initialized'
+                });
+            }
 
             // Set up list changed handlers now that we know server capabilities
             if (this._pendingListChangedConfig) {
@@ -996,5 +1070,187 @@ export class Client extends Protocol<ClientContext> {
     /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
+    }
+
+    /**
+     * Runs the SEP-2322 multi-round-trip retry loop around outbound requests, then validates
+     * the final result against `resultSchema`. On the pipe-transport path it delegates each
+     * round to `super._requestWithSchema(req, RAW_RESULT_SCHEMA)`; on the request-shaped path
+     * it calls {@linkcode ClientTransport.fetch}.
+     */
+    protected override async _requestWithSchema<T extends StandardSchemaV1>(
+        req: Request,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>> {
+        const overallStart = Date.now();
+        let inputResponses: Record<string, unknown> | undefined;
+        let requestState: string | undefined;
+        for (let round = 0; round < this._mrtrMaxRounds; round++) {
+            const remainingTotal =
+                options?.maxTotalTimeout === undefined ? undefined : Math.max(0, options.maxTotalTimeout - (Date.now() - overallStart));
+            if (remainingTotal !== undefined && remainingTotal <= 0) {
+                throw new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { maxTotalTimeout: options?.maxTotalTimeout });
+            }
+            const params =
+                round > 0
+                    ? { ...(req.params as Record<string, unknown> | undefined), inputResponses, requestState }
+                    : (req.params as Record<string, unknown> | undefined);
+            const roundOpts: RequestOptions = {
+                ...options,
+                maxTotalTimeout: remainingTotal,
+                // resumptionToken is only meaningful for round 0; subsequent rounds carry
+                // fresh inputResponses in the body and must POST, not resume the prior stream.
+                resumptionToken: round === 0 ? options?.resumptionToken : undefined
+            };
+            const raw = await this._requestRoundRaw({ method: req.method, params }, roundOpts);
+            if (isIncompleteResult(raw)) {
+                requestState = raw.requestState;
+                if (raw.inputRequests) {
+                    inputResponses = { ...inputResponses, ...(await this._serviceInputRequests(raw.inputRequests, options?.signal)) };
+                }
+                continue;
+            }
+            const v = await validateStandardSchema(resultSchema, raw);
+            if (!v.success) {
+                throw new SdkError(SdkErrorCode.InvalidResult, `Invalid ${req.method} result: ${v.error}`);
+            }
+            return v.data;
+        }
+        throw new ProtocolError(ProtocolErrorCode.InternalError, `MRTR exceeded ${this._mrtrMaxRounds} rounds for ${req.method}`);
+    }
+
+    /** One round of {@linkcode _requestWithSchema}: returns the raw (unvalidated) result. */
+    private async _requestRoundRaw(req: Request, options?: RequestOptions): Promise<unknown> {
+        if (this._clientTransport) {
+            if (this._enforceStrictCapabilities) this.assertCapabilityForMethod(req.method);
+            const id = this._ctRequestId++;
+            const meta = {
+                ...(req.params?._meta as Record<string, unknown> | undefined),
+                ...(options?.onprogress ? { progressToken: id } : {})
+            };
+            const params: Record<string, unknown> | undefined =
+                req.params || Object.keys(meta).length > 0
+                    ? { ...(req.params as Record<string, unknown> | undefined), _meta: Object.keys(meta).length > 0 ? meta : undefined }
+                    : undefined;
+            const resp = await this._clientTransport.fetch(
+                { jsonrpc: '2.0', id, method: req.method, params },
+                {
+                    signal: options?.signal,
+                    onprogress: options?.onprogress,
+                    timeout: options?.timeout,
+                    resetTimeoutOnProgress: options?.resetTimeoutOnProgress,
+                    maxTotalTimeout: options?.maxTotalTimeout,
+                    relatedRequestId: options?.relatedRequestId,
+                    resumptionToken: options?.resumptionToken,
+                    onresumptiontoken: options?.onresumptiontoken,
+                    onnotification: n => void this.dispatchNotification(n).catch(error => this.onerror?.(error as Error)),
+                    onrequest: r => this._serviceInboundRequest(r, options?.signal)
+                }
+            );
+            if (isJSONRPCErrorResponse(resp)) {
+                throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
+            }
+            return resp.result;
+        }
+        return super._requestWithSchema(req, RAW_RESULT_SCHEMA, options);
+    }
+
+    /**
+     * Service the SEP-2322 `inputRequests` by dispatching each as a synthetic inbound
+     * request through this client's own handler registry (sampling/elicitation/roots).
+     * Handler errors propagate (aborting the MRTR round) so the server is not retried
+     * with a partial response set.
+     */
+    private async _serviceInputRequests(
+        reqs: NonNullable<IncompleteResult['inputRequests']>,
+        signal?: AbortSignal
+    ): Promise<Record<string, unknown>> {
+        const out: Record<string, unknown> = {};
+        for (const [key, ir] of Object.entries(reqs)) {
+            signal?.throwIfAborted();
+            if (!ALLOWED_INPUT_REQUEST_METHODS.has(ir.method)) {
+                throw new ProtocolError(
+                    ProtocolErrorCode.InvalidRequest,
+                    `inputRequest method '${ir.method}' is not a client-serviceable method`
+                );
+            }
+            const resp = await this._serviceInboundRequest(
+                { jsonrpc: '2.0', id: `mrtr:${key}`, method: ir.method, params: ir.params },
+                signal
+            );
+            if (isJSONRPCErrorResponse(resp)) {
+                throw ProtocolError.fromError(resp.error.code, resp.error.message, resp.error.data);
+            }
+            out[key] = resp.result;
+        }
+        return out;
+    }
+
+    /** Dispatch one server-initiated request through this client's handler registry. */
+    private async _serviceInboundRequest(r: JSONRPCRequest, signal?: AbortSignal): Promise<JSONRPCResultResponse | JSONRPCErrorResponse> {
+        let final: JSONRPCResultResponse | JSONRPCErrorResponse | undefined;
+        for await (const out of this.dispatch(r, { signal })) {
+            if (out.kind === 'response') final = out.message as JSONRPCResultResponse | JSONRPCErrorResponse;
+        }
+        if (!final) {
+            return { jsonrpc: '2.0', id: r.id, error: { code: ProtocolErrorCode.InternalError, message: 'dispatch yielded no response' } };
+        }
+        return final;
+    }
+
+    /** Initialize handshake on the request-shaped {@linkcode ClientTransport} path. */
+    private async _initializeOrDiscover(options?: RequestOptions): Promise<void> {
+        try {
+            const result = await this._requestWithSchema(
+                {
+                    method: 'initialize',
+                    params: {
+                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
+                        capabilities: this._capabilities,
+                        clientInfo: this._clientInfo
+                    }
+                },
+                InitializeResultSchema,
+                options
+            );
+            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
+                throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
+            }
+            this._serverCapabilities = result.capabilities;
+            this._serverVersion = result.serverInfo;
+            this._negotiatedProtocolVersion = result.protocolVersion;
+            this._instructions = result.instructions;
+            this._clientTransport?.setProtocolVersion?.(result.protocolVersion);
+            if (this._negotiatedProtocolVersion < '2026-06-30') {
+                await this.notification({ method: 'notifications/initialized' });
+            }
+            if (this._pendingListChangedConfig) {
+                this._setupListChangedHandlers(this._pendingListChangedConfig);
+                this._pendingListChangedConfig = undefined;
+            }
+        } catch (error) {
+            void this.close();
+            throw error;
+        }
+    }
+
+    override async notification(notification: ClientNotification, options?: NotificationOptions): Promise<void> {
+        if (this._clientTransport) {
+            this.assertNotificationCapability(notification.method as NotificationMethod);
+            return this._clientTransport.notify(notification);
+        }
+        return super.notification(notification, options);
+    }
+
+    override async close(): Promise<void> {
+        if (this._clientTransport) {
+            const ct = this._clientTransport;
+            this._clientTransport = undefined;
+            await ct.close();
+            this.onclose?.();
+            return;
+        }
+        return super.close();
     }
 }
