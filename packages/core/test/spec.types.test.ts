@@ -831,6 +831,7 @@ type _K_ElicitRequestURLParams = Assert<AssertExactKeys<SDKTypes.ElicitRequestUR
 type _K_PaginatedRequestParams = Assert<AssertExactKeys<SDKTypes.PaginatedRequestParams, SpecTypes.PaginatedRequestParams>>;
 type _K_BaseMetadata = Assert<AssertExactKeys<SDKTypes.BaseMetadata, SpecTypes.BaseMetadata>>;
 type _K_Implementation = Assert<AssertExactKeys<SDKTypes.Implementation, SpecTypes.Implementation>>;
+// @ts-expect-error SEP-2549: SDK adds optional `ttl` ahead of upstream spec; remove once spec.types.ts has it
 type _K_PaginatedResult = Assert<AssertExactKeys<SDKTypes.PaginatedResult, SpecTypes.PaginatedResult>>;
 type _K_ListRootsResult = Assert<AssertExactKeys<SDKTypes.ListRootsResult, SpecTypes.ListRootsResult>>;
 type _K_Root = Assert<AssertExactKeys<SDKTypes.Root, SpecTypes.Root>>;
@@ -847,9 +848,12 @@ type _K_ResourceTemplateReference = Assert<AssertExactKeys<SDKTypes.ResourceTemp
 type _K_PromptReference = Assert<AssertExactKeys<SDKTypes.PromptReference, SpecTypes.PromptReference>>;
 type _K_ToolAnnotations = Assert<AssertExactKeys<SDKTypes.ToolAnnotations, SpecTypes.ToolAnnotations>>;
 type _K_Tool = Assert<AssertExactKeys<SDKTypes.Tool, SpecTypes.Tool>>;
+// @ts-expect-error SEP-2549: SDK adds optional `ttl` ahead of upstream spec; remove once spec.types.ts has it
 type _K_ListToolsResult = Assert<AssertExactKeys<SDKTypes.ListToolsResult, SpecTypes.ListToolsResult>>;
 type _K_CallToolResult = Assert<AssertExactKeys<SDKTypes.CallToolResult, SpecTypes.CallToolResult>>;
+// @ts-expect-error SEP-2549: SDK adds optional `ttl` ahead of upstream spec; remove once spec.types.ts has it
 type _K_ListResourcesResult = Assert<AssertExactKeys<SDKTypes.ListResourcesResult, SpecTypes.ListResourcesResult>>;
+// @ts-expect-error SEP-2549: SDK adds optional `ttl` ahead of upstream spec; remove once spec.types.ts has it
 type _K_ListResourceTemplatesResult = Assert<AssertExactKeys<SDKTypes.ListResourceTemplatesResult, SpecTypes.ListResourceTemplatesResult>>;
 type _K_ReadResourceResult = Assert<AssertExactKeys<SDKTypes.ReadResourceResult, SpecTypes.ReadResourceResult>>;
 type _K_ResourceContents = Assert<AssertExactKeys<SDKTypes.ResourceContents, SpecTypes.ResourceContents>>;
@@ -859,6 +863,7 @@ type _K_Resource = Assert<AssertExactKeys<SDKTypes.Resource, SpecTypes.Resource>
 // @ts-expect-error Genuine mismatch: SDK PromptArgument is missing 'title' from spec
 type _K_PromptArgument = Assert<AssertExactKeys<SDKTypes.PromptArgument, SpecTypes.PromptArgument>>;
 type _K_Prompt = Assert<AssertExactKeys<SDKTypes.Prompt, SpecTypes.Prompt>>;
+// @ts-expect-error SEP-2549: SDK adds optional `ttl` ahead of upstream spec; remove once spec.types.ts has it
 type _K_ListPromptsResult = Assert<AssertExactKeys<SDKTypes.ListPromptsResult, SpecTypes.ListPromptsResult>>;
 type _K_GetPromptResult = Assert<AssertExactKeys<SDKTypes.GetPromptResult, SpecTypes.GetPromptResult>>;
 type _K_TextContent = Assert<AssertExactKeys<SDKTypes.TextContent, SpecTypes.TextContent>>;
@@ -902,6 +907,7 @@ type _K_RelatedTaskMetadata = Assert<AssertExactKeys<SDKTypes.RelatedTaskMetadat
 type _K_Task = Assert<AssertExactKeys<SDKTypes.Task, SpecTypes.Task>>;
 type _K_CreateTaskResult = Assert<AssertExactKeys<SDKTypes.CreateTaskResult, SpecTypes.CreateTaskResult>>;
 type _K_GetTaskResult = Assert<AssertExactKeys<SDKTypes.GetTaskResult, SpecTypes.GetTaskResult>>;
+// @ts-expect-error SEP-2549: SDK adds optional `ttl` ahead of upstream spec; remove once spec.types.ts has it
 type _K_ListTasksResult = Assert<AssertExactKeys<SDKTypes.ListTasksResult, SpecTypes.ListTasksResult>>;
 type _K_CancelTaskResult = Assert<AssertExactKeys<SDKTypes.CancelTaskResult, SpecTypes.CancelTaskResult>>;
 type _K_GetTaskPayloadResult = Assert<AssertExactKeys<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;

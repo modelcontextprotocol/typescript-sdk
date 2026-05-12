@@ -921,10 +921,6 @@ export interface PaginatedResult extends Result {
      * If present, there may be more results available.
      */
     nextCursor?: Cursor;
-    /**
-     * How long (in seconds) this result may be considered fresh before re-fetching (SEP-2549).
-     */
-    ttl?: number;
 }
 
 /* Resources */
