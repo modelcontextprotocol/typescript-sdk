@@ -34,6 +34,16 @@ export class InMemoryEventStore implements EventStore {
     }
 
     /**
+     * Resolves an event ID to its source stream. Required for the transport's
+     * replay-ownership check (a Last-Event-ID may only replay a stream the requesting
+     * session issued).
+     * Implements EventStore.getStreamIdForEventId
+     */
+    async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+        return this.events.get(eventId)?.streamId;
+    }
+
+    /**
      * Replays events that occurred after a specific event ID
      * Implements EventStore.replayEventsAfter
      */

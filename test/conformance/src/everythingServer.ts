@@ -36,6 +36,9 @@ function createEventStore(): EventStore {
             eventStoreData.set(eventId, { eventId, message, streamId });
             return eventId;
         },
+        async getStreamIdForEventId(eventId: EventId): Promise<StreamId | undefined> {
+            return eventStoreData.get(eventId)?.streamId;
+        },
         async replayEventsAfter(
             lastEventId: EventId,
             { send }: { send: (eventId: EventId, message: unknown) => Promise<void> }

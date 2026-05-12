@@ -1377,6 +1377,12 @@ describe('Zod v4', () => {
                 return eventId;
             },
 
+            // Required for replay ownership: see WebStandardStreamableHTTPServerTransport.replayEvents.
+            async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+                const sep = eventId.lastIndexOf('_');
+                return sep > 0 ? eventId.slice(0, sep) : undefined;
+            },
+
             async replayEventsAfter(
                 lastEventId: EventId,
                 {
@@ -1593,6 +1599,48 @@ describe('Zod v4', () => {
             expect(allText).toContain('Missed notification 1');
             expect(allText).toContain('Missed notification 2');
             expect(allText).toContain('Missed notification 3');
+        });
+
+        it('rejects Last-Event-ID replay for a stream issued by a different transport instance (cross-session IDOR)', async () => {
+            // Obtain an event id from this transport's standalone GET stream.
+            const sseResponse = await fetch(baseUrl, {
+                method: 'GET',
+                headers: { Accept: 'text/event-stream', 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+            });
+            expect(sseResponse.status).toBe(200);
+            const reader = sseResponse.body?.getReader();
+            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'victim session payload' });
+            const text = new TextDecoder().decode((await reader!.read()).value);
+            const victimEventId = text.match(/id: ([^\n]+)/)![1]!;
+            await reader!.cancel();
+
+            // A second transport instance shares the SAME eventStore. It opens its own GET
+            // stream first (so its _issuedStreamIds is non-empty) to prove the check is
+            // per-instance-id, not just "has any stream".
+            const other = await createTestServer({ sessionIdGenerator: () => randomUUID(), eventStore });
+            try {
+                const otherInit = await sendPostRequest(other.baseUrl, TEST_MESSAGES.initialize);
+                const otherSid = otherInit.headers.get('mcp-session-id') as string;
+                const otherSse = await fetch(other.baseUrl, {
+                    method: 'GET',
+                    headers: { Accept: 'text/event-stream', 'mcp-session-id': otherSid, 'mcp-protocol-version': '2025-11-25' }
+                });
+                expect(otherSse.status).toBe(200);
+                await otherSse.body?.getReader().cancel();
+
+                const attack = await fetch(other.baseUrl, {
+                    method: 'GET',
+                    headers: {
+                        Accept: 'text/event-stream',
+                        'mcp-session-id': otherSid,
+                        'mcp-protocol-version': '2025-11-25',
+                        'last-event-id': victimEventId
+                    }
+                });
+                expect(attack.status).toBe(403);
+            } finally {
+                await stopTestServer({ server: other.server, transport: other.transport });
+            }
         });
     });
 
