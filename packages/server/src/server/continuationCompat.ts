@@ -126,7 +126,7 @@ class Continuation {
 }
 
 /**
- * Opt-in suspend/resume continuation store for {@linkcode handleHttp}, the SEP-2322
+ * Opt-in suspend/resume continuation store for {@linkcode @modelcontextprotocol/server!index.handleHttp | handleHttp}, the SEP-2322
  * "Option H" stateful server path.
  *
  * When configured, a handler's `await ctx.mcpReq.send(...)` (and the higher-level
@@ -239,7 +239,7 @@ export class ContinuationCompat {
 
     /**
      * Wraps `onrequest` so it suspends on `env.send` instead of needing a live
-     * peer channel. Called by {@linkcode handleHttp} when this instance is configured
+     * peer channel. Called by {@linkcode @modelcontextprotocol/server!index.handleHttp | handleHttp} when this instance is configured
      * via `ShttpHandlerOptions.continuations`.
      */
     wrap(onrequest: NonNullable<ShttpCallbacks['onrequest']>): NonNullable<ShttpCallbacks['onrequest']> {
