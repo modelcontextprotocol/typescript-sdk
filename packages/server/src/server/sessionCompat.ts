@@ -239,7 +239,22 @@ export class SessionCompat {
             // Already closed.
         }
         this._sessions.delete(sessionId);
-        for (const cb of this._closeListeners) await Promise.resolve(cb(sessionId));
+        this._fireCloseListeners(sessionId);
+    }
+
+    /**
+     * Fires all registered close listeners with per-listener isolation: a throw or rejection
+     * from one listener is routed to {@linkcode SessionCompatOptions.onerror | onerror} and
+     * never prevents the remaining listeners from running.
+     */
+    private _fireCloseListeners(sessionId: string): void {
+        for (const cb of this._closeListeners) {
+            try {
+                void Promise.resolve(cb(sessionId)).catch(error => this._onerror?.(error as Error));
+            } catch (error) {
+                this._onerror?.(error as Error);
+            }
+        }
     }
 
     /** Protocol version the client requested in `initialize` for this session, if known. */
@@ -346,13 +361,7 @@ export class SessionCompat {
             // Already closed.
         }
         this._sessions.delete(id);
-        for (const cb of this._closeListeners) {
-            try {
-                void Promise.resolve(cb(id)).catch(error => this._onerror?.(error as Error));
-            } catch (error) {
-                this._onerror?.(error as Error);
-            }
-        }
+        this._fireCloseListeners(id);
     }
 
     private _evictIdle(): void {
