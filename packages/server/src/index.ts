@@ -32,6 +32,8 @@ export { Server } from './server/server.js';
 // imports (erased at compile time), but matching the client's `./stdio` subpath gives consumers a
 // consistent shape across packages.
 export { BackchannelCompat } from './server/backchannelCompat.js';
+export type { ContinuationCompatOptions } from './server/continuationCompat.js';
+export { ContinuationCompat } from './server/continuationCompat.js';
 export type { Dispatchable, HandleHttpOptions, HandleHttpRequestExtra } from './server/handleHttp.js';
 export { handleHttp } from './server/handleHttp.js';
 export type { SessionCompatOptions, SessionValidation } from './server/sessionCompat.js';
