@@ -55,7 +55,7 @@ export function toNodeHttpHandler(
  * Composes {@linkcode handleHttp} with {@linkcode toNodeHttpHandler} so each request flows through
  * `mcp.dispatch()` directly; `mcp.connect()` and a transport instance are not used.
  *
- * Reads `req.auth` (set by e.g. {@linkcode @modelcontextprotocol/express!requireBearerAuth | requireBearerAuth})
+ * Reads `req.auth` (set by e.g. `requireBearerAuth` from `@modelcontextprotocol/express`)
  * and `req.body` (set by e.g. `express.json()`) when present.
  *
  * ```ts
