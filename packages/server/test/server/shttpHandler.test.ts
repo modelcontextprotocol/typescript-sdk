@@ -133,7 +133,8 @@ describe('shttpHandler — Last-Event-ID replay session binding', () => {
         await init.body?.cancel();
 
         const res = await handler(getWithLastEventId(sid, 'no-such-stream::42'));
-        expect(res.status).toBe(404);
+        // 400, not 404: 404 with Mcp-Session-Id signals "session terminated" per spec.
+        expect(res.status).toBe(400);
     });
 
     test('fails closed when eventStore lacks getStreamIdForEventId', async () => {

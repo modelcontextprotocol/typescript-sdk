@@ -466,7 +466,12 @@ export function shttpHandler(
         }
         const eventStreamId = await eventStore.getStreamIdForEventId(lastEventId);
         if (eventStreamId === undefined) {
-            return jsonError(404, -32_001, 'Event not found');
+            // 400, not 404: per the Streamable HTTP spec a 404 on a request with
+            // Mcp-Session-Id signals "session terminated, reinitialize". This branch
+            // runs for a live session whose event store does not (or no longer) have
+            // that event id; clients should retry without Last-Event-ID, not abandon
+            // the session.
+            return jsonError(400, -32_000, 'Unknown or expired Last-Event-ID');
         }
         if (!session.ownsStreamId(sessionId, eventStreamId)) {
             return jsonError(403, -32_000, 'Forbidden: event ID does not belong to this session');
