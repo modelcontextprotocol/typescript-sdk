@@ -34,7 +34,7 @@ export class BackchannelCompat {
      * `writeSSE` returns `false` when the underlying stream is closed; the returned promise then
      * rejects immediately with `SendFailed` instead of waiting for the timeout.
      *
-     * Backchannel writes are not persisted to the {@linkcode EventStore}, so a client that
+     * Backchannel writes are not persisted to the configured event store, so a client that
      * disconnects mid-elicitation and resumes via `Last-Event-ID` will not see the outbound
      * request again; the awaiting handler will time out. This is a known limitation of the
      * legacy backchannel path; SEP-2322 (`ContinuationCompat`) is the resumable alternative.
