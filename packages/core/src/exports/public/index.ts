@@ -54,6 +54,10 @@ export type {
 } from '../../shared/protocol.js';
 export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
 
+// SEP-2322 multi-round-trip request types (IncompleteResult/InputRequest/InputResponseRequestParams
+// are exported via the `export * from types/types.js` below)
+export { RequiresInput } from '../../shared/dispatcher.js';
+
 // Task manager types (NOT TaskManager class itself — internal)
 export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
 

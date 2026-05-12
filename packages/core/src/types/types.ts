@@ -191,6 +191,44 @@ export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParams
 export type RequestMeta = Infer<typeof RequestMetaSchema>;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
+
+/**
+ * A single server-to-client request the handler needs answered before it can finish.
+ * Carried in {@linkcode IncompleteResult.inputRequests}, keyed by an opaque id the client
+ * echoes back in {@linkcode InputResponseRequestParams.inputResponses}. SEP-2322.
+ */
+export interface InputRequest {
+    method: string;
+    params?: Record<string, unknown>;
+}
+
+/**
+ * SEP-2322 multi-round-trip result discriminator. The server returns this when it cannot
+ * complete without client input (sampling, elicitation). The client services
+ * {@linkcode IncompleteResult.inputRequests | inputRequests} and retries the same request
+ * with {@linkcode InputResponseRequestParams.inputResponses | inputResponses}. Handlers
+ * normally do not return this directly; throwing
+ * {@linkcode @modelcontextprotocol/core!shared/dispatcher.RequiresInput | RequiresInput}
+ * (or calling `ctx.mcpReq.send` with no backchannel) emits it.
+ */
+export interface IncompleteResult extends Result {
+    resultType: 'incomplete';
+    /** Server-initiated requests the client must answer, keyed by an opaque id. */
+    inputRequests?: Record<string, InputRequest>;
+    /** Opaque continuation token the client echoes back unchanged. */
+    requestState?: string;
+}
+
+/**
+ * Params shape for a SEP-2322 retry: the client adds `inputResponses` (keyed by the ids
+ * from {@linkcode IncompleteResult.inputRequests}) and echoes `requestState` alongside
+ * the original method-specific params.
+ */
+export interface InputResponseRequestParams {
+    inputResponses?: Record<string, Result>;
+    requestState?: string;
+}
+
 export type RequestId = Infer<typeof RequestIdSchema>;
 export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
 export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;

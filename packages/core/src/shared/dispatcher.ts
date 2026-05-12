@@ -1,5 +1,8 @@
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type {
+    IncompleteResult,
+    InputRequest,
+    InputResponseRequestParams,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -45,6 +48,33 @@ export type DispatchFn = (req: JSONRPCRequest, env?: RequestEnv) => AsyncGenerat
  * @internal
  */
 export type DispatchMiddleware = (next: DispatchFn) => DispatchFn;
+
+/**
+ * Thrown by a handler (typically via `ctx.mcpReq.send` when no backchannel is available)
+ * to signal that the request cannot complete without client input. {@linkcode Dispatcher.dispatch}
+ * catches this and yields a successful {@linkcode IncompleteResult} response (SEP-2322
+ * Option E ephemeral path). The client services the {@linkcode RequiresInput.inputRequests}
+ * and retries with `params.inputResponses`.
+ */
+export class RequiresInput extends Error {
+    constructor(
+        readonly inputRequests: Record<string, InputRequest>,
+        readonly requestState?: string
+    ) {
+        // eslint-disable-next-line unicorn/no-array-sort -- toSorted() requires ES2023 lib; consumers may target ES2022
+        super(`Client input required: ${Object.keys(inputRequests).sort().join(', ')}`);
+        this.name = 'RequiresInput';
+    }
+
+    /** Convert to the wire result {@linkcode Dispatcher.dispatch} yields. */
+    toIncompleteResult(): IncompleteResult {
+        return {
+            resultType: 'incomplete',
+            inputRequests: this.inputRequests,
+            ...(this.requestState !== undefined && { requestState: this.requestState })
+        };
+    }
+}
 
 /**
  * Derives the handler return type for the 3-arg `setRequestHandler` form from its
@@ -158,6 +188,9 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                 throw new SdkError(SdkErrorCode.NotConnected, 'No outbound channel: ctx.mcpReq.send requires a connected peer');
             });
 
+        // SEP-2322: lift inputResponses/requestState off the params if this is a retry round.
+        const mrtrParams = request.params as InputResponseRequestParams | undefined;
+
         const base: BaseContext = {
             sessionId: env.sessionId,
             mcpReq: {
@@ -165,6 +198,8 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                 method: request.method,
                 _meta: request.params?._meta,
                 signal: localAbort.signal,
+                inputResponses: mrtrParams?.inputResponses,
+                requestState: mrtrParams?.requestState,
                 send: (async (r: Request, schemaOrOptions?: unknown, maybeOptions?: RequestOptions) => {
                     const isSchema = schemaOrOptions != null && typeof schemaOrOptions === 'object' && '~standard' in schemaOrOptions;
                     const options = isSchema ? maybeOptions : (schemaOrOptions as RequestOptions | undefined);
@@ -205,9 +240,16 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                         : { jsonrpc: '2.0', id: request.id, result };
                 },
                 error => {
-                    final = localAbort.signal.aborted
-                        ? errorResponse(request.id, ProtocolErrorCode.InternalError, 'Request cancelled').message
-                        : toErrorResponse(request.id, error);
+                    if (localAbort.signal.aborted) {
+                        final = errorResponse(request.id, ProtocolErrorCode.InternalError, 'Request cancelled').message;
+                    } else if (error instanceof RequiresInput) {
+                        // SEP-2322 Option E: a handler that needs client input throws RequiresInput
+                        // (typically via ctx.mcpReq.send with no backchannel). This is a *successful*
+                        // result discriminated by resultType:'incomplete', not an error response.
+                        final = { jsonrpc: '2.0', id: request.id, result: error.toIncompleteResult() };
+                    } else {
+                        final = toErrorResponse(request.id, error);
+                    }
                 }
             )
             .finally(() => {
@@ -289,7 +331,11 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
             const handler = maybeHandler as (params: unknown, ctx: ContextT) => Result | Promise<Result>;
             stored = async (request, ctx) => {
                 const userParams = { ...((request.params ?? {}) as Record<string, unknown>) };
+                // Protocol-envelope fields are stripped before user-schema validation so a strict
+                // schema does not reject SEP-2322 retry rounds.
                 delete userParams._meta;
+                delete userParams.inputResponses;
+                delete userParams.requestState;
                 const parsed = await validateStandardSchema(schemas.params, userParams);
                 if (!parsed.success) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error}`);

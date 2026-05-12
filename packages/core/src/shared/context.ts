@@ -167,6 +167,19 @@ export type BaseContext = {
          * This is used by certain transports to correctly associate related messages.
          */
         notify: (notification: Notification) => Promise<void>;
+
+        /**
+         * SEP-2322: client-supplied answers to a prior round's
+         * {@linkcode IncompleteResult.inputRequests}, keyed by the same opaque ids.
+         * Populated from `request.params.inputResponses` when present.
+         */
+        inputResponses?: Record<string, Result>;
+
+        /**
+         * SEP-2322: opaque continuation token echoed from a prior round's
+         * {@linkcode IncompleteResult.requestState}.
+         */
+        requestState?: string;
     };
 
     /**

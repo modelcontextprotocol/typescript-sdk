@@ -3,8 +3,8 @@ import { z } from 'zod/v4';
 
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 import type { DispatchOutput } from '../../src/shared/dispatcher.js';
-import { Dispatcher } from '../../src/shared/dispatcher.js';
-import type { JSONRPCErrorResponse, JSONRPCRequest, JSONRPCResultResponse, Result } from '../../src/types/index.js';
+import { Dispatcher, RequiresInput } from '../../src/shared/dispatcher.js';
+import type { IncompleteResult, JSONRPCErrorResponse, JSONRPCRequest, JSONRPCResultResponse, Result } from '../../src/types/index.js';
 import { ProtocolError, ProtocolErrorCode } from '../../src/types/index.js';
 
 const req = (method: string, params?: Record<string, unknown>, id = 1): JSONRPCRequest => ({ jsonrpc: '2.0', id, method, params });
@@ -318,5 +318,34 @@ describe('Dispatcher.setRequestHandler 3-arg (custom method + {params, result})'
         const setNotif = d.setNotificationHandler.bind(d) as (m: string, h: () => void) => void;
         expect(() => setReq('acme/search', async () => ({}))).toThrow(/not a spec request method/);
         expect(() => setNotif('acme/ping', () => {})).toThrow(/not a spec notification method/);
+    });
+});
+
+describe('RequiresInput → IncompleteResult (SEP-2322 Option E)', () => {
+    test('handler throwing RequiresInput yields a successful IncompleteResult, not an error', async () => {
+        const d = new Dispatcher();
+        d.setRequestHandler('ping', async () => {
+            throw new RequiresInput({ r0: { method: 'elicitation/create', params: {} } }, 'state-token-1');
+        });
+        const out = await collect(d.dispatch(req('ping')));
+        expect(out).toHaveLength(1);
+        expect(out[0]!.kind).toBe('response');
+        const msg = out[0]!.message as JSONRPCResultResponse;
+        expect('result' in msg).toBe(true);
+        const result = msg.result as IncompleteResult;
+        expect(result.resultType).toBe('incomplete');
+        expect(result.inputRequests).toEqual({ r0: { method: 'elicitation/create', params: {} } });
+        expect(result.requestState).toBe('state-token-1');
+    });
+
+    test('inputResponses/requestState are lifted onto ctx.mcpReq', async () => {
+        const d = new Dispatcher();
+        let seen: { inputResponses?: unknown; requestState?: unknown } = {};
+        d.setRequestHandler('ping', async (_r, ctx) => {
+            seen = { inputResponses: ctx.mcpReq.inputResponses, requestState: ctx.mcpReq.requestState };
+            return {};
+        });
+        await collect(d.dispatch(req('ping', { inputResponses: { r0: { ok: true } }, requestState: 's1' })));
+        expect(seen).toEqual({ inputResponses: { r0: { ok: true } }, requestState: 's1' });
     });
 });
