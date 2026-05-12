@@ -288,9 +288,9 @@ export type ClientContext = BaseContext;
 
 /**
  * Per-request peer scope lifted from `request.params._meta` (SEP-2575). Stateless servers
- * read these instead of holding `initialize` state. {@linkcode Dispatcher.dispatch} merges
- * the result of {@linkcode readMetaRequestScope} into {@linkcode RequestEnv} before
- * dispatching, so adapters can also pre-populate from session/init state (env wins).
+ * read these instead of holding `initialize` state. The dispatch path merges the result of
+ * {@linkcode readMetaRequestScope} into the per-request env before dispatching, so adapters
+ * can also pre-populate from session/init state (env wins).
  */
 export type MetaRequestScope = {
     /** From `_meta['io.modelcontextprotocol/protocolVersion']`. */
@@ -304,9 +304,9 @@ export type MetaRequestScope = {
 };
 
 /**
- * Lifts {@linkcode MetaRequestScope} fields off `request.params._meta`. Called by
- * {@linkcode Dispatcher.dispatch} before building the env so handlers see a per-request
- * view of capabilities even on stateless transports.
+ * Lifts {@linkcode MetaRequestScope} fields off `request.params._meta`. Called by the
+ * dispatch path before building the env so handlers see a per-request view of
+ * capabilities even on stateless transports.
  */
 export function readMetaRequestScope(meta: RequestMeta | undefined): MetaRequestScope {
     if (!meta) return {};
