@@ -7,6 +7,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    Implementation,
     LoggingLevel,
     Notification,
     Progress,
@@ -17,6 +18,13 @@ import type {
     Result,
     ResultTypeMap,
     ServerCapabilities
+} from '../types/index.js';
+import {
+    LoggingLevelSchema,
+    META_CLIENT_CAPABILITIES_KEY,
+    META_CLIENT_INFO_KEY,
+    META_LOG_LEVEL_KEY,
+    META_PROTOCOL_VERSION_KEY
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import type { TransportSendOptions } from './transport.js';
@@ -169,6 +177,23 @@ export type BaseContext = {
         notify: (notification: Notification) => Promise<void>;
 
         /**
+         * SEP-2575: per-request client capabilities lifted from `_meta`, or supplied by the
+         * adapter from session/init state. Adapter-supplied env takes precedence over `_meta`
+         * (`_meta` is client-asserted; session state is server-validated). Prefer this over
+         * instance-level `_clientCapabilities` for per-request checks on stateless servers.
+         */
+        clientCapabilities?: ClientCapabilities;
+
+        /** SEP-2575: per-request protocol version lifted from `_meta`. */
+        protocolVersion?: string;
+
+        /** SEP-2575: per-request client info lifted from `_meta`. */
+        clientInfo?: Implementation;
+
+        /** SEP-2575: per-request log level lifted from `_meta`. */
+        logLevel?: LoggingLevel;
+
+        /**
          * SEP-2322: client-supplied answers to a prior round's
          * {@linkcode IncompleteResult.inputRequests}, keyed by the same opaque ids.
          * Populated from `request.params.inputResponses` when present.
@@ -260,12 +285,49 @@ export type ServerContext = BaseContext & {
 export type ClientContext = BaseContext;
 
 /**
+ * Per-request peer scope lifted from `request.params._meta` (SEP-2575). Stateless servers
+ * read these instead of holding `initialize` state. {@linkcode Dispatcher.dispatch} merges
+ * the result of {@linkcode readMetaRequestScope} into {@linkcode RequestEnv} before
+ * dispatching, so adapters can also pre-populate from session/init state (env wins).
+ */
+export type MetaRequestScope = {
+    /** From `_meta['io.modelcontextprotocol/protocolVersion']`. */
+    protocolVersion?: string;
+    /** From `_meta['io.modelcontextprotocol/clientInfo']`. */
+    clientInfo?: Implementation;
+    /** From `_meta['io.modelcontextprotocol/clientCapabilities']`. */
+    clientCapabilities?: ClientCapabilities;
+    /** From `_meta['io.modelcontextprotocol/logLevel']`. */
+    logLevel?: LoggingLevel;
+};
+
+/**
+ * Lifts {@linkcode MetaRequestScope} fields off `request.params._meta`. Called by
+ * {@linkcode Dispatcher.dispatch} before building the env so handlers see a per-request
+ * view of capabilities even on stateless transports.
+ */
+export function readMetaRequestScope(meta: RequestMeta | undefined): MetaRequestScope {
+    if (!meta) return {};
+    const scope: MetaRequestScope = {};
+    const pv = meta[META_PROTOCOL_VERSION_KEY];
+    if (typeof pv === 'string') scope.protocolVersion = pv;
+    const ci = meta[META_CLIENT_INFO_KEY];
+    if (ci && typeof ci === 'object') scope.clientInfo = ci as Implementation;
+    const cc = meta[META_CLIENT_CAPABILITIES_KEY];
+    if (cc && typeof cc === 'object') scope.clientCapabilities = cc as ClientCapabilities;
+    const ll = meta[META_LOG_LEVEL_KEY];
+    const parsedLevel = typeof ll === 'string' ? LoggingLevelSchema.safeParse(ll) : undefined;
+    if (parsedLevel?.success) scope.logLevel = parsedLevel.data;
+    return scope;
+}
+
+/**
  * Per-request environment a transport adapter passes to {@linkcode Dispatcher.dispatch}.
  * Everything is optional; a bare `dispatch()` call works with no transport at all.
  *
  * @internal
  */
-export type RequestEnv = {
+export type RequestEnv = MetaRequestScope & {
     /**
      * Sends a request back to the peer (server→client elicitation/sampling, or
      * client→server nested calls). Supplied by {@linkcode StreamDriver} when running

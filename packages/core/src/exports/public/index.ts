@@ -58,6 +58,12 @@ export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
 // are exported via the `export * from types/types.js` below)
 export { RequiresInput } from '../../shared/dispatcher.js';
 
+// SEP-2575 per-request _meta scope
+export type { MetaRequestScope } from '../../shared/context.js';
+export { readMetaRequestScope } from '../../shared/context.js';
+export { META_CLIENT_CAPABILITIES_KEY, META_CLIENT_INFO_KEY, META_LOG_LEVEL_KEY, META_PROTOCOL_VERSION_KEY } from '../../types/index.js';
+
+
 // Task manager types (NOT TaskManager class itself — internal)
 export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
 

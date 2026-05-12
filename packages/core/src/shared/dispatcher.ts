@@ -21,6 +21,7 @@ import { getNotificationSchema, getRequestSchema, getResultSchema, ProtocolError
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { validateStandardSchema } from '../util/standardSchema.js';
 import type { BaseContext, RequestEnv, RequestOptions } from './context.js';
+import { readMetaRequestScope } from './context.js';
 
 /**
  * One yielded item from {@linkcode Dispatcher.dispatch}. A dispatch yields zero or more
@@ -151,11 +152,14 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
      * May throw if iteration itself is misused.
      */
     dispatch(request: JSONRPCRequest, env: RequestEnv = {}): AsyncGenerator<DispatchOutput, void, void> {
+        // SEP-2575: lift per-request peer scope from _meta. Adapter-supplied env wins
+        // (e.g. SessionCompat passing its stored init capabilities).
+        const enrichedEnv: RequestEnv = { ...readMetaRequestScope(request.params?._meta), ...env };
         // eslint-disable-next-line unicorn/consistent-function-scoping -- closes over `this`
         let chain: DispatchFn = (r, e) => this._dispatchCore(r, e);
         // eslint-disable-next-line unicorn/no-array-reverse -- toReversed() requires ES2023 lib; consumers may target ES2022
         for (const mw of [...this._dispatchMw].reverse()) chain = mw(chain);
-        return chain(request, env);
+        return chain(request, enrichedEnv);
     }
 
     /**
@@ -198,6 +202,10 @@ export class Dispatcher<ContextT extends BaseContext = BaseContext> {
                 method: request.method,
                 _meta: request.params?._meta,
                 signal: localAbort.signal,
+                clientCapabilities: env.clientCapabilities,
+                protocolVersion: env.protocolVersion,
+                clientInfo: env.clientInfo,
+                logLevel: env.logLevel,
                 inputResponses: mrtrParams?.inputResponses,
                 requestState: mrtrParams?.requestState,
                 send: (async (r: Request, schemaOrOptions?: unknown, maybeOptions?: RequestOptions) => {

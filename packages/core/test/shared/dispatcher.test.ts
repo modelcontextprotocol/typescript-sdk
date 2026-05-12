@@ -349,3 +349,40 @@ describe('RequiresInput → IncompleteResult (SEP-2322 Option E)', () => {
         expect(seen).toEqual({ inputResponses: { r0: { ok: true } }, requestState: 's1' });
     });
 });
+
+describe('MetaRequestScope (SEP-2575)', () => {
+    test('clientCapabilities/protocolVersion lifted from _meta onto ctx.mcpReq', async () => {
+        const d = new Dispatcher();
+        let seen: { caps?: unknown; pv?: unknown } = {};
+        d.setRequestHandler('ping', async (_r, ctx) => {
+            seen = { caps: ctx.mcpReq.clientCapabilities, pv: ctx.mcpReq.protocolVersion };
+            return {};
+        });
+        await collect(
+            d.dispatch(
+                req('ping', {
+                    _meta: {
+                        'io.modelcontextprotocol/clientCapabilities': { sampling: {} },
+                        'io.modelcontextprotocol/protocolVersion': '2026-06-30'
+                    }
+                })
+            )
+        );
+        expect(seen).toEqual({ caps: { sampling: {} }, pv: '2026-06-30' });
+    });
+
+    test('adapter-supplied env wins over _meta', async () => {
+        const d = new Dispatcher();
+        let seenPv: string | undefined;
+        d.setRequestHandler('ping', async (_r, ctx) => {
+            seenPv = ctx.mcpReq.protocolVersion;
+            return {};
+        });
+        await collect(
+            d.dispatch(req('ping', { _meta: { 'io.modelcontextprotocol/protocolVersion': 'from-meta' } }), {
+                protocolVersion: 'from-env'
+            })
+        );
+        expect(seenPv).toBe('from-env');
+    });
+});

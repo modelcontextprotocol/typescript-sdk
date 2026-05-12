@@ -4,6 +4,12 @@ export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
+/* SEP-2575 per-request _meta scope keys (stateless servers read these instead of initialize state) */
+export const META_PROTOCOL_VERSION_KEY = 'io.modelcontextprotocol/protocolVersion';
+export const META_CLIENT_INFO_KEY = 'io.modelcontextprotocol/clientInfo';
+export const META_CLIENT_CAPABILITIES_KEY = 'io.modelcontextprotocol/clientCapabilities';
+export const META_LOG_LEVEL_KEY = 'io.modelcontextprotocol/logLevel';
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
 
