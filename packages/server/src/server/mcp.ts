@@ -108,8 +108,7 @@ export class McpServer {
     }
 
     /**
-     * Forwards to {@linkcode Protocol.use | Server.use}. Registers a
-     * {@linkcode DispatchMiddleware} that runs around every dispatched request.
+     * Registers a {@linkcode DispatchMiddleware} that runs around every dispatched request.
      * Use to attach extensions such as `tasksPlugin({ store })`.
      */
     use(middleware: DispatchMiddleware): void {

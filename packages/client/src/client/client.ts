@@ -760,7 +760,7 @@ export class Client extends Protocol<ClientContext> {
      * SDK-level issues (timeouts, missing capabilities).
      *
      * Under SEP-2663, tools that defer work return `{resultType: 'task', task}`. Inspect the
-     * result and poll with {@linkcode pollTask} when `resultType === 'task'`.
+     * result and poll with {@linkcode index.pollTask | pollTask} when `resultType === 'task'`.
      *
      * @example Basic usage
      * ```ts source="./client.examples.ts#Client_callTool_basic"
