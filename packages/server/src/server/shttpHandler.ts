@@ -16,7 +16,8 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    validateMcpHeaders
 } from '@modelcontextprotocol/core';
 
 import type { SessionCompat } from './sessionCompat.js';
@@ -257,6 +258,17 @@ export function shttpHandler(
         }
 
         const requests = messages.filter(m => isJSONRPCRequest(m));
+
+        // SEP-2243: reject if Mcp-Method/Mcp-Name headers (when present) don't match the body.
+        // Prevents header/body source-of-truth split between intermediaries and the handler.
+        if (!isBatch && requests.length === 1) {
+            const headerMismatch = validateMcpHeaders(req, requests[0]!);
+            if (headerMismatch) {
+                onerror?.(new Error(headerMismatch));
+                return jsonError(400, -32_001, `Bad Request: ${headerMismatch}`);
+            }
+        }
+
         const notifications = messages.filter(m => isJSONRPCNotification(m));
         const responses = messages.filter(
             (m): m is JSONRPCResultResponse | JSONRPCErrorResponse => isJSONRPCResultResponse(m) || isJSONRPCErrorResponse(m)

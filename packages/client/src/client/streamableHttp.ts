@@ -8,6 +8,8 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    encodeMcpHeaderValue,
+    mcpNameForMethod,
     normalizeHeaders,
     SdkError,
     SdkErrorCode
@@ -543,6 +545,15 @@ export class StreamableHTTPClientTransport implements Transport {
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
+
+            // SEP-2243: mirror method (and name/uri for tools/call, resources/read, prompts/get)
+            // into HTTP headers so intermediaries can route without body inspection. Only
+            // applied to single-message POSTs since batch bodies have no single method.
+            if (!Array.isArray(message) && 'method' in message) {
+                headers.set('mcp-method', encodeMcpHeaderValue(message.method));
+                const name = mcpNameForMethod(message.method, message.params);
+                if (name !== undefined) headers.set('mcp-name', encodeMcpHeaderValue(name));
+            }
 
             const init = {
                 ...this._requestInit,
