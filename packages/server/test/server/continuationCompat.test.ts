@@ -214,6 +214,22 @@ describe('ContinuationCompat — suspend/resume via shttpHandler', () => {
         expect(continuations.size).toBe(0);
     });
 
+    it('malformed inputResponses (primitive) is coerced to {} and rejects the parked send, not the process', async () => {
+        continuations = new ContinuationCompat({ allowAnonymousSuspend: true });
+        const { cb } = suspendingServer();
+        const handler = shttpHandler(cb, { continuations, enableJsonResponse: true });
+        const r1 = await handler(post({ jsonrpc: '2.0', id: 1, method: 'x' }));
+        const inc = asIncomplete((await r1.json()) as JSONRPCMessage);
+        // inputResponses: 42 would throw `'r0' in 42` inside _suspendingSend without the boundary guard.
+        const r2 = await handler(
+            post({ jsonrpc: '2.0', id: 2, method: 'x', params: { requestState: inc.requestState, inputResponses: 42 } })
+        );
+        // Coerced to {}, so the parked env.send rejects with SendFailed and the handler surfaces it as an error result.
+        const m2 = (await r2.json()) as JSONRPCMessage;
+        expect(m2).toMatchObject({ id: 2 });
+        expect(continuations.size).toBe(0);
+    });
+
     it('returns -32600 when requestState is unknown/expired', async () => {
         continuations = new ContinuationCompat({ allowAnonymousSuspend: true });
         const { cb } = suspendingServer();

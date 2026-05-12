@@ -280,7 +280,11 @@ export class ContinuationCompat {
             cont = entry.cont;
             clearTimeout(entry.timer);
             entry.timer = this._arm(token);
-            const responses = (params.inputResponses ?? {}) as InputResponses;
+            // Untrusted client input: ?? only guards null/undefined. A primitive (42, "x")
+            // would reach `key in responses` in _suspendingSend and throw a TypeError that
+            // surfaces as an unhandled rejection. Coerce to a plain object at the boundary.
+            const raw = params.inputResponses;
+            const responses = (typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}) as InputResponses;
             cont.answer(responses);
         } else if (incomingState === undefined) {
             const owner = principalOf(env);
@@ -446,12 +450,18 @@ export class ContinuationCompat {
                 opts?.signal?.addEventListener('abort', onAbort, { once: true });
                 settle.then(
                     responses => {
-                        opts?.signal?.removeEventListener('abort', onAbort);
-                        if (!(key in responses)) {
-                            reject(new SdkError(SdkErrorCode.SendFailed, `inputResponses missing entry for slot "${key}"`));
-                            return;
+                        // Any throw inside this onFulfilled would reject the discarded
+                        // .then() promise (unhandled rejection). Route to the executor's reject.
+                        try {
+                            opts?.signal?.removeEventListener('abort', onAbort);
+                            if (!(key in responses)) {
+                                reject(new SdkError(SdkErrorCode.SendFailed, `inputResponses missing entry for slot "${key}"`));
+                                return;
+                            }
+                            resolve(responses[key]!);
+                        } catch (error) {
+                            reject(error instanceof Error ? error : new Error(String(error)));
                         }
-                        resolve(responses[key]!);
                     },
                     error => {
                         opts?.signal?.removeEventListener('abort', onAbort);
