@@ -9,7 +9,7 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CallToolResult, CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
+import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
 import { Client, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
@@ -115,64 +115,12 @@ async function run(url: string): Promise<void> {
     const toolsResult = await client.listTools();
     console.log(`Available tools: ${toolsResult.tools.map(t => t.name).join(', ')}`);
 
-    // Demo 1: Elicitation (confirm_delete)
-    console.log('\n--- Demo 1: Elicitation ---');
-    console.log('Calling confirm_delete tool...');
-
-    const confirmStream = client.experimental.tasks.callToolStream(
-        { name: 'confirm_delete', arguments: { filename: 'important.txt' } },
-        {}
-    );
-
-    for await (const message of confirmStream) {
-        switch (message.type) {
-            case 'taskCreated': {
-                console.log(`Task created: ${message.task.taskId}`);
-                break;
-            }
-            case 'taskStatus': {
-                console.log(`Task status: ${message.task.status}`);
-                break;
-            }
-            case 'result': {
-                const toolResult = message.result as CallToolResult;
-                console.log(`Result: ${getTextContent(toolResult)}`);
-                break;
-            }
-            case 'error': {
-                console.error(`Error: ${message.error}`);
-                break;
-            }
-        }
-    }
-
-    // Demo 2: Sampling (write_haiku)
-    console.log('\n--- Demo 2: Sampling ---');
-    console.log('Calling write_haiku tool...');
-
-    const haikuStream = client.experimental.tasks.callToolStream({ name: 'write_haiku', arguments: { topic: 'autumn leaves' } }, {});
-
-    for await (const message of haikuStream) {
-        switch (message.type) {
-            case 'taskCreated': {
-                console.log(`Task created: ${message.task.taskId}`);
-                break;
-            }
-            case 'taskStatus': {
-                console.log(`Task status: ${message.task.status}`);
-                break;
-            }
-            case 'result': {
-                const toolResult = message.result as CallToolResult;
-                console.log(`Result:\n${getTextContent(toolResult)}`);
-                break;
-            }
-            case 'error': {
-                console.error(`Error: ${message.error}`);
-                break;
-            }
-        }
-    }
+    // TODO(F3): re-enable interactive task demos via tasksPlugin (SEP-2663).
+    // The 2025-11 callToolStream API is removed by R0; the demos below were the
+    // streaming consumer of that API and are disabled until the F3 rewrite.
+    void client;
+    void getTextContent;
+    console.log('\nInteractive task demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
 
     // Cleanup
     console.log('\nDemo complete. Closing connection...');

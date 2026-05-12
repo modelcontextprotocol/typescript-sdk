@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 
-import type { CallToolResult, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
+import type { ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import open from 'open';
 
@@ -358,54 +358,12 @@ class InteractiveOAuthClient {
             return;
         }
 
-        try {
-            // Using the experimental tasks API - WARNING: may change without notice
-            console.log(`\n🔧 Streaming tool '${toolName}'...`);
-
-            const stream = this.client.experimental.tasks.callToolStream({
-                name: toolName,
-                arguments: toolArgs
-            });
-
-            // Iterate through all messages yielded by the generator
-            for await (const message of stream) {
-                switch (message.type) {
-                    case 'taskCreated': {
-                        console.log(`✓ Task created: ${message.task.taskId}`);
-                        break;
-                    }
-
-                    case 'taskStatus': {
-                        console.log(`⟳ Status: ${message.task.status}`);
-                        if (message.task.statusMessage) {
-                            console.log(`  ${message.task.statusMessage}`);
-                        }
-                        break;
-                    }
-
-                    case 'result': {
-                        console.log('✓ Completed!');
-                        const toolResult = message.result as CallToolResult;
-                        for (const content of toolResult.content) {
-                            if (content.type === 'text') {
-                                console.log(content.text);
-                            } else {
-                                console.log(content);
-                            }
-                        }
-                        break;
-                    }
-
-                    case 'error': {
-                        console.log('✗ Error:');
-                        console.log(`  ${message.error.message}`);
-                        break;
-                    }
-                }
-            }
-        } catch (error) {
-            console.error(`❌ Failed to stream tool '${toolName}':`, error);
-        }
+        // TODO(F3): re-enable streaming-tool demo via tasksPlugin (SEP-2663).
+        // The 2025-11 callToolStream API is removed by R0; this command is disabled
+        // until the F3 rewrite.
+        void toolName;
+        void toolArgs;
+        console.log('Streaming tool demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
     }
 
     close(): void {

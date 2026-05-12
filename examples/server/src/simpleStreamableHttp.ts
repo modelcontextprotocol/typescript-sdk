@@ -10,7 +10,7 @@ import type {
     ReadResourceResult,
     ResourceLink
 } from '@modelcontextprotocol/server';
-import { InMemoryTaskMessageQueue, InMemoryTaskStore, isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -21,8 +21,8 @@ import { InMemoryEventStore } from './inMemoryEventStore.js';
 const useOAuth = process.argv.includes('--oauth');
 const dangerousLoggingEnabled = process.argv.includes('--dangerous-logging-enabled');
 
-// Create shared task store for demonstration
-const taskStore = new InMemoryTaskStore();
+// TODO(F3): re-add task store wiring via tasksPlugin (SEP-2663).
+// const taskStore = new InMemoryTaskStore();
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -35,12 +35,8 @@ const getServer = () => {
         },
         {
             capabilities: {
-                logging: {},
-                tasks: {
-                    requests: { tools: { call: {} } },
-                    taskStore,
-                    taskMessageQueue: new InMemoryTaskMessageQueue()
-                }
+                logging: {}
+                // TODO(F3): tasks capability re-added via tasksPlugin (SEP-2663)
             }
         }
     );

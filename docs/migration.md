@@ -869,44 +869,7 @@ There is no migration path for the removed surface; it was always `@experimental
 
 #### `TaskCreationParams.ttl` no longer accepts `null`
 
-The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let
-the server decide the lifetime.
-
-This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
-
-**Before (v1):**
-
-```typescript
-// Requesting unlimited lifetime by passing null
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: { ttl: null }
-});
-
-// Handler context had number | null | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | null | undefined = ctx.task?.requestedTtl;
-});
-```
-
-**After (v2):**
-
-```typescript
-// Omit ttl to let the server decide (server may return null for unlimited)
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: {}
-});
-
-// Handler context is now number | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | undefined = ctx.task?.requestedTtl;
-});
-```
-
-> **Note:** These task APIs are marked `@experimental` and may change without notice.
+`TaskCreationParams.ttl` (the storage-layer creation parameter) is now `number | undefined`; `null` is no longer accepted. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in creation requests. Omit `ttl` to let the store decide. This is a storage-interface change and is independent of the Protocol-level removals above.
 
 ## Enhancements
 

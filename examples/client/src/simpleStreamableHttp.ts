@@ -1,7 +1,6 @@
 import { createInterface } from 'node:readline';
 
 import type {
-    CallToolResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -881,55 +880,12 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
         return;
     }
 
-    console.log(`Calling tool '${name}' with task-based execution...`);
-    console.log('Arguments:', args);
-
-    // Use task-based execution - call now, fetch later
-    // Using the experimental tasks API - WARNING: may change without notice
-    console.log('This will return immediately while processing continues in the background...');
-
-    try {
-        // Call the tool with task metadata using streaming API
-        const stream = client.experimental.tasks.callToolStream({
-            name,
-            arguments: args
-        });
-
-        console.log('Waiting for task completion...');
-
-        let lastStatus = '';
-        for await (const message of stream) {
-            switch (message.type) {
-                case 'taskCreated': {
-                    console.log('Task created successfully with ID:', message.task.taskId);
-                    break;
-                }
-                case 'taskStatus': {
-                    if (lastStatus !== message.task.status) {
-                        console.log(`  ${message.task.status}${message.task.statusMessage ? ` - ${message.task.statusMessage}` : ''}`);
-                    }
-                    lastStatus = message.task.status;
-                    break;
-                }
-                case 'result': {
-                    console.log('Task completed!');
-                    console.log('Tool result:');
-                    const toolResult = message.result as CallToolResult;
-                    for (const item of toolResult.content) {
-                        if (item.type === 'text') {
-                            console.log(`  ${item.text}`);
-                        }
-                    }
-                    break;
-                }
-                case 'error': {
-                    throw message.error;
-                }
-            }
-        }
-    } catch (error) {
-        console.log(`Error with task-based execution: ${error}`);
-    }
+    // TODO(F3): re-enable task-based demo via tasksPlugin (SEP-2663).
+    // The 2025-11 callToolStream API is removed by R0; this command is disabled
+    // until the F3 rewrite (callTool returns {resultType:'task'}, then pollTask).
+    void name;
+    void args;
+    console.log('Task-based execution demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
 }
 
 async function cleanup(): Promise<void> {
