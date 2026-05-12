@@ -207,8 +207,7 @@ export interface InputRequest {
  * complete without client input (sampling, elicitation). The client services
  * {@linkcode IncompleteResult.inputRequests | inputRequests} and retries the same request
  * with {@linkcode InputResponseRequestParams.inputResponses | inputResponses}. Handlers
- * normally do not return this directly; throwing
- * {@linkcode @modelcontextprotocol/core!shared/dispatcher.RequiresInput | RequiresInput}
+ * normally do not return this directly; throwing {@linkcode RequiresInput}
  * (or calling `ctx.mcpReq.send` with no backchannel) emits it.
  */
 export interface IncompleteResult extends Result {
