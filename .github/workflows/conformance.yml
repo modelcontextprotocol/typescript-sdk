@@ -48,4 +48,4 @@ jobs:
                   cache-dependency-path: pnpm-lock.yaml
             - run: pnpm install
             - run: pnpm run build:all
-            - run: pnpm run test:conformance:server
+            - run: pnpm run test:conformance:server:dual

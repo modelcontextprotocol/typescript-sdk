@@ -146,6 +146,18 @@ export class SessionCompat {
                     response: jsonError(400, -32_600, 'Invalid Request: Only one initialization request is allowed')
                 };
             }
+            // v1 parity: an initialize POST that already carries an Mcp-Session-Id is a
+            // re-init against an existing session and is rejected (the v1 app pattern
+            // routed it to the existing transport, which returned "Server already
+            // initialized"). Without this check a confused/retrying client mints a new
+            // session per retry in multi-session mode.
+            if (req.headers.get('mcp-session-id') !== null) {
+                this._onerror?.(new Error('Invalid Request: initialize must not carry Mcp-Session-Id'));
+                return {
+                    ok: false,
+                    response: jsonError(400, -32_600, 'Invalid Request: Server already initialized')
+                };
+            }
             this._evictIdle();
             if (this._singleSession && this._sessions.size > 0) {
                 this._onerror?.(new Error('Invalid Request: Server already initialized'));
