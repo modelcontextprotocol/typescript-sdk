@@ -718,7 +718,11 @@ export class Client extends Protocol<ClientContext> {
         return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
-    /** Sets the minimum severity level for log messages sent by the server. */
+    /**
+     * Sets the minimum severity level for log messages sent by the server.
+     *
+     * @deprecated SEP-2577 deprecates the MCP Logging feature (advisory; no wire change).
+     */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
         return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
@@ -1053,7 +1057,11 @@ export class Client extends Protocol<ClientContext> {
         this.setNotificationHandler(notificationMethod, handler);
     }
 
-    /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
+    /**
+     * Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability.
+     *
+     * @deprecated SEP-2577 deprecates the MCP Roots feature (advisory; no wire change).
+     */
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
     }

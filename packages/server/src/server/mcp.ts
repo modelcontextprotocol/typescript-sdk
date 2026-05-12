@@ -1010,6 +1010,7 @@ export class McpServer {
      * Sends a logging message to the client, if connected.
      * Note: You only need to send the parameters object, not the entire JSON-RPC message.
      * @see {@linkcode LoggingMessageNotification}
+     * @deprecated SEP-2577 deprecates the MCP Logging feature (advisory; no wire change).
      * @param params
      * @param sessionId Optional for stateless transports and backward compatibility.
      *

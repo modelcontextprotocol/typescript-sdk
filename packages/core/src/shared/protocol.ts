@@ -247,6 +247,9 @@ export type ServerContext = BaseContext & {
         /**
          * Send a log message notification to the client.
          * Respects the client's log level filter set via logging/setLevel.
+         *
+         * @deprecated SEP-2577 deprecates the MCP Logging feature (advisory; no wire change).
+         * Prefer stderr or OpenTelemetry for server diagnostics.
          */
         log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
 
@@ -257,6 +260,8 @@ export type ServerContext = BaseContext & {
 
         /**
          * Request LLM sampling from the client.
+         *
+         * @deprecated SEP-2577 deprecates the MCP Sampling feature (advisory; no wire change).
          */
         requestSampling: (
             params: CreateMessageRequest['params'],

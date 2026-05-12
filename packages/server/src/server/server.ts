@@ -466,18 +466,24 @@ export class Server extends Protocol<ServerContext> {
     /**
      * Request LLM sampling from the client (without tools).
      * Returns single content block for backwards compatibility.
+     *
+     * @deprecated SEP-2577 deprecates the MCP Sampling feature (advisory; no wire change).
      */
     async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
 
     /**
      * Request LLM sampling from the client with tool support.
      * Returns content that may be a single block or array (for parallel tool calls).
+     *
+     * @deprecated SEP-2577 deprecates the MCP Sampling feature (advisory; no wire change).
      */
     async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
 
     /**
      * Request LLM sampling from the client.
      * When tools may or may not be present, returns the union type.
+     *
+     * @deprecated SEP-2577 deprecates the MCP Sampling feature (advisory; no wire change).
      */
     async createMessage(
         params: CreateMessageRequest['params'],
@@ -632,6 +638,12 @@ export class Server extends Protocol<ServerContext> {
             );
     }
 
+    /**
+     * Request the client's filesystem roots.
+     *
+     * @deprecated SEP-2577 deprecates the MCP Roots feature (advisory; no wire change).
+     * Prefer passing scope via tool parameters or server configuration.
+     */
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
         return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
@@ -642,6 +654,9 @@ export class Server extends Protocol<ServerContext> {
      * @see {@linkcode LoggingMessageNotification}
      * @param params
      * @param sessionId Optional for stateless transports and backward compatibility.
+     *
+     * @deprecated SEP-2577 deprecates the MCP Logging feature (advisory; no wire change).
+     * Prefer stderr or OpenTelemetry for server diagnostics.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
