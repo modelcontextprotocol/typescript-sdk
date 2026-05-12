@@ -3,12 +3,12 @@ import type { ReadableWritablePair } from 'node:stream/web';
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
+    encodeMcpHeaderValue,
     isInitializedNotification,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    encodeMcpHeaderValue,
     mcpNameForMethod,
     normalizeHeaders,
     SdkError,
