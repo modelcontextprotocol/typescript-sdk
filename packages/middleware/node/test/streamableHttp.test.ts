@@ -13,12 +13,55 @@ import type {
     RequestId
 } from '@modelcontextprotocol/core';
 import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
-import { McpServer } from '@modelcontextprotocol/server';
+import { McpServer, SessionCompat } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { NodeStreamableHTTPServerTransport, toNodeHttpHandler } from '../src/streamableHttp.js';
+import { mcpNodeHandler, NodeStreamableHTTPServerTransport, toNodeHttpHandler } from '../src/streamableHttp.js';
+
+describe('mcpNodeHandler', () => {
+    async function startNodeHandlerServer(options?: Parameters<typeof mcpNodeHandler>[1]) {
+        const mcp = new McpServer({ name: 'test-server', version: '1.0.0' });
+        mcp.registerTool(
+            'greet',
+            { description: 'A simple greeting tool', inputSchema: z.object({ who: z.string() }) },
+            async ({ who }): Promise<CallToolResult> => ({ content: [{ type: 'text', text: `hi ${who}` }] })
+        );
+        const handler = mcpNodeHandler(mcp, options);
+        const server = createServer((req, res) => void handler(req, res));
+        const baseUrl = await listenOnRandomPort(server);
+        return { server, baseUrl };
+    }
+
+    it('serves initialize via mcp.dispatch() (stateless, no transport class)', async () => {
+        const { server, baseUrl } = await startNodeHandlerServer({ enableJsonResponse: true });
+        try {
+            const res = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            expect(res.status).toBe(200);
+            const body = (await res.json()) as JSONRPCResultResponse;
+            expect(body.result).toMatchObject({ serverInfo: { name: 'test-server' } });
+            expect(res.headers.get('mcp-session-id')).toBeNull();
+        } finally {
+            await new Promise<void>(r => server.close(() => r()));
+        }
+    });
+
+    it('serves session lifecycle via SessionCompat', async () => {
+        const { server, baseUrl } = await startNodeHandlerServer({ session: new SessionCompat(), enableJsonResponse: true });
+        try {
+            const initRes = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            const sid = initRes.headers.get('mcp-session-id');
+            expect(sid).toBeTruthy();
+            const listRes = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sid!);
+            expect(listRes.status).toBe(200);
+            const body = (await listRes.json()) as JSONRPCResultResponse;
+            expect((body.result as { tools: unknown[] }).tools).toHaveLength(1);
+        } finally {
+            await new Promise<void>(r => server.close(() => r()));
+        }
+    });
+});
 
 describe('toNodeHttpHandler', () => {
     it('does not treat express next() as parsedBody; reads req.body instead', async () => {

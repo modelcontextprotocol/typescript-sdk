@@ -11,8 +11,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
-import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import type { Dispatchable, HandleHttpOptions, WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
+import { handleHttp, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
 /**
  * Configuration options for {@linkcode NodeStreamableHTTPServerTransport}
@@ -48,6 +48,32 @@ export function toNodeHttpHandler(
         const listener = getRequestListener(webReq => handler(webReq, extra), { overrideGlobalObjects: false });
         await listener(req, res);
     };
+}
+
+/**
+ * Mounts an `McpServer` (or any `Protocol` subclass) as a Node.js HTTP handler.
+ * Composes {@linkcode handleHttp} with {@linkcode toNodeHttpHandler} so each request flows through
+ * `mcp.dispatch()` directly; `mcp.connect()` and a transport instance are not used.
+ *
+ * Reads `req.auth` (set by e.g. `requireBearerAuth` from `@modelcontextprotocol/express`)
+ * and `req.body` (set by e.g. `express.json()`) when present.
+ *
+ * ```ts
+ * import http from 'node:http';
+ * import { McpServer, SessionCompat } from '@modelcontextprotocol/server';
+ * import { mcpNodeHandler } from '@modelcontextprotocol/node';
+ *
+ * const mcp = new McpServer({ name: 's', version: '1.0.0' });
+ * http.createServer(mcpNodeHandler(mcp, { session: new SessionCompat() })).listen(3000);
+ * ```
+ *
+ * For frameworks that already work with web `(Request) => Response`, use {@linkcode handleHttp} directly.
+ */
+export function mcpNodeHandler(
+    mcp: Dispatchable,
+    options?: HandleHttpOptions
+): (req: IncomingMessage & { auth?: AuthInfo; body?: unknown }, res: ServerResponse, next?: (err?: unknown) => void) => Promise<void> {
+    return toNodeHttpHandler(handleHttp(mcp, options));
 }
 
 /**
