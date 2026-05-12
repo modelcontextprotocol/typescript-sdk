@@ -38,6 +38,9 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
+// Dispatcher types referenced by public `use()` method (NOT the Dispatcher class itself)
+export type { DispatchMiddleware } from '../../shared/dispatcher.js';
+
 // Protocol types (NOT the Protocol class itself or mergeCapabilities)
 export type {
     BaseContext,

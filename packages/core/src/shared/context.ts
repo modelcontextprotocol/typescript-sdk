@@ -32,7 +32,7 @@ export type ProgressCallback = (progress: Progress) => void;
 export type ProtocolOptions = {
     /**
      * Protocol versions supported. First version is preferred (sent by client,
-     * used as fallback by server). Passed to transport during {@linkcode Protocol.connect | connect()}.
+     * used as fallback by server). Passed to transport during `connect()`.
      *
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
@@ -70,12 +70,12 @@ export type RequestOptions = {
     onprogress?: ProgressCallback;
 
     /**
-     * Can be used to cancel an in-flight request. This will cause an `AbortError` to be raised from {@linkcode Protocol.request | request()}.
+     * Can be used to cancel an in-flight request. This will cause an `AbortError` to be raised from `request()`.
      */
     signal?: AbortSignal;
 
     /**
-     * A timeout (in milliseconds) for this request. If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised from {@linkcode Protocol.request | request()}.
+     * A timeout (in milliseconds) for this request. If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised from `request()`.
      *
      * If not specified, {@linkcode DEFAULT_REQUEST_TIMEOUT_MSEC} will be used as the timeout.
      */
@@ -298,7 +298,7 @@ export interface Outbound {
 }
 
 /**
- * Schema bundle accepted by {@linkcode Protocol.setRequestHandler | setRequestHandler}'s 3-arg form.
+ * Schema bundle accepted by `setRequestHandler`'s 3-arg form.
  *
  * `params` is required and validates the inbound `request.params`. `result` is optional;
  * when supplied it types the handler's return value (no runtime validation is performed

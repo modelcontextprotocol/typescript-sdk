@@ -50,7 +50,15 @@ export default {
     externalSymbolLinkMappings: {
         '@modelcontextprotocol/core': {
             StandardSchemaV1: 'https://standardschema.dev/',
-            StandardJSONSchemaV1: 'https://standardschema.dev/'
+            StandardJSONSchemaV1: 'https://standardschema.dev/',
+            // Internal types referenced from public-facing JSDoc. Dispatcher/StreamDriver/
+            // RequestEnv stay private; mapping to '#' renders the link as plain text without
+            // typedoc treating the unresolved reference as an error.
+            Dispatcher: '#',
+            'Dispatcher.dispatch': '#',
+            'Dispatcher.use': '#',
+            RequestEnv: '#',
+            StreamDriver: '#'
         }
     }
 };
