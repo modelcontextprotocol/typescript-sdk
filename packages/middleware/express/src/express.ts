@@ -11,7 +11,7 @@ import { hostHeaderValidation, localhostHostValidation } from './middleware/host
  * Each request flows through `mcp.dispatch()` directly via {@linkcode handleHttp};
  * `mcp.connect()` and a transport instance are not used.
  *
- * Reads `req.auth` (set by {@linkcode requireBearerAuth}) and `req.body` (set by
+ * Reads `req.auth` (set by {@linkcode index.requireBearerAuth | requireBearerAuth}) and `req.body` (set by
  * `express.json()`, which {@linkcode createMcpExpressApp} installs by default).
  *
  * ```ts
