@@ -43,6 +43,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "cors": "catalog:runtimeServerOnly"
     },
     "peerDependencies": {
