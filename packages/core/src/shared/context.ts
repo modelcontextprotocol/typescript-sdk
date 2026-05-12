@@ -181,7 +181,7 @@ export type BaseContext = {
 
     /**
      * Extension slot (SEP-2133 mechanism). Dispatch middleware registered via
-     * {@linkcode Protocol.use} populates keys here under the extension's reverse-DNS
+     * `use()` populates keys here under the extension's reverse-DNS
      * namespace; handlers read via the extension's typed accessor (e.g.
      * `taskContext(ctx)` for `tasksPlugin`). Core never reads or writes this field.
      *
