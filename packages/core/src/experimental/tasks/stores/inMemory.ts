@@ -4,6 +4,7 @@
  */
 
 import type { Request, RequestId, Result, Task } from '../../../types/index.js';
+import { ProtocolError, ProtocolErrorCode } from '../../../types/index.js';
 import type { CreateTaskOptions, QueuedMessage, TaskMessageQueue, TaskStore } from '../interfaces.js';
 import { isTerminal } from '../interfaces.js';
 
@@ -63,7 +64,7 @@ export class InMemoryTaskStore implements TaskStore {
 
         // Schedule cleanup if ttl is specified
         // Cleanup occurs regardless of task status
-        if (actualTtl) {
+        if (actualTtl !== null) {
             const timer = setTimeout(() => {
                 this.tasks.delete(taskId);
                 this.cleanupTimers.delete(taskId);
@@ -200,8 +201,7 @@ export class InMemoryTaskStore implements TaskStore {
         if (cursor) {
             const cursorIndex = filteredTaskIds.indexOf(cursor);
             if (cursorIndex === -1) {
-                // Invalid cursor - throw error
-                throw new Error(`Invalid cursor: ${cursor}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid cursor: ${cursor}`);
             } else {
                 startIndex = cursorIndex + 1;
             }

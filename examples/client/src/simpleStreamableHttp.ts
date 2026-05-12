@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 
 import type {
+    CallToolResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -12,6 +13,7 @@ import {
     Client,
     getDisplayName,
     InMemoryTaskStore,
+    pollTask,
     ProtocolError,
     ProtocolErrorCode,
     RELATED_TASK_META_KEY,
@@ -880,12 +882,33 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
         return;
     }
 
-    // TODO(F3): re-enable task-based demo via tasksPlugin (SEP-2663).
-    // The 2025-11 callToolStream API is removed by R0; this command is disabled
-    // until the F3 rewrite (callTool returns {resultType:'task'}, then pollTask).
-    void name;
-    void args;
-    console.log('Task-based execution demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
+    console.log(`Calling tool '${name}' (server may return a task pointer)...`);
+    console.log('Arguments:', args);
+
+    // SEP-2663 server-directed model: call the tool normally; if the server returns
+    // `{resultType:'task', task}`, poll it via `pollTask` (tasks/get + tasks/result).
+    try {
+        const initial = await client.callTool({ name, arguments: args });
+        const asTask = initial as { resultType?: string; task?: { taskId: string } };
+
+        let toolResult: CallToolResult;
+        if (asTask.resultType === 'task' && asTask.task) {
+            console.log('Task created with ID:', asTask.task.taskId, '- polling...');
+            toolResult = (await pollTask(client, asTask.task.taskId)) as CallToolResult;
+            console.log('Task completed!');
+        } else {
+            toolResult = initial as CallToolResult;
+        }
+
+        console.log('Tool result:');
+        for (const item of toolResult.content) {
+            if (item.type === 'text') {
+                console.log(`  ${item.text}`);
+            }
+        }
+    } catch (error) {
+        console.log(`Error with task-based execution: ${error}`);
+    }
 }
 
 async function cleanup(): Promise<void> {

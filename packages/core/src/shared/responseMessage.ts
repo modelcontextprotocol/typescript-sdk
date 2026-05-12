@@ -51,18 +51,11 @@ export interface ErrorMessage extends BaseResponseMessage {
 }
 
 /**
- * Union of all message types yielded by task-aware streaming APIs such as
- * {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#callToolStream | callToolStream()},
- * {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#requestStream | ExperimentalClientTasks.requestStream()}, and
- * {@linkcode @modelcontextprotocol/server!experimental/tasks/server.ExperimentalServerTasks#requestStream | ExperimentalServerTasks.requestStream()}.
+ * Union of all message types yielded by the 2025-11 task-aware streaming APIs.
  *
- * A typical sequence is:
- * 1. `taskCreated` — task is registered (once)
- * 2. `taskStatus`  — zero or more progress updates
- * 3. `result` **or** `error` — terminal message (once)
- *
- * Progress notifications are handled through the existing {@linkcode index.RequestOptions | onprogress} callback.
- * Side-channeled messages (server requests/notifications) are handled through registered handlers.
+ * @deprecated SEP-2663 removes the streaming wrappers (`callToolStream`,
+ * `requestStream`, `createMessageStream`, `elicitInputStream`). No SDK API yields
+ * this type; it is retained only for source compatibility. Use {@linkcode pollTask}.
  */
 export type ResponseMessage<T extends Result> = TaskStatusMessage | TaskCreatedMessage | ResultMessage<T> | ErrorMessage;
 

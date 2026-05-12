@@ -869,21 +869,39 @@ try {
 }
 ```
 
-### Experimental tasks interception removed
+### Experimental tasks: interception replaced by `tasksPlugin()`
 
-The 2025-11 experimental tasks side-channel woven through `Protocol` has been removed in preparation for the SEP-2663 Tasks Extension. The following are gone with no in-place replacement:
+The 2025-11 experimental tasks side-channel woven through `Protocol` has been replaced by the SEP-2663 Tasks Extension. The following are gone:
 
 - `ProtocolOptions.tasks` (the `{ taskStore, taskMessageQueue }` constructor option)
-- `protocol.taskManager` getter, `Protocol#_bindTaskManager`
-- `RequestOptions.task` / `RequestOptions.relatedTask`, `NotificationOptions.relatedTask`
+- `protocol.taskManager` getter, `TaskManager` / `NullTaskManager` classes, `TaskManagerOptions`
+- `RequestOptions.task` / `RequestOptions.relatedTask`, `NotificationOptions.relatedTask`, `TaskRequestOptions`
 - `BaseContext.task` (`ctx.task?.store` / `ctx.task?.id` / `ctx.task?.requestedTtl`)
 - abstract `assertTaskCapability` / `assertTaskHandlerCapability`
+- `client.experimental.tasks` / `server.experimental.tasks` accessors and the `ExperimentalClientTasks` / `ExperimentalServerTasks` / `ExperimentalMcpServerTasks` classes
+- `mcpServer.experimental.tasks.registerToolTask(...)` and the `ToolTaskHandler` / `CreateTaskRequestHandler` / `TaskRequestHandler` types
+- the streaming wrappers (`requestStream`, `callToolStream`, `createMessageStream`, `elicitInputStream`); SEP-2663's server-directed model returns a task pointer, not a stream
 
-The `*.experimental.tasks.*` accessor methods (`requestStream`, `callToolStream`, `createMessageStream`, `elicitInputStream`) are still defined but now throw `SdkError(CapabilityNotSupported)` until `tasksPlugin()` lands.
+**Unchanged:** the storage interfaces in `experimental/tasks/` (`TaskStore`, `InMemoryTaskStore`, `TaskMetadata`).
 
-**Unchanged:** the storage interfaces in `experimental/tasks/` (`TaskStore`, `InMemoryTaskStore`, `TaskMetadata`, `TaskMessageQueue`). These will be consumed by `tasksPlugin()` in a follow-up.
+**Replacement:** attach via `mcp.use(tasksPlugin({ store }))`. The plugin registers `tasks/get|list|cancel|result` handlers and injects `ctx.ext.task`. Handlers read task context via `taskContext(ctx)` instead of `ctx.task`. Clients poll via `pollTask()`.
 
-There is no migration path for the removed surface; it was always `@experimental`. Under SEP-2663, tasks reattach via a `DispatchMiddleware` (`mcp.use(tasksPlugin({ store }))`) and handlers read task context from `ctx.ext.task` instead of `ctx.task`.
+```ts
+import { InMemoryTaskStore, taskContext, tasksPlugin } from '@modelcontextprotocol/server';
+
+const store = new InMemoryTaskStore();
+mcp.use(tasksPlugin({ store }));
+
+mcp.tool('long-job', { input: z.string() }, async ({ input }, ctx) => {
+    const task = taskContext(ctx);
+    if (!task) return { content: [{ type: 'text', text: 'tasks not configured' }] };
+    const t = await task.store.createTask({ ttl: 60_000 });
+    void runJob(input, t.taskId, task.store);
+    return { resultType: 'task', task: t };
+});
+```
+
+There is no migration path for the removed interception surface; it was always `@experimental`.
 
 #### `TaskCreationParams.ttl` no longer accepts `null`
 

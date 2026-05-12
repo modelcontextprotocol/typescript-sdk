@@ -45,11 +45,6 @@ export type {
 } from './server/streamableHttp.js';
 export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp.js';
 
-// experimental exports
-export type { CreateTaskRequestHandler, TaskRequestHandler, ToolTaskHandler } from './experimental/tasks/interfaces.js';
-export { ExperimentalMcpServerTasks } from './experimental/tasks/mcpServer.js';
-export { ExperimentalServerTasks } from './experimental/tasks/server.js';
-
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';
 

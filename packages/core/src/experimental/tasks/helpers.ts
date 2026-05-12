@@ -19,7 +19,10 @@ interface TaskRequestsCapability {
 
 /**
  * Asserts that task creation is supported for `tools/call`.
- * Used to implement the `assertTaskCapability` or `assertTaskHandlerCapability` abstract methods on Protocol.
+ * Retained for capability-shape inspection; the corresponding Protocol abstract hooks were
+ * removed under SEP-2663 (server-directed tasks). Prefer reading
+ * `serverCapabilities.tasks` / `clientCapabilities.tasks` directly.
+ * @deprecated
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked
@@ -57,7 +60,10 @@ export function assertToolsCallTaskCapability(
 
 /**
  * Asserts that task creation is supported for `sampling/createMessage` or `elicitation/create`.
- * Used to implement the `assertTaskCapability` or `assertTaskHandlerCapability` abstract methods on Protocol.
+ * Retained for capability-shape inspection; the corresponding Protocol abstract hooks were
+ * removed under SEP-2663 (server-directed tasks). Prefer reading
+ * `serverCapabilities.tasks` / `clientCapabilities.tasks` directly.
+ * @deprecated
  *
  * @param requests - The task requests capability object
  * @param method - The method being checked

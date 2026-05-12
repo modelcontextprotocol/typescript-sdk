@@ -4,8 +4,8 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 
-import type { ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
-import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import type { CallToolResult, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
+import { Client, pollTask, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import open from 'open';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
@@ -358,12 +358,32 @@ class InteractiveOAuthClient {
             return;
         }
 
-        // TODO(F3): re-enable streaming-tool demo via tasksPlugin (SEP-2663).
-        // The 2025-11 callToolStream API is removed by R0; this command is disabled
-        // until the F3 rewrite.
-        void toolName;
-        void toolArgs;
-        console.log('Streaming tool demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
+        // SEP-2663 server-directed model: call the tool normally; if the server returns
+        // `{resultType:'task', task}`, poll it via `pollTask` (tasks/get + tasks/result).
+        try {
+            console.log(`\n🔧 Calling tool '${toolName}'...`);
+            const initial = await this.client.callTool({ name: toolName, arguments: toolArgs });
+            const asTask = initial as { resultType?: string; task?: { taskId: string } };
+
+            let toolResult: CallToolResult;
+            if (asTask.resultType === 'task' && asTask.task) {
+                console.log(`✓ Task created: ${asTask.task.taskId}; polling...`);
+                toolResult = (await pollTask(this.client, asTask.task.taskId)) as CallToolResult;
+            } else {
+                toolResult = initial as CallToolResult;
+            }
+
+            console.log('✓ Completed!');
+            for (const content of toolResult.content) {
+                if (content.type === 'text') {
+                    console.log(content.text);
+                } else {
+                    console.log(content);
+                }
+            }
+        } catch (error) {
+            console.error(`❌ Failed to call tool '${toolName}':`, error);
+        }
     }
 
     close(): void {

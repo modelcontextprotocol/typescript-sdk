@@ -9,8 +9,8 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
-import { Client, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { CallToolResult, CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
+import { Client, pollTask, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -115,12 +115,32 @@ async function run(url: string): Promise<void> {
     const toolsResult = await client.listTools();
     console.log(`Available tools: ${toolsResult.tools.map(t => t.name).join(', ')}`);
 
-    // TODO(F3): re-enable interactive task demos via tasksPlugin (SEP-2663).
-    // The 2025-11 callToolStream API is removed by R0; the demos below were the
-    // streaming consumer of that API and are disabled until the F3 rewrite.
-    void client;
-    void getTextContent;
-    console.log('\nInteractive task demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
+    // SEP-2663: client calls the tool normally; if the server returns a task,
+    // poll it to completion via `pollTask` (tasks/get + tasks/result). The
+    // 2025-11 `callToolStream` variant is removed.
+    async function callToolAndAwaitTask(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+        const initial = await client.callTool({ name, arguments: args });
+        const asTask = initial as { resultType?: string; task?: { taskId: string } };
+        if (asTask.resultType !== 'task' || !asTask.task) return initial as CallToolResult;
+        console.log(`Task created: ${asTask.task.taskId}; polling...`);
+        return (await pollTask(client, asTask.task.taskId)) as CallToolResult;
+    }
+
+    // Demo 1: Elicitation (confirm_delete)
+    console.log('\n--- Demo 1: Elicitation ---');
+    console.log('Calling confirm_delete tool...');
+    {
+        const result = await callToolAndAwaitTask('confirm_delete', { filename: 'important.txt' });
+        console.log(`Result: ${getTextContent(result)}`);
+    }
+
+    // Demo 2: Sampling (write_haiku)
+    console.log('\n--- Demo 2: Sampling ---');
+    console.log('Calling write_haiku tool...');
+    {
+        const result = await callToolAndAwaitTask('write_haiku', { topic: 'autumn leaves' });
+        console.log(`Result:\n${getTextContent(result)}`);
+    }
 
     // Cleanup
     console.log('\nDemo complete. Closing connection...');

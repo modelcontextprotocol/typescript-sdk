@@ -60,8 +60,6 @@ import {
     SdkErrorCode
 } from '@modelcontextprotocol/core';
 
-import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
-
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
  *
@@ -219,7 +217,6 @@ export class Client extends Protocol<ClientContext> {
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
-    private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -273,22 +270,6 @@ export class Client extends Protocol<ClientContext> {
                 return result.resources;
             });
         }
-    }
-
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalClientTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalClientTasks(this)
-            };
-        }
-        return this._experimental;
     }
 
     /**
@@ -768,7 +749,8 @@ export class Client extends Protocol<ClientContext> {
      * a problem), and thrown {@linkcode ProtocolError} for protocol-level failures or {@linkcode SdkError} for
      * SDK-level issues (timeouts, missing capabilities).
      *
-     * For task-based execution, register `tasksPlugin()` (SEP-2663) once available; the prior `experimental.tasks.callToolStream` is non-functional in this release.
+     * Under SEP-2663, tools that defer work return `{resultType: 'task', task}`. Inspect the
+     * result and poll with {@linkcode pollTask} when `resultType === 'task'`.
      *
      * @example Basic usage
      * ```ts source="./client.examples.ts#Client_callTool_basic"
@@ -800,14 +782,6 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
-        // Guard: required-task tools need experimental API
-        if (this.isToolTaskRequired(params.name)) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidRequest,
-                `Tool "${params.name}" requires task-based execution. Tasks integration is removed in this release pending SEP-2663 tasksPlugin(); the prior experimental.tasks.callToolStream is non-functional.`
-            );
-        }
-
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema

@@ -1,5 +1,6 @@
 export * from './auth/errors.js';
 export * from './errors/sdkErrors.js';
+export * from './experimental/tasks/plugin.js';
 export * from './shared/auth.js';
 export * from './shared/authUtils.js';
 export * from './shared/dispatcher.js';
@@ -8,8 +9,6 @@ export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
 export * from './shared/stdio.js';
 export * from './shared/streamDriver.js';
-export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from './shared/taskManager.js';
-export { extractTaskManagerOptions, NullTaskManager, TaskManager } from './shared/taskManager.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';

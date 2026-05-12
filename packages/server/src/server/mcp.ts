@@ -1,11 +1,11 @@
 import type {
     BaseMetadata,
-    CallToolRequest,
     CallToolResult,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
     CreateTaskResult,
+    DispatchMiddleware,
     DispatchOutput,
     GetPromptResult,
     Implementation,
@@ -37,8 +37,6 @@ import {
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
-    SdkError,
-    SdkErrorCode,
     standardSchemaToJsonSchema,
     UriTemplate,
     validateAndWarnToolName,
@@ -46,8 +44,6 @@ import {
 } from '@modelcontextprotocol/core';
 import type * as z from 'zod/v4';
 
-import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
-import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
@@ -77,26 +73,9 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
-    }
-
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalMcpServerTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalMcpServerTasks(this)
-            };
-        }
-        return this._experimental;
     }
 
     /**
@@ -126,6 +105,15 @@ export class McpServer {
     /** Forwards to {@linkcode Server}`.dispatchNotification` for the `handleHttp` path. */
     dispatchNotification(notification: JSONRPCNotification): Promise<void> {
         return this.server.dispatchNotification(notification);
+    }
+
+    /**
+     * Forwards to {@linkcode Protocol.use | Server.use}. Registers a
+     * {@linkcode DispatchMiddleware} that runs around every dispatched request.
+     * Use to attach extensions such as `tasksPlugin({ store })`.
+     */
+    use(middleware: DispatchMiddleware): void {
+        this.server.use(middleware);
     }
 
     /**
@@ -188,41 +176,12 @@ export class McpServer {
             }
 
             try {
-                const isTaskRequest = !!request.params.task;
-                const taskSupport = tool.execution?.taskSupport;
-                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<StandardSchemaWithJSON>);
-
-                // Validate task hint configuration
-                if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InternalError,
-                        `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`
-                    );
-                }
-
-                // Handle taskSupport 'required' without task augmentation
-                if (taskSupport === 'required' && !isTaskRequest) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.MethodNotFound,
-                        `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
-                    );
-                }
-
-                // Handle taskSupport 'optional' without task augmentation - automatic polling
-                if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
-                    return await this.handleAutomaticTaskPolling(tool, request, ctx);
-                }
-
-                // Normal execution path
+                // SEP-2663: `tool.execution.taskSupport` is advisory metadata surfaced in
+                // tools/list. The 2025-11 enforcement (params.task / registerToolTask /
+                // automatic polling) is removed; the handler decides whether to return a
+                // direct result or `{resultType:'task', task}`.
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
                 const result = await this.executeToolHandler(tool, args, ctx);
-
-                // Return CreateTaskResult immediately for task requests
-                if (isTaskRequest) {
-                    return result;
-                }
-
-                // Validate output schema for non-task requests
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
@@ -320,23 +279,6 @@ export class McpServer {
     private async executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult | CreateTaskResult> {
         // Executor encapsulates handler invocation with proper types
         return tool.executor(args, ctx);
-    }
-
-    /**
-     * Handles automatic task polling for tools with `taskSupport` `'optional'`.
-     */
-    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        _tool: RegisteredTool,
-        _request: RequestT,
-        _ctx: ServerContext
-    ): Promise<CallToolResult> {
-        // SEP-2663: 2025-11 task interception removed from Protocol core. Task-mode tools
-        // are no longer auto-polled by the SDK; servers should return results directly or
-        // adopt the task extension when it lands.
-        throw new SdkError(
-            SdkErrorCode.CapabilityNotSupported,
-            'Task-mode tool execution was removed from core (SEP-2663). Configure a task extension or return a direct result.'
-        );
     }
 
     private _completionHandlerInitialized = false;
@@ -873,6 +815,12 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            /**
+             * Tool-level execution metadata surfaced in `tools/list` (e.g.
+             * `{ taskSupport: 'optional' }`). Under SEP-2663 this is an advisory
+             * hint to clients; the SDK does not enforce it.
+             */
+            execution?: ToolExecution;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -886,6 +834,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            execution?: ToolExecution;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -898,6 +847,7 @@ export class McpServer {
             inputSchema?: StandardSchemaWithJSON | ZodRawShape;
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
+            execution?: ToolExecution;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -906,7 +856,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, execution, _meta } = config;
 
         return this._createRegisteredTool(
             name,
@@ -915,7 +865,7 @@ export class McpServer {
             normalizeRawShapeSchema(inputSchema),
             normalizeRawShapeSchema(outputSchema),
             annotations,
-            { taskSupport: 'forbidden' },
+            execution,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1141,9 +1091,13 @@ export type BaseToolCallback<
 
 /**
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
+ *
+ * Under the SEP-2663 server-directed task model, a handler may return
+ * `{resultType: 'task', task}` instead of a {@linkcode CallToolResult} when it
+ * has spun off long-running work.
  */
 export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult,
+    CallToolResult | CreateTaskResult,
     ServerContext,
     Args
 >;
@@ -1151,7 +1105,7 @@ export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undef
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
-export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args>;
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
@@ -1195,17 +1149,6 @@ function createToolExecutor(
     inputSchema: StandardSchemaWithJSON | undefined,
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
 ): ToolExecutor {
-    const isTaskHandler = 'createTask' in handler;
-
-    if (isTaskHandler) {
-        return async () => {
-            throw new SdkError(
-                SdkErrorCode.CapabilityNotSupported,
-                'Task-handler tool registration was removed from core (SEP-2663). Configure a task extension or use a direct handler.'
-            );
-        };
-    }
-
     if (inputSchema) {
         const callback = handler as ToolCallbackInternal;
         return async (args, ctx) => callback(args, ctx);
