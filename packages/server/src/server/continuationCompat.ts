@@ -43,7 +43,7 @@ export interface ContinuationCompatOptions {
     /** Called when a frame is evicted on TTL. */
     onexpired?: (requestState: string) => void;
     /**
-     * If `false` (default), {@linkcode ContinuationCompat.drive} throws when no principal can
+     * If `false` (default), {@linkcode ContinuationCompat.wrap} rejects when no principal can
      * be derived (no `authInfo.token` and no `mcp-session-id`). Anonymous suspension means any
      * caller can resume any frame; only enable this for trusted single-tenant deployments.
      */
@@ -117,12 +117,16 @@ class Continuation {
 
     fail(reason: Error): void {
         this.abort.abort(reason);
+        // Defang the channel before rejecting: nextAnswer() may not have been awaited yet
+        // (handler is in non-send async work, or answer() just rotated in a fresh channel).
+        // Without this the reject lands as an unhandled rejection.
+        this.answerCh.next.catch(() => {});
         this.answerCh.reject(reason);
     }
 }
 
 /**
- * Opt-in suspend/resume continuation store for {@linkcode shttpHandler}, the SEP-2322
+ * Opt-in suspend/resume continuation store for {@linkcode handleHttp}, the SEP-2322
  * "Option H" stateful server path.
  *
  * When configured, a handler's `await ctx.mcpReq.send(...)` (and the higher-level
@@ -235,7 +239,7 @@ export class ContinuationCompat {
 
     /**
      * Wraps `onrequest` so it suspends on `env.send` instead of needing a live
-     * peer channel. Called by {@linkcode shttpHandler} when this instance is configured
+     * peer channel. Called by {@linkcode handleHttp} when this instance is configured
      * via `ShttpHandlerOptions.continuations`.
      */
     wrap(onrequest: NonNullable<ShttpCallbacks['onrequest']>): NonNullable<ShttpCallbacks['onrequest']> {
