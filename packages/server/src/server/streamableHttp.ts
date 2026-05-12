@@ -15,7 +15,8 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    validateMcpHeaders
 } from '@modelcontextprotocol/core';
 
 export type StreamId = string;
@@ -659,6 +660,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             } catch (error) {
                 this.onerror?.(error as Error);
                 return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
+            }
+
+            // SEP-2243: Mcp-Method/Mcp-Name headers (when present) must match the body.
+            if (!Array.isArray(rawMessage) && messages.length === 1 && isJSONRPCRequest(messages[0]!)) {
+                const headerMismatch = validateMcpHeaders(req, messages[0]);
+                if (headerMismatch) {
+                    this.onerror?.(new Error(headerMismatch));
+                    return this.createJsonErrorResponse(400, -32_001, `Bad Request: ${headerMismatch}`);
+                }
             }
 
             // Check if this is an initialization request

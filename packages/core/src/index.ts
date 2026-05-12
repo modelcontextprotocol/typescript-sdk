@@ -4,6 +4,7 @@ export * from './experimental/tasks/plugin.js';
 export * from './shared/auth.js';
 export * from './shared/authUtils.js';
 export * from './shared/dispatcher.js';
+export * from './shared/httpHeaders.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
