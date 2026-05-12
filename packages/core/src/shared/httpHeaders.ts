@@ -39,10 +39,17 @@ export function encodeMcpHeaderValue(value: string): string {
 export function decodeMcpHeaderValue(value: string): string {
     const m = /^=\?base64\?(.+)\?=$/.exec(value);
     if (!m) return value;
-    // atob output is one Latin-1 char per byte; charCodeAt gives the byte value back.
-    // eslint-disable-next-line unicorn/prefer-code-point
-    const bytes = Uint8Array.from(atob(m[1]!), c => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
+    try {
+        // atob output is one Latin-1 char per byte; charCodeAt gives the byte value back.
+        // eslint-disable-next-line unicorn/prefer-code-point
+        const bytes = Uint8Array.from(atob(m[1]!), c => c.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
+    } catch {
+        // Malformed base64 from a misbehaving client. Return the raw value so
+        // validateMcpHeaders falls through to the 400/-32001 mismatch path
+        // instead of bubbling a DOMException up to the transport's outer catch.
+        return value;
+    }
 }
 
 /**
