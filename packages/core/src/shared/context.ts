@@ -20,6 +20,8 @@ import type {
     ServerCapabilities
 } from '../types/index.js';
 import {
+    ClientCapabilitiesSchema,
+    ImplementationSchema,
     LoggingLevelSchema,
     META_CLIENT_CAPABILITIES_KEY,
     META_CLIENT_INFO_KEY,
@@ -312,9 +314,14 @@ export function readMetaRequestScope(meta: RequestMeta | undefined): MetaRequest
     const pv = meta[META_PROTOCOL_VERSION_KEY];
     if (typeof pv === 'string') scope.protocolVersion = pv;
     const ci = meta[META_CLIENT_INFO_KEY];
-    if (ci && typeof ci === 'object') scope.clientInfo = ci as Implementation;
+    const parsedInfo = ImplementationSchema.safeParse(ci);
+    if (parsedInfo.success) scope.clientInfo = parsedInfo.data;
     const cc = meta[META_CLIENT_CAPABILITIES_KEY];
-    if (cc && typeof cc === 'object') scope.clientCapabilities = cc as ClientCapabilities;
+    // Run through the schema so the same z.preprocess normalisations applied to
+    // initialize.params.capabilities (e.g. ElicitationCapabilitySchema's `{}` -> `{form:{}}`)
+    // also apply to the per-request _meta-carried value.
+    const parsedCaps = ClientCapabilitiesSchema.safeParse(cc);
+    if (parsedCaps.success) scope.clientCapabilities = parsedCaps.data;
     const ll = meta[META_LOG_LEVEL_KEY];
     const parsedLevel = typeof ll === 'string' ? LoggingLevelSchema.safeParse(ll) : undefined;
     if (parsedLevel?.success) scope.logLevel = parsedLevel.data;
