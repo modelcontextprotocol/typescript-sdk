@@ -22,6 +22,35 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
 
 /**
+ * Converts a web-standard `(Request) => Response` handler into a Node.js
+ * `(IncomingMessage, ServerResponse) => void` handler suitable for express,
+ * `http.createServer`, etc.
+ *
+ * The third parameter (express's `next`) is accepted for middleware compatibility but
+ * not invoked; errors are written to the response (`@hono/node-server` swallows handler
+ * rejections internally). Auth info is read from `req.auth`; a pre-parsed body is read from `req.body`
+ * (e.g. when `express.json()` ran before this handler).
+ *
+ * ```ts
+ * import { handleHttp } from '@modelcontextprotocol/server';
+ * import { toNodeHttpHandler } from '@modelcontextprotocol/node';
+ *
+ * app.all('/mcp', toNodeHttpHandler(handleHttp(mcp, { session })));
+ * ```
+ */
+export function toNodeHttpHandler(
+    handler: (req: Request, extra?: { authInfo?: AuthInfo; parsedBody?: unknown }) => Response | Promise<Response>
+): (req: IncomingMessage & { auth?: AuthInfo; body?: unknown }, res: ServerResponse, next?: (err?: unknown) => void) => Promise<void> {
+    return async (req, res, _next) => {
+        void _next;
+        const parsedBody = req.body;
+        const extra = req.auth !== undefined || parsedBody !== undefined ? { authInfo: req.auth, parsedBody } : undefined;
+        const listener = getRequestListener(webReq => handler(webReq, extra), { overrideGlobalObjects: false });
+        await listener(req, res);
+    };
+}
+
+/**
  * Server transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It supports both SSE streaming and direct HTTP responses.
  *

@@ -6,8 +6,11 @@ import type {
     CompleteRequestResourceTemplate,
     CompleteResult,
     CreateTaskResult,
+    DispatchOutput,
     GetPromptResult,
     Implementation,
+    JSONRPCNotification,
+    JSONRPCRequest,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -15,6 +18,7 @@ import type {
     Prompt,
     PromptReference,
     ReadResourceResult,
+    RequestEnv,
     Resource,
     ResourceTemplateReference,
     Result,
@@ -109,6 +113,19 @@ export class McpServer {
      */
     async connect(transport: Transport): Promise<void> {
         return await this.server.connect(transport);
+    }
+
+    /**
+     * Transport-free per-request entry; forwards to {@linkcode Server}`.dispatch`.
+     * Exposed so `handleHttp(mcp, ...)` accepts an {@linkcode McpServer} directly.
+     */
+    dispatch(request: JSONRPCRequest, env?: RequestEnv): AsyncGenerator<DispatchOutput, void, void> {
+        return this.server.dispatch(request, env);
+    }
+
+    /** Forwards to {@linkcode Server}`.dispatchNotification` for the `handleHttp` path. */
+    dispatchNotification(notification: JSONRPCNotification): Promise<void> {
+        return this.server.dispatchNotification(notification);
     }
 
     /**

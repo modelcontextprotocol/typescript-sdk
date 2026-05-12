@@ -18,7 +18,31 @@ import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { NodeStreamableHTTPServerTransport } from '../src/streamableHttp.js';
+import { NodeStreamableHTTPServerTransport, toNodeHttpHandler } from '../src/streamableHttp.js';
+
+describe('toNodeHttpHandler', () => {
+    it('does not treat express next() as parsedBody; reads req.body instead', async () => {
+        let capturedExtra: { parsedBody?: unknown } | undefined;
+        const handler = toNodeHttpHandler(async (_req, extra) => {
+            capturedExtra = extra;
+            return Response.json({ ok: true });
+        });
+        const port = await getFreePort();
+        const server = createServer((req, res) => {
+            (req as IncomingMessage & { body?: unknown }).body = { jsonrpc: '2.0', method: 'ping', id: 1 };
+            // Express-style call: third arg is the next() function.
+            void handler(req as IncomingMessage & { auth?: AuthInfo; body?: unknown }, res, () => {});
+        });
+        await new Promise<void>(r => server.listen(port, r));
+        try {
+            await fetch(`http://localhost:${port}/`, { method: 'POST' });
+            expect(capturedExtra?.parsedBody).toEqual({ jsonrpc: '2.0', method: 'ping', id: 1 });
+            expect(typeof capturedExtra?.parsedBody).not.toBe('function');
+        } finally {
+            await new Promise<void>(r => server.close(() => r()));
+        }
+    });
+});
 
 async function getFreePort() {
     return new Promise(res => {
