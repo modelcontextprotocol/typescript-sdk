@@ -180,11 +180,30 @@ export type BaseContext = {
     };
 
     /**
-     * Extension slot. Adapters and middleware populate keys here; handlers cast to the
-     * extension's declared type to read them. Core never reads or writes this field.
+     * Extension slot (SEP-2133 mechanism). Dispatch middleware registered via
+     * {@linkcode Protocol.use} populates keys here under the extension's reverse-DNS
+     * namespace; handlers read via the extension's typed accessor (e.g.
+     * `taskContext(ctx)` for `tasksPlugin`). Core never reads or writes this field.
+     *
+     * @example
+     * ```ts
+     * // In a DispatchMiddleware:
+     * env.ext = { ...env.ext, 'io.modelcontextprotocol/task': { id, store } };
+     * // In a handler:
+     * const task = taskContext(ctx); // typed read of ctx.ext['io.modelcontextprotocol/task']
+     * ```
      */
     ext?: Record<string, unknown>;
 };
+
+/**
+ * Typed reader for an extension key on {@linkcode BaseContext.ext}. Extensions export
+ * a thin wrapper around this (e.g. `taskContext(ctx)`) so handlers get a typed value
+ * without casting at the call site.
+ */
+export function readExt<T>(ctx: BaseContext, key: string): T | undefined {
+    return ctx.ext?.[key] as T | undefined;
+}
 
 /**
  * Context provided to server-side request handlers, extending {@linkcode BaseContext} with server-specific fields.

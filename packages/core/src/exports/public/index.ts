@@ -52,7 +52,7 @@ export type {
     RequestOptions,
     ServerContext
 } from '../../shared/protocol.js';
-export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
+export { DEFAULT_REQUEST_TIMEOUT_MSEC, readExt } from '../../shared/protocol.js';
 
 // Task manager types (NOT TaskManager class itself — internal)
 export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
