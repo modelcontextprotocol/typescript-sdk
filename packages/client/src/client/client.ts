@@ -193,7 +193,8 @@ export type ClientOptions = ProtocolOptions & {
 
     /**
      * SEP-2322: maximum number of incomplete-result rounds before failing. Each round
-     * services the server's `inputRequests` via local handlers and re-sends with
+     * services the server's `inputRequests` via local handlers (sampling, elicitation,
+     * roots, ping only; other methods are rejected) and re-sends with
      * `params.{inputResponses, requestState}`. Prevents unbounded looping on a server
      * that returns `incomplete` forever.
      *
@@ -205,9 +206,18 @@ export type ClientOptions = ProtocolOptions & {
 const DEFAULT_MRTR_MAX_ROUNDS = 16;
 
 /** SEP-2322 client-side detection. The server signals it cannot complete without client input. */
+/**
+ * Methods the SEP-2322 retry loop will service from `inputRequests`. The server cannot
+ * use this channel to invoke arbitrary client handlers (e.g. a custom-method handler the
+ * application registered for unrelated purposes); only the spec-defined client-side
+ * request methods are dispatched.
+ */
+const ALLOWED_INPUT_REQUEST_METHODS: ReadonlySet<string> = new Set(['sampling/createMessage', 'elicitation/create', 'roots/list', 'ping']);
+
 function isIncompleteResult(r: unknown): r is IncompleteResult {
     if (typeof r !== 'object' || r === null) return false;
     const o = r as { resultType?: unknown; inputRequests?: unknown };
+    // (deliberately narrow guard; the loop body validates method against ALLOWED_INPUT_REQUEST_METHODS)
     if (o.resultType !== 'incomplete') return false;
     if (o.inputRequests === undefined) return true;
     return typeof o.inputRequests === 'object' && o.inputRequests !== null && !Array.isArray(o.inputRequests);
@@ -1159,6 +1169,12 @@ export class Client extends Protocol<ClientContext> {
         const out: Record<string, unknown> = {};
         for (const [key, ir] of Object.entries(reqs)) {
             signal?.throwIfAborted();
+            if (!ALLOWED_INPUT_REQUEST_METHODS.has(ir.method)) {
+                throw new ProtocolError(
+                    ProtocolErrorCode.InvalidRequest,
+                    `inputRequest method '${ir.method}' is not a client-serviceable method`
+                );
+            }
             const resp = await this._serviceInboundRequest(
                 { jsonrpc: '2.0', id: `mrtr:${key}`, method: ir.method, params: ir.params },
                 signal
