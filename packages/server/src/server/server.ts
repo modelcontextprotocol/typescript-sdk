@@ -472,10 +472,10 @@ export class Server extends Protocol<ServerContext> {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
-        if (!this._clientCapabilities?.sampling) {
-            throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling capability.');
-        }
-        if ((params.tools || params.toolChoice) && !this._clientCapabilities.sampling.tools) {
+        // Base `sampling` capability is checked via assertCapabilityForMethod() (gated on
+        // enforceStrictCapabilities, which defaults to false). Only the `sampling.tools`
+        // sub-capability is enforced here unconditionally, matching the v1 createMessage body.
+        if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
