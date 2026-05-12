@@ -506,7 +506,7 @@ Task-based execution enables "call-now, fetch-later" patterns for long-running o
 - Register the plugin with `mcp.use(tasksPlugin({ store }))` and enable the `tasks` capability when constructing the server.
 - In any tool handler, read `taskContext(ctx).store`, create a task, kick off background work, and return `{ resultType: 'task', task }`.
 
-For a full runnable example, see [`simpleTaskInteractive.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleTaskInteractive.ts).
+See `test/integration/test/taskLifecycle.test.ts` for end-to-end usage. (`examples/server/src/simpleTaskInteractive.ts` is being rewritten for the new model and is not yet a working reference.)
 
 ## Shutdown
 
