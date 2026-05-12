@@ -1,8 +1,18 @@
 import type { NextFunction, Request, Response } from 'express';
+import supertest from 'supertest';
 import { vi } from 'vitest';
 
-import { createMcpExpressApp } from '../src/express.js';
+import { McpServer, SessionCompat } from '@modelcontextprotocol/server';
+
+import { createMcpExpressApp, mcpExpressHandler } from '../src/express.js';
 import { hostHeaderValidation, localhostHostValidation } from '../src/middleware/hostHeaderValidation.js';
+
+const INIT_MESSAGE = {
+    jsonrpc: '2.0',
+    method: 'initialize',
+    params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-11-25', capabilities: {} },
+    id: 'init-1'
+};
 
 // Helper to create mock Express request/response/next
 function createMockReqResNext(host?: string) {
@@ -187,6 +197,46 @@ describe('@modelcontextprotocol/express', () => {
         test('should work without jsonLimit option', () => {
             const app = createMcpExpressApp();
             expect(app).toBeDefined();
+        });
+    });
+
+    describe('mcpExpressHandler', () => {
+        function makeApp(options?: Parameters<typeof mcpExpressHandler>[1]) {
+            const mcp = new McpServer({ name: 'test-server', version: '1.0.0' });
+            const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['127.0.0.1'] });
+            app.all('/mcp', mcpExpressHandler(mcp, { enableJsonResponse: true, ...options }));
+            return app;
+        }
+
+        test('serves initialize via mcp.dispatch() (stateless, no transport class)', async () => {
+            const res = await supertest(makeApp())
+                .post('/mcp')
+                .set('Accept', 'application/json, text/event-stream')
+                .set('Host', '127.0.0.1')
+                .send(INIT_MESSAGE);
+            expect(res.status).toBe(200);
+            expect(res.body.result).toMatchObject({ serverInfo: { name: 'test-server' } });
+            expect(res.headers['mcp-session-id']).toBeUndefined();
+        });
+
+        test('serves session lifecycle via SessionCompat', async () => {
+            const app = makeApp({ session: new SessionCompat() });
+            const initRes = await supertest(app)
+                .post('/mcp')
+                .set('Accept', 'application/json, text/event-stream')
+                .set('Host', '127.0.0.1')
+                .send(INIT_MESSAGE);
+            const sid = initRes.headers['mcp-session-id'] as string;
+            expect(sid).toBeTruthy();
+            const pingRes = await supertest(app)
+                .post('/mcp')
+                .set('Accept', 'application/json, text/event-stream')
+                .set('Host', '127.0.0.1')
+                .set('mcp-session-id', sid)
+                .set('mcp-protocol-version', '2025-11-25')
+                .send({ jsonrpc: '2.0', method: 'ping', params: {}, id: 'p-1' });
+            expect(pingRes.status).toBe(200);
+            expect(pingRes.body).toMatchObject({ jsonrpc: '2.0', id: 'p-1', result: {} });
         });
     });
 });

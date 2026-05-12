@@ -650,6 +650,9 @@ importers:
 
   packages/middleware/express:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       cors:
         specifier: catalog:runtimeServerOnly
         version: 2.8.6

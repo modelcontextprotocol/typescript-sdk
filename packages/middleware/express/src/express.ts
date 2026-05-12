@@ -1,7 +1,41 @@
-import type { Express } from 'express';
+import { getRequestListener } from '@hono/node-server';
+import type { AuthInfo, Dispatchable, HandleHttpOptions } from '@modelcontextprotocol/server';
+import { handleHttp } from '@modelcontextprotocol/server';
+import type { Express, RequestHandler } from 'express';
 import express from 'express';
 
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
+
+/**
+ * Mounts an `McpServer` (or any `Protocol` subclass) as an Express `RequestHandler`.
+ * Each request flows through `mcp.dispatch()` directly via {@linkcode handleHttp};
+ * `mcp.connect()` and a transport instance are not used.
+ *
+ * Reads `req.auth` (set by {@linkcode index.requireBearerAuth | requireBearerAuth}) and `req.body` (set by
+ * `express.json()`, which {@linkcode createMcpExpressApp} installs by default).
+ *
+ * ```ts
+ * import { McpServer, SessionCompat } from '@modelcontextprotocol/server';
+ * import { createMcpExpressApp, mcpExpressHandler } from '@modelcontextprotocol/express';
+ *
+ * const mcp = new McpServer({ name: 's', version: '1.0.0' });
+ * const app = createMcpExpressApp();
+ * app.all('/mcp', mcpExpressHandler(mcp, { session: new SessionCompat() }));
+ * ```
+ */
+export function mcpExpressHandler(mcp: Dispatchable, options?: HandleHttpOptions): RequestHandler {
+    const handler = handleHttp(mcp, options);
+    return (req, res, _next) => {
+        void _next;
+        const authInfo = (req as { auth?: AuthInfo }).auth;
+        const parsedBody: unknown = req.body;
+        const extra = authInfo !== undefined || parsedBody !== undefined ? { authInfo, parsedBody } : undefined;
+        // overrideGlobalObjects: false keeps the native Response prototype intact for frameworks
+        // that subclass it (e.g. Next.js).
+        const listener = getRequestListener(webReq => handler(webReq, extra), { overrideGlobalObjects: false });
+        void listener(req, res);
+    };
+}
 
 /**
  * Options for creating an MCP Express application.
