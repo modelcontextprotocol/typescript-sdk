@@ -35,18 +35,14 @@ import type {
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
-    assertClientRequestTaskCapability,
-    assertToolsCallTaskCapability,
     CallToolResultSchema,
     CompleteResultSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -244,10 +240,7 @@ export class Client extends Protocol<ClientContext> {
         private _clientInfo: Implementation,
         options?: ClientOptions
     ) {
-        super({
-            ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
-        });
+        super(options);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
@@ -360,20 +353,6 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                // When task creation is requested, validate and return CreateTaskResult
-                if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                    if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
-                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                    }
-                    return taskValidationResult.data;
-                }
-
-                // For non-task requests, validate against ElicitResultSchema
                 const validationResult = parseSchema(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -416,20 +395,6 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                // When task creation is requested, validate and return CreateTaskResult
-                if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                    if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
-                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                    }
-                    return taskValidationResult.data;
-                }
-
-                // For non-task requests, validate against appropriate schema based on tools presence
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
                 const validationResult = parseSchema(resultSchema, result);
@@ -701,14 +666,6 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    protected assertTaskCapability(method: string): void {
-        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        assertClientRequestTaskCapability(this._capabilities?.tasks?.requests, method, 'Client');
-    }
-
     async ping(options?: RequestOptions) {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
@@ -828,7 +785,7 @@ export class Client extends Protocol<ClientContext> {
      * a problem), and thrown {@linkcode ProtocolError} for protocol-level failures or {@linkcode SdkError} for
      * SDK-level issues (timeouts, missing capabilities).
      *
-     * For task-based execution with streaming behavior, use {@linkcode ExperimentalClientTasks.callToolStream | client.experimental.tasks.callToolStream()} instead.
+     * For task-based execution, register `tasksPlugin()` (SEP-2663) once available; the prior `experimental.tasks.callToolStream` is non-functional in this release.
      *
      * @example Basic usage
      * ```ts source="./client.examples.ts#Client_callTool_basic"
@@ -864,7 +821,7 @@ export class Client extends Protocol<ClientContext> {
         if (this.isToolTaskRequired(params.name)) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidRequest,
-                `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`
+                `Tool "${params.name}" requires task-based execution. Tasks integration is removed in this release pending SEP-2663 tasksPlugin(); the prior experimental.tasks.callToolStream is non-functional.`
             );
         }
 

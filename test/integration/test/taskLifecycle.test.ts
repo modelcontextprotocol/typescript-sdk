@@ -16,7 +16,8 @@ import {
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 
-describe('Task Lifecycle Integration Tests', () => {
+// TODO(F3): rewrite against tasksPlugin (SEP-2663). See R0 commit body for the deletion/skip rationale.
+describe.skip('Task Lifecycle Integration Tests', () => {
     let server: Server;
     let mcpServer: McpServer;
     let serverTransport: NodeStreamableHTTPServerTransport;

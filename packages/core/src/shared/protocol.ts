@@ -21,7 +21,6 @@ import type {
     NotificationTypeMap,
     Progress,
     ProgressNotification,
-    RelatedTaskMetadata,
     Request,
     RequestId,
     RequestMeta,
@@ -29,8 +28,7 @@ import type {
     RequestTypeMap,
     Result,
     ResultTypeMap,
-    ServerCapabilities,
-    TaskCreationParams
+    ServerCapabilities
 } from '../types/index.js';
 import {
     getNotificationSchema,
@@ -46,8 +44,6 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
-import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
-import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -82,16 +78,6 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
-
-    /**
-     * Runtime configuration for task management.
-     * If provided, creates a TaskManager with the given options; otherwise a NullTaskManager is used.
-     *
-     * Capability assertions are wired automatically from the protocol's
-     * `assertTaskCapability()` and `assertTaskHandlerCapability()` methods,
-     * so they should NOT be included here.
-     */
-    tasks?: TaskManagerOptions;
 };
 
 /**
@@ -135,16 +121,6 @@ export type RequestOptions = {
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
-
-    /**
-     * If provided, augments the request with task creation parameters to enable call-now, fetch-later execution patterns.
-     */
-    task?: TaskCreationParams;
-
-    /**
-     * If provided, associates this request with a related task.
-     */
-    relatedTask?: RelatedTaskMetadata;
 } & TransportSendOptions;
 
 /**
@@ -155,11 +131,6 @@ export type NotificationOptions = {
      * May be used to indicate to the transport which incoming request to associate this outgoing notification with.
      */
     relatedRequestId?: RequestId;
-
-    /**
-     * If provided, associates this notification with a related task.
-     */
-    relatedTask?: RelatedTaskMetadata;
 };
 
 /**
@@ -206,12 +177,12 @@ export type BaseContext = {
         send: {
             <M extends RequestMethod>(
                 request: { method: M; params?: Record<string, unknown> },
-                options?: TaskRequestOptions
+                options?: RequestOptions
             ): Promise<ResultTypeMap[M]>;
             <T extends StandardSchemaV1>(
                 request: Request,
                 resultSchema: T,
-                options?: TaskRequestOptions
+                options?: RequestOptions
             ): Promise<StandardSchemaV1.InferOutput<T>>;
         };
 
@@ -232,11 +203,6 @@ export type BaseContext = {
          */
         authInfo?: AuthInfo;
     };
-
-    /**
-     * Task context, available when task storage is configured.
-     */
-    task?: TaskContext;
 };
 
 /**
@@ -319,8 +285,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
-    private _taskManager: TaskManager;
-
     protected _supportedProtocolVersions: string[];
 
     /**
@@ -350,10 +314,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
     constructor(private _options?: ProtocolOptions) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
-        // Create TaskManager from protocol options
-        this._taskManager = _options?.tasks ? new TaskManager(_options.tasks) : new NullTaskManager();
-        this._bindTaskManager();
-
         this.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);
         });
@@ -367,39 +327,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // Automatic pong by default.
             _request => ({}) as Result
         );
-    }
-
-    /**
-     * Access the TaskManager for task orchestration.
-     * Always available; returns a NullTaskManager when no task store is configured.
-     */
-    get taskManager(): TaskManager {
-        return this._taskManager;
-    }
-
-    private _bindTaskManager(): void {
-        const taskManager = this._taskManager;
-        const host: TaskManagerHost = {
-            request: (request, resultSchema, options) => this._requestWithSchema(request, resultSchema, options),
-            notification: (notification, options) => this.notification(notification, options),
-            reportError: error => this._onerror(error),
-            removeProgressHandler: token => this._progressHandlers.delete(token),
-            registerHandler: (method, handler) => {
-                const schema = getRequestSchema(method as RequestMethod);
-                this._requestHandlers.set(method, (request, ctx) => {
-                    // Validate request params via Zod (strips jsonrpc/id, so we pass original to handler)
-                    schema.parse(request);
-                    return handler(request, ctx);
-                });
-            },
-            sendOnResponseStream: async (message, relatedRequestId) => {
-                await this._transport?.send(message, { relatedRequestId });
-            },
-            enforceStrictCapabilities: this._options?.enforceStrictCapabilities === true,
-            assertTaskCapability: method => this.assertTaskCapability(method),
-            assertTaskHandlerCapability: method => this.assertTaskHandlerCapability(method)
-        };
-        taskManager.bind(host);
     }
 
     /**
@@ -506,7 +433,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
-        this._taskManager.onClose();
         this._pendingDebouncedNotifications.clear();
 
         for (const info of this._timeoutInfo.values()) {
@@ -558,23 +484,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
 
-        // Delegate context extraction to module (if registered)
-        const inboundCtx = {
-            sessionId: capturedTransport?.sessionId,
-            sendNotification: (notification: Notification, options?: NotificationOptions) =>
-                this.notification(notification, { ...options, relatedRequestId: request.id }),
-            sendRequest: <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
-                this._requestWithSchema(r, resultSchema, { ...options, relatedRequestId: request.id })
-        };
-
-        // Delegate to TaskManager for task context, wrapped send/notify, and response routing
-        const taskResult = this._taskManager.processInboundRequest(request, inboundCtx);
-        const sendNotification = taskResult.sendNotification;
-        const sendRequest = taskResult.sendRequest;
-        const taskContext = taskResult.taskContext;
-        const routeResponse = taskResult.routeResponse;
-        const validators: Array<() => void> = [];
-        if (taskResult.validateInbound) validators.push(taskResult.validateInbound);
+        const sendNotification = (notification: Notification, options?: NotificationOptions) =>
+            this.notification(notification, { ...options, relatedRequestId: request.id });
+        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
+            this._requestWithSchema(r, resultSchema, { ...options, relatedRequestId: request.id });
 
         if (handler === undefined) {
             const errorResponse: JSONRPCErrorResponse = {
@@ -585,17 +498,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     message: 'Method not found'
                 }
             };
-
-            // Queue or send the error response based on whether this is a task-related request
-            routeResponse(errorResponse)
-                .then(routed => {
-                    if (!routed) {
-                        capturedTransport
-                            ?.send(errorResponse)
-                            .catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
-                    }
-                })
-                .catch(error => this._onerror(new Error(`Failed to enqueue error response: ${error}`)));
+            capturedTransport?.send(errorResponse).catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
             return;
         }
 
@@ -613,7 +516,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // literals can't carry overload signatures, so the inferred single-signature type isn't assignable to
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
-                send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | TaskRequestOptions, maybeOptions?: TaskRequestOptions) => {
+                send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
                     if (isStandardSchema(schemaOrOptions)) {
                         return sendRequest(r, schemaOrOptions, maybeOptions);
                     }
@@ -627,18 +530,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }) as BaseContext['mcpReq']['send'],
                 notify: sendNotification
             },
-            http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined,
-            task: taskContext
+            http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined
         };
         const ctx = this.buildContext(baseCtx, extra);
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
-            .then(() => {
-                for (const validate of validators) {
-                    validate();
-                }
-            })
             .then(() => handler(request, ctx))
             .then(
                 async result => {
@@ -652,12 +549,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         jsonrpc: '2.0',
                         id: request.id
                     };
-
-                    // Queue or send the response based on whether this is a task-related request
-                    const routed = await routeResponse(response);
-                    if (!routed) {
-                        await capturedTransport?.send(response);
-                    }
+                    await capturedTransport?.send(response);
                 },
                 async error => {
                     if (abortController.signal.aborted) {
@@ -674,12 +566,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     };
-
-                    // Queue or send the error response based on whether this is a task-related request
-                    const routed = await routeResponse(errorResponse);
-                    if (!routed) {
-                        await capturedTransport?.send(errorResponse);
-                    }
+                    await capturedTransport?.send(errorResponse);
                 }
             )
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
@@ -722,11 +609,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
 
-        // Delegate to TaskManager for task-related response handling
-        const taskResult = this._taskManager.processInboundResponse(response, messageId);
-        if (taskResult.consumed) return;
-        const preserveProgress = taskResult.preserveProgress;
-
         const handler = this._responseHandlers.get(messageId);
         if (handler === undefined) {
             this._onerror(new Error(`Received a response for an unknown message ID: ${JSON.stringify(response)}`));
@@ -735,11 +617,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         this._responseHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
-
-        // Keep progress handler alive for CreateTaskResult responses
-        if (!preserveProgress) {
-            this._progressHandlers.delete(messageId);
-        }
+        this._progressHandlers.delete(messageId);
 
         if (isJSONRPCResultResponse(response)) {
             handler(response);
@@ -780,22 +658,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * This should be implemented by subclasses.
      */
     protected abstract assertRequestHandlerCapability(method: string): void;
-
-    /**
-     * A method to check if the remote side supports task creation for the given method.
-     *
-     * Called when sending a task-augmented outbound request (only when enforceStrictCapabilities is true).
-     * This should be implemented by subclasses.
-     */
-    protected abstract assertTaskCapability(method: string): void;
-
-    /**
-     * A method to check if this side supports handling task creation for the given method.
-     *
-     * Called when receiving a task-augmented inbound request.
-     * This should be implemented by subclasses.
-     */
-    protected abstract assertTaskHandlerCapability(method: string): void;
 
     /**
      * Sends a request and waits for a response.
@@ -938,44 +800,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            // Delegate task augmentation and routing to module (if registered)
-            const responseHandler = (response: JSONRPCResultResponse | Error) => {
-                const handler = this._responseHandlers.get(messageId);
-                if (handler) {
-                    handler(response);
-                } else {
-                    this._onerror(new Error(`Response handler missing for side-channeled request ${messageId}`));
-                }
-            };
-
-            let outboundQueued = false;
-            try {
-                const taskResult = this._taskManager.processOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, error => {
-                    this._progressHandlers.delete(messageId);
-                    reject(error);
-                });
-                if (taskResult.queued) {
-                    outboundQueued = true;
-                }
-            } catch (error) {
+            this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
                 this._progressHandlers.delete(messageId);
                 reject(error);
-                return;
-            }
-
-            if (!outboundQueued) {
-                // No related task or no module - send through transport normally
-                this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                    this._progressHandlers.delete(messageId);
-                    reject(error);
-                });
-            }
+            });
         }).finally(() => {
             // Per-request cleanup that must run on every exit path. Consolidated
             // here so new exit paths added to the promise body can't forget it.
             // _progressHandlers is NOT cleaned up here: _onresponse deletes it
-            // conditionally (preserveProgress for task flows), and error paths
-            // above delete it inline since no task exists in those cases.
+            // on resolution, and error paths above delete it inline.
             if (onAbort) {
                 options?.signal?.removeEventListener('abort', onAbort);
             }
@@ -996,21 +829,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         this.assertNotificationCapability(notification.method);
 
-        // Delegate task-related notification routing and JSONRPC building to TaskManager
-        const taskResult = await this._taskManager.processOutboundNotification(notification, options);
-        const queued = taskResult.queued;
-        const jsonrpcNotification = taskResult.queued ? undefined : taskResult.jsonrpcNotification;
-
-        if (queued) {
-            // Don't send through transport - queued messages are delivered via tasks/result only
-            return;
-        }
+        const jsonrpcNotification: JSONRPCNotification = { jsonrpc: '2.0', ...notification };
 
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
-        // (i.e., has no parameters and no related request ID or related task that could be lost).
-        const canDebounce =
-            debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId && !options?.relatedTask;
+        // (i.e., has no parameters and no related request ID that could be lost).
+        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
@@ -1034,14 +858,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
                 // Send the notification, but don't await it here to avoid blocking.
                 // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification!, options).catch(error => this._onerror(error));
+                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
             });
 
             // Return immediately.
             return;
         }
 
-        await this._transport.send(jsonrpcNotification!, options);
+        await this._transport.send(jsonrpcNotification, options);
     }
 
     /**

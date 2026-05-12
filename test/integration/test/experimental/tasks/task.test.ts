@@ -2,6 +2,7 @@ import type { Task } from '@modelcontextprotocol/core';
 import { isTerminal, TaskCreationParamsSchema } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
 
+// Pure helper/schema tests with no Protocol-interception dependency. KEPT (not skipped) per R0 rationale.
 describe('Task utility functions', () => {
     describe('isTerminal', () => {
         it('should return true for completed status', () => {
@@ -26,6 +27,7 @@ describe('Task utility functions', () => {
     });
 });
 
+// Pure helper/schema tests with no Protocol-interception dependency. KEPT (not skipped) per R0 rationale.
 describe('Task Schema Validation', () => {
     it('should validate task with ttl field', () => {
         const createdAt = new Date().toISOString();
@@ -116,6 +118,7 @@ describe('Task Schema Validation', () => {
     });
 });
 
+// Pure helper/schema tests with no Protocol-interception dependency. KEPT (not skipped) per R0 rationale.
 describe('TaskCreationParams Schema Validation', () => {
     it('should accept ttl as a number', () => {
         const result = TaskCreationParamsSchema.safeParse({ ttl: 60_000 });

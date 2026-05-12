@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createInMemoryTaskEnvironment } from '../../helpers/mcp.js';
 
-describe('Task Listing with Pagination', () => {
+// TODO(F3): rewrite against tasksPlugin (SEP-2663). See R0 commit body for the deletion/skip rationale.
+describe.skip('Task Listing with Pagination', () => {
     let client: Awaited<ReturnType<typeof createInMemoryTaskEnvironment>>['client'];
     let server: Awaited<ReturnType<typeof createInMemoryTaskEnvironment>>['server'];
     let taskStore: Awaited<ReturnType<typeof createInMemoryTaskEnvironment>>['taskStore'];

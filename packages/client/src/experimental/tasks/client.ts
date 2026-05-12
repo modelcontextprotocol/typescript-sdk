@@ -18,14 +18,17 @@ import type {
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    ResultTypeMap
+    ResultTypeMap,
+    TaskManager
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
     getResultSchema,
     GetTaskPayloadResultSchema,
     ProtocolError,
-    ProtocolErrorCode
+    ProtocolErrorCode,
+    SdkError,
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
@@ -53,8 +56,11 @@ interface ClientInternal {
 export class ExperimentalClientTasks {
     constructor(private readonly _client: Client) {}
 
-    private get _module() {
-        return this._client.taskManager;
+    private get _module(): TaskManager {
+        throw new SdkError(
+            SdkErrorCode.CapabilityNotSupported,
+            'TaskManager was removed from Protocol core (SEP-2663). Experimental task helpers are no longer wired.'
+        );
     }
 
     /**
@@ -103,15 +109,7 @@ export class ExperimentalClientTasks {
         // Access Client's internal methods
         const clientInternal = this._client as unknown as ClientInternal;
 
-        // Add task creation parameters if server supports it and not explicitly provided
-        const optionsWithTask = {
-            ...options,
-            // We check if the tool is known to be a task during auto-configuration, but assume
-            // the caller knows what they're doing if they pass this explicitly
-            task: options?.task ?? (clientInternal.isToolTask(params.name) ? {} : undefined)
-        };
-
-        const stream = this._module.requestStream({ method: 'tools/call', params }, CallToolResultSchema, optionsWithTask);
+        const stream = this._module.requestStream({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Get the validator for this tool (if it has an output schema)
         const validator = clientInternal.getToolOutputValidator(params.name);

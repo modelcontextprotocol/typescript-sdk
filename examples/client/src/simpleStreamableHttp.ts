@@ -296,13 +296,8 @@ async function connect(url?: string): Promise<void> {
                 action: 'accept' | 'decline' | 'cancel';
                 content?: Record<string, string | number | boolean | string[]>;
             }) => {
-                if (request.params.task && extra.task?.store) {
-                    // Create a task and store the result
-                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
-                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
-                    console.log(`📋 Created client-side task: ${task.taskId}`);
-                    return { task };
-                }
+                void request;
+                void extra;
                 return result;
             };
 
@@ -895,17 +890,10 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
 
     try {
         // Call the tool with task metadata using streaming API
-        const stream = client.experimental.tasks.callToolStream(
-            {
-                name,
-                arguments: args
-            },
-            {
-                task: {
-                    ttl: 60_000 // Keep results for 60 seconds
-                }
-            }
-        );
+        const stream = client.experimental.tasks.callToolStream({
+            name,
+            arguments: args
+        });
 
         console.log('Waiting for task completion...');
 

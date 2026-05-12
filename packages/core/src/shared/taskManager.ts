@@ -10,6 +10,7 @@ import type {
     JSONRPCResponse,
     JSONRPCResultResponse,
     Notification,
+    RelatedTaskMetadata,
     Request,
     RequestId,
     Result,
@@ -74,7 +75,7 @@ export interface InboundContext {
  * @internal
  */
 export interface InboundResult {
-    taskContext?: BaseContext['task'];
+    taskContext?: TaskContext;
     sendNotification: (notification: Notification) => Promise<void>;
     sendRequest: <U extends StandardSchemaV1>(
         request: Request,
@@ -94,8 +95,11 @@ export interface InboundResult {
 /**
  * Options that can be given per request.
  */
-// relatedTask is excluded as the SDK controls if this is sent according to if the source is a task.
-export type TaskRequestOptions = Omit<RequestOptions, 'relatedTask'>;
+// SEP-2663: `task`/`relatedTask` were removed from RequestOptions/NotificationOptions in core.
+// TaskManager defines them locally so the (now-uncalled) implementation stays self-contained.
+type LegacyRequestOptions = RequestOptions & { task?: TaskCreationParams; relatedTask?: RelatedTaskMetadata };
+type LegacyNotificationOptions = NotificationOptions & { relatedTask?: RelatedTaskMetadata };
+export type TaskRequestOptions = RequestOptions & { task?: TaskCreationParams };
 
 /**
  * Request-scoped TaskStore interface.
@@ -276,7 +280,7 @@ export class TaskManager {
     async *requestStream<T extends AnyObjectSchema>(
         request: Request,
         resultSchema: T,
-        options?: RequestOptions
+        options?: LegacyRequestOptions
     ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         const host = this._requireHost;
         const { task } = options ?? {};
@@ -487,7 +491,7 @@ export class TaskManager {
 
     private prepareOutboundRequest(
         jsonrpcRequest: JSONRPCRequest,
-        options: RequestOptions | undefined,
+        options: LegacyRequestOptions | undefined,
         messageId: number,
         responseHandler: (response: JSONRPCResultResponse | Error) => void,
         onError: (error: unknown) => void
@@ -568,7 +572,7 @@ export class TaskManager {
         originalSendNotification: (notification: Notification, options?: NotificationOptions) => Promise<void>
     ): (notification: Notification) => Promise<void> {
         return async (notification: Notification) => {
-            const notificationOptions: NotificationOptions = { relatedTask: { taskId: relatedTaskId } };
+            const notificationOptions: LegacyNotificationOptions = { relatedTask: { taskId: relatedTaskId } };
             await originalSendNotification(notification, notificationOptions);
         };
     }
@@ -579,7 +583,7 @@ export class TaskManager {
         originalSendRequest: <V extends StandardSchemaV1>(
             request: Request,
             resultSchema: V,
-            options?: RequestOptions
+            options?: LegacyRequestOptions
         ) => Promise<StandardSchemaV1.InferOutput<V>>
     ): <V extends StandardSchemaV1>(
         request: Request,
@@ -587,7 +591,7 @@ export class TaskManager {
         options?: TaskRequestOptions
     ) => Promise<StandardSchemaV1.InferOutput<V>> {
         return async <V extends StandardSchemaV1>(request: Request, resultSchema: V, options?: TaskRequestOptions) => {
-            const requestOptions: RequestOptions = { ...options };
+            const requestOptions: LegacyRequestOptions = { ...options };
             if (relatedTaskId && !requestOptions.relatedTask) {
                 requestOptions.relatedTask = { taskId: relatedTaskId };
             }
@@ -630,7 +634,7 @@ export class TaskManager {
         return false;
     }
 
-    private async routeNotification(notification: Notification, options?: NotificationOptions): Promise<boolean> {
+    private async routeNotification(notification: Notification, options?: LegacyNotificationOptions): Promise<boolean> {
         const relatedTaskId = options?.relatedTask?.taskId;
         if (!relatedTaskId) return false;
 
@@ -766,7 +770,7 @@ export class TaskManager {
 
     processOutboundRequest(
         jsonrpcRequest: JSONRPCRequest,
-        options: RequestOptions | undefined,
+        options: LegacyRequestOptions | undefined,
         messageId: number,
         responseHandler: (response: JSONRPCResultResponse | Error) => void,
         onError: (error: unknown) => void
@@ -794,7 +798,7 @@ export class TaskManager {
 
     async processOutboundNotification(
         notification: Notification,
-        options?: NotificationOptions
+        options?: LegacyNotificationOptions
     ): Promise<{ queued: boolean; jsonrpcNotification?: JSONRPCNotification }> {
         // Try queuing first
         const queued = await this.routeNotification(notification, options);
@@ -908,7 +912,7 @@ export class NullTaskManager extends TaskManager {
 
     override async processOutboundNotification(
         notification: Notification,
-        _options?: NotificationOptions
+        _options?: LegacyNotificationOptions
     ): Promise<{ queued: boolean; jsonrpcNotification?: JSONRPCNotification }> {
         return { queued: false, jsonrpcNotification: { ...notification, jsonrpc: '2.0' } };
     }

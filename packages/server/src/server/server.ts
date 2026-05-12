@@ -33,16 +33,12 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    assertClientRequestTaskCapability,
-    assertToolsCallTaskCapability,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    extractTaskManagerOptions,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -115,10 +111,7 @@ export class Server extends Protocol<ServerContext> {
         private _serverInfo: Implementation,
         options?: ServerOptions
     ) {
-        super({
-            ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
-        });
+        super(options);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
@@ -237,24 +230,8 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
             }
 
-            const { params } = validatedRequest.data;
-
             const result = await handler(request, ctx);
 
-            // When task creation is requested, validate and return CreateTaskResult
-            if (params.task) {
-                const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                if (!taskValidationResult.success) {
-                    const errorMessage =
-                        taskValidationResult.error instanceof Error
-                            ? taskValidationResult.error.message
-                            : String(taskValidationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                }
-                return taskValidationResult.data;
-            }
-
-            // For non-task requests, validate against CallToolResultSchema
             const validationResult = parseSchema(CallToolResultSchema, result);
             if (!validationResult.success) {
                 const errorMessage =
@@ -408,14 +385,6 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
         }
-    }
-
-    protected assertTaskCapability(method: string): void {
-        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {
