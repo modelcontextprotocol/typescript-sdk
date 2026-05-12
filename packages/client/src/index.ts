@@ -55,6 +55,8 @@ export {
 export type { ClientOptions } from './client/client.js';
 export { Client } from './client/client.js';
 export { getSupportedElicitationModes } from './client/client.js';
+export type { ClientFetchOptions, ClientTransport } from './client/clientTransport.js';
+export { isClientTransport } from './client/clientTransport.js';
 export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess.js';
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess.js';
 export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware.js';
