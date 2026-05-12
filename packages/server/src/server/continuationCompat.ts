@@ -320,10 +320,22 @@ export class ContinuationCompat {
             return;
         }
 
+        // Bridge this round's per-HTTP-request abort to the frame-lifetime controller
+        // for the duration of this drain. The runner observes only `cont.abort.signal`
+        // (frame-lifetime); without this bridge, `notifications/cancelled` or a client
+        // disconnect on a *resume* round would never reach the runner. The listener is
+        // detached in the finally so an abort that lands after `_drive` returns (i.e.
+        // the frame is parked between rounds) does not kill it.
+        const onAbort = () => cont.abort.abort(env.signal?.reason);
+        if (env.signal?.aborted) {
+            cont.abort.abort(env.signal.reason);
+        } else {
+            env.signal?.addEventListener('abort', onAbort, { once: true });
+        }
+
         // Drain the ask channel into the current HTTP response stream until the
         // handler either finishes or parks for input. The finally clears `draining`
-        // so a client disconnect mid-stream (caller stops iterating this generator)
-        // does not leave the frame permanently locked against retry.
+        // and detaches the per-round abort bridge.
         try {
             for (;;) {
                 const a = await cont.nextAsk();
@@ -357,6 +369,7 @@ export class ContinuationCompat {
                 return;
             }
         } finally {
+            env.signal?.removeEventListener('abort', onAbort);
             const entry = this._frames.get(token);
             if (entry) entry.draining = false;
         }
@@ -369,11 +382,10 @@ export class ContinuationCompat {
         cont: Continuation,
         token: string
     ): void {
-        const signal =
-            env.signal === undefined
-                ? cont.abort.signal
-                : (anySignal([env.signal, cont.abort.signal]) ?? linkSignals(env.signal, cont.abort.signal));
-        const runnerEnv: RequestEnv = { ...env, signal, send: this._suspendingSend(cont) };
+        // The runner's lifetime is the frame's lifetime, so it observes only
+        // `cont.abort.signal`. Per-HTTP-request aborts are bridged into `cont.abort`
+        // by `_drive` for the duration of each round.
+        const runnerEnv: RequestEnv = { ...env, signal: cont.abort.signal, send: this._suspendingSend(cont) };
 
         void (async () => {
             try {
@@ -479,20 +491,4 @@ export class ContinuationCompat {
         this._frames.delete(token);
         this._decPrincipal(entry.owner);
     }
-}
-
-type SignalAny = (signals: AbortSignal[]) => AbortSignal;
-function anySignal(signals: AbortSignal[]): AbortSignal | undefined {
-    const fn = (AbortSignal as { any?: SignalAny }).any;
-    return fn ? fn(signals) : undefined;
-}
-function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
-    const c = new AbortController();
-    const fwd = (s: AbortSignal) => {
-        if (s.aborted) c.abort(s.reason);
-        else s.addEventListener('abort', () => c.abort(s.reason), { once: true });
-    };
-    fwd(a);
-    fwd(b);
-    return c.signal;
 }
