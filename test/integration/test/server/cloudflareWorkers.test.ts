@@ -197,7 +197,11 @@ export default {
                 // Re-throw assertion failures immediately — only retry transport errors.
                 if (error instanceof Error && 'matcherResult' in error) throw error;
                 lastError = error;
-                try { await client.close(); } catch { /* ignore cleanup errors */ }
+                try {
+                    await client.close();
+                } catch {
+                    /* ignore cleanup errors */
+                }
                 if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
