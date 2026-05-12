@@ -21,6 +21,11 @@ class InMemoryEventStore implements EventStore {
         return eventId;
     }
 
+    /** Required for replay ownership: see WebStandardStreamableHTTPServerTransport.replayEvents. */
+    async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+        return this.events.get(eventId)?.streamId;
+    }
+
     async replayEventsAfter(
         lastEventId: string,
         { send }: { send: (eventId: string, message: JSONRPCMessage) => Promise<void> }

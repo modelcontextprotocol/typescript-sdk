@@ -39,8 +39,8 @@ export interface EventStore {
      * @param eventId The event ID to look up
      * @returns The stream ID, or `undefined` if not found
      *
-     * Optional: If not provided, the SDK will use the `streamId` returned by
-     * {@linkcode replayEventsAfter} for stream mapping.
+     * Required for `Last-Event-ID` resumption: the SDK uses this to verify the requesting
+     * caller owns the stream BEFORE replaying. If omitted, replay returns 403 (fail-closed).
      */
     getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
 
@@ -230,9 +230,25 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
+    /**
+     * StreamIds this transport instance has minted (for SSE replay ownership; see
+     * {@linkcode replayEvents}). Bounded; oldest entries evicted FIFO. Kept across the
+     * source POST stream's close so a Last-Event-ID resumption can still verify ownership.
+     */
+    private _issuedStreamIds = new Set<string>();
+    private static readonly _MAX_ISSUED_STREAM_IDS = 256;
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
-    private _standaloneSseStreamId: string = '_GET_stream';
+    /**
+     * Per-instance standalone-GET stream id. Suffixed so two transports sharing one
+     * EventStore cannot satisfy each other's `_issuedStreamIds` ownership check.
+     * Lazy: minted on first use (inside a request handler) so Cloudflare Workers does
+     * not reject `crypto.randomUUID()` at construction-in-global-scope.
+     */
+    private __standaloneSseStreamId: string | undefined;
+    private get _standaloneSseStreamId(): string {
+        return (this.__standaloneSseStreamId ??= `_GET_stream:${this.sessionId ?? crypto.randomUUID()}`);
+    }
     private _eventStore?: EventStore;
     private _onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
     private _onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
@@ -462,6 +478,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             headers['mcp-session-id'] = this.sessionId;
         }
 
+        // Standalone GET stream is implicitly owned by this transport instance.
+        this._addIssuedStreamId(this._standaloneSseStreamId);
+
         // Store the stream mapping with the controller for pushing data
         this._streamMapping.set(this._standaloneSseStreamId, {
             controller: streamController!,
@@ -490,22 +509,38 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
 
         try {
-            // If getStreamIdForEventId is available, use it for conflict checking
-            let streamId: string | undefined;
-            if (this._eventStore.getStreamIdForEventId) {
-                streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
-
-                if (!streamId) {
-                    this.onerror?.(new Error('Invalid event ID format'));
-                    return this.createJsonErrorResponse(400, -32_000, 'Invalid event ID format');
-                }
-
-                // Check conflict with the SAME streamId we'll use for mapping
-                if (this._streamMapping.get(streamId) !== undefined) {
-                    this.onerror?.(new Error('Conflict: Stream already has an active connection'));
-                    return this.createJsonErrorResponse(409, -32_000, 'Conflict: Stream already has an active connection');
-                }
+            // Ownership check: a Last-Event-ID may only replay a stream this transport
+            // instance minted. Without this, a caller can replay any stream the (often
+            // shared) event store holds, leaking cross-session response bodies. The check
+            // requires getStreamIdForEventId so the stream identity is known BEFORE
+            // replayEventsAfter starts writing; event stores that do not implement it
+            // cannot support secure replay (fail-closed with 403).
+            if (!this._eventStore.getStreamIdForEventId) {
+                return this.createJsonErrorResponse(
+                    403,
+                    -32_000,
+                    'Forbidden: event store does not support session-scoped replay (getStreamIdForEventId required)'
+                );
             }
+            const streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
+            if (!streamId) {
+                // 400, not 404: per the Streamable HTTP spec a 404 on a request with
+                // Mcp-Session-Id signals "session terminated, reinitialize". This branch
+                // runs for a live session whose event store does not (or no longer) have
+                // that event id; clients should retry without Last-Event-ID, not abandon
+                // the session.
+                this.onerror?.(new Error(`Unknown Last-Event-ID '${lastEventId}'`));
+                return this.createJsonErrorResponse(400, -32_000, 'Unknown or expired Last-Event-ID');
+            }
+            if (!this._issuedStreamIds.has(streamId)) {
+                return this.createJsonErrorResponse(403, -32_000, 'Forbidden: event ID does not belong to this session');
+            }
+
+            // Tear down a stale stream entry for this id (e.g. server-side controller from a
+            // GET stream the client disconnected from). Reconnect-with-Last-Event-ID
+            // semantically replaces the prior stream; the prior code path (before
+            // getStreamIdForEventId became required) overwrote the mapping anyway.
+            this._streamMapping.get(streamId)?.cleanup();
 
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
@@ -531,8 +566,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            // Replay events - returns the streamId for backwards compatibility
-            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
+            // Replay events. The returned stream id is ignored: `streamId` (from
+            // getStreamIdForEventId above) is the ownership-verified key and is what `send()`
+            // looks up; using the replay return value risks a divergent EventStore registering
+            // the new connection under a key that nothing reads.
+            await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
                     if (!success) {
@@ -545,11 +583,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            this._streamMapping.set(replayedStreamId, {
+            this._streamMapping.set(streamId, {
                 controller: streamController!,
                 encoder,
                 cleanup: () => {
-                    this._streamMapping.delete(replayedStreamId);
+                    this._streamMapping.delete(streamId);
                     try {
                         streamController!.close();
                     } catch {
@@ -723,6 +761,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // The default behavior is to use SSE streaming
             // but in some cases server will return JSON responses
             const streamId = crypto.randomUUID();
+            this._addIssuedStreamId(streamId);
 
             // Extract protocol version for priming event decision.
             // For initialize requests, get from request params.
@@ -848,6 +887,19 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
         await this.close();
         return new Response(null, { status: 200 });
+    }
+
+    /** Record a streamId this transport instance issued, evicting the oldest non-standalone id if at the cap. */
+    private _addIssuedStreamId(streamId: string): void {
+        if (this._issuedStreamIds.size >= WebStandardStreamableHTTPServerTransport._MAX_ISSUED_STREAM_IDS) {
+            for (const id of this._issuedStreamIds) {
+                if (id !== this._standaloneSseStreamId) {
+                    this._issuedStreamIds.delete(id);
+                    break;
+                }
+            }
+        }
+        this._issuedStreamIds.add(streamId);
     }
 
     /**

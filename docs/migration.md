@@ -975,6 +975,19 @@ a skill.
 
 ## Need Help?
 
+### EventStore: `getStreamIdForEventId` required for SSE replay
+
+`EventStore.getStreamIdForEventId(eventId)` is now required for `Last-Event-ID` resumption.
+The transport must verify the event belongs to a stream the requesting session issued
+*before* replaying; without this method, replay returns HTTP 403. Implement it on your
+event store (typically a lookup from event id to the `streamId` you stored it under).
+
+```typescript
+async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+    return this.events.get(eventId)?.streamId;
+}
+```
+
 If you encounter issues during migration:
 
 1. Check the [FAQ](faq.md) for common questions about v2 changes
