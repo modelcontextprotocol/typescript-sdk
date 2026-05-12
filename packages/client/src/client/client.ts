@@ -39,6 +39,7 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -793,6 +794,14 @@ export class Client extends Protocol<ClientContext> {
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
+
+        // SEP-2663: a task envelope is not a CallToolResult; the eventual structuredContent
+        // arrives via tasks/result. Only bypass output-schema validation when the envelope
+        // is structurally a CreateTaskResult, so a server cannot skip validation by tagging
+        // an arbitrary result with resultType:'task'.
+        if (parseSchema(CreateTaskResultSchema, result).success) {
+            return result;
+        }
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
