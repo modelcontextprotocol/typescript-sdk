@@ -28,7 +28,6 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
-    TaskManagerOptions,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core';
@@ -54,19 +53,11 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims'
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
-/**
- * Extended tasks capability that includes runtime configuration (store, messageQueue).
- * The runtime-only fields are stripped before advertising capabilities to clients.
- */
-export type ServerTasksCapabilityWithRuntime = NonNullable<ServerCapabilities['tasks']> & TaskManagerOptions;
-
 export type ServerOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
      */
-    capabilities?: Omit<ServerCapabilities, 'tasks'> & {
-        tasks?: ServerTasksCapabilityWithRuntime;
-    };
+    capabilities?: ServerCapabilities;
 
     /**
      * Optional instructions describing how to use the server and its features.
@@ -115,14 +106,6 @@ export class Server extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
-
-        // Strip runtime-only fields from advertised capabilities
-        if (options?.capabilities?.tasks) {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
-                options.capabilities.tasks;
-            this._capabilities.tasks = wireCapabilities;
-        }
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());

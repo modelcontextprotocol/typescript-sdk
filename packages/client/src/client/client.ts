@@ -29,7 +29,6 @@ import type {
     Result,
     ServerCapabilities,
     SubscribeRequest,
-    TaskManagerOptions,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -137,19 +136,11 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     return { supportsFormMode, supportsUrlMode };
 }
 
-/**
- * Extended tasks capability that includes runtime configuration (store, messageQueue).
- * The runtime-only fields are stripped before advertising capabilities to servers.
- */
-export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> & TaskManagerOptions;
-
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
      */
-    capabilities?: Omit<ClientCapabilities, 'tasks'> & {
-        tasks?: ClientTasksCapabilityWithRuntime;
-    };
+    capabilities?: ClientCapabilities;
 
     /**
      * JSON Schema validator for tool output validation.
@@ -244,14 +235,6 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
-
-        // Strip runtime-only fields from advertised capabilities
-        if (options?.capabilities?.tasks) {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
-                options.capabilities.tasks;
-            this._capabilities.tasks = wireCapabilities;
-        }
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
