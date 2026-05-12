@@ -36,6 +36,7 @@ import type {
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
+    ClientCapabilitiesSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
@@ -144,7 +145,13 @@ export class Server extends Protocol<ServerContext> {
         const sendOpts = (options?: RequestOptions): RequestOptions => ({ ...options, relatedRequestId: ctx.mcpReq.id });
         // SEP-2575: prefer per-request peer scope (lifted from `_meta` by S4) over the
         // singleton handshake state. Falls back to the singleton for the connect() path.
-        const reqCaps = ctx.mcpReq.clientCapabilities ?? this._clientCapabilities;
+        // Normalize the per-request value: it may arrive raw from a transport adapter
+        // (e.g. SessionCompat stores `initialize.params.capabilities` off the wire), and
+        // ElicitationCapabilitySchema's preprocess (e.g. `{}` -> `{form:{}}`) must run
+        // before the `_elicitInputVia` capability gate reads `caps.elicitation.form`.
+        const rawReqCaps = ctx.mcpReq.clientCapabilities;
+        const reqCaps =
+            rawReqCaps === undefined ? this._clientCapabilities : (ClientCapabilitiesSchema.safeParse(rawReqCaps).data ?? rawReqCaps);
         const reqLogLevel = ctx.mcpReq.logLevel;
         return {
             ...ctx,
