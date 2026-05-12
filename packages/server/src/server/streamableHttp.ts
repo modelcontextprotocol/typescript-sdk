@@ -523,8 +523,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
             const streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
             if (!streamId) {
-                this.onerror?.(new Error('Invalid event ID format'));
-                return this.createJsonErrorResponse(404, -32_001, 'Event not found');
+                // 400, not 404: per the Streamable HTTP spec a 404 on a request with
+                // Mcp-Session-Id signals "session terminated, reinitialize". This branch
+                // runs for a live session whose event store does not (or no longer) have
+                // that event id; clients should retry without Last-Event-ID, not abandon
+                // the session.
+                this.onerror?.(new Error(`Unknown Last-Event-ID '${lastEventId}'`));
+                return this.createJsonErrorResponse(400, -32_000, 'Unknown or expired Last-Event-ID');
             }
             if (!this._issuedStreamIds.has(streamId)) {
                 return this.createJsonErrorResponse(403, -32_000, 'Forbidden: event ID does not belong to this session');
