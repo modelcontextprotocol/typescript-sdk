@@ -201,4 +201,38 @@ describe('Task Lifecycle (tasksPlugin)', () => {
             await client.close();
         });
     });
+
+    describe('Capabilities', () => {
+        it('server with tasks capability declared advertises it; client tasks/* requests pass the gate', async () => {
+            const client = await newClient();
+            expect(client.getServerCapabilities()?.tasks).toBeTruthy();
+            // tasks/get reaches the server (rejects on unknown id, not on capability)
+            await expect(getTask(client, 'nonexistent')).rejects.toSatisfy(
+                (e: unknown) => e instanceof ProtocolError && e.code === ProtocolErrorCode.InvalidParams
+            );
+            await client.close();
+        });
+    });
+});
+
+describe('Task capability gate (server without tasks)', () => {
+    it('client tasks/* requests fail CapabilityNotSupported when server did not declare tasks', async () => {
+        const mcp = new McpServer({ name: 'no-tasks', version: '1.0.0' }, { capabilities: { tools: {} } });
+        const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+        await mcp.connect(serverTransport);
+        const httpServer = createServer(async (req, res) => serverTransport.handleRequest(req, res));
+        const baseUrl = await listenOnRandomPort(httpServer);
+
+        const client = new Client({ name: 'test-client', version: '1.0.0' }, { enforceStrictCapabilities: true });
+        await client.connect(new StreamableHTTPClientTransport(baseUrl));
+
+        expect(client.getServerCapabilities()?.tasks).toBeUndefined();
+        await expect(client.request({ method: 'tasks/get', params: { taskId: 'x' } }, GetTaskResultSchema)).rejects.toThrow(
+            /does not support tasks/
+        );
+
+        await client.close();
+        await mcp.close();
+        httpServer.close();
+    });
 });

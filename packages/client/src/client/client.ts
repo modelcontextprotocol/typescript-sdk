@@ -550,6 +550,16 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
+            case 'tasks/get':
+            case 'tasks/result':
+            case 'tasks/list':
+            case 'tasks/cancel': {
+                if (!this._serverCapabilities?.tasks) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tasks (required for ${method})`);
+                }
+                break;
+            }
+
             case 'initialize': {
                 // No specific capability required for initialize
                 break;
