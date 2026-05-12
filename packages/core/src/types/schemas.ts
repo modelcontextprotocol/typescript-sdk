@@ -632,7 +632,13 @@ export const PaginatedResultSchema = ResultSchema.extend({
      * An opaque token representing the pagination position after the last returned result.
      * If present, there may be more results available.
      */
-    nextCursor: CursorSchema.optional()
+    nextCursor: CursorSchema.optional(),
+    /**
+     * How long (in seconds) this result may be considered fresh before re-fetching (SEP-2549).
+     * Allows clients to cache list responses and poll on a predictable schedule, supplementing
+     * (not replacing) the `list_changed` notification mechanism.
+     */
+    ttl: z.number().int().nonnegative().optional()
 });
 
 /**

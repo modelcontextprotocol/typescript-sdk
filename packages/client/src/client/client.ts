@@ -261,6 +261,10 @@ export class Client extends Protocol<ClientContext> {
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
+    /** Epoch ms after which the tool-metadata cache is stale (from SEP-2549 list `ttl`). */
+    private _toolCacheExpiresAt: number | undefined;
+    /** Set when the SEP-2549 ttl has elapsed. The cache is NOT cleared on expiry (validators stay enforced); this flag tells callers a refresh is recommended. */
+    private _toolCacheStale = false;
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -933,10 +937,33 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
+     * Marks the tool-metadata cache stale when the SEP-2549 `ttl` has elapsed.
+     * Does NOT clear the caches: validators and required-task guards stay enforced
+     * until `listTools()` repopulates them. TTL is a freshness hint for re-fetching,
+     * not a signal to drop client-side enforcement (a server-supplied `ttl: 0` must
+     * not bypass output validation).
+     */
+    private _maybeExpireToolCache(): void {
+        if (this._toolCacheExpiresAt !== undefined && Date.now() >= this._toolCacheExpiresAt) {
+            this._toolCacheStale = true;
+            this._toolCacheExpiresAt = undefined;
+        }
+    }
+
+    /** True when the tool list should be re-fetched (SEP-2549 `ttl` elapsed). Validators remain enforced while stale. */
+    get isToolCacheStale(): boolean {
+        this._maybeExpireToolCache();
+        return this._toolCacheStale;
+    }
+
+    /**
      * Cache validators for tool output schemas.
      * Called after {@linkcode listTools | listTools()} to pre-compile validators for better performance.
      */
-    private cacheToolMetadata(tools: Tool[]): void {
+    private cacheToolMetadata(tools: Tool[], ttlSeconds?: number): void {
+        // Clamp to >= 1s so a server cannot force immediate expiry of the validator cache.
+        this._toolCacheExpiresAt = ttlSeconds === undefined ? undefined : Date.now() + Math.max(1, ttlSeconds) * 1000;
+        this._toolCacheStale = false;
         this._cachedToolOutputValidators.clear();
         this._cachedKnownTaskTools.clear();
         this._cachedRequiredTaskTools.clear();
@@ -996,7 +1023,7 @@ export class Client extends Protocol<ClientContext> {
         const result = await this._requestWithSchema({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
-        this.cacheToolMetadata(result.tools);
+        this.cacheToolMetadata(result.tools, result.ttl);
 
         return result;
     }

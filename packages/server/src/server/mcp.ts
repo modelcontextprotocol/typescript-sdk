@@ -73,9 +73,18 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private readonly _listTtl: number | undefined;
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+        // Wire schema is `.int().nonnegative()`; coerce so a fractional or negative
+        // option value does not make every client `listTools()` throw a Zod error.
+        this._listTtl = options?.listTtlSeconds === undefined ? undefined : Math.max(0, Math.round(options.listTtlSeconds));
+    }
+
+    /** Builds the SEP-2549 `ttl` slot for paginated list results when configured. */
+    private _ttl(): { ttl?: number } {
+        return this._listTtl === undefined ? {} : { ttl: this._listTtl };
     }
 
     /**
@@ -141,6 +150,7 @@ export class McpServer {
         this.server.setRequestHandler(
             'tools/list',
             (): ListToolsResult => ({
+                ...this._ttl(),
                 tools: Object.entries(this._registeredTools)
                     .filter(([, tool]) => tool.enabled)
                     .map(([name, tool]): Tool => {
@@ -409,7 +419,7 @@ export class McpServer {
                 }
             }
 
-            return { resources: [...resources, ...templateResources] };
+            return { ...this._ttl(), resources: [...resources, ...templateResources] };
         });
 
         this.server.setRequestHandler('resources/templates/list', async () => {
@@ -419,7 +429,7 @@ export class McpServer {
                 ...template.metadata
             }));
 
-            return { resourceTemplates };
+            return { ...this._ttl(), resourceTemplates };
         });
 
         this.server.setRequestHandler('resources/read', async (request, ctx) => {
@@ -467,6 +477,7 @@ export class McpServer {
         this.server.setRequestHandler(
             'prompts/list',
             (): ListPromptsResult => ({
+                ...this._ttl(),
                 prompts: Object.entries(this._registeredPrompts)
                     .filter(([, prompt]) => prompt.enabled)
                     .map(([name, prompt]): Prompt => {
