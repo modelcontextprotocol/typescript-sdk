@@ -954,8 +954,7 @@ export class Client extends Protocol<ClientContext> {
      */
     private cacheToolMetadata(tools: Tool[], ttlSeconds?: number): void {
         // Clamp to >= 1s so a server cannot force immediate expiry of the validator cache.
-        this._toolCacheExpiresAt =
-            ttlSeconds === undefined ? undefined : Date.now() + Math.max(1, ttlSeconds) * 1000;
+        this._toolCacheExpiresAt = ttlSeconds === undefined ? undefined : Date.now() + Math.max(1, ttlSeconds) * 1000;
         this._toolCacheStale = false;
         this._cachedToolOutputValidators.clear();
         this._cachedKnownTaskTools.clear();

@@ -79,8 +79,7 @@ export class McpServer {
         this.server = new Server(serverInfo, options);
         // Wire schema is `.int().nonnegative()`; coerce so a fractional or negative
         // option value does not make every client `listTools()` throw a Zod error.
-        this._listTtl =
-            options?.listTtlSeconds === undefined ? undefined : Math.max(0, Math.round(options.listTtlSeconds));
+        this._listTtl = options?.listTtlSeconds === undefined ? undefined : Math.max(0, Math.round(options.listTtlSeconds));
     }
 
     /** Builds the SEP-2549 `ttl` slot for paginated list results when configured. */
