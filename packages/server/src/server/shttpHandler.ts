@@ -20,6 +20,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import type { BackchannelCompat } from './backchannelCompat.js';
+import type { ContinuationCompat } from './continuationCompat.js';
 import type { SessionCompat } from './sessionCompat.js';
 import type { EventId, EventStore } from './streamableHttp.js';
 
@@ -63,6 +64,15 @@ export interface ShttpHandlerOptions {
      * with `NotConnected` on this path.
      */
     backchannel?: BackchannelCompat;
+
+    /**
+     * SEP-2322 Option H suspend/resume continuation store. When provided, a handler's
+     * `await ctx.mcpReq.send(...)` parks the live frame and the current response carries
+     * an `IncompleteResult{requestState}`; a later POST with `params.{requestState,
+     * inputResponses}` resumes the same frame. Single-process only. When both this and
+     * `backchannel` are set, this takes precedence (it supplies `env.send` first).
+     */
+    continuations?: ContinuationCompat;
 
     /**
      * Event store for SSE resumability via `Last-Event-ID`. When configured, every
@@ -174,6 +184,7 @@ export function shttpHandler(
     const enableJsonResponse = options.enableJsonResponse ?? false;
     const session = options.session;
     const backchannel = options.backchannel;
+    const continuations = options.continuations;
     const eventStore = options.eventStore;
     const retryInterval = options.retryInterval;
     const supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
@@ -321,7 +332,7 @@ export function shttpHandler(
         if (!cb.onrequest) {
             return jsonError(500, -32_603, 'Handler not wired — pass an onrequest callback.');
         }
-        const onrequest = cb.onrequest;
+        const onrequest = continuations ? continuations.wrap(cb.onrequest) : cb.onrequest;
 
         const initReq = messages.find(m => isInitializeRequest(m));
         const initParams = initReq && isInitializeRequest(initReq) ? initReq.params : undefined;
