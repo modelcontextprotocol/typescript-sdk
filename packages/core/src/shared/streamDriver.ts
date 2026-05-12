@@ -290,13 +290,17 @@ export class StreamDriver implements Outbound {
         // Dispatch on a microtask so callers see the same timing as the
         // notification-handler path (which dispatches via Promise.resolve()).
         if (notification.method === 'notifications/cancelled') {
-            Promise.resolve().then(() => {
-                const requestId = (notification.params as { requestId?: RequestId } | undefined)?.requestId;
-                if (requestId !== undefined)
-                    this._requestHandlerAbortControllers.get(requestId)?.abort((notification.params as { reason?: unknown })?.reason);
-            });
+            Promise.resolve()
+                .then(() => {
+                    const requestId = (notification.params as { requestId?: RequestId } | undefined)?.requestId;
+                    if (requestId !== undefined)
+                        this._requestHandlerAbortControllers.get(requestId)?.abort((notification.params as { reason?: unknown })?.reason);
+                })
+                .catch(error => this._onerror(error instanceof Error ? error : new Error(String(error))));
         } else if (notification.method === 'notifications/progress') {
-            Promise.resolve().then(() => this._onprogress(notification.params as ProgressNotification['params']));
+            Promise.resolve()
+                .then(() => this._onprogress(notification.params as ProgressNotification['params']))
+                .catch(error => this._onerror(error instanceof Error ? error : new Error(String(error))));
         }
         // Always dispatch (including cancelled/progress) so user-registered handlers fire.
         // The driver-internal handling above is in addition to, not instead of, user handlers.

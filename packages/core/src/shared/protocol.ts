@@ -81,7 +81,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     constructor(private _options?: ProtocolOptions) {
         this._dispatcher = new Dispatcher<ContextT>({
-            buildContext: (base, env) => this.buildContext(base, (env as ProtocolEnv)._transportExtra),
+            buildContext: (base, env) => {
+                // StreamDriver populates `_transportExtra`; direct `dispatch(req, env)` callers
+                // pass `httpReq`/`authInfo` on RequestEnv. Synthesize MessageExtraInfo from the
+                // latter when the former is absent so `ctx.http.req`/`ctx.http.authInfo` are
+                // populated on both paths.
+                const pe = env as ProtocolEnv;
+                const extra =
+                    pe._transportExtra ??
+                    (env.httpReq !== undefined || env.authInfo !== undefined
+                        ? { request: env.httpReq, authInfo: env.authInfo }
+                        : undefined);
+                return this.buildContext(base, extra);
+            },
             wrapHandler: (method, handler) => this._wrapHandler(method, handler)
         });
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
