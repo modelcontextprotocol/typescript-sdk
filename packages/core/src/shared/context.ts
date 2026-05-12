@@ -112,6 +112,8 @@ export type NotificationOptions = {
 export type BaseContext = {
     /**
      * The session ID from the transport, if available.
+     * @deprecated Sessions are extension-track per SEP-2567; 2026-06+ clients will not
+     *   send `Mcp-Session-Id`. Key application state on `ctx.http?.authInfo`, not session-id.
      */
     sessionId?: string;
 
@@ -265,7 +267,11 @@ export type RequestEnv = {
     /** Abort signal for the inbound request. If omitted, a fresh controller is created. */
     signal?: AbortSignal;
 
-    /** Transport session identifier (legacy `Mcp-Session-Id`). */
+    /**
+     * Transport session identifier (legacy `Mcp-Session-Id`).
+     * @deprecated Sessions are extension-track per SEP-2567. Populate `ext.sessionId` for
+     *   compat modules that need it; new code should not depend on this.
+     */
     sessionId?: string;
 
     /**

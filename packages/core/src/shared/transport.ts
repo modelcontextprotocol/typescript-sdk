@@ -118,6 +118,9 @@ export interface Transport {
 
     /**
      * The session ID generated for this connection.
+     * @deprecated Sessions are extension-track per SEP-2567; 2026-06+ clients will not
+     *   send `Mcp-Session-Id`. Key application state on `ctx.http?.authInfo`, not session-id.
+     *   Read via {@linkcode legacySessionId} for an explicit signal.
      */
     sessionId?: string | undefined;
 
@@ -131,4 +134,14 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+}
+
+/**
+ * Read `sessionId` from a transport if it exposes one. Explicit-intent helper for
+ * SEP-2567: sessions are extension-track and `undefined` for 2026-06+ clients.
+ * Prefer keying application state on `ctx.http?.authInfo`; use this only when interoperating
+ * with pre-2026-06 clients that send `Mcp-Session-Id`.
+ */
+export function legacySessionId(t: Transport | undefined): string | undefined {
+    return t?.sessionId;
 }

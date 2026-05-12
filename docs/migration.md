@@ -573,6 +573,24 @@ import { JSONRPCError, ResourceReference, isJSONRPCError } from '@modelcontextpr
 import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse } from '@modelcontextprotocol/server';
 ```
 
+### `sessionId` deprecated (SEP-2567)
+
+`ctx.sessionId` and `Transport.sessionId` are deprecated. Sessions are extension-track per SEP-2567; 2026-06+ clients will not send `Mcp-Session-Id`. The fields remain (optional, as before) but will be `undefined` for stateless clients.
+
+**Do not key application state on `sessionId`.** Key on the validated principal instead:
+
+```ts
+// Before (silently shares state across stateless clients)
+const prefs = perSession.get(ctx.sessionId);
+
+// After
+const principal = ctx.http?.authInfo?.token;
+if (!principal) throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'auth required');
+const prefs = perPrincipal.get(principal);
+```
+
+Use `legacySessionId(transport)` for an explicit-intent read where session-mode compat is needed.
+
 ### Request handler context types
 
 The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy using nested groups:
