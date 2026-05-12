@@ -203,6 +203,12 @@ export type BaseContext = {
          */
         authInfo?: AuthInfo;
     };
+
+    /**
+     * Extension slot. Adapters and middleware populate keys here; handlers cast to the
+     * extension's declared type to read them. Core never reads or writes this field.
+     */
+    ext?: Record<string, unknown>;
 };
 
 /**
