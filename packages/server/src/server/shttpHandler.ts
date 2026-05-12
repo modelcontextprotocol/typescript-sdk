@@ -244,6 +244,19 @@ export function shttpHandler(
             return jsonError(400, -32_700, 'Parse error: Invalid JSON-RPC message');
         }
 
+        const requests = messages.filter(m => isJSONRPCRequest(m));
+
+        // SEP-2243: reject if Mcp-Method/Mcp-Name headers (when present) don't match the body.
+        // Runs BEFORE session.validate so a mismatched initialize cannot mint a session
+        // (session.validate has side effects: it inserts the entry and fires onsessioninitialized).
+        if (!isBatch && requests.length === 1) {
+            const headerMismatch = validateMcpHeaders(req, requests[0]!);
+            if (headerMismatch) {
+                onerror?.(new Error(headerMismatch));
+                return jsonError(400, -32_001, `Bad Request: ${headerMismatch}`);
+            }
+        }
+
         let sessionId: string | undefined;
         let isInitialize = false;
         if (session) {
@@ -255,18 +268,6 @@ export function shttpHandler(
         if (!isInitialize) {
             const protoErr = validateProtocolVersion(req);
             if (protoErr) return protoErr;
-        }
-
-        const requests = messages.filter(m => isJSONRPCRequest(m));
-
-        // SEP-2243: reject if Mcp-Method/Mcp-Name headers (when present) don't match the body.
-        // Prevents header/body source-of-truth split between intermediaries and the handler.
-        if (!isBatch && requests.length === 1) {
-            const headerMismatch = validateMcpHeaders(req, requests[0]!);
-            if (headerMismatch) {
-                onerror?.(new Error(headerMismatch));
-                return jsonError(400, -32_001, `Bad Request: ${headerMismatch}`);
-            }
         }
 
         const notifications = messages.filter(m => isJSONRPCNotification(m));
