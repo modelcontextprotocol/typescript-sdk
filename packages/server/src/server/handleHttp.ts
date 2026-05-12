@@ -33,7 +33,10 @@ export interface Dispatchable {
  *
  * `mcp.connect(transport)` is not called; each HTTP request flows through
  * `mcp.dispatch()` directly. Supply a `SessionCompat` via `options.session`
- * to serve clients that send `Mcp-Session-Id` (the pre-2026-06 stateful flow).
+ * to serve clients that send `Mcp-Session-Id` (the pre-2026-06 stateful flow),
+ * and a `BackchannelCompat` via `options.backchannel` to let handlers'
+ * `ctx.mcpReq.send` (e.g. `elicitInput`, `requestSampling`) reach those
+ * clients over the open POST SSE stream.
  */
 export function handleHttp(
     mcp: Dispatchable,

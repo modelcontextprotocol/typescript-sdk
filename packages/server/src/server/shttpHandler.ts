@@ -19,6 +19,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
+import type { BackchannelCompat } from './backchannelCompat.js';
 import type { SessionCompat } from './sessionCompat.js';
 import type { EventId, EventStore } from './streamableHttp.js';
 
@@ -53,6 +54,15 @@ export interface ShttpHandlerOptions {
      * the handler is stateless: GET/DELETE return 405.
      */
     session?: SessionCompat;
+
+    /**
+     * Pre-2026-06 server-to-client request backchannel. When provided alongside `session`,
+     * a handler's `ctx.mcpReq.send` (e.g. `elicitInput`, `requestSampling`) writes the
+     * outbound request onto the open POST's SSE stream and the client's POSTed-back
+     * response resolves the awaited promise. When omitted, `ctx.mcpReq.send` rejects
+     * with `NotConnected` on this path.
+     */
+    backchannel?: BackchannelCompat;
 
     /**
      * Event store for SSE resumability via `Last-Event-ID`. When configured, every
@@ -145,6 +155,8 @@ const SSE_HEADERS: Record<string, string> = {
     Connection: 'keep-alive'
 };
 
+const wiredBackchannels = new WeakMap<SessionCompat, WeakSet<BackchannelCompat>>();
+
 /**
  * Creates a Web-standard `(Request) => Promise<Response>` handler for the MCP Streamable HTTP
  * transport, driven by {@linkcode ShttpCallbacks.onrequest} per request.
@@ -161,10 +173,23 @@ export function shttpHandler(
 ): (req: Request, extra?: ShttpRequestExtra) => Promise<Response> {
     const enableJsonResponse = options.enableJsonResponse ?? false;
     const session = options.session;
+    const backchannel = options.backchannel;
     const eventStore = options.eventStore;
     const retryInterval = options.retryInterval;
     const supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
     const onerror = options.onerror;
+
+    // Reject any pending backchannel sends on session close (DELETE, idle/capacity eviction).
+    // Guard so repeated shttpHandler()/handleHttp() calls on the same session+backchannel
+    // pair do not accumulate listeners.
+    if (session && backchannel) {
+        let wired = wiredBackchannels.get(session);
+        if (!wired) wiredBackchannels.set(session, (wired = new WeakSet()));
+        if (!wired.has(backchannel)) {
+            wired.add(backchannel);
+            session.addCloseListener(sid => backchannel.closeSession(sid));
+        }
+    }
 
     /**
      * Per-request abort controllers for `notifications/cancelled`. Keyed by
@@ -283,7 +308,8 @@ export function shttpHandler(
         }
 
         for (const r of responses) {
-            if (cb.onresponse?.(r) === false) {
+            const claimedByBackchannel = backchannel && sessionId !== undefined && backchannel.handleResponse(sessionId, r);
+            if (!claimedByBackchannel && cb.onresponse?.(r) === false) {
                 onerror?.(new Error(`Unclaimed JSON-RPC response (id=${String(r.id)}); no pending server-initiated request matched.`));
             }
         }
@@ -359,7 +385,14 @@ export function shttpHandler(
                     closeStandaloneSSEStream:
                         supportsPolling && sessionId !== undefined ? () => session?.closeStandaloneStream(sessionId) : undefined
                 };
-                const env: ShttpRequestEnv = { ...baseEnv, _transportExtra: transportExtra };
+                // Backchannel writes go straight to writeSSEEvent (synchronous boolean) so a closed
+                // stream surfaces as `false` immediately instead of hanging until the timeout.
+                const writeSSE = (msg: JSONRPCMessage): boolean => writeSSEEvent(controller, encoder, msg);
+                const env: ShttpRequestEnv = {
+                    ...baseEnv,
+                    _transportExtra: transportExtra,
+                    ...(backchannel && sessionId !== undefined ? { send: backchannel.makeEnvSend(sessionId, writeSSE) } : {})
+                };
                 void (async () => {
                     try {
                         await writePrimingEvent(controller, encoder, streamId, clientProtocolVersion);
