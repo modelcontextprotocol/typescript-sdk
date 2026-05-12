@@ -804,10 +804,10 @@ describe('protocol tests', () => {
 //   Message interception (×3 suites)          processInbound*/processOutbound*
 //                                             gone; plugin uses use() middleware.
 //
-// tasksPlugin (F3, SEP-2663) gets its own tests at packages/core/test/experimental/
+// tasksPlugin (F3, SEP-2663) has its own tests at packages/core/test/experimental/
 // tasks/plugin.test.ts. Integration tests that exercise task *behaviour*
-// (server returns task → client polls → result) are describe.skip'd with TODO(F3)
-// and rewritten in F3 against the plugin API.
+// (server returns task, client polls, result) are at test/integration/test/
+// taskLifecycle.test.ts and experimental/tasks/taskListing.test.ts.
 // ───────────────────────────────────────────────────────────────────────────────
 
 describe('mergeCapabilities', () => {

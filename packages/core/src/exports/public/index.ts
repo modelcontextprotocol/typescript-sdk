@@ -63,8 +63,7 @@ export type { MetaRequestScope } from '../../shared/context.js';
 export { readMetaRequestScope } from '../../shared/context.js';
 export { META_CLIENT_CAPABILITIES_KEY, META_CLIENT_INFO_KEY, META_LOG_LEVEL_KEY, META_PROTOCOL_VERSION_KEY } from '../../types/index.js';
 
-// Task manager types (NOT TaskManager class itself — internal)
-export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
+// (TaskManager class removed; tasksPlugin replaces it. RequestTaskStore/TaskContext now from plugin.ts.)
 
 // Response message types
 export type {
@@ -147,6 +146,8 @@ export type {
     TaskToolExecution
 } from '../../experimental/tasks/interfaces.js';
 export { isTerminal } from '../../experimental/tasks/interfaces.js';
+export type { RequestTaskStore, TaskContext, TasksPluginOptions, TasksPollHost } from '../../experimental/tasks/plugin.js';
+export { POLL_TASK_DEFAULT_MAX_TOTAL_MS, pollTask, taskContext, tasksPlugin } from '../../experimental/tasks/plugin.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes

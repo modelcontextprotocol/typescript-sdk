@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { InMemoryTransport, tasksPlugin } from '@modelcontextprotocol/core';
 import type { ClientCapabilities, ServerCapabilities } from '@modelcontextprotocol/server';
-import { InMemoryTaskMessageQueue, InMemoryTaskStore, Server } from '@modelcontextprotocol/server';
+import { InMemoryTaskStore, Server } from '@modelcontextprotocol/server';
 
 export interface InMemoryTaskEnvironment {
     client: Client;
@@ -24,16 +24,7 @@ export async function createInMemoryTaskEnvironment(options?: {
             version: '1.0.0'
         },
         {
-            capabilities: options?.clientCapabilities ?? {
-                tasks: {
-                    list: {},
-                    requests: {
-                        tools: {
-                            call: {}
-                        }
-                    }
-                }
-            }
+            capabilities: options?.clientCapabilities ?? {}
         }
     );
 
@@ -44,19 +35,11 @@ export async function createInMemoryTaskEnvironment(options?: {
         },
         {
             capabilities: options?.serverCapabilities ?? {
-                tasks: {
-                    list: {},
-                    requests: {
-                        tools: {
-                            call: {}
-                        }
-                    },
-                    taskStore,
-                    taskMessageQueue: new InMemoryTaskMessageQueue()
-                }
+                tasks: { list: {}, cancel: {} }
             }
         }
     );
+    server.use(tasksPlugin({ store: taskStore }));
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 

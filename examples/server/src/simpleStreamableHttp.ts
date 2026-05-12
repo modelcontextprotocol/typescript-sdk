@@ -10,7 +10,7 @@ import type {
     ReadResourceResult,
     ResourceLink
 } from '@modelcontextprotocol/server';
-import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
+import { InMemoryTaskStore, isInitializeRequest, McpServer, tasksPlugin } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -21,8 +21,8 @@ import { InMemoryEventStore } from './inMemoryEventStore.js';
 const useOAuth = process.argv.includes('--oauth');
 const dangerousLoggingEnabled = process.argv.includes('--dangerous-logging-enabled');
 
-// TODO(F3): re-add task store wiring via tasksPlugin (SEP-2663).
-// const taskStore = new InMemoryTaskStore();
+// Create shared task store for demonstration
+const taskStore = new InMemoryTaskStore();
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -35,11 +35,14 @@ const getServer = () => {
         },
         {
             capabilities: {
-                logging: {}
-                // TODO(F3): tasks capability re-added via tasksPlugin (SEP-2663)
+                logging: {},
+                tasks: { requests: { tools: { call: {} } } }
             }
         }
     );
+
+    // SEP-2663: tasks attaches as a plugin; the store is no longer passed via capabilities.
+    server.use(tasksPlugin({ store: taskStore }));
 
     // Register a simple tool that returns a greeting
     server.registerTool(
@@ -434,8 +437,9 @@ const getServer = () => {
         }
     );
 
-    // TODO(F3): re-add task tool examples (delay, collect-user-info-task) via tasksPlugin (SEP-2663).
-    // The experimental tasks interception was removed in R0; see docs/migration.md.
+    // Task-tool examples (delay, collect-user-info-task) under SEP-2663: a tool handler
+    // returns `{ resultType: 'task', task }` and the client polls via tasks/get.
+    // See test/integration/test/taskLifecycle.test.ts for end-to-end usage.
 
     return server;
 };

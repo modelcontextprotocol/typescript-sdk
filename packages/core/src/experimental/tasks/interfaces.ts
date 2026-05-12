@@ -4,7 +4,6 @@
  */
 
 import type { ServerContext } from '../../shared/protocol.js';
-import type { RequestTaskStore } from '../../shared/taskManager.js';
 import type {
     JSONRPCErrorResponse,
     JSONRPCNotification,
@@ -16,6 +15,7 @@ import type {
     Task,
     ToolExecution
 } from '../../types/index.js';
+import type { RequestTaskStore } from './plugin.js';
 
 // ============================================================================
 // Task Handler Types (for registerToolTask)

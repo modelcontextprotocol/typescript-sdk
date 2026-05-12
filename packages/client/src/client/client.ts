@@ -45,6 +45,7 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -69,7 +70,6 @@ import {
     validateStandardSchema
 } from '@modelcontextprotocol/core';
 
-import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 import type { ClientTransport } from './clientTransport.js';
 import { isClientTransport } from './clientTransport.js';
 
@@ -261,7 +261,6 @@ export class Client extends Protocol<ClientContext> {
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
-    private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -322,22 +321,6 @@ export class Client extends Protocol<ClientContext> {
                 return result.resources;
             });
         }
-    }
-
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalClientTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalClientTasks(this)
-            };
-        }
-        return this._experimental;
     }
 
     /**
@@ -643,6 +626,16 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
+            case 'tasks/get':
+            case 'tasks/result':
+            case 'tasks/list':
+            case 'tasks/cancel': {
+                if (!this._serverCapabilities?.tasks) {
+                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tasks (required for ${method})`);
+                }
+                break;
+            }
+
             case 'initialize': {
                 // No specific capability required for initialize
                 break;
@@ -842,7 +835,8 @@ export class Client extends Protocol<ClientContext> {
      * a problem), and thrown {@linkcode ProtocolError} for protocol-level failures or {@linkcode SdkError} for
      * SDK-level issues (timeouts, missing capabilities).
      *
-     * For task-based execution, register `tasksPlugin()` (SEP-2663) once available; the prior `experimental.tasks.callToolStream` is non-functional in this release.
+     * Under SEP-2663, tools that defer work return `{resultType: 'task', task}`. Inspect the
+     * result and poll with {@linkcode index.pollTask | pollTask} when `resultType === 'task'`.
      *
      * @example Basic usage
      * ```ts source="./client.examples.ts#Client_callTool_basic"
@@ -874,15 +868,15 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
-        // Guard: required-task tools need experimental API
-        if (this.isToolTaskRequired(params.name)) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidRequest,
-                `Tool "${params.name}" requires task-based execution. Tasks integration is removed in this release pending SEP-2663 tasksPlugin(); the prior experimental.tasks.callToolStream is non-functional.`
-            );
-        }
-
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
+
+        // SEP-2663: a task envelope is not a CallToolResult; the eventual structuredContent
+        // arrives via tasks/result. Only bypass output-schema validation when the envelope
+        // is structurally a CreateTaskResult, so a server cannot skip validation by tagging
+        // an arbitrary result with resultType:'task'.
+        if (parseSchema(CreateTaskResultSchema, result).success) {
+            return result;
+        }
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);

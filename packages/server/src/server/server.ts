@@ -39,6 +39,7 @@ import {
     ClientCapabilitiesSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -53,8 +54,6 @@ import {
     SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
-
-import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 
 /** Three-arg send used by `_createMessageVia`/`_elicitInputVia`; satisfied by both `_requestWithSchema` and `ctx.mcpReq.send`. */
 type SendWithSchema = <T extends StandardSchemaV1>(
@@ -98,7 +97,6 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
-    private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -176,22 +174,6 @@ export class Server extends Protocol<ServerContext> {
         };
     }
 
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalServerTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalServerTasks(this)
-            };
-        }
-        return this._experimental;
-    }
-
     // Map log levels by session id
     private _loggingLevels = new Map<string | undefined, LoggingLevel>();
 
@@ -242,7 +224,10 @@ export class Server extends Protocol<ServerContext> {
 
             const result = await handler(request, ctx);
 
-            const validationResult = parseSchema(CallToolResultSchema, result);
+            // SEP-2663: a tool may return a task envelope instead of a direct result.
+            const resultSchema =
+                (result as { resultType?: unknown } | undefined)?.resultType === 'task' ? CreateTaskResultSchema : CallToolResultSchema;
+            const validationResult = parseSchema(resultSchema, result);
             if (!validationResult.success) {
                 const errorMessage =
                     validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);

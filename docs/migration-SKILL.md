@@ -480,11 +480,15 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 | `ProtocolOptions.tasks` | drop the option |
 | `protocol.taskManager` | gone |
 | `RequestOptions.task` / `.relatedTask`, `NotificationOptions.relatedTask` | drop the option |
-| `BaseContext.task` (`ctx.task?.*`) | gone; future: `ctx.ext.task` via `tasksPlugin()` |
+| `BaseContext.task` (`ctx.task?.*`) | `taskContext(ctx)` (after `mcp.use(tasksPlugin({store}))`) |
 | `assertTaskCapability` / `assertTaskHandlerCapability` overrides | delete the override |
-| `*.experimental.tasks.{requestStream,callToolStream,createMessageStream,elicitInputStream}` | still defined; throw `CapabilityNotSupported` until `tasksPlugin()` |
+| `client.experimental.tasks.*` / `server.experimental.tasks.*` | removed; use `client.request({method:'tasks/*'})` and `pollTask(client, taskId)` |
+| `*.experimental.tasks.{requestStream,callToolStream,createMessageStream,elicitInputStream}` | removed; no SEP-2663 stream equivalent. Use `callTool()` then `pollTask()` |
+| `mcpServer.experimental.tasks.registerToolTask(...)` | `mcp.registerTool(name, {execution: {taskSupport: ...}}, handler)` returning `{resultType:'task', task}` |
+| `ExperimentalClientTasks` / `ExperimentalServerTasks` / `ExperimentalMcpServerTasks` | removed |
+| `ToolTaskHandler` / `CreateTaskRequestHandler` / `TaskRequestHandler` | removed |
 
-`TaskStore` / `InMemoryTaskStore` / `TaskMetadata` / `TaskMessageQueue` (storage interfaces) are unchanged.
+`TaskStore` / `InMemoryTaskStore` / `TaskMetadata` (storage interfaces) are unchanged.
 
 `TaskCreationParams.ttl` also no longer accepts `null` (`number | undefined` only); omit `ttl` to let the server decide.
 
